@@ -81,9 +81,15 @@ Common validation (any version):
   `sha256(envelope)` (`content hash mismatch`). When empty, `content_hash` is
   accepted as given (content stored off-chain).
 * `audience`: `everyone | friends | custom` (`unknown audience`). `audience_id`:
-  at most 32 bytes; required for `custom` (`custom audience requires audience_id`).
+  at most 32 bytes; required for `custom` (`custom audience requires audience_id`)
+  and forbidden for `everyone` and `friends`, whose audience is implicit
+  (`audience_id not allowed for this audience`, spec 2.3).
 * `media`: at most 8 refs; each `mime` at most 128 chars, `content_hash` empty or
-  32 bytes, at most 4 `locations` of at most 256 chars.
+  32 bytes, at most 4 `locations` of at most 256 chars, `key_ref` at most 128
+  bytes (opaque key material; bounded so the re-emitted media list cannot carry
+  arbitrary bytes past the envelope limit).
+* `reply_to`: empty or exactly 32 bytes (`reply_to must be 32 bytes`), checked
+  for every version before the identity lookup.
 * `idempotency_key`: empty or at most 32 bytes. When present it must be unused
   by this author (`duplicate idempotency key`) and is bound to `post_id`.
 
@@ -106,15 +112,26 @@ First version (`previous_version` empty):
 
 Edit (`previous_version` non-empty):
 
-1. The post must exist (`post not found`), belong to the author
-   (`author mismatch`) and not be `deleted` (`post deleted`).
-2. `previous_version == latest_version` (`stale version`).
-3. `audience` must equal the stored audience (`audience change not allowed`).
-4. `reply_to`, when supplied, must equal the stored link
+1. The post must exist (`post not found`, checked before the identity lookup);
+   the signer is then resolved with `COMMENT` when the stored `reply_to` is set
+   and `PUBLISH` otherwise (see Authority model).
+2. The post must belong to the author (`author mismatch`) and not be `deleted`
+   (`post deleted`).
+3. `previous_version == latest_version` (`stale version`).
+4. `audience` must equal the stored audience (`audience change not allowed`).
+5. `reply_to`, when supplied, must equal the stored link
    (`reply_to change not allowed`); the thread position is fixed by the first
    version. `sequence` is ignored.
-5. `version_count += 1`, `latest_version = content_hash`, `updated_at = now`.
+6. `version_count += 1`, `latest_version = content_hash`, `updated_at = now`.
    The author's sequence state is untouched.
+
+`audience_id` and `epoch` are per-version history fields: `post_record` keeps
+only the audience kind, so an edit may carry a different `epoch` (the author's
+epoch advances on revocation, spec 5.3, and a new version is encrypted under the
+current epoch key) and, for a `custom` post, a different `audience_id`. The
+contract cannot pin the custom `audience_id` across versions without a
+`post_record` schema change; indexers and clients must read both fields from
+each `published` event individually rather than from the first version.
 
 Event: `published{author, post_id, content_hash, previous_version,
 version_number (= version_count after the call), sequence (stored),
@@ -160,8 +177,14 @@ reconcile_required`. `post_id`, when supplied, must be 32 bytes and name an
 existing post of the author; `succeeded` requires it (`post_id is required for
 a succeeded outcome`). If the idempotency key is already bound to one of the
 author's publications, `post_id` must be that post (`idempotency key bound to
-another post`). Event `cross_post_outcome{author, idempotency_key, adapter,
-state, external_ref, post_id, manifest_hash, timestamp}` impacted `[author]`.
+another post`). For `succeeded` the key must be bound: it has to be the key the
+author used in `publish` (first version or edit) for `post_id`, so the outcome
+resolves back to its attempt through `get_post_by_idempotency_key`
+(`idempotency key not bound to a post`, spec 6; a binding by another author does
+not count). Other states may report an unbound key, with or without a post,
+because the attempt may not have reached the chain. Event
+`cross_post_outcome{author, idempotency_key, adapter, state, external_ref,
+post_id, manifest_hash, timestamp}` impacted `[author]`.
 
 ### Reads (read-only, never call other contracts)
 
@@ -195,9 +218,10 @@ tombstones. Envelopes, media, key packages and manifests are never stored.
 | media mime | 128 chars | `media mime too long` |
 | media content hash | empty or 32 bytes | `media content_hash must be empty or 32 bytes` |
 | media locations | 4 per ref, 256 chars each | `too many media locations`, `media location too long` |
+| media key_ref | 128 bytes | `media key_ref too large` |
 | idempotency key | 32 bytes (`record_cross_post`: 1..32) | `idempotency key too large`, `idempotency_key is required` / `too large` |
 | key package set | 1..16384 bytes | `packages is required`, `packages too large` |
-| audience id | 32 bytes | `audience_id too large` |
+| audience id | 32 bytes; `publish`: required for `custom`, empty otherwise | `audience_id too large`, `custom audience requires audience_id`, `audience_id not allowed for this audience` |
 | reason / external_ref | 256 chars | `reason too long`, `external_ref too long` |
 | adapter | 1..64 chars | `adapter is required`, `adapter too long` |
 | hashes (`post_id`, `content_hash`, `version`, `reply_to`, `replacement_id`, `manifest_hash`) | 32 bytes | `<name> must be 32 bytes`, `<name> must be empty or 32 bytes` |
@@ -245,7 +269,11 @@ The tests run fully offline against the Koinos mock VM. Notes on the mock:
   `System.setSystemBufferSize` to read back maximum-size envelope and key
   package events, and clears both lists after building fixtures
   (`MockVM.clearEvents`, `MockVM.clearCallContractArguments`) because recorded
-  calls accumulate across commits.
+  calls accumulate across commits. A `System.require` revert (exit code 1)
+  rolls the recorded call arguments back together with the state, whereas a
+  `requireAuthority` failure (a negative exit code) keeps them; assertions on
+  the arguments of a cross-contract call therefore belong to successful calls
+  or authority failures, not to `System.require` reverts.
 * The mock database orders keys by comparing buffers as JavaScript strings,
   which decodes them as UTF-8: byte keys made of invalid UTF-8 sequences
   (for example `0xa1 * 16` versus `0xa2 * 16`) collide in the mock even though
