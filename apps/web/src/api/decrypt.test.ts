@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AUDIENCE, LIFECYCLE, buildKeyPackageSet, encode, encryptContent, identityFromSeed, newEpochKey, postId, toBase64url } from "@osp/sdk";
+import { AUDIENCE, LIFECYCLE, buildKeyPackageSet, encode, encryptContent, identityFromSeed, newEpochKey, postId, toBase58, toBase64url } from "@osp/sdk";
 import { KeyStore } from "./keystore";
 import { openPost } from "./decrypt";
 import type { PostView, SealedKeyView } from "./indexer";
@@ -53,7 +53,7 @@ function friendsPost(epoch: number) {
     author: author.account,
     audienceId: "",
     epoch,
-    recipient: toBase64url(key.recipient) === toBase64url(new Uint8Array(0)) ? "" : identityFor(key.recipient),
+    recipient: toBase58(key.recipient),
     recipientKeyVersion: 1,
     sealedKey: toBase64url(encode("osp.envelope.sealed_key", key as unknown as Record<string, unknown>)),
     blockHeight: "110",
@@ -61,20 +61,6 @@ function friendsPost(epoch: number) {
   }));
   const post = makePost({ envelope: toBase64url(bytes), audience: AUDIENCE.FRIENDS, epoch, contentHash: toBase64url(contentHash), postId: toBase64url(id) });
   return { post, items, epochKey };
-}
-
-function identityFor(recipient: Uint8Array): string {
-  const b = toBase64url(recipient);
-  for (const id of [author, friend, stranger]) {
-    if (toBase64url(new Uint8Array(Buffer.from(require_b58(id.account)))) === b) return id.account;
-  }
-  return "";
-}
-
-// Minimal base58 decode for the fixture (SDK exports fromBase58, but keep the helper self-contained).
-import { fromBase58 } from "@osp/sdk";
-function require_b58(s: string): Uint8Array {
-  return fromBase58(s);
 }
 
 function source(items: SealedKeyView[]) {

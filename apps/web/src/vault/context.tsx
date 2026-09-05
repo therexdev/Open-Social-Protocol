@@ -17,5 +17,6 @@ export function useVault(): VaultState;
 export function useVault<T>(selector: (state: VaultState) => T): T;
 export function useVault<T>(selector?: (state: VaultState) => T): T | VaultState {
   const store = useVaultStore();
-  return useStore(store, selector ?? ((s: VaultState) => s)) as T | VaultState;
+  const select = (selector ?? ((s: VaultState) => s)) as (state: VaultState) => T | VaultState;
+  return useStore(store, select);
 }

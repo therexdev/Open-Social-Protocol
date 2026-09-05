@@ -2,7 +2,7 @@
  * Opening PostViews: plaintext (everyone) directly, friends-only through the key store.
  * Decryption happens on the device; a missing key is a normal state, not an error.
  */
-import { AUDIENCE, LIFECYCLE, SUITE, decodeEnvelope, decryptContent, type MediaItem } from "@osp/sdk";
+import { LIFECYCLE, SUITE, decodeEnvelope, decryptContent, type MediaItem } from "@osp/sdk";
 import { bytesOf } from "../util/bytes";
 import type { KeyResolverIdentity, KeySource, KeyStore } from "./keystore";
 import type { PostView } from "./indexer";
@@ -68,7 +68,7 @@ export async function openPost(post: PostView, ctx: OpenContext): Promise<PostCo
         chainId: ctx.chainId,
         author: post.author,
         postId: bytesOf(post.postId),
-        audience: post.audience === AUDIENCE.EVERYONE ? AUDIENCE.EVERYONE : post.audience,
+        audience: post.audience,
         audienceId,
         epoch: post.epoch,
         versionNumber: post.versionNumber,

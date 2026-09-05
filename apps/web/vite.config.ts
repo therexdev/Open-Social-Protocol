@@ -11,6 +11,8 @@ export default defineConfig({
     emptyOutDir: true,
     sourcemap: false,
     target: "es2022",
+    // koilib + protobufjs + noble crypto form one ~1.1 MB chunk; that is expected for this app.
+    chunkSizeWarningLimit: 1500,
   },
   server: {
     fs: {
