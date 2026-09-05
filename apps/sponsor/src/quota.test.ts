@@ -58,6 +58,60 @@ describe("QuotaStore", () => {
     expect(store.check("alice", 3, noon + 60_001).ok).toBe(true);
   });
 
+  it("reserves synchronously, then commits or releases", () => {
+    const store = memoryStore();
+    const first = store.reserve("alice", 2, noon);
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    expect(first.remaining).toEqual({ daily: 3, burst: 1 });
+    // charged immediately, before anything is broadcast
+    expect(store.dailyOps("alice")).toBe(2);
+    expect(store.burstOps("alice")).toBe(2);
+    expect(store.check("alice", 2).ok).toBe(false);
+    const second = store.reserve("alice", 2, noon);
+    expect(second.ok).toBe(false);
+    if (!second.ok) expect(second.message).toMatch(/burst/);
+    // nothing accepted yet
+    expect(store.utilization(noon).today.accepted).toBe(0);
+    // nothing was broadcast: the operations go back, the row disappears
+    first.release();
+    expect(store.dailyOps("alice")).toBe(0);
+    expect(store.burstOps("alice")).toBe(0);
+    expect(store.utilization(noon).today.users).toBe(0);
+    // release/commit are idempotent and exclusive
+    first.release();
+    first.commit({ rcUsed: "5" });
+    expect(store.dailyOps("alice")).toBe(0);
+    expect(store.utilization(noon).today.accepted).toBe(0);
+    // a committed reservation carries the receipt data
+    const third = store.reserve("alice", 3, noon + 1_000);
+    expect(third.ok).toBe(true);
+    if (!third.ok) return;
+    third.commit({ rcUsed: "42", reverted: true });
+    third.release();
+    expect(store.dailyOps("alice")).toBe(3);
+    expect(store.burstOps("alice", noon + 1_000)).toBe(3);
+    expect(store.utilization(noon).today).toMatchObject({ accepted: 1, acceptedOps: 3, reverted: 1, rcUsed: "42", users: 1 });
+    expect(store.check("alice", 3, noon + 2_000).ok).toBe(false);
+    // releasing one reservation leaves the others untouched
+    const a = store.reserve("bob", 1, noon);
+    const b = store.reserve("bob", 1, noon + 1);
+    expect(a.ok && b.ok).toBe(true);
+    if (a.ok) a.release();
+    expect(store.dailyOps("bob")).toBe(1);
+    expect(store.burstOps("bob", noon + 2)).toBe(1);
+    if (b.ok) b.commit();
+    expect(store.utilization(noon).today.users).toBe(2);
+    // the daily limit is reserved too
+    for (let i = 0; i < 4; i += 1) {
+      const r = store.reserve("carol", 1, noon + i * 30_000);
+      expect(r.ok).toBe(true);
+    }
+    const fifth = store.reserve("carol", 2, noon + 120_000);
+    expect(fifth.ok).toBe(false);
+    if (!fifth.ok) expect(fifth.message).toMatch(/daily/);
+  });
+
   it("aggregates utilization by day and category without per-user rows", () => {
     const store = memoryStore();
     store.recordAccepted("alice", { ops: 1, rcUsed: "10" }, noon);

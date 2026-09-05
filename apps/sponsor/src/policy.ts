@@ -71,6 +71,19 @@ export const ACTOR_FIELDS: Readonly<Partial<Record<ContractName, Readonly<Record
   },
 };
 
+/**
+ * Methods whose `device` argument is the subject of the call (the key being authorised or
+ * revoked), not a device authority signing it. The contract requires the owner, so the payee
+ * is never accepted through `device === payee` for these: only `account === payee` or the
+ * owner lookup applies.
+ */
+export const DEVICE_IS_SUBJECT: ReadonlySet<string> = new Set(["identity.authorize_device", "identity.revoke_device"]);
+
+/** True when `contract.method` may be signed by the `device` named in its arguments. */
+export function deviceMaySign(contract: ContractName, method: string): boolean {
+  return !DEVICE_IS_SUBJECT.has(`${contract}.${method}`);
+}
+
 /** Fallback search order for methods without an explicit `ACTOR_FIELDS` entry. */
 export const ACTOR_FIELD_PRIORITY: readonly string[] = [
   "account",

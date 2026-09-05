@@ -250,7 +250,14 @@ export class SponsorService {
     }
   }
 
-  /** `POST /v1/sponsor`: validate, quota-check, co-sign, broadcast, record. */
+  /**
+   * `POST /v1/sponsor`: validate, reserve quota, co-sign, broadcast, record.
+   *
+   * The quota is reserved synchronously before the broadcast (concurrent requests see it) and
+   * released only when nothing was broadcast. The response is, by construction, the user's
+   * transaction (id, header, operations, signatures) with the sponsor signature appended and
+   * nothing else, which is what the SDK's `verifySponsorResult` demands.
+   */
   async sponsor(input: unknown): Promise<SponsorResponse> {
     const { signer, provider } = this.serving();
     const at = this.now();
@@ -261,30 +268,49 @@ export class SponsorService {
       this.refuse(error);
     }
     const { payee, operations, transaction } = validated;
-    const decision = this.quota.check(payee, operations.length, at);
-    if (!decision.ok) {
-      this.refuse(new SponsorRefusal("quota_exceeded", decision.message, { retryAfterSec: decision.retryAfterSec }));
+    const reservation = this.quota.reserve(payee, operations.length, at);
+    if (!reservation.ok) {
+      this.refuse(new SponsorRefusal("quota_exceeded", reservation.message, { retryAfterSec: reservation.retryAfterSec }));
     }
-    // Never touch operations after the user signature: only append the sponsor signature.
-    const signed = await signer.signTransaction({ ...transaction, signatures: [...(transaction.signatures ?? [])] });
+    // Never touch the user's transaction after it was signed: only append the sponsor signature.
+    let signed: TransactionJson;
+    try {
+      signed = await signer.signTransaction({ ...transaction, signatures: [...(transaction.signatures ?? [])] });
+    } catch (error) {
+      reservation.release();
+      this.refuse(new SponsorRefusal("temporarily_unavailable", `cannot co-sign the transaction: ${(error as Error).message}`));
+    }
+    const response: TransactionJson = {
+      id: transaction.id,
+      header: transaction.header,
+      operations: transaction.operations,
+      signatures: [...(signed.signatures ?? [])],
+    };
     let sent: { transaction: TransactionJson; receipt: TransactionReceipt };
     try {
       sent = await provider.sendTransaction(signed, true);
     } catch (error) {
+      // The node rejected it or was unreachable: nothing was broadcast, nothing is charged.
+      reservation.release();
       this.refuse(classifySendError(error));
     }
     const receipt = sent.receipt;
-    const rpcError = (receipt as { rpc_error?: unknown }).rpc_error;
     const reverted = Boolean(receipt.reverted);
-    this.quota.recordAccepted(payee, { ops: operations.length, rcUsed: receipt.rc_used, reverted }, at);
-    if (rpcError !== undefined) {
-      throw new SponsorRefusal("temporarily_unavailable", `broadcast outcome unknown: ${JSON.stringify(rpcError)}`);
+    // Broadcast (or possibly broadcast): the sponsor paid, or may have; the reservation stands.
+    reservation.commit({ rcUsed: receipt.rc_used, reverted });
+    const rpcError = (receipt as { rpc_error?: unknown }).rpc_error;
+    if (rpcError !== undefined && rpcError !== null) {
+      // koilib's synthetic timeout receipt: the transaction may already be in the mempool or a
+      // block. Per docs/sponsor-api.md this is a 200 whose receipt carries `rpc_error`; the SDK
+      // maps it to TransactionOutcomeUnknownError and never re-submits through another sponsor
+      // or self-pay. A 503 here would make clients double-publish.
+      return { transaction: response, receipt: receipt.id ? receipt : { ...receipt, id: response.id ?? "" } };
     }
     if (reverted) {
       const logs = (receipt.logs ?? []).map(String);
       throw new SponsorRefusal("invalid_transaction", `transaction reverted${logs.length ? `: ${logs.join("; ")}` : ""}`, { logs, receipt });
     }
-    return { transaction: stripWait(sent.transaction), receipt };
+    return { transaction: response, receipt };
   }
 
   utilization(): UtilizationReport {

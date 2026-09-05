@@ -5,17 +5,21 @@ import {
   Signer,
   SponsorClient,
   Transaction,
+  TransactionOutcomeUnknownError,
   encode,
+  signSponsorDiscovery,
   verifySponsorDiscovery,
+  verifySponsorResult,
   type Deployment,
   type OperationJson,
   type SponsorDiscovery,
+  type SponsorResult,
   type TransactionJson,
 } from "@osp/sdk";
 import { ABIS } from "@osp/proto";
 import { createServer } from "./server.js";
 import type { SponsorConfig } from "./config.js";
-import { fakeProvider, fixtureDeployment, HARBINGER_CHAIN_ID, injectFetch, testConfig, type FakeProvider, type FakeProviderOptions } from "./__tests__/helpers.js";
+import { fakeProvider, fixtureDeployment, HARBINGER_CHAIN_ID, injectFetch, nonceValue, testConfig, type FakeProvider, type FakeProviderOptions } from "./__tests__/helpers.js";
 
 const deployment = fixtureDeployment();
 const sponsorSigner = Signer.fromSeed("osp-sponsor-test-payer");
@@ -67,6 +71,8 @@ interface TxOptions {
   rcLimit?: string;
   chainId?: string;
   sign?: boolean;
+  /** Explicit payee nonce (`nonceValue(n)`), so several transactions can be pre-signed. */
+  nonce?: string;
 }
 
 /** A payee-signed sponsored transaction the way the SDK builds it. */
@@ -74,8 +80,19 @@ async function userTx(harness: Harness, operations: OperationJson[], options: Tx
   const client = options.chainId ? new ProtocolClient({ rpc: harness.provider, deployment, chainId: options.chainId }) : harness.client;
   const signer = options.signer ?? user;
   const payee = options.payee ?? signer.getAddress();
-  const prepared = await client.prepare(operations, { payee, payer: options.payer ?? sponsor, rcLimit: options.rcLimit ?? "100000000" });
+  const prepared = await client.prepare(operations, {
+    payee,
+    payer: options.payer ?? sponsor,
+    rcLimit: options.rcLimit ?? "100000000",
+    ...(options.nonce !== undefined && { nonce: options.nonce }),
+  });
   return options.sign === false ? prepared : client.sign(prepared, signer);
+}
+
+function deviceOp(client: ProtocolClient, method: "authorize_device" | "revoke_device", account: string, device: string): Promise<OperationJson> {
+  return method === "authorize_device"
+    ? client.ops.identity.authorize_device({ account, device, capabilities: 1, expires_at: "9999999999999", label: "phone" })
+    : client.ops.identity.revoke_device({ account, device });
 }
 
 async function sponsorRequest(app: FastifyInstance, transaction: unknown) {
@@ -123,6 +140,9 @@ describe("discovery", () => {
     expect(second.signature).toBe(doc.signature);
     // a tampered copy no longer verifies
     expect(verifySponsorDiscovery({ ...doc, policy: { ...doc.policy, maxRcPerOp: "1" } }).valid).toBe(false);
+    // the document is exactly what @osp/sdk signSponsorDiscovery produces over these fields
+    const { signature: _signature, ...unsigned } = doc;
+    expect((await signSponsorDiscovery(unsigned, sponsorSigner)).signature).toBe(doc.signature);
     await app.close();
   });
 
@@ -161,6 +181,24 @@ describe("POST /v1/sponsor acceptance", () => {
     expect(usage.today.rcUsed).toBe("123456");
     expect(usage.today.users).toBe(1);
     expect(harness.app.sponsorService.quota.dailyOps(user.getAddress())).toBe(1);
+    await harness.app.close();
+  });
+
+  it("returns exactly the user's transaction with the sponsor signature appended", async () => {
+    const harness = await start();
+    const tx = await userTx(harness, [await reactOp(harness.client), await followOp(harness.client)], { rcLimit: "400000000" });
+    const { status, body } = await sponsorRequest(harness.app, tx);
+    expect(status, JSON.stringify(body)).toBe(200);
+    const returned = body.transaction as TransactionJson;
+    expect(returned.id).toBe(tx.id);
+    expect(returned.header).toEqual(tx.header);
+    expect(returned.operations).toEqual(tx.operations);
+    expect(returned.signatures?.slice(0, 1)).toEqual(tx.signatures);
+    expect(returned.signatures).toHaveLength(2);
+    expect(Object.keys(returned).sort()).toEqual(["header", "id", "operations", "signatures"]);
+    expect(body.receipt.id).toBe(tx.id);
+    // the SDK's own check (same id/header/operations, user signatures preserved, receipt for the id)
+    await expect(verifySponsorResult(tx, body as SponsorResult, "https://sponsor.test")).resolves.toBeUndefined();
     await harness.app.close();
   });
 
@@ -224,25 +262,93 @@ describe("POST /v1/sponsor acceptance", () => {
   it("works end to end through the SDK ProtocolClient.submit", async () => {
     const harness = await start();
     const sponsorClient = new SponsorClient({ endpoint: "https://sponsor.test", fetch: injectFetch(harness.app), expectedChainId: HARBINGER_CHAIN_ID });
-    // Without an explicit rcLimit the SDK lets koilib default rc_limit to the payer's whole RC,
-    // which is above the per-operation ceiling: the sponsor refuses and the SDK self-pays.
+    // Without an explicit rcLimit the SDK caps rc_limit at policy.maxRcPerOp x operations, so
+    // the sponsored path succeeds straight away (no refusal, no self-pay fallback).
     const uncapped = await harness.client.submit({ operations: [await followOp(harness.client)], signer: user, sponsor: sponsorClient });
-    expect(uncapped.sponsored).toBe(false);
-    expect(uncapped.refusals.map((r) => r.error.category)).toEqual(["too_large"]);
-    expect(harness.provider.sent).toHaveLength(1); // the self-paid fallback
+    expect(uncapped.sponsored).toBe(true);
+    expect(uncapped.sponsor).toBe(sponsor);
+    expect(uncapped.refusals).toEqual([]);
+    expect(harness.provider.sent).toHaveLength(1);
+    expect(harness.provider.sent[0]?.transaction.header?.rc_limit).toBe("200000000");
+    expect(harness.provider.sent[0]?.transaction.header?.payer).toBe(sponsor);
     harness.provider.sent.length = 0;
-    const policy = await sponsorClient.discover();
-    const rcLimit = (BigInt(policy.policy.maxRcPerOp) * 1n).toString();
-    const result = await harness.client.submit({ operations: [await followOp(harness.client)], signer: user, sponsor: sponsorClient, rcLimit });
+    // an explicit rcLimit still overrides the default cap
+    const result = await harness.client.submit({ operations: [await followOp(harness.client)], signer: user, sponsor: sponsorClient, rcLimit: "150000000" });
     expect(result.sponsored).toBe(true);
     expect(result.sponsor).toBe(sponsor);
     expect(result.refusals).toEqual([]);
     expect(result.transaction.signatures).toHaveLength(2);
     expect(harness.provider.sent).toHaveLength(1);
+    expect(harness.provider.sent[0]?.transaction.header?.rc_limit).toBe("150000000");
     expect(harness.provider.sent[0]?.transaction.header?.payee).toBe(user.getAddress());
+    // an rcLimit above the ceiling is refused and the SDK self-pays
+    harness.provider.sent.length = 0;
+    const over = await harness.client.submit({ operations: [await followOp(harness.client)], signer: user, sponsor: sponsorClient, rcLimit: "200000001" });
+    expect(over.sponsored).toBe(false);
+    expect(over.refusals.map((r) => r.error.category)).toEqual(["too_large"]);
+    expect(harness.provider.sent).toHaveLength(1);
+    expect(harness.provider.sent[0]?.transaction.header?.payer).toBe(user.getAddress());
     // utilization is reachable through the SDK client too
     const utilization = await sponsorClient.utilization();
-    expect((utilization.today as { accepted: number }).accepted).toBe(1);
+    expect((utilization.today as { accepted: number }).accepted).toBe(2);
+    await harness.app.close();
+  });
+
+  it("passes a timeout receipt (rpc_error) through as 200 so the SDK never re-submits", async () => {
+    const rpcError = { message: "rpc failed, context deadline exceeded" };
+    const harness = await start({ provider: { onSend: () => ({ rpc_error: rpcError, rc_used: "" } as never) } });
+    const tx = await userTx(harness, [await followOp(harness.client)]);
+    const { status, body } = await sponsorRequest(harness.app, tx);
+    expect(status, JSON.stringify(body)).toBe(200);
+    expect(body.error).toBeUndefined();
+    expect(body.receipt.rpc_error).toEqual(rpcError);
+    expect(body.receipt.id).toBe(tx.id);
+    expect(body.transaction.id).toBe(tx.id);
+    expect(body.transaction.signatures).toHaveLength(2);
+    // the sponsor may have paid: usage stays recorded
+    const usage = harness.app.sponsorService.utilization();
+    expect(usage.today.accepted).toBe(1);
+    expect(usage.today.refused.temporarily_unavailable).toBe(0);
+    expect(harness.app.sponsorService.quota.dailyOps(user.getAddress())).toBe(1);
+    // through the SDK: an unknown outcome, not a refusal, and no second broadcast (self-pay)
+    harness.provider.sent.length = 0;
+    const sponsorClient = new SponsorClient({ endpoint: "https://sponsor.test", fetch: injectFetch(harness.app), expectedChainId: HARBINGER_CHAIN_ID });
+    const error = await harness.client.submit({ operations: [await followOp(harness.client)], signer: user, sponsor: sponsorClient }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(TransactionOutcomeUnknownError);
+    expect((error as TransactionOutcomeUnknownError).rpcError).toEqual(rpcError);
+    expect(harness.provider.sent).toHaveLength(1);
+    expect(harness.provider.sent[0]?.transaction.header?.payer).toBe(sponsor);
+    await harness.app.close();
+  });
+
+  it("requires the owner for authorize_device and revoke_device (device is the subject, not a signer)", async () => {
+    const identityEntryPoint = ABIS.identity.methods.get_identity!.entry_point;
+    const harness = await start({
+      provider: {
+        onRead: (op) => {
+          if (op.entry_point !== identityEntryPoint) return undefined;
+          const args = harness.client.contracts.decodeOperation({ call_contract: op })?.args as { account: string };
+          return args.account === other.getAddress()
+            ? encode("identity.get_identity_result", { value: { account: other.getAddress(), owner: user.getAddress(), encryption_key: new Uint8Array(32), key_version: 1 } })
+            : undefined;
+        },
+      },
+    });
+    for (const method of ["authorize_device", "revoke_device"] as const) {
+      // the payee is the device being (de)authorised on someone else's account: not the owner
+      const asDevice = await userTx(harness, [await deviceOp(harness.client, method, sponsor, user.getAddress())]);
+      await expectRefusal(harness.app, asDevice, 400, "invalid_transaction", new RegExp(`${method}\\.account`));
+      // the account itself signs: fine
+      const asOwner = await userTx(harness, [await deviceOp(harness.client, method, user.getAddress(), other.getAddress())]);
+      expect((await sponsorRequest(harness.app, asOwner)).status).toBe(200);
+      // a recovered identity whose current owner key is the payee: fine (owner lookup)
+      const recovered = await userTx(harness, [await deviceOp(harness.client, method, other.getAddress(), sponsor)]);
+      expect((await sponsorRequest(harness.app, recovered)).status).toBe(200);
+    }
+    // for methods where `device` is a signing authority the device may still be the payee
+    const viaDevice = await userTx(harness, [await reactOp(harness.client, other.getAddress(), user.getAddress())]);
+    expect((await sponsorRequest(harness.app, viaDevice)).status).toBe(200);
+    expect(harness.provider.sent).toHaveLength(5);
     await harness.app.close();
   });
 });
@@ -406,6 +512,98 @@ describe("POST /v1/sponsor refusals", () => {
     now += 45_000; // the first op falls out of the 60 s window
     expect((await sponsorRequest(harness.app, await userTx(harness, [await reactOp(harness.client)]))).status).toBe(200);
     expect(harness.app.sponsorService.quota.dailyOps(user.getAddress(), now)).toBe(3);
+    await harness.app.close();
+  });
+
+  it("reserves quota before broadcasting so concurrent requests cannot exceed it", async () => {
+    // Ten pre-signed transactions (sequential nonces) fired at once against a slow node: the
+    // old check-then-record flow let all ten through because every handler saw empty counters.
+    const daily = await start({ config: { dailyOps: 4, burstOps: 10 }, provider: { sendDelayMs: 20 } });
+    const txs = await Promise.all([...Array(10).keys()].map(async (i) => userTx(daily, [await reactOp(daily.client)], { nonce: nonceValue(i + 1) })));
+    expect(new Set(txs.map((tx) => tx.id)).size).toBe(10);
+    const results = await Promise.all(txs.map((tx) => sponsorRequest(daily.app, tx)));
+    expect(results.filter((r) => r.status === 200)).toHaveLength(4);
+    const refused = results.filter((r) => r.status === 429);
+    expect(refused).toHaveLength(6);
+    expect(refused.every((r) => r.body.error.category === "quota_exceeded" && /daily/.test(r.body.error.message))).toBe(true);
+    expect(daily.provider.sent).toHaveLength(4);
+    expect(daily.app.sponsorService.quota.dailyOps(user.getAddress())).toBe(4);
+    const usage = daily.app.sponsorService.utilization();
+    expect(usage.today.accepted).toBe(4);
+    expect(usage.today.acceptedOps).toBe(4);
+    expect(usage.today.refused.quota_exceeded).toBe(6);
+    expect(usage.today.users).toBe(1);
+    await daily.app.close();
+
+    // the burst window is reserved the same way
+    const burst = await start({ config: { dailyOps: 100, burstOps: 3, burstWindowSec: 60 }, provider: { sendDelayMs: 20 } });
+    const more = await Promise.all([...Array(8).keys()].map(async (i) => userTx(burst, [await reactOp(burst.client)], { nonce: nonceValue(i + 1) })));
+    const outcomes = await Promise.all(more.map((tx) => sponsorRequest(burst.app, tx)));
+    expect(outcomes.filter((r) => r.status === 200)).toHaveLength(3);
+    expect(outcomes.filter((r) => r.status === 429 && /burst/.test(r.body.error.message))).toHaveLength(5);
+    expect(burst.provider.sent).toHaveLength(3);
+    expect(burst.app.sponsorService.quota.burstOps(user.getAddress())).toBe(3);
+    await burst.app.close();
+  });
+
+  it("releases the reservation when nothing was broadcast", async () => {
+    let failure: Error | undefined = new Error("fetch failed: ECONNREFUSED");
+    const harness = await start({
+      config: { dailyOps: 1, burstOps: 1 },
+      provider: {
+        onSend: () => {
+          if (failure) throw failure;
+          return undefined;
+        },
+      },
+    });
+    const quota = harness.app.sponsorService.quota;
+    // transport failure: nothing was paid, the operations go back to the user
+    await expectRefusal(harness.app, await userTx(harness, [await reactOp(harness.client)]), 503, "temporarily_unavailable");
+    expect(quota.dailyOps(user.getAddress())).toBe(0);
+    expect(quota.burstOps(user.getAddress())).toBe(0);
+    expect(harness.app.sponsorService.utilization().today.users).toBe(0);
+    // chain rejection: same
+    failure = new Error(JSON.stringify({ error: "transaction reverted", logs: ["insufficient rc"] }));
+    await expectRefusal(harness.app, await userTx(harness, [await reactOp(harness.client)]), 400, "invalid_transaction");
+    expect(quota.dailyOps(user.getAddress())).toBe(0);
+    // the next broadcast succeeds and consumes the (tiny) quota
+    failure = undefined;
+    expect((await sponsorRequest(harness.app, await userTx(harness, [await reactOp(harness.client)]))).status).toBe(200);
+    expect(quota.dailyOps(user.getAddress())).toBe(1);
+    await expectRefusal(harness.app, await userTx(harness, [await reactOp(harness.client)]), 429, "quota_exceeded");
+    const usage = harness.app.sponsorService.utilization();
+    expect(usage.today.accepted).toBe(1);
+    expect(usage.today.users).toBe(1);
+    expect(usage.today.refused).toMatchObject({ temporarily_unavailable: 1, invalid_transaction: 1, quota_exceeded: 1 });
+    await harness.app.close();
+  });
+
+  it("verifies the signatures before consulting the chain for owner lookups", async () => {
+    const identityEntryPoint = ABIS.identity.methods.get_identity!.entry_point;
+    const harness = await start({
+      provider: {
+        onRead: (op) =>
+          op.entry_point === identityEntryPoint
+            ? encode("identity.get_identity_result", { value: { account: other.getAddress(), owner: user.getAddress(), encryption_key: new Uint8Array(32), key_version: 1 } })
+            : undefined,
+      },
+    });
+    // `other` was recovered to the `user` key; the actor is neither the payee nor a device
+    const recovered = await harness.client.ops.identity.update_profile({ account: other.getAddress(), profile_hash: new Uint8Array(32), profile_uri: "" });
+    const unsigned = await userTx(harness, [recovered], { sign: false });
+    await expectRefusal(harness.app, unsigned, 400, "invalid_signature");
+    await expectRefusal(harness.app, { ...unsigned, signatures: ["not-a-signature"] }, 400, "invalid_signature");
+    const foreign = await userTx(harness, [recovered], { signer: other, payee: user.getAddress() });
+    await expectRefusal(harness.app, foreign, 400, "invalid_signature", /payee/);
+    const signed = await userTx(harness, [recovered]);
+    await expectRefusal(harness.app, { ...signed, header: { ...signed.header, rc_limit: "1" } }, 400, "invalid_signature", /id/);
+    // none of those cost an RPC call
+    expect(harness.provider.reads).toHaveLength(0);
+    expect(harness.provider.sent).toHaveLength(0);
+    // a payee-signed request performs the lookup (once) and is accepted
+    expect((await sponsorRequest(harness.app, signed)).status).toBe(200);
+    expect(harness.provider.reads).toHaveLength(1);
     await harness.app.close();
   });
 

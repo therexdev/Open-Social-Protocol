@@ -8,7 +8,7 @@
 import { Signer, Transaction, isAddress, type ProtocolContracts, type SponsorErrorCategory, type TransactionJson } from "@osp/sdk";
 import type { CallContractOperationJson, OperationJson } from "@osp/sdk";
 import { utils } from "koilib";
-import { actorField, type Allowlist } from "./policy.js";
+import { actorField, deviceMaySign, type Allowlist } from "./policy.js";
 
 export const STATUS_FOR_CATEGORY: Readonly<Record<SponsorErrorCategory, number>> = {
   quota_exceeded: 429,
@@ -98,11 +98,34 @@ function argsLength(args: unknown, index: number): number {
   }
 }
 
+/** An actor that is neither the payee nor a signing device: accepted only if the payee owns it. */
+interface PendingOwnerCheck {
+  index: number;
+  contract: string;
+  method: string;
+  field: string;
+  account: string;
+}
+
+interface InspectedOperations {
+  operations: ValidatedOperation[];
+  /** Owner lookups still to run (after the signature check, so unsigned input costs no RPC). */
+  pending: PendingOwnerCheck[];
+}
+
+function actorMismatch(check: PendingOwnerCheck, payee: string, device: string | undefined): SponsorRefusal {
+  return new SponsorRefusal(
+    "invalid_transaction",
+    `operation ${check.index}: ${check.contract}.${check.method}.${check.field} (${check.account}) must equal the payee ${payee}${device ? " (or the device must)" : " (or the payee must be its current owner)"}`,
+  );
+}
+
 /**
- * Validates operations for `payee`: shape, allowlist, byte ceiling and actor binding.
- * Shared by `/v1/prepare` and `/v1/sponsor`. Only the optional owner lookup is async.
+ * Synchronous part of operation validation: shape, allowlist, byte ceiling, decoding and the
+ * actor binding that can be decided without the chain (actor or signing device == payee).
+ * Actors that need an owner lookup are returned in `pending`; nothing here touches the network.
  */
-export async function validateOperations(operations: unknown, payee: string, ctx: ValidationContext): Promise<ValidatedOperation[]> {
+function inspectOperations(operations: unknown, payee: string, ctx: ValidationContext): InspectedOperations {
   if (!Array.isArray(operations) || operations.length === 0) {
     throw new SponsorRefusal("invalid_transaction", "transaction must contain at least one operation");
   }
@@ -110,18 +133,7 @@ export async function validateOperations(operations: unknown, payee: string, ctx
     throw new SponsorRefusal("too_large", `at most ${ctx.limits.maxOpsPerTx} operations per transaction (got ${operations.length})`);
   }
   const out: ValidatedOperation[] = [];
-  const owners = new Map<string, string | undefined>();
-  const ownerOf = async (account: string): Promise<string | undefined> => {
-    if (!ctx.ownerOf) return undefined;
-    if (!owners.has(account)) {
-      try {
-        owners.set(account, await ctx.ownerOf(account));
-      } catch (error) {
-        throw new SponsorRefusal("temporarily_unavailable", `cannot resolve the owner of ${account}: ${(error as Error).message}`);
-      }
-    }
-    return owners.get(account);
-  };
+  const pending: PendingOwnerCheck[] = [];
   for (let index = 0; index < operations.length; index += 1) {
     const raw: unknown = operations[index];
     if (!isRecord(raw)) throw new SponsorRefusal("invalid_transaction", `operation ${index}: not an object`);
@@ -153,19 +165,17 @@ export async function validateOperations(operations: unknown, payee: string, ctx
     let actor: string | undefined;
     if (field !== null) {
       const value = args[field];
-      const device = typeof args.device === "string" && args.device.length > 0 ? args.device : undefined;
+      // `device` is a signing authority only where the proto says so; for authorize_device /
+      // revoke_device it is the key being (de)authorised and the owner must sign.
+      const device = deviceMaySign(decoded.contract, decoded.method) && typeof args.device === "string" && args.device.length > 0 ? args.device : undefined;
       if (typeof value !== "string" || value.length === 0) {
         throw new SponsorRefusal("invalid_transaction", `operation ${index}: ${decoded.contract}.${decoded.method}.${field} is required`);
       }
+      const check: PendingOwnerCheck = { index, contract: decoded.contract, method: decoded.method, field, account: value };
       if (value === payee) actor = value;
       else if (device === payee) actor = device;
-      else if (!device && (await ownerOf(value)) === payee) actor = value;
-      else {
-        throw new SponsorRefusal(
-          "invalid_transaction",
-          `operation ${index}: ${decoded.contract}.${decoded.method}.${field} (${value}) must equal the payee ${payee}${device ? " (or the device must)" : " (or the payee must be its current owner)"}`,
-        );
-      }
+      else if (!device && ctx.ownerOf) pending.push(check);
+      else throw actorMismatch(check, payee, device);
     }
     out.push({
       index,
@@ -178,7 +188,38 @@ export async function validateOperations(operations: unknown, payee: string, ctx
       operation,
     });
   }
-  return out;
+  return { operations: out, pending };
+}
+
+/**
+ * Runs the deferred owner lookups (`identity.get_identity(account).owner`, once per account)
+ * and binds the actor of each pending operation, or refuses. An RPC failure is
+ * `temporarily_unavailable`, never a silent refusal.
+ */
+async function resolveOwners(inspected: InspectedOperations, payee: string, ctx: ValidationContext): Promise<void> {
+  const owners = new Map<string, string | undefined>();
+  for (const check of inspected.pending) {
+    if (!owners.has(check.account)) {
+      try {
+        owners.set(check.account, ctx.ownerOf ? await ctx.ownerOf(check.account) : undefined);
+      } catch (error) {
+        throw new SponsorRefusal("temporarily_unavailable", `cannot resolve the owner of ${check.account}: ${(error as Error).message}`);
+      }
+    }
+    if (owners.get(check.account) !== payee) throw actorMismatch(check, payee, undefined);
+    const operation = inspected.operations[check.index];
+    if (operation) operation.actor = check.account;
+  }
+}
+
+/**
+ * Validates operations for `payee`: shape, allowlist, byte ceiling and actor binding.
+ * Shared by `/v1/prepare` and `/v1/sponsor`. Only the optional owner lookup is async.
+ */
+export async function validateOperations(operations: unknown, payee: string, ctx: ValidationContext): Promise<ValidatedOperation[]> {
+  const inspected = inspectOperations(operations, payee, ctx);
+  await resolveOwners(inspected, payee, ctx);
+  return inspected.operations;
 }
 
 function parseRcLimit(value: unknown): bigint {
@@ -191,6 +232,9 @@ function parseRcLimit(value: unknown): bigint {
  * Validates a payee-signed transaction end to end (spec section 10):
  * chain id, payer/payee, operation count, RC ceiling, allowlist, byte ceiling, actor binding,
  * header/id/merkle-root consistency and a signature recovering to the payee.
+ *
+ * Everything that needs the chain (owner lookups for recovered identities) runs last, after
+ * the signatures have been verified: an unsigned or forged request never costs an RPC call.
  */
 export async function validateTransaction(input: unknown, ctx: ValidationContext): Promise<ValidatedTransaction> {
   if (!isRecord(input)) throw new SponsorRefusal("invalid_transaction", "transaction must be an object");
@@ -213,7 +257,8 @@ export async function validateTransaction(input: unknown, ctx: ValidationContext
     throw new SponsorRefusal("invalid_transaction", "header.operation_merkle_root is required");
   }
 
-  const operations = await validateOperations(input.operations, payee, ctx);
+  const inspected = inspectOperations(input.operations, payee, ctx);
+  const { operations } = inspected;
 
   const rcLimit = parseRcLimit(header.rc_limit);
   const rcCeiling = BigInt(ctx.limits.maxRcPerOp) * BigInt(operations.length);
@@ -279,5 +324,8 @@ export async function validateTransaction(input: unknown, ctx: ValidationContext
   if (signers.includes(ctx.sponsor)) {
     throw new SponsorRefusal("invalid_transaction", "transaction already carries the sponsor signature");
   }
+
+  // Only now, with a payee signature in hand, consult the chain for recovered identities.
+  await resolveOwners(inspected, payee, ctx);
   return { transaction, payee, operations, signers };
 }

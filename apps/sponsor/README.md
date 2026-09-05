@@ -51,10 +51,14 @@ a deployed protocol contract with an allowlisted entry point, each `args` payloa
 **Actor binding (anti quota gaming)**: every operation is decoded and the acting account of the
 method (`account`, `author`, `actor`, `requester`, `approver`, `follower`, `creator`, `owner`,
 `sponsor`, or `guardian` for `identity.propose_recovery`; see `ACTOR_FIELDS` in
-`src/policy.ts`) must equal `header.payee`. When the operation names a `device`, the device may
-be the payee instead (spec section 3.2: the device signs). When neither matches and no device is
-named, the sponsor reads `identity.get_identity(actor).owner` once per account and accepts a
-payee that is the identity's current owner key (recovered identities, spec section 3.3); an RPC
+`src/policy.ts`) must equal `header.payee`. When the operation names a `device` as a signing
+authority (`update_profile`, `publications.*`, `relationships.*`, `communities.*`), the device
+may be the payee instead (spec section 3.2: the device signs). For `identity.authorize_device`
+and `identity.revoke_device` the `device` is the key being (de)authorised, not a signer, and the
+chain requires the owner: only `account == payee` or the owner lookup applies
+(`DEVICE_IS_SUBJECT` in `src/policy.ts`). When neither matches and no signing device is named,
+the sponsor reads `identity.get_identity(actor).owner` once per account and accepts a payee
+that is the identity's current owner key (recovered identities, spec section 3.3); an RPC
 failure during that lookup is `temporarily_unavailable`. Methods anyone may call
 (`identity.execute_recovery`, `communities.execute_owner_transfer`) have no actor to bind. Usage
 is always charged to the payee, and a signature must recover to the payee, so a user can only
@@ -62,11 +66,21 @@ spend their own quota.
 
 **Per user (payee)**: `OSP_SPONSOR_DAILY_OPS` operations per UTC day (persisted in SQLite) and
 `OSP_SPONSOR_BURST_OPS` operations per `OSP_SPONSOR_BURST_WINDOW_SEC` seconds (in memory).
-Reverted transactions count: the sponsor paid for them.
+The operations are **reserved before the broadcast**, in one synchronous step with the check
+(`QuotaStore.reserve`), so requests that arrive while another one is waiting on the node see
+them: a batch of pre-signed transactions cannot exceed the quota. The reservation is released
+only when nothing was broadcast (chain rejection, transport failure) and committed with the
+receipt data otherwise. Reverted transactions count: the sponsor paid for them. A timeout
+receipt counts too: the sponsor may have paid.
 
 **Signature checks**: the merkle root and transaction id are recomputed from the submitted
 header and operations; a mismatch (anything changed after signing) is `invalid_signature`. At
-least one signature must recover to the payee. The sponsor only appends its own signature.
+least one signature must recover to the payee. Signatures are verified before any owner lookup,
+so an unsigned or forged request never costs the sponsor an RPC call (`/v1/prepare` has no
+signature to verify and performs the lookup for the operations it is asked to build). The
+sponsor only appends its own signature: the returned transaction is the submitted `id`,
+`header`, `operations` and `signatures` with one more signature at the end, which is what the
+SDK's `verifySponsorResult` checks before trusting a sponsor's answer.
 
 ## Environment
 
@@ -106,10 +120,16 @@ All responses are JSON with CORS for every origin. Errors are
 * `POST /v1/prepare` `{ payee, operations }` -> `{ transaction }`: an unsigned transaction with
   `header.payer` = sponsor, `header.payee` = user, the payee's next nonce, `chain_id` and
   `rc_limit = min(maxRcPerOp x ops, sponsor's available RC)`. Operations are validated first.
-* `POST /v1/sponsor` `{ transaction }` -> `{ transaction, receipt }`: validate, quota check,
+* `POST /v1/sponsor` `{ transaction }` -> `{ transaction, receipt }`: validate, reserve quota,
   append the sponsor signature, broadcast (`chain.submit_transaction` with `broadcast: true`),
-  record usage. A reverted transaction answers `400 invalid_transaction` with `error.logs` and the
-  `receipt`; an RPC failure answers `503 temporarily_unavailable` (nothing was recorded).
+  commit the usage. A reverted transaction answers `400 invalid_transaction` with `error.logs`
+  and the `receipt` (usage counted). A node that rejects the transaction or cannot be reached
+  answers `400 invalid_transaction` / `503 temporarily_unavailable` and releases the reservation
+  (nothing was broadcast, nothing is counted). A node that **times out** answers `200` with the
+  submitted transaction and a receipt carrying `rpc_error` (usage counted: the transaction may be
+  in the mempool or a block). Clients must treat that as an unknown outcome and look the result
+  up before retrying, never re-submit through another sponsor or self-pay; `@osp/sdk` raises
+  `TransactionOutcomeUnknownError` for it and does exactly that.
 * `GET /v1/utilization` - `{ generatedAt, limits, today, yesterday }` where each day carries
   `accepted`, `acceptedOps`, `reverted`, `rcUsed`, `refused { <category>: n }`, `refusedTotal`
   and `users` (a count). No per-user data is exposed.
@@ -118,15 +138,15 @@ With `@osp/sdk`:
 
 ```ts
 const client = new ProtocolClient({ deployment, sponsors: ["https://sponsor.example.org"] });
-const { policy } = await client.sponsors.sponsors[0].discover();
-const rcLimit = (BigInt(policy.maxRcPerOp) * BigInt(operations.length)).toString();
-const { sponsored, receipt } = await client.submit({ operations, signer: me.signer, rcLimit });
+const { sponsored, receipt } = await client.submit({ operations, signer: me.signer });
 ```
 
-Pass `rcLimit`: without it koilib sets `rc_limit` to the payer's entire available RC, which is
-above any sponsor's `maxRcPerOp x ops` ceiling, so the sponsor answers `too_large` and the SDK
-falls back to self-pay. Alternatively build the transaction with `POST /v1/prepare`
-(`SponsorClient.prepare`), which already applies the ceiling.
+`ProtocolClient.submit` reads the discovery document and caps `rc_limit` at
+`policy.maxRcPerOp x operations` for the sponsored attempt (an explicit `rcLimit` overrides
+it), verifies that the sponsor returned exactly the signed transaction plus its signature, and
+falls back to the next sponsor or self-pay on a refusal. `POST /v1/prepare`
+(`SponsorClient.prepare`) applies the same ceiling for clients that build transactions
+themselves.
 
 ## On-chain registration
 

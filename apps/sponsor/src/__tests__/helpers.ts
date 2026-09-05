@@ -40,6 +40,8 @@ export interface FakeProviderOptions {
   onRead?: (op: CallContractOperationJson) => Uint8Array | undefined;
   /** submit_transaction handler; may throw to simulate RPC/chain failures. */
   onSend?: (tx: TransactionJson, broadcast: boolean) => Partial<TransactionReceipt> | undefined;
+  /** Delay before `onSend` runs, so that concurrent requests overlap on a "network round trip". */
+  sendDelayMs?: number;
 }
 
 export interface FakeProvider extends ProviderInterface {
@@ -95,6 +97,7 @@ export function fakeProvider(options: FakeProviderOptions = {}): FakeProvider {
     getBlock: notImplemented("getBlock") as ProviderInterface["getBlock"],
     wait: async (txId: string) => ({ blockId: `block-for-${txId}`, blockNumber: 101 }),
     sendTransaction: async (transaction, broadcast = true) => {
+      if (options.sendDelayMs) await new Promise((resolve) => setTimeout(resolve, options.sendDelayMs));
       provider.sent.push({ transaction, broadcast });
       const receipt = fakeReceipt(transaction, options.onSend?.(transaction, broadcast));
       const withWait = { ...transaction, wait: async () => ({ blockId: `block-for-${transaction.id}`, blockNumber: 101 }) };
