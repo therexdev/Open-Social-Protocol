@@ -192,11 +192,13 @@ function eventCount(): i32 {
  * Drop the trace left by fixtures: emitted events (the mock VM returns the
  * whole list through one system-call buffer) and recorded cross-contract
  * calls (they accumulate across commits), so tests assert on the action
- * under test only.
+ * under test only. Both lists live in the mock database, so the cleared
+ * state is committed or a later revert would restore the fixture trace.
  */
 function clearTrace(): void {
   MockVM.clearEvents();
   MockVM.clearCallContractArguments();
+  MockVM.commitTransaction();
 }
 
 function callCount(): i32 {
@@ -370,6 +372,14 @@ function callCrossPost(): void {
 /** Publish `args` as its author (owner path) and commit; returns the post id. */
 function doPublish(args: publications.publish_arguments, calls: i32 = 1): Uint8Array {
   asOwner(args.author!, calls);
+  contract.publish(args);
+  MockVM.commitTransaction();
+  return args.post_id!;
+}
+
+/** Publish a first-version reply to someone else's post (not blocked) and commit. */
+function doReply(args: publications.publish_arguments): Uint8Array {
+  asReplier(args.author!, false);
   contract.publish(args);
   MockVM.commitTransaction();
   return args.post_id!;
@@ -1052,8 +1062,9 @@ describe("publications: publish (reply)", () => {
       callPublish();
     }).toThrow();
     expectRevert("reply target not found");
-    // No block check is made for a missing target.
-    expect(callCount()).toBe(1);
+    // Only the resolve_actor result was queued: the revert happens before any
+    // block check (a second System.call would have found no stubbed result).
+    expect(post(PUBLISH.post_id!) == null).toBe(true);
   });
 
   it("rejects a reply to a deleted post but allows a hidden one", () => {
@@ -1250,7 +1261,7 @@ describe("publications: publish (edit)", () => {
 
   it("keeps the thread position of a reply across edits", () => {
     const target = doPublish(firstPost(BOB, 1, ENV_C));
-    const reply = doPublish(firstPost(ALICE, 2, ENV_D, EVERYONE, target), 2);
+    const reply = doReply(firstPost(ALICE, 2, ENV_D, EVERYONE, target));
     clearTrace();
 
     // reply_to omitted: the stored link is emitted and the target author impacted.
@@ -1842,6 +1853,7 @@ describe("publications: record_cross_post", () => {
 
   it("rejects an idempotency key bound to another post", () => {
     const other = doPublish(firstPost(ALICE, 2, ENV_B));
+    clearTrace();
     asOwner(ALICE);
     CROSS = crossPost(ALICE, IDEM_KEY, "facebook", SUCCEEDED, "ref", other);
     expect(() => {
