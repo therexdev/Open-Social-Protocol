@@ -42,6 +42,14 @@ export function explain(record: StoredCrossPost, now: number = Date.now()): Queu
         attention: true,
       };
     case "submitting": {
+      if (record.koinosStatus === "ok" && record.hostStatus === "pending") {
+        return {
+          title: `Published on Open Social, ${host || "host"} side pending`,
+          detail: `The Koinos post exists and will never be published twice. Mark the ${host || "host"} side as posted or failed once you know.`,
+          actions: ["markHostPosted", "markHostFailed"],
+          attention: true,
+        };
+      }
       const stale = now - record.updatedAt > STALE_SUBMITTING_MS;
       return {
         title: stale ? "Publication interrupted" : "Publishing on Koinos",

@@ -51,7 +51,6 @@ type LongCtor = new (low: number, high: number, unsigned?: boolean) => LongLike;
 const u = util as unknown as Utils;
 
 interface ExtField extends Field {
-  delimited?: boolean;
   keyType: string;
 }
 interface ExtType extends MessageType {

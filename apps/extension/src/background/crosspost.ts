@@ -36,7 +36,7 @@ export interface CrossPostDeps {
   /** Optional indexer lookup (may lag the chain). */
   lookupIndexer?: (author: string, record: StoredCrossPost) => Promise<{ postId: string; txId?: string; blockHeight?: string } | null>;
   recordProof?: (record: StoredCrossPost) => Promise<{ manifestHash: string; txId: string; outcome: number }>;
-  onChange?: (records: StoredCrossPost[]) => void | Promise<void>;
+  onChange?: (records: StoredCrossPost[]) => unknown;
 }
 
 export class CrossPostError extends Error {
@@ -131,7 +131,7 @@ export class CrossPostOrchestrator {
       ...(input.title && { title: input.title }),
       ...(input.hostSubmitted && { hostSubmitted: true }),
       createdAt: this.now(),
-    } as StoredCrossPost & { hostSubmitted?: boolean };
+    };
   }
 
   /** A draft proposed by a host adapter (content script). Idempotent per attempt id. */
@@ -181,7 +181,7 @@ export class CrossPostOrchestrator {
         idempotencyKey: toHex(idempotencyKey(account, fromHex(record.attemptId))),
       };
       let current = transition(baseRecord(prepared), { type: "retry", at: this.now() });
-      if ((prepared as StoredCrossPost & { hostSubmitted?: boolean }).hostSubmitted && current.hostStatus === "pending") {
+      if (prepared.hostSubmitted && current.hostStatus === "pending") {
         current = transition(current, { type: "hostSucceeded", hostRef: prepared.url ?? "submitted", at: this.now() });
       }
       prepared = await this.update(file, merge(prepared, current));

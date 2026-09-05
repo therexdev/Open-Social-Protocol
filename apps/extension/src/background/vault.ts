@@ -304,6 +304,13 @@ export class VaultManager {
     return this.enter(session);
   }
 
+  /** Throws VaultError unless the passphrase opens the vault. */
+  async verifyPassphrase(passphrase: string): Promise<void> {
+    const record = await this.record();
+    if (!record) throw new VaultError("There is no account in this browser yet.");
+    await unlockVault(record.blob, passphrase);
+  }
+
   /** The identity file (only when the identity seed is in this browser). */
   async export(passphrase: string): Promise<string> {
     const record = await this.record();

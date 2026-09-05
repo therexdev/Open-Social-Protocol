@@ -111,6 +111,8 @@ export interface StoredCrossPost extends CrossPostRecord {
   text?: string;
   /** Page the attempt came from (Facebook composer URL or the shared page). */
   url?: string;
+  /** The user activated the host's submit control before proposing (host side initiated by the user). */
+  hostSubmitted?: boolean;
   title?: string;
   createdAt: number;
   contentHash?: string;
