@@ -181,12 +181,22 @@ export class Syncer {
     return Math.max(lib, head.height - this.reversibleWindow);
   }
 
-  /** Rolls back to the last final checkpoint below `forkHeight`; returns the rollback target. */
-  private rollback(head: ChainHead, forkHeight: number): number {
-    const target = Math.min(this.finalHeight(head), forkHeight - 1);
+  /**
+   * Rolls back to the last final checkpoint below `forkHeight` and replays the log.
+   * Refuses (SyncError) when the canonical chain disagrees with us at the rollback target,
+   * i.e. the fork is below the final height.
+   */
+  private async rollback(head: ChainHead, forkHeight: number): Promise<number> {
     const floor = this.startHeight - 1;
-    const to = Math.max(target, floor);
-    if (to >= forkHeight) throw new SyncError(`fork at height ${forkHeight} is below the final height ${to}; refusing to roll back`);
+    const to = Math.max(Math.min(this.finalHeight(head), forkHeight - 1), floor);
+    if (to >= forkHeight) throw new SyncError(`fork at height ${forkHeight} is not above the final height ${to}; refusing to roll back`);
+    const ours = to > floor ? this.db.checkpointAt(to) : undefined;
+    if (ours) {
+      const canonical = (await this.chain.getBlocks(to, 1, head.id))[0];
+      if (!canonical || canonical.id !== ours.block_id) {
+        throw new SyncError(`fork below the final height ${to} (stored ${ours.block_id}, canonical ${canonical?.id ?? "unknown"}); refusing to roll back`);
+      }
+    }
     this.logger.warn(`fork detected at height ${forkHeight}; rolling back to ${to} and replaying the log`);
     const replayed = rollbackTo(this.db, to);
     this.state.rollbacks++;
@@ -218,7 +228,7 @@ export class Syncer {
         const canonicalId = last.height === head.height ? head.id : (await this.chain.getBlocks(head.height, 1, head.id))[0]?.id;
         const ours = this.db.checkpointAt(head.height);
         if (canonicalId && ours && ours.block_id !== canonicalId) {
-          const to = this.rollback(head, head.height);
+          const to = await this.rollback(head, head.height);
           return { applied: 0, caughtUp: false, rolledBack: { from: last.height, to } };
         }
         this.state.lastError = undefined;
@@ -235,7 +245,7 @@ export class Syncer {
         if (block.height !== expected) break; // gap in the response: retry next poll
         const parent = this.db.checkpointAt(block.height - 1);
         if (parent && block.previous && parent.block_id !== block.previous) {
-          const to = this.rollback(head, block.height);
+          const to = await this.rollback(head, block.height);
           this.state.lastError = undefined;
           this.state.lastSyncAt = Date.now();
           return { applied, caughtUp: false, rolledBack: { from: parent.height, to } };
