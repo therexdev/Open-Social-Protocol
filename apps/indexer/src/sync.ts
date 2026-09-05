@@ -272,7 +272,8 @@ export class Syncer {
     let result: SyncResult = { applied: 0, caughtUp: false };
     for (let i = 0; i < maxRounds; i++) {
       const step = await this.syncOnce();
-      result = { applied: result.applied + step.applied, caughtUp: step.caughtUp, ...(step.rolledBack && { rolledBack: step.rolledBack }) };
+      const rolledBack = step.rolledBack ?? result.rolledBack;
+      result = { applied: result.applied + step.applied, caughtUp: step.caughtUp, ...(rolledBack && { rolledBack }) };
       if (step.caughtUp) return result;
     }
     throw new SyncError("syncToHead did not catch up");

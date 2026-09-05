@@ -1,6 +1,7 @@
 export * from "./config.js";
 export * from "./db.js";
 export * from "./chain.js";
+export * from "./decode.js";
 export * from "./hash.js";
 export * from "./projections.js";
 export * from "./sync.js";

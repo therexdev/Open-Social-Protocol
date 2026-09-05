@@ -21,6 +21,8 @@ const G1 = Base58.decode("1GXe3r3VmkKAEhj6C156jPxQC8p1xbQD2i");
 const G2 = Base58.decode("1NvZvWNqDX7t93inmLBvbv6kxhpEZYRFWK");
 const G3 = syntheticAddress(0x33);
 const DEVICE2 = syntheticAddress(0x44);
+const G4 = syntheticAddress(0x55);
+const G5 = syntheticAddress(0x66);
 
 const T0: u64 = Testing.DEFAULT_TIME;
 const DAY: u64 = 86_400_000;
@@ -343,10 +345,21 @@ describe("identity: devices", () => {
     expect(res.ok).toBe(false);
     expect(res.reason!).toBe("device revoked");
 
-    expect(() => {
-      contract.revoke_device(new identity.revoke_device_arguments(ALICE, DEVICE));
-    }).toThrow();
-    expectRevert("device already revoked");
+    // revoking again is idempotent: it succeeds and re-emits the event (a
+    // retried transaction must not revert)
+    Testing.setTime(T0 + 5);
+    MockVM.clearEvents();
+    contract.revoke_device(new identity.revoke_device_arguments(ALICE, DEVICE));
+    MockVM.commitTransaction();
+    expect(getDevice(DEVICE).revoked).toBe(true);
+    expect(resolve(DEVICE, PUBLISH).reason!).toBe("device revoked");
+    const again = MockVM.getEvents();
+    expect(again.length).toBe(1);
+    expect(again[0].name).toBe("osp.identity.device_revoked");
+    expectImpacted(again[0], [ALICE, DEVICE]);
+    const againData = Protobuf.decode<identity.device_revoked_event>(again[0].data, identity.device_revoked_event.decode);
+    expect(Arrays.equal(againData.device!, DEVICE)).toBe(true);
+    expect(againData.timestamp).toBe(T0 + 5);
   });
 
   it("re-authorizing an existing device overwrites it", () => {
@@ -737,6 +750,7 @@ describe("identity: recovery policy", () => {
     expect(st.policy!.delay_ms).toBe(2 * DAY);
     expect(st.policy!.guardians.length).toBe(2);
     expect(st.pending_policy == null).toBe(true);
+    expect(MockVM.getEvents().length).toBe(1); // nothing to void: no recovery_cancelled
     ev = lastEvent();
     expect(ev.name).toBe("osp.identity.recovery_policy_set");
     expectImpacted(ev, [ALICE, G1, G2]);
@@ -1089,6 +1103,135 @@ describe("identity: guardian recovery", () => {
     contract.authorize_device(new identity.authorize_device_arguments(ALICE, DEVICE, REACT, T0 + 2 * DAY, ""));
     expect(getDevice(DEVICE).device_epoch).toBe(1);
     expect(resolve(DEVICE, REACT).ok).toBe(true);
+  });
+
+  it("applying a new policy voids the in-flight recovery so stale approvals never count", () => {
+    propose(G1, BOB); // 1 of 2 under the old guardian set
+    expect(getRecovery().pending_recovery!.approvals.length).toBe(1);
+
+    // the owner distrusts G1..G3 and replaces them (2 of 2); merely proposing
+    // the change leaves the in-flight recovery untouched
+    Testing.setTime(T0 + 10);
+    setPolicyAsOwner(ALICE, policy([G4, G5], 2, DAY));
+    expect(getRecovery().pending_recovery == null).toBe(false);
+    expect(getRecovery().pending_recovery!.approvals.length).toBe(1);
+
+    // once applied, the pending recovery is voided and indexers are told
+    Testing.setTime(T0 + 10 + DAY);
+    Testing.authorize([]);
+    MockVM.clearEvents(); // keep the mock event log inside the system-call buffer
+    contract.apply_recovery_policy(new identity.apply_recovery_policy_arguments(ALICE));
+    MockVM.commitTransaction();
+
+    const st = getRecovery();
+    expect(st.policy!.guardians.length).toBe(2);
+    expect(Arrays.equal(st.policy!.guardians[0], G4)).toBe(true);
+    expect(st.pending_policy == null).toBe(true);
+    expect(st.pending_recovery == null).toBe(true);
+    const events = MockVM.getEvents();
+    expect(events.length).toBe(2);
+    expect(events[0].name).toBe("osp.identity.recovery_cancelled");
+    expectImpacted(events[0], [ALICE]);
+    const cancelled = Protobuf.decode<identity.recovery_cancelled_event>(events[0].data, identity.recovery_cancelled_event.decode);
+    expect(cancelled.timestamp).toBe(T0 + 10 + DAY);
+    expect(events[1].name).toBe("osp.identity.recovery_policy_set");
+    expectImpacted(events[1], [ALICE, G4, G5]);
+
+    // the removed guardian is out, and a single current guardian must not
+    // reach the 2-of-2 threshold on the back of G1's stale approval
+    Testing.authorize([G1]);
+    expect(() => {
+      contract.propose_recovery(new identity.propose_recovery_arguments(ALICE, G1, BOB));
+    }).toThrow();
+    expectRevert("not a guardian");
+    Testing.setTime(T0 + 2 * DAY);
+    propose(G4, BOB);
+    let pending = getRecovery().pending_recovery!;
+    expect(pending.approvals.length).toBe(1);
+    expect(Arrays.equal(pending.approvals[0], G4)).toBe(true);
+    expect(pending.effective_at).toBe(0);
+    const data = Protobuf.decode<identity.recovery_proposed_event>(lastEvent().data, identity.recovery_proposed_event.decode);
+    expect(data.approvals).toBe(1);
+    expect(data.threshold).toBe(2);
+    expect(data.effective_at).toBe(0);
+
+    Testing.setTime(T0 + 30 * DAY);
+    Testing.authorize([]);
+    expect(() => {
+      contract.execute_recovery(new identity.execute_recovery_arguments(ALICE));
+    }).toThrow();
+    expectRevert("recovery threshold not reached");
+    expect(Arrays.equal(getIdentity().owner!, ALICE)).toBe(true);
+    expect(getIdentity().device_epoch).toBe(0);
+
+    // both current guardians are required
+    propose(G5, BOB);
+    pending = getRecovery().pending_recovery!;
+    expect(pending.approvals.length).toBe(2);
+    expect(pending.effective_at).toBe(T0 + 30 * DAY + DAY);
+    Testing.setTime(T0 + 31 * DAY);
+    Testing.authorize([]);
+    contract.execute_recovery(new identity.execute_recovery_arguments(ALICE));
+    expect(Arrays.equal(getIdentity().owner!, BOB)).toBe(true);
+  });
+
+  it("execute_recovery voids the previous owner's pending policy change", () => {
+    // the (possibly leaked) owner key queues a policy handing control to DEVICE2
+    // as sole guardian with no delay; it would become applicable at T0 + 10 + DAY
+    Testing.setTime(T0 + 10);
+    setPolicyAsOwner(ALICE, policy([DEVICE2], 1, 0));
+    expect(getRecovery().pending_policy == null).toBe(false);
+    expect(getRecovery().pending_policy!.effective_at).toBe(T0 + 10 + DAY);
+
+    propose(G1, BOB);
+    propose(G2, BOB); // effective at T0 + 10 + DAY as well
+    Testing.setTime(T0 + 10 + DAY);
+    Testing.authorize([]);
+    MockVM.clearEvents(); // keep the mock event log inside the system-call buffer
+    contract.execute_recovery(new identity.execute_recovery_arguments(ALICE));
+    MockVM.commitTransaction();
+
+    expect(Arrays.equal(getIdentity().owner!, BOB)).toBe(true);
+    expect(getIdentity().device_epoch).toBe(1);
+    const st = getRecovery();
+    expect(st.pending_recovery == null).toBe(true);
+    expect(st.pending_policy == null).toBe(true);
+    expect(st.policy!.threshold).toBe(2); // the active policy survives
+    expect(st.policy!.guardians.length).toBe(3);
+
+    const events = MockVM.getEvents();
+    expect(events.length).toBe(2);
+    expect(events[0].name).toBe("osp.identity.recovery_policy_cancelled");
+    expectImpacted(events[0], [ALICE]);
+    const cancelled = Protobuf.decode<identity.recovery_policy_cancelled_event>(events[0].data, identity.recovery_policy_cancelled_event.decode);
+    expect(cancelled.timestamp).toBe(T0 + 10 + DAY);
+    expect(events[1].name).toBe("osp.identity.recovered");
+    expectImpacted(events[1], [ALICE, ALICE, BOB]);
+
+    // the booby-trapped policy can no longer be applied by anyone, so DEVICE2
+    // never becomes a guardian
+    Testing.setTime(T0 + 30 * DAY);
+    Testing.authorize([DEVICE2]);
+    expect(() => {
+      contract.apply_recovery_policy(new identity.apply_recovery_policy_arguments(ALICE));
+    }).toThrow();
+    expectRevert("no pending recovery policy");
+    expect(() => {
+      contract.propose_recovery(new identity.propose_recovery_arguments(ALICE, DEVICE2, DEVICE2));
+    }).toThrow();
+    expectRevert("not a guardian");
+    expect(Arrays.equal(getIdentity().owner!, BOB)).toBe(true);
+
+    // a recovery with nothing queued emits no cancellation
+    propose(G1, ALICE);
+    propose(G3, ALICE);
+    Testing.setTime(T0 + 31 * DAY);
+    Testing.authorize([]);
+    MockVM.clearEvents();
+    contract.execute_recovery(new identity.execute_recovery_arguments(ALICE));
+    expect(MockVM.getEvents().length).toBe(1);
+    expect(lastEvent().name).toBe("osp.identity.recovered");
+    expect(Arrays.equal(getIdentity().owner!, ALICE)).toBe(true);
   });
 
   it("a second recovery increments the epoch again and targets the current owner", () => {

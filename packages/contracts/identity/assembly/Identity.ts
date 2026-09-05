@@ -141,6 +141,18 @@ export class Identity {
     return state;
   }
 
+  /** Emit osp.identity.recovery_cancelled (a pending recovery was voided). */
+  emitRecoveryCancelled(account: Uint8Array, now: u64): void {
+    const ev = new identity.recovery_cancelled_event(account, now);
+    System.event("osp.identity.recovery_cancelled", Protobuf.encode(ev, identity.recovery_cancelled_event.encode), [account]);
+  }
+
+  /** Emit osp.identity.recovery_policy_cancelled (a pending policy change was voided). */
+  emitPolicyCancelled(account: Uint8Array, now: u64): void {
+    const ev = new identity.recovery_policy_cancelled_event(account, now);
+    System.event("osp.identity.recovery_policy_cancelled", Protobuf.encode(ev, identity.recovery_policy_cancelled_event.encode), [account]);
+  }
+
   /**
    * Actor resolution (spec 3.2). Never reverts: the result carries ok/reason
    * so calling contracts (and update_profile here) decide what to require.
@@ -315,8 +327,9 @@ export class Identity {
     const key = this.deviceKey(account, device);
     const dev = this.devices.get(key);
     System.require(dev != null, "unknown device");
-    System.require(!dev!.revoked, "device already revoked");
 
+    // Idempotent: revoking an already revoked device succeeds and re-emits the
+    // event so a retried transaction never reverts.
     const now = Util.now();
     dev!.revoked = true;
     this.devices.put(key, dev!);
@@ -376,10 +389,17 @@ export class Identity {
     System.require(now >= pending.effective_at, "recovery policy delay not elapsed");
 
     const policy = pending.policy!;
+    const voidedRecovery = state.pending_recovery != null;
     state.policy = policy;
     state.pending_policy = null;
+    // A policy change voids any in-flight recovery: approvals were collected
+    // under the old guardian set, so guardians the owner removed must never
+    // count toward the new M-of-N threshold. Guardians of the new policy
+    // simply propose again.
+    state.pending_recovery = null;
     this.recovery.put(account, state);
 
+    if (voidedRecovery) this.emitRecoveryCancelled(account, now);
     const ev = new identity.recovery_policy_set_event(account, policy, now);
     System.event("osp.identity.recovery_policy_set", Protobuf.encode(ev, identity.recovery_policy_set_event.encode), this.policyImpacted(account, policy));
     return new identity.apply_recovery_policy_result();
@@ -397,9 +417,7 @@ export class Identity {
     state.pending_policy = null;
     this.recovery.put(account, state);
 
-    const now = Util.now();
-    const ev = new identity.recovery_policy_cancelled_event(account, now);
-    System.event("osp.identity.recovery_policy_cancelled", Protobuf.encode(ev, identity.recovery_policy_cancelled_event.encode), [account]);
+    this.emitPolicyCancelled(account, Util.now());
     return new identity.cancel_recovery_policy_result();
   }
 
@@ -463,9 +481,7 @@ export class Identity {
     state.pending_recovery = null;
     this.recovery.put(account, state);
 
-    const now = Util.now();
-    const ev = new identity.recovery_cancelled_event(account, now);
-    System.event("osp.identity.recovery_cancelled", Protobuf.encode(ev, identity.recovery_cancelled_event.encode), [account]);
+    this.emitRecoveryCancelled(account, Util.now());
     return new identity.cancel_recovery_result();
   }
 
@@ -487,9 +503,17 @@ export class Identity {
     rec.updated_at = now;
     this.identities.put(account, rec);
 
+    const voidedPolicy = state.pending_policy != null;
     state.pending_recovery = null;
+    // The previous owner's queued policy change must not outlive the recovery:
+    // apply_recovery_policy is permissionless, so a change queued by a leaked
+    // key (e.g. a single attacker guardian with zero delay) would otherwise be
+    // applied under the new owner with no window to cancel it. The active
+    // policy is kept.
+    state.pending_policy = null;
     this.recovery.put(account, state);
 
+    if (voidedPolicy) this.emitPolicyCancelled(account, now);
     const ev = new identity.recovered_event(account, previousOwner, newOwner, rec.device_epoch, now);
     System.event("osp.identity.recovered", Protobuf.encode(ev, identity.recovered_event.encode), [account, previousOwner, newOwner]);
     return new identity.execute_recovery_result();

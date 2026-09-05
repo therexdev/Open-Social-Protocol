@@ -8,9 +8,9 @@
  * Decoded values follow the SDK object model: addresses are Base58 strings, bytes are
  * Uint8Array, uint64 are decimal strings, enums are numbers.
  */
-import { decodeEventData, encode, parseKeyPackageSet, toBase58, toBase64url, type ContractName, type ProtoObject } from "@osp/sdk";
+import { encode, parseKeyPackageSet, toBase58, toBase64url, type ContractName, type ProtoObject } from "@osp/sdk";
 import type { IndexerDb, Row } from "./db.js";
-import { toJsonValue } from "./hash.js";
+import { decodeEventDataFixed } from "./decode.js";
 
 export interface LogEvent {
   height: number;
@@ -95,10 +95,6 @@ function timestampOf(event: LogEvent): string {
 /** Canonical (sorted) pair key for relationships. */
 export function pairKey(x: string, y: string): [string, string] {
   return x < y ? [x, y] : [y, x];
-}
-
-function json(value: unknown): string {
-  return JSON.stringify(toJsonValue(value));
 }
 
 function nextNotificationId(db: IndexerDb): number {
@@ -807,7 +803,7 @@ export function applyEvent(db: IndexerDb, event: LogEvent): void {
 
 /** Rehydrates a log row into a LogEvent (decoding the raw event bytes again). */
 export function logEventFromRow(row: EventLogRow): LogEvent | undefined {
-  const data = decodeEventData(row.name, row.data);
+  const data = decodeEventDataFixed(row.name, row.data);
   if (!data) return undefined;
   let impacted: string[] = [];
   try {

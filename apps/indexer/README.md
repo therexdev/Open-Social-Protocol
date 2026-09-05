@@ -177,6 +177,19 @@ cursors are opaque strings; CORS is enabled for every origin. Errors are
 position), `versions[]` carries the per-version transaction. `healthy` is true when a deployment is
 loaded, the last sync step succeeded and the indexed tip lags the head by at most `2 * OSP_BATCH_SIZE`.
 
+## Known upstream issues (worked around locally)
+
+* `@osp/proto` sorts descriptor keys recursively (`packages/proto/scripts/generate.mjs`, `sortKeys`), which
+  reorders enum `values`; `@osp/sdk` decodes with protobufjs `defaults: true`
+  (`packages/sdk/src/encoding.ts`, `decode`), so an enum field that is absent from the wire (the canonical
+  encoding of 0) decodes as the alphabetically first value: `audience_kind` 0 -> 2, `community_role` 0 -> 4,
+  `outcome_state` 0 -> 3, `relationship_status` 0 -> 2, `contract_status` 0 -> 1. `src/decode.ts` re-reads the
+  wire bytes and resets absent enum fields to 0 before anything is projected.
+* `decodeReceiptEvents` / `decodeBlockEvents` do not expose the transaction index or the raw event bytes and
+  do not skip reverted transactions, so `src/chain.ts` walks the receipts itself and calls `decodeEvent`.
+* `sponsor_set_event` carries only `endpoint`, `policy_version` and `active`; the policy details are read
+  from the chain (`sponsorship.get_sponsor`) or the sponsor's discovery document, not from this indexer.
+
 ## Tests
 
 `npm test -w apps/indexer` runs vitest against a `FakeProvider` (no network): a scripted history

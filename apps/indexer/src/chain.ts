@@ -3,8 +3,9 @@
  * decoded protocol events (ADR 0006: only events whose `source` is a configured protocol
  * contract address are kept; decoding uses the @osp/proto descriptors through @osp/sdk).
  */
-import { Provider, decodeEvent, type DecodedEvent, type Deployment, type ProviderInterface } from "@osp/sdk";
+import { Provider, type DecodedEvent, type Deployment, type ProviderInterface } from "@osp/sdk";
 import type { BlockJson, BlockReceipt } from "koilib";
+import { decodeProtocolEvent } from "./decode.js";
 
 export interface ChainHead {
   height: number;
@@ -73,7 +74,7 @@ export function parseBlockItem(item: BlockItem, deployment: Deployment): ChainBl
     if (receipt.reverted) return;
     const txId = receipt.id ?? "";
     (receipt.events ?? []).forEach((event, sequence) => {
-      const decoded = decodeEvent(event.source, event.name, event.data ?? "", deployment, {
+      const decoded = decodeProtocolEvent(event.source, event.name, event.data ?? "", deployment, {
         txId,
         blockHeight: String(height),
         blockId: id,
