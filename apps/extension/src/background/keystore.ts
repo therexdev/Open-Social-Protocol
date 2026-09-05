@@ -74,6 +74,8 @@ export class EncryptedStore<T> {
 
 export type KeyCache = Record<string, string>;
 
+export type KeyLookup = { status: "found"; key: Uint8Array } | { status: "missing" } | { status: "unavailable"; error: Error };
+
 export function epochKeyId(ref: EpochKeyRef): string {
   return `${ref.author}|${toBase64url(ref.audienceId)}|${ref.epoch}`;
 }
@@ -114,29 +116,43 @@ export class KeyStore {
     return this.cache.size;
   }
 
-  async resolve(ref: EpochKeyRef, me: KeyResolverIdentity, source: KeySource, options: { retryAfterMs?: number; now?: number } = {}): Promise<Uint8Array | undefined> {
+  /**
+   * Looks the key up: cache first, then the sealed keys the indexer serves for `me`. The result
+   * distinguishes "the indexer has no key for this epoch" from "the indexer could not be asked",
+   * which matters when the caller would otherwise mint a key (spec 5.2: one key per epoch).
+   * `missCache: false` bypasses the negative cache and always asks the indexer.
+   */
+  async lookup(ref: EpochKeyRef, me: KeyResolverIdentity, source: KeySource, options: { retryAfterMs?: number; now?: number; missCache?: boolean } = {}): Promise<KeyLookup> {
     await this.init();
     const cached = this.get(ref);
-    if (cached) return cached;
+    if (cached) return { status: "found", key: cached };
     const id = epochKeyId(ref);
     const now = options.now ?? Date.now();
-    const missedAt = this.misses.get(id);
-    if (missedAt !== undefined && now - missedAt < (options.retryAfterMs ?? 30_000)) return undefined;
+    if (options.missCache !== false) {
+      const missedAt = this.misses.get(id);
+      if (missedAt !== undefined && now - missedAt < (options.retryAfterMs ?? 30_000)) return { status: "missing" };
+    }
     let items: SealedKeyView[];
     try {
       items = await source.keys(me.account, { author: ref.author, audienceId: toBase64url(ref.audienceId), epoch: ref.epoch });
-    } catch {
-      return undefined;
+    } catch (error) {
+      return { status: "unavailable", error: error instanceof Error ? error : new Error(String(error)) };
     }
     for (const item of items) {
       const key = openSealedView(item, ref, me);
       if (key) {
         await this.put(ref, key);
-        return key;
+        return { status: "found", key };
       }
     }
     this.misses.set(id, now);
-    return undefined;
+    return { status: "missing" };
+  }
+
+  /** `lookup` for readers: the key or undefined (a missing key and an unreachable indexer both read as "no key"). */
+  async resolve(ref: EpochKeyRef, me: KeyResolverIdentity, source: KeySource, options: { retryAfterMs?: number; now?: number } = {}): Promise<Uint8Array | undefined> {
+    const result = await this.lookup(ref, me, source, options);
+    return result.status === "found" ? result.key : undefined;
   }
 
   forgetMisses(): void {

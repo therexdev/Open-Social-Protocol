@@ -17,7 +17,11 @@ export type ContentScriptType = (typeof CONTENT_SCRIPT_TYPES)[number];
 
 /** Payload size ceiling (bytes of the JSON encoding of the whole message). */
 export const MAX_MESSAGE_BYTES = 32 * 1024;
-/** Composer text ceiling (envelope limit is 4096 bytes; leave room for metadata). */
+/**
+ * Composer text ceiling in characters (a coarse schema guard). The binding limit is the encoded
+ * envelope size (`LIMITS.maxEnvelopeBytes`, 4096 bytes), checked byte-exactly at draft time with
+ * `src/shared/draft.ts` so a draft that cannot be published is never created.
+ */
 export const MAX_POST_CHARS = 3000;
 
 // ---------------------------------------------------------------------------
@@ -111,14 +115,25 @@ export interface StoredCrossPost extends CrossPostRecord {
   text?: string;
   /** Page the attempt came from (Facebook composer URL or the shared page). */
   url?: string;
-  /** The user activated the host's submit control before proposing (host side initiated by the user). */
+  /**
+   * The user activated the host's submit control before proposing. Informational only: the host
+   * side stays `pending` until the user marks it posted (with the post link) or failed.
+   */
   hostSubmitted?: boolean;
   title?: string;
   createdAt: number;
+  /** hex sha256 of the envelope of the latest Koinos attempt (known before the node answers). */
   contentHash?: string;
   versionNumber?: number;
   sequence?: string;
   epoch?: number;
+  /**
+   * hex post id the latest Koinos attempt would create (computed before submission). Becomes
+   * `postId` only once the chain or the indexer confirms it; a retry recomputes it.
+   */
+  expectedPostId?: string;
+  /** Transaction id of a Koinos attempt whose outcome is unknown; adopted as `koinosTxId` when the lookup confirms `expectedPostId`. */
+  pendingTxId?: string;
   blockHeight?: string;
   proof?: { manifestHash: string; txId: string; recordedAt: number; outcome: number };
   proofError?: string;

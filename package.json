@@ -17,11 +17,11 @@
     "apps/extension"
   ],
   "scripts": {
-    "build": "npm run build -w packages/proto -w packages/sdk -w apps/web",
-    "build:all": "npm run build -w packages/proto -w packages/sdk -w packages/contracts -w apps/indexer -w apps/sponsor -w apps/web -w apps/extension",
-    "build:contracts": "npm run build -w packages/contracts",
-    "build:web": "npm run build -w packages/proto -w packages/sdk -w apps/web",
-    "build:extension": "npm run build -w packages/proto -w packages/sdk -w apps/extension",
+    "build": "node scripts/build.mjs packages/proto packages/sdk apps/web",
+    "build:all": "node scripts/build.mjs packages/proto packages/sdk packages/contracts apps/indexer apps/sponsor apps/web apps/extension",
+    "build:contracts": "node scripts/build.mjs packages/contracts",
+    "build:web": "node scripts/build.mjs packages/proto packages/sdk apps/web",
+    "build:extension": "node scripts/build.mjs packages/proto packages/sdk apps/extension",
     "test": "npm run test --workspaces --if-present && npm run test:scripts",
     "test:contracts": "npm run test -w packages/contracts",
     "typecheck": "npm run typecheck --workspaces --if-present",

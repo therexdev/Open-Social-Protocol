@@ -43,7 +43,8 @@ export const facebookAdapter: ComposerAdapter = {
 
 export interface AdapterRuntime extends FeedCardsRuntime {
   document: Document;
-  location: { href: string };
+  /** The page URL at the moment of a proposal (Facebook navigates client-side; never freeze it at start). */
+  location: () => string;
   /** 16 random bytes as hex. */
   randomAttemptId: () => string;
   userGesture?: () => boolean;
@@ -56,7 +57,7 @@ export const TOAST_SENT = "Sent to Open Social - confirm in the side panel";
 function defaultRuntime(): AdapterRuntime {
   return {
     document,
-    location: { href: location.href },
+    location: () => location.href,
     sendMessage: (message) => chrome.runtime.sendMessage(message),
     randomAttemptId: () => Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join(""),
     userGesture: () => (navigator as Navigator & { userActivation?: { isActive: boolean } }).userActivation?.isActive ?? true,
@@ -85,7 +86,7 @@ export function startFacebookAdapter(runtime: AdapterRuntime = defaultRuntime())
       hostSite: "facebook" as const,
       text,
       attemptId: runtime.randomAttemptId(),
-      url: runtime.location.href,
+      url: runtime.location(),
       submitted: true,
       userGesture: runtime.userGesture?.() ?? true,
     };

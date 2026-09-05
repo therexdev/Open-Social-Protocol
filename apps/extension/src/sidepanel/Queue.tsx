@@ -3,6 +3,7 @@ import { AUDIENCE } from "@osp/sdk";
 import type { QueueItem } from "../background/app";
 import { audienceName, formatTime, shortAddress } from "../shared/format";
 import type { QueueAction } from "../shared/protocol";
+import { hostRefPrompt } from "../shared/queue";
 import { rpc } from "../shared/rpc";
 import { ConfirmSheet } from "./Composer";
 import { usePanel } from "./store";
@@ -21,6 +22,8 @@ const ACTION_LABEL: Record<QueueAction, string> = {
 function Item({ item, onConfirm }: { item: QueueItem; onConfirm: (item: QueueItem) => void }) {
   const { run, loadQueue, busy } = usePanel();
   const { record, explanation } = item;
+  const [hostUrl, setHostUrl] = useState("");
+  const asksHostLink = explanation.actions.includes("markHostPosted");
   async function act(action: QueueAction) {
     if (action === "confirm") {
       onConfirm(item);
@@ -28,7 +31,8 @@ function Item({ item, onConfirm }: { item: QueueItem; onConfirm: (item: QueueIte
     }
     const type = { retry: "crosspost.retry", reconcile: "crosspost.reconcile", recordProof: "crosspost.recordProof", discard: "crosspost.discard" }[action as Exclude<QueueAction, "confirm" | "markHostPosted" | "markHostFailed">];
     await run(async () => {
-      if (action === "markHostPosted") await rpc("crosspost.markHost", { attemptId: record.attemptId, outcome: "posted" });
+      // "posted" carries the link to the host post: it becomes the proof manifest's external_ref.
+      if (action === "markHostPosted") await rpc("crosspost.markHost", { attemptId: record.attemptId, outcome: "posted", detail: hostUrl.trim() });
       else if (action === "markHostFailed") await rpc("crosspost.markHost", { attemptId: record.attemptId, outcome: "failed" });
       else await rpc(type, { attemptId: record.attemptId });
     });
@@ -94,9 +98,21 @@ function Item({ item, onConfirm }: { item: QueueItem; onConfirm: (item: QueueIte
           </div>
         </div>
       </details>
+      {asksHostLink && (
+        <label style={{ marginTop: 8 }}>
+          <span className="lbl">{hostRefPrompt(record)}</span>
+          <input type="url" value={hostUrl} onChange={(e) => setHostUrl(e.target.value)} placeholder="https://www.facebook.com/…" />
+        </label>
+      )}
       <div className="row" style={{ marginTop: 8 }}>
         {explanation.actions.map((action) => (
-          <button key={action} className={action === "confirm" ? "primary" : action === "discard" ? "danger" : ""} onClick={() => act(action)} disabled={busy}>
+          <button
+            key={action}
+            className={action === "confirm" ? "primary" : action === "discard" ? "danger" : ""}
+            onClick={() => act(action)}
+            disabled={busy || (action === "markHostPosted" && hostUrl.trim().length === 0)}
+            title={action === "markHostPosted" ? "Needs the link to the post on the host site" : undefined}
+          >
             {ACTION_LABEL[action]}
           </button>
         ))}
@@ -115,7 +131,10 @@ export function Queue() {
   }, [loadQueue]);
 
   if (confirming) {
-    const hostNote = confirming.record.adapter === "facebook" ? "The Facebook post was submitted by you on Facebook; this only adds the Open Social copy." : undefined;
+    const hostNote =
+      confirming.record.adapter === "facebook"
+        ? "This only publishes the Open Social copy. Facebook publishes on its own; once you see the post there, paste its link in the queue to mark the Facebook side posted (or mark it failed)."
+        : undefined;
     return (
       <div>
         <div className="audience">

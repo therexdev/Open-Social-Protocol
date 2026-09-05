@@ -51,16 +51,18 @@ describe("facebook composer adapter", () => {
   it("sends only the composer text to the service worker and shows the toast", async () => {
     document.body.innerHTML = fixture("composer.html");
     const sendMessage = vi.fn(async (_message: unknown) => ({ ok: true, result: { queued: true } }));
+    let href = "https://www.facebook.com/";
     const running = startFacebookAdapter({
       document,
-      location: { href: "https://www.facebook.com/" },
+      location: () => href,
       sendMessage,
       randomAttemptId: () => "ab".repeat(16),
       userGesture: () => true,
     });
     expect(running).not.toBeNull();
     expect(document.documentElement.getAttribute(ADAPTER_ATTR)).toBe("1");
-    expect(startFacebookAdapter({ document, location: { href: "x" }, sendMessage, randomAttemptId: () => "" })).toBeNull(); // no double start
+    expect(startFacebookAdapter({ document, location: () => "x", sendMessage, randomAttemptId: () => "" })).toBeNull(); // no double start
+    href = "https://www.facebook.com/groups/42"; // Facebook navigated client-side since the script started
     (document.querySelector(`[${CONTROL_ATTR}] input`) as HTMLInputElement).checked = true;
     document.querySelector('[aria-label="Post"]')!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     const sent = sendMessage.mock.calls.map((call) => call[0] as { type: string });
@@ -70,7 +72,7 @@ describe("facebook composer adapter", () => {
     expect(proposals).toHaveLength(1);
     expect(proposals[0]).toEqual({
       type: "crosspost.propose",
-      payload: { hostSite: "facebook", text: "Hello from the fixture composer", attemptId: "ab".repeat(16), url: "https://www.facebook.com/", submitted: true, userGesture: true },
+      payload: { hostSite: "facebook", text: "Hello from the fixture composer", attemptId: "ab".repeat(16), url: "https://www.facebook.com/groups/42", submitted: true, userGesture: true },
     });
     // a second activation of the same text within the debounce window does not propose twice
     document.querySelector('[aria-label="Post"]')!.dispatchEvent(new MouseEvent("click", { bubbles: true }));

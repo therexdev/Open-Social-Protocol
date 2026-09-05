@@ -6,6 +6,7 @@
 import { AUDIENCE, type PostRef, type ProviderInterface, type ValueResult } from "@osp/sdk";
 import { bytesOf, fromHex, toBase64url, toHex } from "../shared/bytes";
 import { knownNetworks } from "../shared/config";
+import { draftSizeError } from "../shared/draft";
 import type { FetchLike } from "../shared/indexer";
 import {
   MAX_POST_CHARS,
@@ -66,6 +67,11 @@ export interface Background {
 
 const AUDIENCE_VALUES = [AUDIENCE.EVERYONE, AUDIENCE.FRIENDS] as const;
 
+/** The envelope's `external_ref`: the shared page's URL. Other adapters carry no page reference in the envelope. */
+function externalRefOf(record: StoredCrossPost): string | undefined {
+  return record.adapter === "generic" ? record.url : undefined;
+}
+
 export function createBackground(options: BackgroundOptions): Background {
   const api = options.api ?? chrome;
   const now = options.now ?? (() => Date.now());
@@ -124,9 +130,10 @@ export function createBackground(options: BackgroundOptions): Background {
       const clients = await registry.get();
       const client = requireProtocol(clients);
       if (!record.text) throw new Error("The draft has no text.");
+      // Only a shared page links the envelope to its URL; a Facebook proposal's page is the composer, not the post.
       const outcome = await publishPost(
-        { text: record.text, audience: record.audience, attemptId: record.attemptId, ...(record.url && record.adapter !== "sidepanel" && { externalRef: record.url }) },
-        { client, indexer: clients.indexer, session, vault, keys: await keysFor(session), payment: clients.resolved.payment, now },
+        { text: record.text, audience: record.audience, attemptId: record.attemptId, ...(externalRefOf(record) && { externalRef: externalRefOf(record) }) },
+        { client, indexer: clients.indexer, session, vault, keys: await keysFor(session), payment: clients.resolved.payment, sponsorUrls: clients.resolved.sponsorUrls, now },
       );
       feed.invalidate();
       return outcome;
@@ -136,17 +143,18 @@ export function createBackground(options: BackgroundOptions): Background {
       return client.reads.publications.get_post_by_idempotency_key({ author, idempotency_key: key });
     },
     lookupIndexer: async (author, record) => {
-      // The indexer API has no idempotency-key lookup; match the content hash of the envelope we built.
-      if (!record.contentHash) return null;
+      // The indexer API has no idempotency-key lookup; match the post id / content hash of the attempt we built.
+      const wantedId = record.expectedPostId ? toBase64url(fromHex(record.expectedPostId)) : undefined;
+      const wantedHash = record.contentHash ? toBase64url(fromHex(record.contentHash)) : undefined;
+      if (!wantedId && !wantedHash) return null;
       const clients = await registry.get();
       if (!clients.indexer.configured) return null;
-      const wanted = toBase64url(fromHex(record.contentHash));
       try {
         const page = await clients.indexer.accountPosts(author, { limit: 50 });
         for (const post of page.items ?? []) {
-          if (post.contentHash === wanted || (post.versions ?? []).some((v) => v.contentHash === wanted)) {
-            return { postId: toHex(bytesOf(post.postId)), txId: post.txId, blockHeight: post.blockHeight };
-          }
+          const byId = wantedId !== undefined && post.postId === wantedId;
+          const byHash = wantedHash !== undefined && (post.contentHash === wantedHash || (post.versions ?? []).some((v) => v.contentHash === wantedHash));
+          if (byId || byHash) return { postId: toHex(bytesOf(post.postId)), txId: post.txId, blockHeight: post.blockHeight };
         }
       } catch {
         return null;
@@ -158,7 +166,7 @@ export function createBackground(options: BackgroundOptions): Background {
       await requireDevice(session);
       const clients = await registry.get();
       const client = requireProtocol(clients);
-      return recordCrossPostProof(record, { client, indexer: clients.indexer, session, vault, payment: clients.resolved.payment, now });
+      return recordCrossPostProof(record, { client, indexer: clients.indexer, session, vault, payment: clients.resolved.payment, sponsorUrls: clients.resolved.sponsorUrls, now });
     },
     onChange: (records) => updateBadge(records, api, now()),
   });
@@ -167,12 +175,14 @@ export function createBackground(options: BackgroundOptions): Background {
     const current = await loadSettings();
     const next = sanitizeSettings({ ...current, ...patch }, defaultSettings(options.env));
     await saveSettings(next);
-    await adapters.sync(next);
+    // Re-read inside the adapter chain: a permissions.onAdded sync queued earlier must not win with stale settings.
+    await adapters.sync(loadSettings);
     return next;
   }
 
-  async function syncAdapters(): Promise<AdapterStatusView> {
-    return adapters.sync(await loadSettings());
+  /** Re-syncs the adapter registration with the stored settings (serialized with every other sync). */
+  function syncAdapters(): Promise<AdapterStatusView> {
+    return adapters.sync(loadSettings);
   }
 
   async function refreshBadge(): Promise<number> {
@@ -349,7 +359,11 @@ export function createBackground(options: BackgroundOptions): Background {
         url: optional(httpUrl()),
         title: optional(str({ max: 512 })),
       }),
-      handle: async (p) => queueItem(await crossposts.create(p, attemptId())),
+      handle: async (p) => {
+        const oversize = draftSizeError(p.text, p.adapter === "generic" ? p.url : undefined);
+        if (oversize) throw new Error(oversize);
+        return queueItem(await crossposts.create(p, attemptId()));
+      },
     }),
     "crosspost.confirm": defineHandler({
       source: "extension",
@@ -397,6 +411,8 @@ export function createBackground(options: BackgroundOptions): Background {
         if (!ctx.origin || !p.url.toLowerCase().startsWith(ctx.origin)) throw new Error("The page URL does not match the sender origin.");
         const settings = await loadSettings();
         if (!settings.facebookAdapter) throw new Error("The Facebook adapter is disabled.");
+        const oversize = draftSizeError(p.text);
+        if (oversize) throw new Error(oversize);
         const record = await crossposts.propose(p);
         return { attemptId: record.attemptId, queued: true, state: record.state };
       },

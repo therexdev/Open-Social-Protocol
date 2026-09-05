@@ -3,6 +3,12 @@
  * registered with chrome.scripting.registerContentScripts only while the optional host
  * permission is granted and the user enabled it in the options page. Disabling unregisters the
  * script and drops the permission.
+ *
+ * Every registration change runs through one promise chain: `permissions.onAdded` / `onRemoved`
+ * and the options page's enable/disable can fire together, and an unserialized pair of syncs
+ * could read stale settings, then unregister a script the other sync had just registered.
+ * Callers pass a settings *loader* so the settings are re-read inside the chain, after any
+ * save that was queued before.
  */
 import { FACEBOOK_ORIGINS } from "../shared/config";
 import type { AdapterStatusView } from "../shared/protocol";
@@ -12,8 +18,19 @@ export const FACEBOOK_SCRIPT_ID = "osp-facebook-adapter";
 export const FACEBOOK_SCRIPT_FILE = "content/facebook.js";
 
 type ChromeLike = Pick<typeof chrome, "permissions" | "scripting">;
+type AdapterSettings = Pick<Settings, "facebookAdapter" | "feedInsertion">;
+export type AdapterSettingsSource = AdapterSettings | (() => Promise<AdapterSettings>);
 
 export function adapterApi(api: ChromeLike = chrome) {
+  let chain: Promise<unknown> = Promise.resolve();
+
+  /** Serializes registration changes so concurrent syncs cannot interleave. */
+  function serialized<T>(fn: () => Promise<T>): Promise<T> {
+    const next = chain.then(fn, fn);
+    chain = next.catch(() => undefined);
+    return next;
+  }
+
   /** The Facebook host patterns the user currently grants (chrome://extensions lets them revoke one site at a time). */
   async function facebookGrantedOrigins(): Promise<string[]> {
     const granted: string[] = [];
@@ -72,24 +89,30 @@ export function adapterApi(api: ChromeLike = chrome) {
     await api.scripting.unregisterContentScripts({ ids: [FACEBOOK_SCRIPT_ID] });
   }
 
-  /** Registers when wanted + granted; unregisters otherwise. Returns the resulting status. */
-  async function sync(settings: Pick<Settings, "facebookAdapter" | "feedInsertion">): Promise<AdapterStatusView> {
-    const granted = await facebookGranted();
-    if (settings.facebookAdapter && granted) await registerFacebook();
-    else await unregisterFacebook();
-    return { facebook: { wanted: settings.facebookAdapter, granted, registered: await facebookRegistered() }, feedInsertion: settings.feedInsertion };
+  /** Registers when wanted + granted; unregisters otherwise. Serialized; the settings are read inside the chain. */
+  function sync(source: AdapterSettingsSource): Promise<AdapterStatusView> {
+    return serialized(async () => {
+      const settings = typeof source === "function" ? await source() : source;
+      const granted = await facebookGranted();
+      if (settings.facebookAdapter && granted) await registerFacebook();
+      else await unregisterFacebook();
+      return { facebook: { wanted: settings.facebookAdapter, granted, registered: await facebookRegistered() }, feedInsertion: settings.feedInsertion };
+    });
   }
 
-  async function disableFacebook(): Promise<void> {
-    await unregisterFacebook();
-    try {
-      await api.permissions.remove({ origins: FACEBOOK_ORIGINS });
-    } catch {
-      // the permission may already be gone
-    }
+  /** Unregisters the adapter and drops the host permission (serialized with the syncs). */
+  function disableFacebook(): Promise<void> {
+    return serialized(async () => {
+      await unregisterFacebook();
+      try {
+        await api.permissions.remove({ origins: FACEBOOK_ORIGINS });
+      } catch {
+        // the permission may already be gone
+      }
+    });
   }
 
-  async function status(settings: Pick<Settings, "facebookAdapter" | "feedInsertion">): Promise<AdapterStatusView> {
+  async function status(settings: AdapterSettings): Promise<AdapterStatusView> {
     return { facebook: { wanted: settings.facebookAdapter, granted: await facebookGranted(), registered: await facebookRegistered() }, feedInsertion: settings.feedInsertion };
   }
 

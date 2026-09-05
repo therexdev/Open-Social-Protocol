@@ -38,8 +38,10 @@ read-only mode (no chain writes); the indexer and endpoints can still be configu
 | Vault at rest | `chrome.storage.local["osp.vault"]` holds an SDK `VaultBlob` (scrypt + XChaCha20-Poly1305 under the passphrase). |
 | Unlocked secrets | Memory + `chrome.storage.session` (trusted contexts only, never written to disk, cleared when the browser closes). Auto-lock via `chrome.alarms` (default 15 min of inactivity, configurable). |
 | Device authority | By default this browser holds **only a device key** (`publish | react | comment | relationships`, 30-day expiry, authorized with `identity.authorize_device` signed by the owner key) plus the X25519 encryption secret needed to read friends-only posts. The identity seed is discarded after authorization unless the user opts to keep it. A device can never rotate keys, authorize devices, block or recover. Revocation happens from the web client. |
+| Payment | A device key holds no KOIN, so a device-only vault **publishes through a sponsor** (`ProtocolClient.submit` with `selfPayFallback: false`); without a configured sponsor the queue reports the attempt as failed before anything is sent, and the options page disables "Always pay myself". When the identity seed was kept, self-pay signs the transaction twice: the device as payee (its nonce, the protocol action) and the owner as payer (`src/background/publish.ts`, `submitOperations`). |
+| Indexer trust | The indexer is an untrusted convenience (spec section 1). Friends epoch keys are sealed only to accounts the **chain** confirms (`relationships.get_relationship` = ACTIVE) with the encryption key the chain publishes (`identity.get_identity`); the indexer's graph is a candidate list and its profile keys are never used for sealing. Feed content and `external_ref` links from other users are rendered as text unless they are http(s) URLs. |
 | Message validation | Every message is checked in order: object shape and 32 KiB size cap, `sender.id === chrome.runtime.id`, known type, source classification by origin (extension pages vs content scripts), then for content scripts: a real tab, top frame only, origin among the *granted* optional host permissions, only `crosspost.propose` and `feed.request`, per-tab rate limit, user gesture for proposals; finally a strict per-type payload schema that rejects unknown keys. Replies carry minimal data. |
-| Content scripts | No static `content_scripts` in the manifest and no remotely hosted code. The Facebook adapter is registered with `chrome.scripting.registerContentScripts` only after the user grants the optional host permission from the options page, runs in the **isolated world** with `matches` limited to the Facebook origins actually granted, and is unregistered (permission removed) when disabled. `permissions.onRemoved` / `onAdded` re-sync the registration when site access changes in `chrome://extensions`. |
+| Content scripts | No static `content_scripts` in the manifest and no remotely hosted code. The Facebook adapter is registered with `chrome.scripting.registerContentScripts` only after the user grants the optional host permission from the options page, runs in the **isolated world** with `matches` limited to the Facebook origins actually granted, and is unregistered (permission removed) when disabled. `permissions.onRemoved` / `onAdded` re-sync the registration when site access changes in `chrome://extensions`; every sync runs through one promise chain and re-reads the settings inside it, so a stale sync cannot undo a later enable. |
 | Publication consent | Nothing is published from a host page. A content-script proposal becomes a **draft**; publishing happens only from the side panel confirmation surface (audience + permanence notice, honest revocation notice for friends-only posts). |
 | CSP | `script-src 'self'; object-src 'self'`. protobufjs (used by the SDK and koilib) normally generates encoders with `Function()`, which this CSP forbids; `src/shared/protobufNoEval.ts` replaces `Type.prototype.setup` and `Type.generateConstructor` with interpreted equivalents (byte-for-byte parity tested against the generated code) and is the first import of the worker (`src/background/bootstrap.ts`). The whole test suite runs with code generation forbidden (`forbidProtobufCodegen` in `src/test/setup.ts`), and `scripts/smoke-dist.mjs` boots the built worker with `Function`/`eval` disabled. |
 | Telemetry | None. |
@@ -70,14 +72,23 @@ Every message is `{ type, payload? }` (no other keys); every reply is `{ ok: tru
 `transition` / `retryPlan` and the `Reconciler` lookup:
 
 * the idempotency key is `idempotencyKey(author, attemptId)` with the attempt id persisted before anything is sent;
-* `confirm` (side panel only) publishes; `TransactionOutcomeUnknownError` and network errors map to `koinosUnknown`;
-  reverts and RPC rejections to `koinosFailed`; a duplicate-key revert resolves to the existing post;
-* `retry` on an unknown outcome first calls `get_post_by_idempotency_key` through the `ProtocolClient`, then the
-  indexer (matching the envelope's content hash on `/v1/accounts/:account/posts`); Koinos is never republished once a post id is known;
-* the Facebook side is published by the user in Facebook's own UI: the proposal records that the submit control was
-  activated (`hostRef` = composer URL), and the queue lets the user mark the host side posted/failed when needed;
+* drafts are size-checked at creation (`src/shared/draft.ts`): the encoded suite-1 envelope must fit `LIMITS.maxEnvelopeBytes`
+  (4096 bytes), so a CJK/emoji post or a long shared link is refused before a draft exists, and the composer counts bytes;
+* `confirm` (side panel only) publishes; only failures of the submission itself can be unknown: `TransactionOutcomeUnknownError`
+  and transport errors raised by `submit` map to `koinosUnknown`, while errors before anything was sent (reads, indexer, payment,
+  encryption) are plain failures; reverts and RPC rejections map to `koinosFailed`; a duplicate-key revert resolves to the existing post;
+* an attempt keeps its `contentHash`, `expectedPostId` and (for unknown outcomes) `pendingTxId`, so `retry`/`reconcile` can
+  match it: first `get_post_by_idempotency_key` through the `ProtocolClient`, then the indexer (`/v1/accounts/:account/posts`
+  by post id or content hash); a confirmed post id adopts the pending transaction id; Koinos is never republished once a post id is known;
+* friends-only posts use the cached epoch key or the one the indexer serves sealed to me; when neither exists the audience is
+  **rotated** (`relationships.rotate_audience`) and the new epoch's key is minted, sealed to chain-verified friends and
+  distributed in the same transaction as the post, so one epoch never gets two keys (spec 5.2); an unreachable indexer is a failure, not a reason to mint;
+* the Facebook side is published by the user in Facebook's own UI and stays **pending** after confirmation (pressing Post is
+  not proof): the queue asks for the link to the Facebook post to mark it posted (it becomes `hostRef` and the manifest's
+  `external_ref`), or lets the user mark it failed (a PARTIAL proof);
 * once both sides are known the signed proof manifest (`buildProofManifest` + `signProofManifest`, device key) is recorded with
-  `record_cross_post` (best effort, retryable from the queue);
+  `record_cross_post` (best effort, retryable from the queue); side-panel and "share current page" attempts have no host side and
+  never record a proof (the shared link lives in the envelope's `external_ref`);
 * a periodic alarm turns interrupted submissions into `unknown` and resolves unknown outcomes by lookup only.
 
 The queue explains every state (`src/shared/queue.ts`) and exposes deterministic actions: Confirm, Retry, Reconcile,
@@ -94,8 +105,8 @@ the textbox `textContent`, a toast, and a bounded `MutationObserver` (childList 
 (`div[role="dialog"]` containing `[contenteditable="true"][role="textbox"]`; submit = `[aria-label]` matching
 `/^(post|publish)$/i`, else the last enabled button in the footer). When the checkbox is on and the user activates the
 submit control it sends `{ type: "crosspost.propose", payload: { hostSite, text, attemptId, url, submitted, userGesture } }`
-(a fresh 16-byte attempt id per activation, de-duplicated for 2 s) and shows "Sent to Open Social - confirm in the side
-panel"; the service worker stores a **draft** and sets the action badge. If the selectors fail nothing is injected and
+(a fresh 16-byte attempt id per activation, de-duplicated for 2 s, `url` read at proposal time because Facebook navigates
+client-side) and shows "Sent to Open Social - confirm in the side panel"; the service worker stores a **draft** and sets the action badge. If the selectors fail nothing is injected and
 nothing breaks: the side panel composer keeps working. `src/content/feedCards.ts` (off by default) inserts one labeled
 container "Open Social Protocol posts" (text only, up to 5 public posts) at the top of `[role="feed"]` or `main`; it asks
 the worker (`feed.request`) at most once per page and only when such a feed root exists. The content script is built as a
@@ -108,17 +119,30 @@ exactly one control is injected, the submit hook reads the composer text only, a
 
 `src/test/chromeMock.ts` provides an in-memory `chrome` (runtime messaging with sender simulation, storage areas, alarms,
 permissions, scripting registration, action badge, side panel, tabs); `src/test/support.ts` wires `createBackground` to it
-with a fake koilib provider that answers the reads the worker performs and records broadcasts. Setup files:
+with a fake koilib provider that answers the reads the worker performs (identities with real X25519 keys, devices,
+relationships, audience epochs, posts by idempotency key) and records broadcasts (key package sets, posts), a fake sponsor
+service (`https://sponsor.test`: signed discovery, co-signs and broadcasts through the fake provider) and a fake INDEXER API
+(`https://indexer.test`: graph, profiles, `/v1/keys` derived from the recorded key packages, feeds, posts) reachable through the
+`fetch` stub. Setup files:
 `src/test/nodeRealm.ts` (restores Node's `Uint8Array` on the jsdom global so `Buffer`/WebCrypto/noble outputs pass
 `instanceof` checks; a browser has one realm) and `src/test/setup.ts` (WebCrypto, `installNoEvalProtobuf`, code
-generation forbidden, chrome mock). Suites (`npm test -w apps/extension`, 39 tests):
+generation forbidden, chrome mock). Suites (`npm test -w apps/extension`):
 
 * `src/background/messages.test.ts` - router validation (sender id, origin, types, size, gesture, frames, rate limit);
-* `src/background/crosspost.test.ts` - orchestrator persistence and transitions incl. the `koinosUnknown` lookup path,
-  duplicate-key resolution, proof recording, sweep, plus an end-to-end run through the service worker (create account,
-  authorize device, publish with a node timeout, reconcile from chain, content-script proposals gated by the adapter state);
+* `src/background/crosspost.test.ts` - orchestrator persistence and transitions incl. the `koinosUnknown` lookup path (attempt
+  data kept, pending tx id adopted, indexer match), duplicate-key resolution, host reporting with the post link, PARTIAL proofs,
+  no proof for Koinos-only attempts, pre-submit errors as plain failures, sweep; plus end-to-end runs through the service worker
+  with the fake sponsor and indexer: device authorization, a sponsored publish with a node timeout reconciled from chain, a
+  friends-only post (chain-verified recipients against a hostile indexer, rotation + `distribute_keys` + `publish` in one
+  transaction, the friend decrypting, the author's feed decrypting through `/v1/keys` after the cache is gone), rotation instead of
+  a second key for an existing epoch, an unreachable indexer, device-only vs owner-mode payment, Facebook proof after the host
+  report, "share current page" without a proof, oversize drafts refused, content-script gating;
+* `src/background/adapters.test.ts` - serialized adapter registration (a stale sync cannot undo a later enable);
+* `src/background/keystore.test.ts` - key lookup: missing vs unreachable indexer, negative cache bypass, sealed keys opened and cached;
+* `src/shared/draft.test.ts` - byte-exact envelope size against `encryptContent`;
+* `src/shared/format.test.ts` - only http(s) external references become links;
 * `src/background/vault.test.ts` - device-key policy (owner seed not persisted unless opted in), auto-lock, import;
-* `src/content/adapter.test.ts` - adapter detection against the fixtures, observer bounds, labeled feed cards;
+* `src/content/adapter.test.ts` - adapter detection against the fixtures (URL read at proposal time), observer bounds, labeled feed cards;
 * `src/shared/protobufNoEval.test.ts` - byte parity of the no-eval protobuf runtime with protobufjs' generated code and
   proof that the installed runtime never generates code.
 

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { AUDIENCE } from "@osp/sdk";
 import type { QueueItem } from "../background/app";
+import { measureDraft } from "../shared/draft";
 import { audienceName } from "../shared/format";
 import { MAX_POST_CHARS, type PageInfo } from "../shared/protocol";
 import { rpc } from "../shared/rpc";
@@ -100,6 +101,8 @@ export function Composer() {
   }
 
   const canPublish = status?.deviceAuthorized && status.network.deployed;
+  // The chain limit is the encoded envelope (bytes), not characters: measure the draft as it will be published.
+  const size = measureDraft(text, url);
 
   if (review) {
     return (
@@ -119,8 +122,8 @@ export function Composer() {
       <h2>New post</h2>
       {!canPublish && <div className="notice">{status?.network.deployed ? "Authorize this browser to publish." : status?.network.message}</div>}
       <textarea value={text} maxLength={MAX_POST_CHARS} onChange={(e) => setText(e.target.value)} placeholder="What do you want to share?" />
-      <div className="muted" style={{ textAlign: "right" }}>
-        {text.length}/{MAX_POST_CHARS}
+      <div className={size.ok ? "muted" : "error"} style={{ textAlign: "right" }}>
+        {size.bytes}/{size.limit} bytes{!size.ok && ` · ${size.bytes - size.limit} over the limit: shorten the text${url ? " or remove the link" : ""}`}
       </div>
       <div className="audience">
         {[AUDIENCE.EVERYONE, AUDIENCE.FRIENDS].map((value) => (
@@ -150,7 +153,7 @@ export function Composer() {
           Share current page
         </button>
         <span style={{ flex: 1 }} />
-        <button className="primary" onClick={reviewDraft} disabled={busy || !canPublish || text.trim().length === 0}>
+        <button className="primary" onClick={reviewDraft} disabled={busy || !canPublish || text.trim().length === 0 || !size.ok}>
           Review…
         </button>
       </div>

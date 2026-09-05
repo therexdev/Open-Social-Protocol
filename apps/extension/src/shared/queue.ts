@@ -12,25 +12,55 @@ export interface QueueExplanation {
   attention: boolean;
 }
 
+/** The host site's name when the attempt has a host side; empty for Koinos-only attempts (side panel, shared page). */
 export function hostName(record: Pick<StoredCrossPost, "hostSite" | "adapter">): string {
   if (record.hostSite === "facebook") return "Facebook";
   if (record.hostSite) return record.hostSite;
-  return record.adapter === "generic" ? "the shared page" : "";
+  return "";
 }
 
 export const STALE_SUBMITTING_MS = 2 * 60_000;
 
-/** Records that need proof recording: both sides known, Koinos succeeded, an adapter with a host/external side. */
+/**
+ * Records that need a `record_cross_post` proof: an attempt with a real host side (Facebook)
+ * whose Koinos post exists and whose host outcome the user has reported (posted or failed).
+ * Koinos-only attempts (side panel, "share current page") never record a proof: nothing was
+ * cross-posted, and a shared page's link already lives in the envelope's `external_ref`.
+ */
 export function needsProof(record: StoredCrossPost): boolean {
-  if (record.adapter === "sidepanel") return false;
-  if (record.koinosStatus !== "ok" || !record.postId || !record.koinosTxId) return false;
-  if (record.hostStatus === "pending" || record.hostStatus === "unknown") return false;
+  if (record.adapter !== "facebook" || record.hostStatus === "not_required") return false;
+  if (record.koinosStatus !== "ok" || !record.postId) return false;
+  if (record.hostStatus !== "ok" && record.hostStatus !== "failed") return false;
   return record.proof === undefined;
 }
+
+/** What the side panel asks for when the user marks the host side as posted. */
+export function hostRefPrompt(record: Pick<StoredCrossPost, "hostSite">): string {
+  return record.hostSite === "facebook" ? "Link to the Facebook post (open the post and copy its address)" : "Link to the host post";
+}
+
+/** hostRef for a `posted` report: an http(s) link on the host site. Returns a reason when it is not. */
+export function hostRefProblem(record: Pick<StoredCrossPost, "hostSite">, hostRef: string | undefined): string | undefined {
+  if (!hostRef || hostRef.length > 2048) return "Paste the link to the post on the host site to mark it as posted.";
+  let url: URL;
+  try {
+    url = new URL(hostRef);
+  } catch {
+    return "The host post link is not a valid URL.";
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") return "The host post link must be an http(s) URL.";
+  if (record.hostSite === "facebook" && !(url.hostname === "facebook.com" || url.hostname.endsWith(".facebook.com"))) {
+    return "The link must point to facebook.com.";
+  }
+  return undefined;
+}
+
+const RETRY_NOTE = "Retry re-uses the same idempotency key, so a duplicate can never be created.";
 
 export function explain(record: StoredCrossPost, now: number = Date.now()): QueueExplanation {
   const host = hostName(record);
   const proofAction: QueueAction[] = needsProof(record) ? ["recordProof"] : [];
+  const hostPendingDetail = `${record.hostSubmitted ? `You pressed Post on ${host}. ` : ""}Once the ${host} post is visible, paste its link and mark it posted; if ${host} did not publish it, mark it failed. The proof is recorded on chain only once both sides are known.`;
   switch (record.state) {
     case "draft":
       return {
@@ -45,8 +75,16 @@ export function explain(record: StoredCrossPost, now: number = Date.now()): Queu
       if (record.koinosStatus === "ok" && record.hostStatus === "pending") {
         return {
           title: `Published on Open Social, ${host || "host"} side pending`,
-          detail: `The Koinos post exists and will never be published twice. Mark the ${host || "host"} side as posted or failed once you know.`,
+          detail: `The Koinos post exists and will never be published twice. ${hostPendingDetail}`,
           actions: ["markHostPosted", "markHostFailed"],
+          attention: true,
+        };
+      }
+      if (record.koinosStatus === "failed" && record.hostStatus === "pending") {
+        return {
+          title: "Not published on Open Social",
+          detail: `${record.lastError ?? "The publication failed."} ${RETRY_NOTE} The ${host || "host"} side is still yours to report.`,
+          actions: ["retry", "markHostPosted", "markHostFailed", "discard"],
           attention: true,
         };
       }
@@ -64,7 +102,7 @@ export function explain(record: StoredCrossPost, now: number = Date.now()): Queu
       return {
         title: "Published",
         detail: record.proof
-          ? `Published on Open Social${host ? ` and recorded with a signed proof (${host})` : ""}.`
+          ? `Published on Open Social and recorded with a signed proof (${host}).`
           : proofAction.length > 0
             ? `Published on Open Social. The signed proof manifest for ${host} has not been recorded on chain yet${record.proofError ? `: ${record.proofError}` : "."}`
             : "Published on Open Social.",
@@ -73,18 +111,21 @@ export function explain(record: StoredCrossPost, now: number = Date.now()): Queu
       };
     case "partial": {
       if (record.koinosStatus === "ok") {
+        // Host failed (a pending host is "submitting"): the Koinos post stays; the proof records the partial outcome.
         return {
-          title: `Published on Open Social, ${host} side not confirmed`,
-          detail: `The Koinos post exists (it will never be published twice). ${host === "Facebook" ? "If the Facebook post went through, mark it as posted; otherwise mark it failed." : `Mark the ${host} side as posted or failed.`}${record.lastError ? ` Last error: ${record.lastError}` : ""}`,
-          actions: record.hostStatus === "ok" ? [...proofAction] : ["markHostPosted", "markHostFailed", ...proofAction],
-          attention: true,
+          title: `Published on Open Social, ${host} side failed`,
+          detail: `The Koinos post exists (it will never be published twice). ${host} did not publish the post${record.lastError ? `: ${record.lastError}` : "."}${
+            record.proof ? " The partial outcome was recorded with a signed proof." : proofAction.length > 0 ? ` The signed proof of the partial outcome has not been recorded yet${record.proofError ? `: ${record.proofError}` : "."}` : ""
+          }`,
+          actions: proofAction,
+          attention: proofAction.length > 0,
         };
       }
       if (record.hostStatus === "not_required") {
         // A Koinos-only attempt (side panel / shared page) whose publication failed.
         return {
           title: "Not published on Open Social",
-          detail: `${record.lastError ?? "The publication failed."} Retry re-uses the same idempotency key, so a duplicate can never be created.`,
+          detail: `${record.lastError ?? "The publication failed."} ${RETRY_NOTE}`,
           actions: ["retry", "discard"],
           attention: true,
         };
@@ -106,7 +147,7 @@ export function explain(record: StoredCrossPost, now: number = Date.now()): Queu
     case "failed":
       return {
         title: "Publication failed",
-        detail: `${record.lastError ?? "The transaction was rejected."} Retry re-uses the same idempotency key, so a duplicate can never be created.`,
+        detail: `${record.lastError ?? "The transaction was rejected."} ${RETRY_NOTE}`,
         actions: ["retry", "discard"],
         attention: true,
       };
@@ -124,8 +165,4 @@ export function explain(record: StoredCrossPost, now: number = Date.now()): Queu
 
 export function needsAttention(record: StoredCrossPost, now: number = Date.now()): boolean {
   return explain(record, now).attention;
-}
-
-export function hostPendingDefault(record: StoredCrossPost): boolean {
-  return record.hostStatus === "pending" && record.adapter === "facebook";
 }

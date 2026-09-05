@@ -86,6 +86,8 @@ export function OptionsApp() {
   }
 
   if (!view || !adapters || !vault) return <div className="options">{error ? <div className="error">{error}</div> : "Loading…"}</div>;
+  // Device-only vaults cannot self-pay: the device key holds no KOIN/Mana and cannot sign as the account.
+  const deviceOnly = vault.mode === "device";
 
   return (
     <div className="options">
@@ -154,11 +156,19 @@ export function OptionsApp() {
         <label>
           <span className="lbl">Payment</span>
           <select value={form.payment ?? "sponsor-then-self"} onChange={(e) => setForm({ ...form, payment: e.target.value as Settings["payment"] })}>
-            <option value="sponsor-then-self">Sponsored when possible, otherwise pay myself</option>
-            <option value="self-only">Always pay myself</option>
+            <option value="sponsor-then-self">{deviceOnly ? "Sponsored (this browser cannot pay itself)" : "Sponsored when possible, otherwise pay myself"}</option>
+            <option value="self-only" disabled={deviceOnly}>
+              Always pay myself{deviceOnly ? " (needs the identity seed in this browser)" : ""}
+            </option>
             <option value="sponsor-only">Sponsored only (fail otherwise)</option>
           </select>
         </label>
+        {deviceOnly && (
+          <p className="muted">
+            This browser holds only a device key, which cannot pay for transactions itself: publications go through a sponsor.
+            {view.resolved.sponsorUrls.length === 0 && <strong> No sponsor is configured; add one above or the queue will report every publication as failed.</strong>}
+          </p>
+        )}
         <label>
           <span className="lbl">Auto-lock after minutes of inactivity (0 = never)</span>
           <input type="number" min={0} max={1440} value={form.autoLockMinutes ?? 15} onChange={(e) => setForm({ ...form, autoLockMinutes: Number(e.target.value) })} />

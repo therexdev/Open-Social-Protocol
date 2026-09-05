@@ -6,17 +6,21 @@
  *  - a draft is published only through `confirm` (the side panel's explicit confirmation);
  *  - the idempotency key is derived from the author and the persisted attempt id, so a retry can
  *    never create a second Koinos post;
- *  - an unknown outcome is looked up on chain (then the indexer) before anything is re-sent;
+ *  - an unknown outcome is looked up on chain (then the indexer) before anything is re-sent; the
+ *    content hash, expected post id and transaction id of the attempt are kept so the lookup can
+ *    match it and the transaction id survives reconciliation;
  *  - host-side publication is manual for adapters that cannot publish programmatically
- *    (Facebook): the user marks it, retries never touch the host;
- *  - once both sides are known the signed proof manifest is recorded (best effort, retryable).
+ *    (Facebook): the host side stays pending until the user reports it with the post link (or as
+ *    failed); retries never touch the host;
+ *  - once both sides are known the signed proof manifest is recorded (best effort, retryable);
+ *    Koinos-only attempts (side panel, shared page) never record a proof.
  */
 import { Reconciler, idempotencyKey, newCrossPostRecord, retryPlan, transition, type CrossPostRecord, type PostRef, type ValueResult } from "@osp/sdk";
 import { fromHex, toHex } from "../shared/bytes";
 import type { Adapter, CreatePayload, ProposePayload, StoredCrossPost } from "../shared/protocol";
-import { STALE_SUBMITTING_MS, explain, needsProof } from "../shared/queue";
+import { STALE_SUBMITTING_MS, explain, hostRefProblem, needsProof } from "../shared/queue";
 import type { KeyValueArea } from "../shared/storage";
-import { classifySubmitError, type PublishOutcome } from "./publish";
+import { classifySubmitError, type ProofResult, type PublishOutcome } from "./publish";
 
 export const CROSSPOSTS_KEY = "osp.crossposts";
 export const MAX_RECORDS = 200;
@@ -33,9 +37,9 @@ export interface CrossPostDeps {
   account: () => Promise<string | undefined>;
   publishKoinos: (record: StoredCrossPost) => Promise<PublishOutcome>;
   lookupChain: (author: string, key: Uint8Array) => Promise<ValueResult<PostRef> | undefined>;
-  /** Optional indexer lookup (may lag the chain). */
+  /** Optional indexer lookup (may lag the chain); matches the record's content hash / expected post id. */
   lookupIndexer?: (author: string, record: StoredCrossPost) => Promise<{ postId: string; txId?: string; blockHeight?: string } | null>;
-  recordProof?: (record: StoredCrossPost) => Promise<{ manifestHash: string; txId: string; outcome: number }>;
+  recordProof?: (record: StoredCrossPost) => Promise<ProofResult>;
   onChange?: (records: StoredCrossPost[]) => unknown;
 }
 
@@ -68,6 +72,17 @@ function merge(record: StoredCrossPost, next: CrossPostRecord): StoredCrossPost 
   if (next.postId === undefined) delete merged.postId;
   if (next.lastError === undefined) delete merged.lastError;
   return merged;
+}
+
+/**
+ * After a lookup confirmed the post id the attempt expected, the attempt's transaction id is the
+ * post's transaction id (the node accepted it; only the answer was lost).
+ */
+function adoptPendingTx(stored: StoredCrossPost, current: CrossPostRecord): CrossPostRecord {
+  if (current.koinosStatus === "ok" && current.koinosTxId === undefined && stored.pendingTxId && stored.expectedPostId && current.postId === stored.expectedPostId) {
+    return { ...current, koinosTxId: stored.pendingTxId };
+  }
+  return current;
 }
 
 export class CrossPostOrchestrator {
@@ -164,7 +179,11 @@ export class CrossPostOrchestrator {
     });
   }
 
-  /** The explicit confirmation: the only path that publishes a draft. */
+  /**
+   * The explicit confirmation: the only path that publishes a draft. The host side of a Facebook
+   * proposal stays pending: pressing Post on Facebook does not prove Facebook published it, so
+   * the user reports the outcome (with the post link) from the queue.
+   */
   confirm(attemptId: string, options: { audience?: number } = {}): Promise<StoredCrossPost> {
     return this.run(async () => {
       const file = await this.load();
@@ -180,10 +199,7 @@ export class CrossPostOrchestrator {
         audience: options.audience ?? record.audience,
         idempotencyKey: toHex(idempotencyKey(account, fromHex(record.attemptId))),
       };
-      let current = transition(baseRecord(prepared), { type: "retry", at: this.now() });
-      if (prepared.hostSubmitted && current.hostStatus === "pending") {
-        current = transition(current, { type: "hostSucceeded", hostRef: prepared.url ?? "submitted", at: this.now() });
-      }
+      const current = transition(baseRecord(prepared), { type: "retry", at: this.now() });
       prepared = await this.update(file, merge(prepared, current));
       return this.publish(file, prepared);
     });
@@ -201,23 +217,35 @@ export class CrossPostOrchestrator {
   private async publish(file: CrossPostFile, record: StoredCrossPost): Promise<StoredCrossPost> {
     let current = baseRecord(record);
     let extra: Partial<StoredCrossPost> = {};
+    let known: StoredCrossPost = record;
     try {
       const outcome = await this.deps.publishKoinos(record);
       current = transition(current, { type: "koinosSucceeded", txId: outcome.txId, postId: outcome.postId, at: this.now() });
-      extra = { contentHash: outcome.contentHash, versionNumber: 1, sequence: outcome.sequence, epoch: outcome.epoch };
+      extra = { contentHash: outcome.contentHash, versionNumber: 1, sequence: outcome.sequence, epoch: outcome.epoch, expectedPostId: outcome.postId };
     } catch (error) {
       const failure = classifySubmitError(error);
+      if (failure.attempt) {
+        // The attempt was built and sent: keep what identifies it so a lookup can match it.
+        const { contentHash, postId, sequence, epoch, transactionId } = failure.attempt;
+        extra = { contentHash, versionNumber: 1, sequence, epoch, expectedPostId: postId, ...(failure.kind === "unknown" && transactionId && { pendingTxId: transactionId }) };
+        known = { ...record, ...extra };
+      }
       if (failure.kind === "unknown") {
         current = transition(current, { type: "koinosUnknown", error: failure.message, at: this.now() });
       } else if (failure.kind === "duplicate") {
         current = transition(current, { type: "koinosFailed", error: failure.message, at: this.now() });
-        current = await this.reconciler(record).lookup(current, record.author ?? "");
+        current = adoptPendingTx(known, await this.reconciler(known).lookup(current, record.author ?? ""));
       } else {
         current = transition(current, { type: "koinosFailed", error: failure.message, at: this.now() });
       }
     }
     let next = merge({ ...record, ...extra }, current);
-    if (next.koinosStatus === "ok") delete next.text;
+    if (next.koinosStatus === "ok") {
+      delete next.text;
+      delete next.pendingTxId;
+    } else if (!extra.pendingTxId) {
+      delete next.pendingTxId;
+    }
     next = await this.update(file, next);
     return this.maybeProof(file, next);
   }
@@ -226,7 +254,11 @@ export class CrossPostOrchestrator {
     if (!needsProof(record) || !this.deps.recordProof) return record;
     try {
       const proof = await this.deps.recordProof(record);
-      const next: StoredCrossPost = { ...record, proof: { ...proof, recordedAt: this.now() } };
+      const next: StoredCrossPost = {
+        ...record,
+        ...(record.koinosTxId === undefined && proof.koinosTxId && { koinosTxId: proof.koinosTxId }),
+        proof: { manifestHash: proof.manifestHash, txId: proof.txId, outcome: proof.outcome, recordedAt: this.now() },
+      };
       delete next.proofError;
       return this.update(file, next);
     } catch (error) {
@@ -248,9 +280,9 @@ export class CrossPostOrchestrator {
       if (record.author && record.author !== account) throw new CrossPostError("This attempt belongs to another account.");
       let current = baseRecord(record);
       if (current.koinosStatus === "unknown") {
-        current = await this.reconciler(record).lookup(current, account);
+        current = adoptPendingTx(record, await this.reconciler(record).lookup(current, account));
         if (current.koinosStatus === "ok" || current.state === "reconcile_required") {
-          return this.maybeProof(file, await this.update(file, merge(record, current)));
+          return this.maybeProof(file, await this.update(file, this.settle(record, current)));
         }
       }
       const plan = retryPlan(current);
@@ -263,6 +295,16 @@ export class CrossPostOrchestrator {
       // Host side is manual (mark it from the queue); nothing else to do.
       return prepared;
     });
+  }
+
+  /** Merges a lookup result; a confirmed Koinos side drops the draft text and the pending transaction id. */
+  private settle(record: StoredCrossPost, current: CrossPostRecord): StoredCrossPost {
+    const next = merge(record, current);
+    if (next.koinosStatus === "ok") {
+      delete next.text;
+      delete next.pendingTxId;
+    }
+    return next;
   }
 
   /** Chain (then indexer) lookup only. Safe at any time; never publishes. */
@@ -278,23 +320,31 @@ export class CrossPostOrchestrator {
         current = transition(current, { type: "koinosUnknown", error: "interrupted before the node answered", at: this.now() });
       }
       if (current.state === "draft") return record;
-      current = await this.reconciler(record).lookup(current, account);
-      const next = await this.update(file, merge({ ...record, author: account, idempotencyKey: current.idempotencyKey }, current));
+      current = adoptPendingTx(record, await this.reconciler(record).lookup(current, account));
+      const next = await this.update(file, this.settle({ ...record, author: account, idempotencyKey: current.idempotencyKey }, current));
       return this.maybeProof(file, next);
     });
   }
 
-  /** The user reports the host side (Facebook publishes through its own UI). */
+  /**
+   * The user reports the host side (Facebook publishes through its own UI). "posted" needs the
+   * link to the host post: it becomes `hostRef` and the proof manifest's `external_ref`.
+   */
   markHost(attemptId: string, outcome: "posted" | "failed", detail?: string): Promise<StoredCrossPost> {
     return this.run(async () => {
       const file = await this.load();
       const record = file.records.find((r) => r.attemptId === attemptId);
       if (!record) throw new CrossPostError("Unknown attempt.");
       if (record.hostStatus === "not_required") throw new CrossPostError("This attempt has no host side.");
-      const event =
-        outcome === "posted"
-          ? { type: "hostSucceeded" as const, hostRef: detail || record.url || "posted", at: this.now() }
-          : { type: "hostFailed" as const, error: detail || "The host did not publish the post.", at: this.now() };
+      if (record.state === "draft") throw new CrossPostError("Confirm the attempt first.");
+      let event;
+      if (outcome === "posted") {
+        const problem = hostRefProblem(record, detail);
+        if (problem) throw new CrossPostError(problem);
+        event = { type: "hostSucceeded" as const, hostRef: detail as string, at: this.now() };
+      } else {
+        event = { type: "hostFailed" as const, error: detail || "The host did not publish the post.", at: this.now() };
+      }
       const next = await this.update(file, merge(record, transition(baseRecord(record), event)));
       return this.maybeProof(file, next);
     });
@@ -316,7 +366,8 @@ export class CrossPostOrchestrator {
       const file = await this.load();
       const record = file.records.find((r) => r.attemptId === attemptId);
       if (!record) return;
-      if (record.state === "submitting" && this.now() - record.updatedAt <= STALE_SUBMITTING_MS) throw new CrossPostError("Wait for the submission to finish.");
+      const inFlight = record.state === "submitting" && record.koinosStatus === "pending" && this.now() - record.updatedAt <= STALE_SUBMITTING_MS;
+      if (inFlight) throw new CrossPostError("Wait for the submission to finish.");
       file.records = file.records.filter((r) => r.attemptId !== attemptId);
       await this.save(file);
     });

@@ -1,10 +1,12 @@
 import { useEffect } from "react";
-import { audienceName, formatTime, shortAddress } from "../shared/format";
+import { audienceName, formatTime, safeHttpUrl, shortAddress } from "../shared/format";
 import type { FeedItem, FeedScope } from "../shared/protocol";
 import { usePanel } from "./store";
 
 function Post({ item }: { item: FeedItem }) {
   const unreadable = item.status !== "plain" && item.status !== "decrypted";
+  // external_ref is another user's data: only http(s) links are clickable, anything else is shown as text.
+  const link = safeHttpUrl(item.externalRef);
   return (
     <article className="post">
       <div className="meta">
@@ -20,9 +22,13 @@ function Post({ item }: { item: FeedItem }) {
       {unreadable ? <div className="muted">{item.message ?? item.status}</div> : <div className="text">{item.text}</div>}
       {item.externalRef && (
         <div className="ref">
-          <a href={item.externalRef} target="_blank" rel="noreferrer noopener">
-            {item.externalRef}
-          </a>
+          {link ? (
+            <a href={link} target="_blank" rel="noreferrer noopener">
+              {link}
+            </a>
+          ) : (
+            <span title="Not a web link">{item.externalRef.slice(0, 256)}</span>
+          )}
         </div>
       )}
       <div className="muted">

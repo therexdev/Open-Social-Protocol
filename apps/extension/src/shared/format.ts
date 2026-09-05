@@ -23,3 +23,18 @@ export function audienceName(audience: number): string {
 export function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
+
+/**
+ * An http(s) URL safe to render as a link from an extension page; undefined for anything else
+ * (other schemes such as data:, file: or chrome-extension:, malformed or oversized values).
+ * External references come from other users' posts and are untrusted.
+ */
+export function safeHttpUrl(value: unknown): string | undefined {
+  if (typeof value !== "string" || value.length === 0 || value.length > 2048) return undefined;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" || url.protocol === "http:" ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
