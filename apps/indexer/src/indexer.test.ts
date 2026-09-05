@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AUDIENCE, decode, decryptContent, fromBase64url, openEpochKey, toBase64url, type SealedKey } from "@osp/sdk";
 import { IndexerDb, KoinosChain, createIndexer, loadConfig, type Indexer } from "./index.js";
 import { FakeProvider } from "./testing/fake-chain.js";
-import { buildHistory, type History } from "./testing/history.js";
+import { buildHistory, sha256, type History } from "./testing/history.js";
 
 let history: History;
 let indexer: Indexer;
@@ -192,7 +192,7 @@ describe("GET /v1/posts", () => {
     expect(body.blockHeight).toBe("104");
     expect(body.createdAt).toBe(history.builder.timestampAt(104));
     expect(body.updatedAt).toBe(history.builder.timestampAt(106));
-    expect(body.media).toEqual([{ contentHash: toBase64url(Uint8Array.from(Buffer.from("img").length ? body.media[0].contentHash === "" ? [] : fromBase64url(body.media[0].contentHash) : [])), mime: "image/png", size: "1234", locations: ["ipfs://img1", "https://cdn.example/img1"], keyRef: "" }]);
+    expect(body.media).toEqual([{ contentHash: toBase64url(sha256("img")), mime: "image/png", size: "1234", locations: ["ipfs://img1", "https://cdn.example/img1"], keyRef: "" }]);
     expect(body.reactions).toEqual({ total: 1, byType: { "1": 1 }, viewer: [1] });
     expect(body.replyCount).toBe(1);
     expect(body.labels).toHaveLength(1);
