@@ -86,6 +86,8 @@ function IdentitySection() {
   const [busy, setBusy] = useState(false);
   const [confirmForget, setConfirmForget] = useState(false);
   const [exported, setExported] = useState(false);
+  const [keysForgotten, setKeysForgotten] = useState(false);
+  const cachedKeys = vault.session?.keys.size ?? 0;
 
   const exportIdentity = () => {
     try {
@@ -171,6 +173,21 @@ function IdentitySection() {
         )}
       </Details>
       {error && <Notice kind="error">{error}</Notice>}
+      <Details summary="Cached reading keys">
+        <p>
+          Keys for friends-only posts are cached on this device ({cachedKeys} cached), encrypted under your account. Forgetting them is safe: they are
+          fetched again from the network history when needed. Do this if posts stopped opening after switching indexers.
+        </p>
+        <Button
+          onClick={() => {
+            void vault.session?.keys.clear().then(() => setKeysForgotten(true));
+          }}
+          disabled={!vault.session}
+        >
+          Forget cached reading keys
+        </Button>
+        {keysForgotten && <Notice kind="success">Cached keys were forgotten.</Notice>}
+      </Details>
       <Details summary="Remove this account from this device">
         <p>Removes the encrypted vault and cached keys from this browser. Without an exported identity file the account cannot be recovered.</p>
         <Button variant="danger" onClick={() => setConfirmForget(true)}>

@@ -53,7 +53,14 @@ export function FeedPage() {
   const [tab, setTab] = useState<Tab>("public");
   const scope: FeedScope = tab === "friends" ? "friends" : "public";
   const viewer = status === "unlocked" ? account : undefined;
-  const feed = usePagedPosts((cursor) => indexer.feed({ scope, ...(viewer && { viewer }), ...(cursor && { cursor }), limit: 20 }), [indexer, scope, viewer]);
+  const feed = usePagedPosts(
+    async (cursor) => {
+      // The friends scope needs a viewer; without one there is nothing to ask the indexer for.
+      if (scope === "friends" && !viewer) return { items: [], nextCursor: null };
+      return indexer.feed({ scope, ...(viewer && { viewer }), ...(cursor && { cursor }), limit: 20 });
+    },
+    [indexer, scope, viewer],
+  );
 
   return (
     <div className="page">
@@ -75,7 +82,7 @@ export function FeedPage() {
       {tab === "friends" && !viewer && <Notice kind="info">Unlock your account to see posts from your friends.</Notice>}
       {feed.error && <Notice kind="error">{feed.error}</Notice>}
       {!indexer.configured && <Empty>Configure an indexer in Settings to load posts.</Empty>}
-      {indexer.configured && !feed.loading && feed.items.length === 0 && !feed.error && (
+      {indexer.configured && !feed.loading && feed.items.length === 0 && !feed.error && !(tab === "friends" && !viewer) && (
         <Empty>{tab === "friends" ? "Nothing from your friends yet. Posts you and your friends publish appear here." : "No posts yet. Be the first to say hello."}</Empty>
       )}
       <div className="post-list">

@@ -1,7 +1,7 @@
 /** Text + audience + optional media reference, ending in an explicit confirmation dialog. */
 import { useEffect, useMemo, useState } from "react";
 import { AUDIENCE, LIMITS } from "@osp/sdk";
-import { Button, ConfirmDialog, Field, Notice } from "../../components/ui";
+import { AccountLink, Button, ConfirmDialog, Field, Notice } from "../../components/ui";
 import { errorMessage } from "../../util/format";
 import type { DraftRecord } from "../../vault/store";
 import { newDraft } from "./drafts";
@@ -9,7 +9,19 @@ import { attachMediaFromUrl, buildContent, estimateEnvelopeBytes, type MediaAtta
 import { usePublish, type PublishOutcome } from "./usePublish";
 import { useCanAct } from "../session";
 import { useVault } from "../../vault/context";
+import { shortAddress } from "../../util/format";
 import { audienceLabel } from "../feed/PostCard";
+import { useProfileName } from "../profile/useProfileName";
+
+/** One friend who will receive the reading key: name from the indexer (a hint) plus the address (what is sealed to). */
+function Recipient({ account }: { account: string }) {
+  const name = useProfileName(account);
+  return (
+    <li>
+      <AccountLink account={account} name={name} /> <span className="mono muted">{shortAddress(account)}</span>
+    </li>
+  );
+}
 
 export interface ComposerFormProps {
   /** Existing draft to resume (keeps its attempt id). */
@@ -108,7 +120,8 @@ export function ComposerForm({ draft, replyTo, edit, defaultAudience = AUDIENCE.
     }
   };
 
-  const friendsExplanation = "Only people who are your friends when you publish can read this. It is encrypted on your device with a key shared with your current friends; removing a friend later stops future posts from reaching them but cannot take back copies they already have.";
+  const friendsExplanation =
+    "Only your friends can read this. It is encrypted on your device with a key shared with your friends; people you add as friends later also receive that key, so they can read your friends-only posts from the current period. Removing or blocking a friend switches to a new key for your later posts but cannot take back copies they already have.";
   const everyoneExplanation = "Anyone on the network, including people without an account, can read this. It is stored in the clear.";
 
   return (
@@ -201,11 +214,30 @@ export function ComposerForm({ draft, replyTo, edit, defaultAudience = AUDIENCE.
             <p>
               <strong>Audience: {audienceLabel(confirm.plan.audience)}.</strong> {confirm.plan.audience === AUDIENCE.FRIENDS ? friendsExplanation : everyoneExplanation}
             </p>
-            {confirm.plan.audience === AUDIENCE.FRIENDS && confirm.plan.epochKey && (
-              <p>
-                A reading key will be shared with {confirm.plan.recipients.length - 1} {confirm.plan.recipients.length === 2 ? "friend" : "friends"} in the same step.
-                {confirm.plan.skipped.length > 0 && ` ${confirm.plan.skipped.length} friend(s) have no encryption key registered yet and will not be able to read it.`}
-              </p>
+            {confirm.plan.audience === AUDIENCE.FRIENDS && (
+              <div className="recipients">
+                {confirm.plan.recipients.length > 0 ? (
+                  <>
+                    <p>
+                      {confirm.plan.epochKey ? "A new reading key" : "The current reading key"} will be shared, in the same step, with {confirm.plan.recipients.length === 1 ? "this friend" : `these ${confirm.plan.recipients.length} friends`}{" "}
+                      (confirmed on the network):
+                    </p>
+                    <ul className="list recipient-list">
+                      {confirm.plan.recipients.map((account) => (
+                        <Recipient key={account} account={account} />
+                      ))}
+                    </ul>
+                  </>
+                ) : (
+                  <p>Every friend already holds the reading key; no key is shared in this step.</p>
+                )}
+                {confirm.plan.skipped.length > 0 && (
+                  <p>
+                    {confirm.plan.skipped.length} friend(s) have no encryption key registered on the network yet and will not be able to read it:{" "}
+                    <span className="mono">{confirm.plan.skipped.map((a) => shortAddress(a)).join(", ")}</span>
+                  </p>
+                )}
+              </div>
             )}
             <p>
               Publishing is permanent: the network records it and copies may be kept by anyone who can read it. You can edit or mark it deleted later, but

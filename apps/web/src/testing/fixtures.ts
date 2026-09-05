@@ -3,7 +3,7 @@
  * packages/sdk/src/testing/fixtures.ts, which is not part of the SDK build) and a fake
  * indexer served through an injectable fetch.
  */
-import { Signer, encode, lookupType, type CallContractOperationJson, type Deployment, type OperationJson, type ProviderInterface, type TransactionJson, type TransactionReceipt } from "@osp/sdk";
+import { Signer, encode, lookupType, type BlockReceipt, type CallContractOperationJson, type Deployment, type OperationJson, type ProviderInterface, type TransactionJson, type TransactionReceipt } from "@osp/sdk";
 import { bytesOf, toBase64url } from "../util/bytes";
 import type { FetchLike } from "../api/indexer";
 
@@ -31,11 +31,20 @@ export function fixtureDeployment(network = "fixture"): Deployment {
   };
 }
 
+export interface FakeBlock {
+  block_id: string;
+  block_height: string;
+  receipt: Partial<BlockReceipt>;
+}
+
 export interface FakeProviderOptions {
   chainId?: string;
   rc?: Record<string, string>;
   onRead?: (op: CallContractOperationJson) => Uint8Array | undefined;
   onSend?: (tx: TransactionJson, broadcast: boolean) => Partial<TransactionReceipt> | undefined;
+  /** Chain history served by getTransactionsById / getBlocksById (key provenance checks). */
+  transactions?: Record<string, { transaction: TransactionJson; containing_blocks: string[] }>;
+  blocks?: Record<string, FakeBlock>;
 }
 
 export interface FakeProvider extends ProviderInterface {
@@ -81,8 +90,17 @@ export function fakeProvider(options: FakeProviderOptions = {}): FakeProvider {
     getNonce: async () => 0,
     getNextNonce: async () => nonceValue(1),
     getAccountRc: async (account: string) => options.rc?.[account] ?? "500000000",
-    getTransactionsById: notImplemented("getTransactionsById") as ProviderInterface["getTransactionsById"],
-    getBlocksById: notImplemented("getBlocksById") as ProviderInterface["getBlocksById"],
+    getTransactionsById: options.transactions
+      ? async (ids: string[]) => ({ transactions: ids.map((id) => options.transactions?.[id]).filter((t): t is { transaction: TransactionJson; containing_blocks: string[] } => t !== undefined) })
+      : (notImplemented("getTransactionsById") as ProviderInterface["getTransactionsById"]),
+    getBlocksById: options.blocks
+      ? async (ids: string[]) => ({
+          block_items: ids
+            .map((id) => options.blocks?.[id])
+            .filter((b): b is FakeBlock => b !== undefined)
+            .map((b) => ({ block_id: b.block_id, block_height: b.block_height, block: {}, receipt: b.receipt as BlockReceipt })),
+        })
+      : (notImplemented("getBlocksById") as ProviderInterface["getBlocksById"]),
     getHeadInfo: notImplemented("getHeadInfo") as ProviderInterface["getHeadInfo"],
     getChainId: async () => options.chainId ?? HARBINGER_CHAIN_ID,
     getBlocks: notImplemented("getBlocks") as ProviderInterface["getBlocks"],
@@ -101,6 +119,15 @@ export function fakeProvider(options: FakeProviderOptions = {}): FakeProvider {
     invokeSystemCall: notImplemented("invokeSystemCall") as ProviderInterface["invokeSystemCall"],
   };
   return provider;
+}
+
+/** A block receipt carrying one transaction receipt with the given protocol events. */
+export function fakeBlockReceipt(txId: string, events: Array<{ source: string; name: string; data: Uint8Array; impacted?: string[] }>): Partial<BlockReceipt> {
+  return {
+    transaction_receipts: [
+      fakeReceipt({ id: txId }, { events: events.map((e, sequence) => ({ sequence, source: e.source, name: e.name, data: toBase64url(e.data), impacted: e.impacted ?? [] })) }),
+    ],
+  };
 }
 
 /** Encodes a read-only result for `onRead` handlers. */

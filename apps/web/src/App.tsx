@@ -1,7 +1,7 @@
 /** Routes and the account gate: empty vault -> onboarding, locked -> unlock screen, unlocked -> app. */
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
-import { ServicesProvider, useServices } from "./api/services";
+import { ServicesProvider, useServices, type ServicesProviderProps } from "./api/services";
 import { Layout } from "./components/Layout";
 import { Spinner } from "./components/ui";
 import { ComposerPage } from "./features/composer/ComposerPage";
@@ -29,11 +29,15 @@ function RequireAccount({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
-/** Pages readable without an account (public feed, posts, profiles). */
+/**
+ * Pages readable without an account (public feed, posts, profiles). A visitor without a vault
+ * still starts at onboarding, but the link they opened is kept and restored afterwards.
+ */
 function Optional({ children }: { children: ReactNode }) {
   const status = useVault((s) => s.status);
+  const location = useLocation();
   if (status === "loading") return <Spinner label="Opening your vault" />;
-  if (status === "empty") return <Navigate to="/welcome" replace />;
+  if (status === "empty") return <Navigate to="/welcome" replace state={{ from: `${location.pathname}${location.search}` }} />;
   return <>{children}</>;
 }
 
@@ -48,8 +52,12 @@ function AccountEffects() {
   useEffect(() => {
     setAutoLockMs(autoLockMinutes * 60_000);
   }, [autoLockMinutes, setAutoLockMs]);
+  const lastServices = useRef(services);
   useEffect(() => {
-    if (status === "unlocked" && account) void check(services, account);
+    // A network / endpoint change may point at a chain where the account is not registered: re-check.
+    const force = lastServices.current !== services;
+    lastServices.current = services;
+    if (status === "unlocked" && account) void check(services, account, force);
     if (status === "empty") reset();
   }, [status, account, services, check, reset]);
   return null;
@@ -116,15 +124,18 @@ export function AppRoutes() {
 
 export interface AppProps {
   vault?: VaultStore;
+  /** Test hooks: settings store and service factory (fake indexer / provider). */
+  settings?: ServicesProviderProps["store"];
+  services?: ServicesProviderProps["factory"];
 }
 
-export function App({ vault = defaultVault }: AppProps) {
+export function App({ vault = defaultVault, settings, services }: AppProps) {
   useEffect(() => {
     if (vault.getState().status === "loading") void vault.getState().init();
   }, [vault]);
   return (
     <VaultProvider store={vault}>
-      <ServicesProvider>
+      <ServicesProvider {...(settings && { store: settings })} {...(services && { factory: services })}>
         <AccountEffects />
         <Layout>
           <AppRoutes />

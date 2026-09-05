@@ -46,7 +46,8 @@ export interface DraftRecord {
   updatedAt: number;
   /** hex attempt id; the idempotency key derives from it. */
   attemptId: string;
-  state: "draft" | "failed" | "unknown";
+  /** `submitting`: persisted before signing; a reload mid-submit leaves it for reconciliation. */
+  state: "draft" | "submitting" | "failed" | "unknown";
   lastError?: string;
 }
 

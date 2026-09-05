@@ -1,16 +1,57 @@
 /** Relationship actions (spec section 4) and the local ignore list for incoming requests. */
+import { LIMITS, buildKeyPackageSets, type OperationJson } from "@osp/sdk";
+import type { EpochKeyRef, KeyStore } from "../../api/keystore";
 import type { SubmitContext } from "../../tx/submit";
 import { submitAction } from "../../tx/submit";
 import { safeLocalStorage } from "../../util/webStorage";
+
+/** What accepting a request needs to hand the new friend the current reading key (spec 5.4, future-only). */
+export interface KeyShare {
+  keys: KeyStore;
+}
+
+export interface KeyShareOps {
+  ref: EpochKeyRef;
+  operations: OperationJson[];
+}
+
+/**
+ * distribute_keys operations sealing the author's current, trusted epoch key to `friend`, or
+ * undefined when there is nothing to share yet (no trusted key on this device, friend already
+ * holds it, friend has no encryption key on chain, chain unreachable). The next friends-only
+ * post distributes to every friend the chain confirms anyway.
+ */
+export async function currentKeyShare(ctx: SubmitContext, share: KeyShare, friend: string): Promise<KeyShareOps | undefined> {
+  const author = ctx.signer.getAddress();
+  try {
+    const epoch = (await ctx.client.reads.relationships.get_audience({ account: author }))?.value?.epoch ?? 0;
+    const ref: EpochKeyRef = { author, audienceId: new Uint8Array(0), epoch };
+    const entry = share.keys.trusted(ref);
+    if (!entry || entry.recipients.includes(friend)) return undefined;
+    const record = (await ctx.client.reads.identity.get_identity({ account: friend }))?.value;
+    if (!record || record.encryption_key.length !== LIMITS.keyBytes) return undefined;
+    const sets = buildKeyPackageSets({ author, epoch, epochKey: entry.key, recipients: [{ address: friend, publicKey: record.encryption_key, keyVersion: record.key_version || 1 }] });
+    const operations: OperationJson[] = [];
+    for (const set of sets) operations.push(await ctx.client.ops.publications.distribute_keys({ author, epoch, packages: set.bytes }));
+    return { ref, operations };
+  } catch {
+    return undefined;
+  }
+}
 
 export async function requestFriend(ctx: SubmitContext, target: string) {
   const op = await ctx.client.ops.relationships.request_friend({ requester: ctx.signer.getAddress(), recipient: target });
   return submitAction(ctx, [op], { label: "Sending the friend request", success: "Friend request sent" });
 }
 
-export async function acceptFriend(ctx: SubmitContext, requester: string) {
-  const op = await ctx.client.ops.relationships.accept_friend({ approver: ctx.signer.getAddress(), requester });
-  return submitAction(ctx, [op], { label: "Accepting the friend request", success: "You are now friends" });
+/** [accept_friend, distribute_keys(current epoch -> requester)] in one transaction when the key is at hand. */
+export async function acceptFriend(ctx: SubmitContext, requester: string, share?: KeyShare) {
+  const operations = [await ctx.client.ops.relationships.accept_friend({ approver: ctx.signer.getAddress(), requester })];
+  const shared = share ? await currentKeyShare(ctx, share, requester) : undefined;
+  if (shared) operations.push(...shared.operations);
+  const result = await submitAction(ctx, operations, { label: "Accepting the friend request", success: shared ? "You are now friends; they received your reading key" : "You are now friends" });
+  if (share && shared) await share.keys.addRecipients(shared.ref, [requester]);
+  return result;
 }
 
 export async function removeFriend(ctx: SubmitContext, peer: string) {

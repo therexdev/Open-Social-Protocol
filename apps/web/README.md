@@ -67,9 +67,16 @@ The `.htaccess` in `public/` is copied into `dist/`, so deep links work on Apach
   locked under a random secret that is wrapped by the passkey's PRF output. The passphrase always
   keeps working.
 * **Epoch keys and drafts** (IndexedDB): encrypted with AES-GCM under a key derived from the seed,
-  so nothing readable is written to disk. Drafts keep their attempt id so a retry reuses the same
-  idempotency key and never creates a duplicate post; the chain is asked for an existing post
-  before any retry (spec section 7).
+  so nothing readable is written to disk. Only *trusted* epoch keys are persisted: keys generated
+  on this device, and sealed keys from `/v1/keys/:me` whose `distribute_keys` transaction was
+  found on chain with a `keys_distributed` event by the author containing that very sealed key
+  (`src/api/keyProvenance.ts`). Anything the chain cannot confirm stays in memory, is used for
+  reading only and is never reused to encrypt new posts; Settings offers "Forget cached reading
+  keys". Each trusted key records which friends hold a copy, so the composer hands the current
+  key to friends who joined later (accepting a request does the same in one transaction).
+  Drafts keep their attempt id so a retry reuses the same idempotency key and never creates a
+  duplicate post; the record is written *before* the transaction is signed (state `submitting`)
+  and the chain is asked for an existing post before any retry (spec section 7).
 * `localStorage`: settings, the "seen" notification cursor, ignored friend requests. No plaintext
   posts, keys or seeds.
 
@@ -91,7 +98,9 @@ src/testing/           offline fixtures: synthetic Deployment, fake koilib provi
 * **Indexer**: run `apps/indexer` against the same deployment manifest and enter its URL in
   Settings (or build with `VITE_OSP_INDEXER_URL`). The client only needs the INDEXER API v1.
 * **Sponsor**: run `apps/sponsor` (or any service that implements `docs/sponsor-api.md`) and add
-  its URL in Settings. Sponsors are tried in order; when all refuse the account pays itself.
+  its URL in Settings. Sponsors are tried in order; when all refuse the account pays itself unless
+  Settings says "Sponsors only", in which case the action is refused with an explanation (also
+  when no sponsor is configured at all).
 * **RPC**: any Koinos node for the selected network.
 * **Client**: export the identity file from Settings and import it into another conforming client
   (for example the browser extension in `apps/extension`) or into this client on another device.
@@ -102,6 +111,10 @@ src/testing/           offline fixtures: synthetic Deployment, fake koilib provi
 
 * `src/vault/store.test.ts` - create / lock / unlock / auto-lock / export / import / passkey
 * `src/stores/settings.test.ts` - persistence, defaults, deployment selection and the not-deployed state
-* `src/api/decrypt.test.ts` - friends-only PostView decrypts for a sealed-key recipient and shows a no-key state otherwise
-* `src/features/composer/publish.test.ts` - `[distribute_keys, publish]` operations for a friends-only post, key reuse, edits, idempotency lookup
-* `src/App.test.tsx` - routing smoke render (onboarding, settings, unlock, composer)
+* `src/api/decrypt.test.ts` - friends-only PostView decrypts for a sealed-key recipient and shows a no-key state otherwise; indexer keys stay untrusted until the chain confirms them, poisoned caches recover
+* `src/api/keyProvenance.test.ts` - a sealed key is verified only against a `keys_distributed` event by the author in the named transaction
+* `src/features/composer/publish.test.ts` - `[distribute_keys, publish]` operations for a friends-only post, key reuse with distribution to friends who lack it, chain-authoritative recipients, edits, idempotency lookup
+* `src/features/composer/usePublish.test.ts` - the attempt record is persisted before submitting; keys and recipients are remembered afterwards
+* `src/features/friends/actions.test.ts` - accepting a request hands over the current reading key in the same transaction
+* `src/tx/submit.test.ts` - "sponsors only" never falls back to self-pay
+* `src/App.test.tsx` - routing smoke render (onboarding, settings, unlock, composer, deep links, registration banner, locked friends feed)

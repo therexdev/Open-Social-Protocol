@@ -1,15 +1,18 @@
 /**
  * Builds the operations for a publication (spec sections 2, 5, 6):
  *  - everyone: suite-0 envelope, `publish`;
- *  - friends: read relationships.get_audience for the epoch, reuse or create the epoch key,
- *    seal it to every active friend (+ self) and submit [distribute_keys..., publish] in ONE
- *    transaction.
- * The idempotency key derives from a persisted attempt id; callers never republish blindly
- * (see `findExistingPost`).
+ *  - friends: read relationships.get_audience for the epoch, reuse the trusted epoch key (cached
+ *    here or recovered from chain history and verified) or create one, seal it to every active
+ *    friend who does not hold it yet (+ self for a new key) and submit
+ *    [distribute_keys..., publish] in ONE transaction.
+ * Who is a friend and which encryption key they use comes from the chain; the indexer only
+ * supplies the candidate list (spec section 1). The idempotency key derives from a persisted
+ * attempt id; callers never republish blindly (see `findExistingPost`).
  */
 import {
   AUDIENCE,
   LIMITS,
+  RELATIONSHIP_STATUS,
   buildKeyPackageSets,
   contentHash as sha256Envelope,
   encodeContent,
@@ -25,7 +28,7 @@ import {
   type Recipient,
   type Rng,
 } from "@osp/sdk";
-import type { KeyStore } from "../../api/keystore";
+import type { KeySource, KeyStore, KeyVerifier } from "../../api/keystore";
 import { bytesOf, fromHex, toBase64url } from "../../util/bytes";
 
 /** The parts of ProtocolClient the composer needs (mockable). */
@@ -38,7 +41,10 @@ export interface PublishChain {
     };
   };
   reads: {
-    relationships: { get_audience(args: { account: string }): Promise<{ value?: { epoch: number } } | undefined> };
+    relationships: {
+      get_audience(args: { account: string }): Promise<{ value?: { epoch: number } } | undefined>;
+      get_relationship(args: { a: string; b: string }): Promise<{ value?: { status: number } } | undefined>;
+    };
     publications: {
       get_author_state(args: { author: string }): Promise<{ value?: { next_sequence: string } } | undefined>;
       get_post_by_idempotency_key(args: { author: string; idempotency_key: Uint8Array }): Promise<{ value?: { post_id: Uint8Array } } | undefined>;
@@ -47,14 +53,14 @@ export interface PublishChain {
   };
 }
 
-/** The parts of IndexerClient the composer needs (mockable). */
-export interface PublishIndexer {
+/** The parts of IndexerClient the composer needs (mockable): candidate friends and our sealed keys. */
+export interface PublishIndexer extends KeySource {
   graph(account: string): Promise<{ friends: Array<{ account: string }> }>;
-  profile(account: string): Promise<{ encryptionKey: string; keyVersion: number } | undefined>;
 }
 
 export interface PublishIdentity {
   account: string;
+  seed: Uint8Array;
   encryption: { secretKey: Uint8Array; publicKey: Uint8Array; keyVersion: number };
 }
 
@@ -72,6 +78,8 @@ export interface PublishInput {
   edit?: { postId: string; previousVersion: string; versionNumber: number };
   /** Persisted 16-byte attempt id (hex or bytes). */
   attemptId: Uint8Array | string;
+  /** Verifies on chain a sealed key the indexer serves before it is reused (keyProvenance.ts). */
+  verify?: KeyVerifier;
   lang?: string;
   createdAt?: number;
   rng?: Rng;
@@ -96,8 +104,9 @@ export interface PublishPlan {
   sequence: string;
   versionNumber: number;
   envelopeBytes: number;
-  /** Set when the plan distributes a (new) epoch key; store it after a successful submit. */
+  /** Set when the plan creates a new epoch key; store it after a successful submit. */
   epochKey?: Uint8Array;
+  /** Friends who receive a sealed copy of the epoch key in this transaction (self excluded). */
   recipients: string[];
   /** Friends without a registered encryption key (they cannot receive the key). */
   skipped: string[];
@@ -134,39 +143,47 @@ function mediaRefs(media: MediaAttachment[] | undefined): MediaRefInput[] {
   return (media ?? []).map((m) => ({ content_hash: m.contentHash, mime: m.mime, size: String(m.size), locations: [m.url] }));
 }
 
-/** Resolves every active friend's current encryption key (indexer first, chain as fallback). */
+const CHAIN_UNREACHABLE = "The network could not confirm your friends list, so the post was not sent. Check the RPC endpoints in Settings and try again.";
+
+/**
+ * Every active friend with the encryption key the chain records for them. The indexer only
+ * proposes candidates: each is confirmed with relationships.get_relationship and keyed from
+ * identity.get_identity, so a wrong or hostile indexer cannot add a reader or swap a key.
+ * Fails closed when the chain cannot be consulted.
+ */
 export async function collectRecipients(input: Pick<PublishInput, "chain" | "indexer" | "me">): Promise<{ recipients: Recipient[]; skipped: string[] }> {
-  const graph = await input.indexer.graph(input.me.account);
-  const recipients: Recipient[] = [{ address: input.me.account, publicKey: input.me.encryption.publicKey, keyVersion: input.me.encryption.keyVersion }];
+  let candidates: string[];
+  try {
+    const graph = await input.indexer.graph(input.me.account);
+    candidates = [...new Set(graph.friends.map((f) => f.account))];
+  } catch (error) {
+    throw new PublishError(`Your friends list could not be loaded from the indexer (${error instanceof Error ? error.message : String(error)}). The post was not sent.`);
+  }
+  const recipients: Recipient[] = [];
   const skipped: string[] = [];
-  for (const friend of graph.friends) {
-    if (friend.account === input.me.account) continue;
-    let publicKey: Uint8Array | undefined;
-    let keyVersion = 1;
+  for (const friend of candidates) {
+    if (friend === input.me.account) continue;
+    let status: number | undefined;
     try {
-      const profile = await input.indexer.profile(friend.account);
-      if (profile && profile.encryptionKey) {
-        publicKey = bytesOf(profile.encryptionKey);
-        keyVersion = profile.keyVersion || 1;
-      }
+      status = (await input.chain.reads.relationships.get_relationship({ a: input.me.account, b: friend }))?.value?.status;
     } catch {
-      // fall through to the chain
+      throw new PublishError(CHAIN_UNREACHABLE);
     }
-    if (!publicKey || publicKey.length !== LIMITS.keyBytes) {
-      try {
-        const record = (await input.chain.reads.identity.get_identity({ account: friend.account }))?.value;
-        if (record && record.encryption_key.length === LIMITS.keyBytes) {
-          publicKey = record.encryption_key;
-          keyVersion = record.key_version || 1;
-        }
-      } catch {
-        // unreachable chain: skip this friend for now
-      }
+    if (status !== RELATIONSHIP_STATUS.ACTIVE) continue; // not a friend according to the chain
+    let record: { encryption_key: Uint8Array; key_version: number } | undefined;
+    try {
+      record = (await input.chain.reads.identity.get_identity({ account: friend }))?.value;
+    } catch {
+      throw new PublishError(CHAIN_UNREACHABLE);
     }
-    if (publicKey && publicKey.length === LIMITS.keyBytes) recipients.push({ address: friend.account, publicKey, keyVersion });
-    else skipped.push(friend.account);
+    if (record && record.encryption_key.length === LIMITS.keyBytes) recipients.push({ address: friend, publicKey: record.encryption_key, keyVersion: record.key_version || 1 });
+    else skipped.push(friend);
   }
   return { recipients, skipped };
+}
+
+function addressOf(recipient: Recipient): string {
+  return typeof recipient.address === "string" ? recipient.address : toBase64url(recipient.address);
 }
 
 /** The author's current friends-audience epoch from the chain (0 when never rotated). */
@@ -195,14 +212,27 @@ export async function buildPublishPlan(input: PublishInput): Promise<PublishPlan
   if (input.audience === AUDIENCE.FRIENDS) {
     epoch = await currentEpoch(input.chain, input.me.account);
     const ref = { author: input.me.account, audienceId: new Uint8Array(0), epoch };
-    epochKey = input.keys.get(ref);
-    if (!epochKey) {
+    // The key this account already uses for the epoch: cached and trusted here, or recovered from
+    // chain history (through the indexer) and verified on chain. Never an unverified copy.
+    const existing = await input.keys.resolveTrusted(ref, input.me, input.indexer, input.verify);
+    if (!existing.entry && existing.unverifiable) {
+      throw new PublishError("This account already has a reading key for the current period, but it could not be verified on the network. Try again when the network is reachable.");
+    }
+    const collected = await collectRecipients(input);
+    skipped = collected.skipped;
+    let toSeal: Recipient[];
+    if (existing.entry) {
+      epochKey = existing.entry.key;
+      const holders = new Set(existing.entry.recipients);
+      toSeal = collected.recipients.filter((r) => !holders.has(addressOf(r)));
+    } else {
       newKey = newEpochKey(input.rng);
       epochKey = newKey;
-      const collected = await collectRecipients(input);
-      recipients = collected.recipients.map((r) => (typeof r.address === "string" ? r.address : toBase64url(r.address)));
-      skipped = collected.skipped;
-      const sets = buildKeyPackageSets({ author: input.me.account, epoch, epochKey, recipients: collected.recipients, ...(input.rng && { rng: input.rng }) });
+      toSeal = [{ address: input.me.account, publicKey: input.me.encryption.publicKey, keyVersion: input.me.encryption.keyVersion }, ...collected.recipients];
+    }
+    recipients = toSeal.map(addressOf).filter((a) => a !== input.me.account);
+    if (toSeal.length > 0) {
+      const sets = buildKeyPackageSets({ author: input.me.account, epoch, epochKey, recipients: toSeal, ...(input.rng && { rng: input.rng }) });
       for (const set of sets) {
         operations.push(await input.chain.ops.publications.distribute_keys({ author: input.me.account, epoch, packages: set.bytes }));
       }

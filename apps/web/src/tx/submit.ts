@@ -67,9 +67,22 @@ export function humanizeError(error: unknown): string {
   return message;
 }
 
+export const NO_SPONSOR_MESSAGE = "No sponsor is configured and your settings do not allow paying from your own account. Add a sponsor in Settings or change who pays.";
+
+/** Why the payment preference cannot be honoured right now, if it cannot. */
+export function paymentBlocker(payment: PaymentPreference, sponsorCount: number): string | undefined {
+  return payment === "sponsor-only" && sponsorCount === 0 ? NO_SPONSOR_MESSAGE : undefined;
+}
+
 /** Submits operations with the payment preference; reports progress through toasts. */
 export async function submitAction(ctx: SubmitContext, operations: OperationJson[], options: SubmitOptions): Promise<SubmitResult> {
   const toasts = useToasts.getState();
+  // "Sponsors only" with an empty pool would silently fall through to self-pay in the SDK.
+  const blocker = paymentBlocker(ctx.payment, ctx.client.sponsors.sponsors.length);
+  if (blocker) {
+    toasts.push({ kind: "error", title: `${options.label}: not sent`, message: blocker, sticky: true });
+    throw new ActionError(blocker);
+  }
   const id = toasts.push({ kind: "pending", title: options.label, message: "Waiting for the network…", sticky: true });
   try {
     const result = await ctx.client.submit({

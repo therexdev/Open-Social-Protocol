@@ -276,6 +276,11 @@ img {
 .card-title {
   margin: 0;
 }
+.recipient-list {
+  max-height: 12rem;
+  overflow: auto;
+}
+
 .list {
   list-style: none;
   padding: 0;

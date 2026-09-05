@@ -124,3 +124,53 @@ describe("post decryption pipeline", () => {
     expect(opened.status).toBe("tombstone");
   });
 });
+
+describe("sealed keys served by the indexer are untrusted until the chain confirms them", () => {
+  const friendId = { account: friend.account, seed: friend.seed, encryption: friend.encryption };
+  const ref = (epoch: number) => ({ author: author.account, audienceId: new Uint8Array(0), epoch });
+
+  it("keeps a key in memory only when its provenance cannot be checked", async () => {
+    const { post, items } = friendsPost(6);
+    const keys = new KeyStore();
+    const opened = await openPost(post, { chainId, keys, me: friendId, keySource: source(items), verify: async () => ({ status: "unavailable", reason: "rpc down" }) });
+    expect(opened.status).toBe("decrypted");
+    expect(keys.entry(ref(6))?.trusted).toBe(false);
+    expect(keys.trusted(ref(6))).toBeUndefined();
+  });
+
+  it("persists a key with the recipients the chain names once verified", async () => {
+    const { post, items } = friendsPost(7);
+    const keys = new KeyStore();
+    const opened = await openPost(post, { chainId, keys, me: friendId, keySource: source(items), verify: async () => ({ status: "verified", recipients: [author.account, friend.account] }) });
+    expect(opened.status).toBe("decrypted");
+    expect(keys.trusted(ref(7))?.recipients).toEqual([author.account, friend.account]);
+  });
+
+  it("never adopts a sealed key the chain rejects", async () => {
+    const { post, items } = friendsPost(8);
+    const keys = new KeyStore();
+    const opened = await openPost(post, { chainId, keys, me: friendId, keySource: source(items), verify: async () => ({ status: "rejected", reason: "not on chain" }) });
+    expect(opened.status).toBe("no-key");
+    expect(keys.has(ref(8))).toBe(false);
+  });
+
+  it("recovers from a poisoned cache by trying the other sealed copies and drops the bad one", async () => {
+    const { post, items, epochKey } = friendsPost(9);
+    const keys = new KeyStore();
+    keys.remember(ref(9), newEpochKey()); // an unverified key that does not open the author's posts
+    const opened = await openPost(post, { chainId, keys, me: friendId, keySource: source(items) });
+    expect(opened.status).toBe("decrypted");
+    expect(keys.get(ref(9)) && Buffer.from(keys.get(ref(9))!).toString("hex")).toBe(Buffer.from(epochKey).toString("hex"));
+  });
+
+  it("forgets an unverified key that does not open the post and keeps a trusted one", async () => {
+    const { post } = friendsPost(10);
+    const keys = new KeyStore();
+    keys.remember(ref(10), newEpochKey());
+    expect((await openPost(post, { chainId, keys, me: friendId })).status).toBe("error");
+    expect(keys.has(ref(10))).toBe(false);
+    await keys.put(ref(10), newEpochKey(), { recipients: [author.account] });
+    expect((await openPost(post, { chainId, keys, me: friendId })).status).toBe("error");
+    expect(keys.trusted(ref(10))).toBeDefined();
+  });
+});

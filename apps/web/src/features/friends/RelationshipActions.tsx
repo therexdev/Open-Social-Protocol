@@ -5,7 +5,7 @@ import { useServices } from "../../api/services";
 import { Button, ConfirmDialog } from "../../components/ui";
 import { useSettings } from "../../stores/settings";
 import { useVault } from "../../vault/context";
-import { useCanAct, useSubmitContext } from "../session";
+import { useCanAct, useSession, useSubmitContext } from "../session";
 import { BLOCK_WARNING, REMOVE_FRIEND_WARNING, acceptFriend, block, follow, removeFriend, requestFriend, unblock, unfollow } from "./actions";
 
 export function useGraph(account: string | undefined) {
@@ -42,6 +42,7 @@ export function RelationshipActions({ target, graph, onChanged, compact }: Relat
   const me = useVault((s) => s.account);
   const can = useCanAct();
   const ctx = useSubmitContext();
+  const session = useSession();
   const muted = useSettings((s) => s.muted);
   const update = useSettings((s) => s.update);
   const [busy, setBusy] = useState(false);
@@ -82,7 +83,7 @@ export function RelationshipActions({ target, graph, onChanged, compact }: Relat
             </Button>
           )}
           {incoming && (
-            <Button variant="primary" onClick={() => ctx && void run(() => acceptFriend(ctx, target))} disabled={disabled}>
+            <Button variant="primary" onClick={() => ctx && void run(() => acceptFriend(ctx, target, session && { keys: session.keys }))} disabled={disabled}>
               Accept request
             </Button>
           )}

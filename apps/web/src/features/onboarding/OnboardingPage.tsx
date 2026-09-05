@@ -1,6 +1,6 @@
 /** Primary journey step 1-2: create or import an account, protect it, register on chain. */
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useServices } from "../../api/services";
 import { buildProfileDocument } from "../../api/profiles";
 import { Button, Card, Field, Notice } from "../../components/ui";
@@ -82,9 +82,17 @@ export function RegisterStep({ onDone }: { onDone: () => void }) {
   );
 }
 
+/** Where to go once onboarding is done: the link the visitor opened, else the feed. */
+export function returnPath(state: unknown): string {
+  const from = (state as { from?: unknown } | null)?.from;
+  return typeof from === "string" && from.startsWith("/") && !from.startsWith("//") && from !== "/welcome" ? from : "/";
+}
+
 export function OnboardingPage() {
   const vault = useVault();
   const navigate = useNavigate();
+  const location = useLocation();
+  const from = returnPath(location.state);
   const [mode, setMode] = useState<Mode>(vault.status === "unlocked" ? "register" : "choose");
   const [passphrase, setPassphrase] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -125,6 +133,7 @@ export function OnboardingPage() {
   return (
     <div className="page narrow">
       <h1>Welcome to Open Social</h1>
+      {from !== "/" && <p className="muted">After setting up your account you will return to the page you opened.</p>}
       {mode === "choose" && (
         <Card>
           <p>
@@ -193,7 +202,7 @@ export function OnboardingPage() {
               Your account address: <span className="mono">{vault.account}</span>
             </p>
           )}
-          <RegisterStep onDone={() => navigate("/")} />
+          <RegisterStep onDone={() => navigate(from)} />
         </Card>
       )}
     </div>

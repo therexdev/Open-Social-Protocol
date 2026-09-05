@@ -69,7 +69,14 @@ export function ComposerPage() {
                 <div>
                   <p className="preview-line">{draft.text}</p>
                   <p className="muted">
-                    {draft.state === "unknown" ? "Outcome unknown: the network did not answer. Retry checks whether it was published before sending again." : draft.state === "failed" ? `Failed: ${draft.lastError ?? "unknown error"}` : "Draft"} · {formatDateTime(draft.updatedAt)}
+                    {draft.state === "unknown"
+                      ? "Outcome unknown: the network did not answer. Retry checks whether it was published before sending again."
+                      : draft.state === "submitting"
+                        ? "Interrupted while sending. Retry checks whether it was published before sending again."
+                        : draft.state === "failed"
+                          ? `Failed: ${draft.lastError ?? "unknown error"}`
+                          : "Draft"}{" "}
+                    · {formatDateTime(draft.updatedAt)}
                   </p>
                 </div>
                 <div className="row">

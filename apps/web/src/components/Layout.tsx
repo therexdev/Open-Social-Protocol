@@ -3,6 +3,7 @@ import { type ReactNode } from "react";
 import { NavLink, Link } from "react-router-dom";
 import { APP_NAME, DOCS } from "../config";
 import { useServices } from "../api/services";
+import { useAccount } from "../stores/account";
 import { useVault } from "../vault/context";
 import { useNotificationsBadge } from "../features/notifications/badge";
 import { Toasts } from "./Toasts";
@@ -24,6 +25,20 @@ function IndexerBanner() {
   return (
     <div className="banner banner-info" role="status">
       No indexer is configured, so feeds and profiles cannot be loaded. Add one in <Link to="/settings">Settings</Link> (or run your own: apps/indexer).
+    </div>
+  );
+}
+
+/** Primary-journey step 2 is easy to skip; keep pointing at it until the account is on chain. */
+function RegistrationBanner() {
+  const status = useVault((s) => s.status);
+  const registration = useAccount((s) => s.registration);
+  const { resolved } = useServices();
+  if (status !== "unlocked" || !resolved.deployed || registration !== "unregistered") return null;
+  return (
+    <div className="banner banner-warning" role="status">
+      <strong>Your account is not registered on the network yet.</strong> Friends cannot share private posts with you and you cannot post until it is.{" "}
+      <Link to="/welcome">Register now</Link>.
     </div>
   );
 }
@@ -71,6 +86,7 @@ export function Layout({ children }: { children: ReactNode }) {
       </header>
       <DeploymentBanner />
       <IndexerBanner />
+      <RegistrationBanner />
       <main id="main" className="main" tabIndex={-1}>
         {children}
       </main>
