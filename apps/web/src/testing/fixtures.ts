@@ -91,7 +91,7 @@ export function fakeProvider(options: FakeProviderOptions = {}): FakeProvider {
     sendTransaction: async (transaction, broadcast = true) => {
       provider.sent.push({ transaction, broadcast });
       const receipt = fakeReceipt(transaction, options.onSend?.(transaction, broadcast));
-      return { receipt, transaction };
+      return { receipt, transaction: { ...transaction, wait: async () => ({ blockId: `block-for-${transaction.id ?? ""}`, blockNumber: 101 }) } };
     },
     readContract: async (operation) => {
       provider.reads.push(operation);

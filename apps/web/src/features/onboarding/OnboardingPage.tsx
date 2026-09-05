@@ -9,7 +9,7 @@ import { useSettings } from "../../stores/settings";
 import { submitAction } from "../../tx/submit";
 import { readFileText } from "../../util/download";
 import { errorMessage } from "../../util/format";
-import { useVault } from "../../vault/store";
+import { useVault } from "../../vault/context";
 
 type Mode = "choose" | "create" | "import" | "register";
 

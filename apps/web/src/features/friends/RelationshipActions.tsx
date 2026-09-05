@@ -4,7 +4,7 @@ import type { GraphView } from "../../api/indexer";
 import { useServices } from "../../api/services";
 import { Button, ConfirmDialog } from "../../components/ui";
 import { useSettings } from "../../stores/settings";
-import { useVault } from "../../vault/store";
+import { useVault } from "../../vault/context";
 import { useCanAct, useSubmitContext } from "../session";
 import { BLOCK_WARNING, REMOVE_FRIEND_WARNING, acceptFriend, block, follow, removeFriend, requestFriend, unblock, unfollow } from "./actions";
 

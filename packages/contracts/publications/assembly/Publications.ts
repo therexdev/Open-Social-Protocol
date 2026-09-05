@@ -24,6 +24,14 @@ import { relationships } from "./proto/relationships";
 import { Actor, Capability, IS_BLOCKED_ENTRY_POINT } from "./common/actor";
 import { Util } from "./common/util";
 
+// Call arguments and database reads are returned through the SDK's system-call
+// buffer (1 KiB by default); the chain fails a call whose payload does not fit
+// (publish envelopes are up to 4 KiB and key packages up to 16 KiB). Enlarged at
+// module initialization: imported modules run their top-level statements before
+// the generated index.ts calls main().
+const SYSTEM_BUFFER_SIZE: u32 = 32 * 1024;
+System.setSystemBufferSize(SYSTEM_BUFFER_SIZE);
+
 // State spaces (one per map / object).
 const POSTS_SPACE: u32 = 1;
 const AUTHORS_SPACE: u32 = 2;

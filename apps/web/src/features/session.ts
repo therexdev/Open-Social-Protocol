@@ -4,7 +4,8 @@ import type { Identity } from "@osp/sdk";
 import { useServices } from "../api/services";
 import { useSettings } from "../stores/settings";
 import type { SubmitContext } from "../tx/submit";
-import { useVault, type Session } from "../vault/store";
+import { useVault } from "../vault/context";
+import type { Session } from "../vault/store";
 
 export function useSession(): Session | undefined {
   return useVault((s) => s.session);

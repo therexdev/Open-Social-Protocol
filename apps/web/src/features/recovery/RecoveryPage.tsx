@@ -7,7 +7,7 @@ import { Button, Card, ConfirmDialog, Field, Notice } from "../../components/ui"
 import { submitAction } from "../../tx/submit";
 import { readFileText } from "../../util/download";
 import { errorMessage, formatDateTime } from "../../util/format";
-import { useVault } from "../../vault/store";
+import { useVault } from "../../vault/context";
 import { useCanAct, useSubmitContext } from "../session";
 import { useRecoveryState } from "../settings/RecoveryContacts";
 

@@ -4,7 +4,7 @@ import type { ProfileSummary } from "../../api/indexer";
 import { useServices } from "../../api/services";
 import { AccountLink, Button, Card, Empty, Field, Notice, Spinner } from "../../components/ui";
 import { errorMessage, timeAgo } from "../../util/format";
-import { useVault } from "../../vault/store";
+import { useVault } from "../../vault/context";
 import { useProfileName } from "../profile/useProfileName";
 import { RelationshipActions, useGraph } from "./RelationshipActions";
 import { ignoreRequest, ignoredRequests, unignoreRequest } from "./actions";

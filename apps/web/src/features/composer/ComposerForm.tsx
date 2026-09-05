@@ -8,7 +8,7 @@ import { newDraft } from "./drafts";
 import { attachMediaFromUrl, buildContent, estimateEnvelopeBytes, type MediaAttachment, type PublishPlan } from "./publish";
 import { usePublish, type PublishOutcome } from "./usePublish";
 import { useCanAct } from "../session";
-import { useVault } from "../../vault/store";
+import { useVault } from "../../vault/context";
 import { audienceLabel } from "../feed/PostCard";
 
 export interface ComposerFormProps {

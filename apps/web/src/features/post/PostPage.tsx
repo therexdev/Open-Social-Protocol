@@ -8,7 +8,7 @@ import { Button, Card, ConfirmDialog, Details, Empty, Notice, Spinner } from "..
 import { submitAction } from "../../tx/submit";
 import { bytesOf } from "../../util/bytes";
 import { errorMessage, formatDateTime } from "../../util/format";
-import { useVault } from "../../vault/store";
+import { useVault } from "../../vault/context";
 import { ComposerForm } from "../composer/ComposerForm";
 import { PostCard } from "../feed/PostCard";
 import { usePagedPosts } from "../feed/FeedPage";

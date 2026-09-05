@@ -6,7 +6,7 @@ import { APP_VERSION, DEPLOYMENT_REGISTRY, DOCS, knownNetworks, presetRpc, ENV }
 import { parseList, useSettings, type PaymentPreference } from "../../stores/settings";
 import { downloadText } from "../../util/download";
 import { errorMessage } from "../../util/format";
-import { useVault } from "../../vault/store";
+import { useVault } from "../../vault/context";
 import { Devices } from "./Devices";
 import { RecoveryContacts } from "./RecoveryContacts";
 

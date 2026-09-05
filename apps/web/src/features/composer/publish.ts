@@ -18,8 +18,10 @@ import {
   newEpochKey,
   postId as computePostId,
   type Content,
+  type DistributeKeysArgs,
   type MediaRefInput,
   type OperationJson,
+  type PublishArgs,
   type Recipient,
   type Rng,
 } from "@osp/sdk";
@@ -31,8 +33,8 @@ export interface PublishChain {
   chainId: string;
   ops: {
     publications: {
-      publish(args: Record<string, unknown>): Promise<OperationJson>;
-      distribute_keys(args: Record<string, unknown>): Promise<OperationJson>;
+      publish(args: PublishArgs): Promise<OperationJson>;
+      distribute_keys(args: DistributeKeysArgs): Promise<OperationJson>;
     };
   };
   reads: {

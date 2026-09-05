@@ -24,11 +24,10 @@ export interface SubmitOptions {
 
 export class ActionError extends Error {
   override name = "ActionError";
-  constructor(
-    message: string,
-    readonly cause?: unknown,
-  ) {
+  override readonly cause: unknown;
+  constructor(message: string, cause?: unknown) {
     super(message);
+    this.cause = cause;
   }
 }
 
@@ -98,6 +97,17 @@ export async function submitAction(ctx: SubmitContext, operations: OperationJson
     return result;
   } catch (error) {
     if (error instanceof ActionError) throw error;
+    if (error instanceof Error && error.name === "TransactionOutcomeUnknownError") {
+      const message = "The network did not answer in time. The action may still go through; it will be checked before any retry.";
+      toasts.update(id, { kind: "error", title: `${options.label}: outcome unknown`, message, sticky: true, details: [errorMessage(error)] });
+      throw new ActionError(message, error);
+    }
+    if (error instanceof Error && error.name === "TransactionRevertedError") {
+      const logs = (error as { logs?: string[] }).logs ?? [];
+      const message = humanizeError(new Error(logs.join("; ") || "The network rejected this action."));
+      toasts.update(id, { kind: "error", title: `${options.label}: rejected by the network`, message, sticky: true, details: [errorMessage(error), ...logs] });
+      throw new ActionError(message, error);
+    }
     const message = humanizeError(error);
     toasts.update(id, { kind: "error", title: `${options.label}: failed`, message, sticky: true, details: [errorMessage(error)] });
     throw new ActionError(message, error);

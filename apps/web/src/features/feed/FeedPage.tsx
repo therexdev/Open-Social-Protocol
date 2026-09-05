@@ -4,7 +4,7 @@ import type { FeedScope, PostView } from "../../api/indexer";
 import { useServices } from "../../api/services";
 import { Button, Empty, Notice, Spinner, Tabs } from "../../components/ui";
 import { errorMessage } from "../../util/format";
-import { useVault } from "../../vault/store";
+import { useVault } from "../../vault/context";
 import { PostCard } from "./PostCard";
 
 type Tab = "public" | "friends";

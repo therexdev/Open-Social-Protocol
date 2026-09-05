@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Button, Card, Field, Notice } from "../../components/ui";
 import { errorMessage, shortAddress } from "../../util/format";
-import { useVault } from "../../vault/store";
+import { useVault } from "../../vault/context";
 
 export function UnlockScreen() {
   const vault = useVault();

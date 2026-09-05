@@ -1,7 +1,7 @@
 /** Unread notification count: indexer cursor vs. the locally stored "seen" cursor (no secrets). */
 import { useEffect, useState } from "react";
 import { useServices } from "../../api/services";
-import { useVault } from "../../vault/store";
+import { useVault } from "../../vault/context";
 import { safeLocalStorage } from "../../util/webStorage";
 
 const storage = safeLocalStorage();

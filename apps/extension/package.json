@@ -7,15 +7,18 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -p tsconfig.json --noEmit && vite build",
+    "build": "tsc -p tsconfig.json --noEmit && vite build && node scripts/build-content.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "clean": "rm -rf dist"
+    "icons": "node scripts/icons.mjs",
+    "zip": "node scripts/zip.mjs",
+    "clean": "rm -rf dist dist.zip"
   },
   "dependencies": {
     "@osp/proto": "0.1.0",
     "@osp/sdk": "0.1.0",
     "koilib": "^9.4.0",
+    "protobufjs": "^7.5.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "zustand": "^5.0.0"

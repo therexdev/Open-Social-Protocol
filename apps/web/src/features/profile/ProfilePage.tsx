@@ -7,7 +7,7 @@ import { Button, Card, CopyButton, Empty, Field, Notice, Spinner } from "../../c
 import { useProfiles } from "../../stores/profiles";
 import { submitAction } from "../../tx/submit";
 import { shortAddress } from "../../util/format";
-import { useVault } from "../../vault/store";
+import { useVault } from "../../vault/context";
 import { PostCard } from "../feed/PostCard";
 import { usePagedPosts } from "../feed/FeedPage";
 import { RelationshipActions, useGraph } from "../friends/RelationshipActions";

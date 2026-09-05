@@ -3,7 +3,7 @@ import { type ReactNode } from "react";
 import { NavLink, Link } from "react-router-dom";
 import { APP_NAME, DOCS } from "../config";
 import { useServices } from "../api/services";
-import { useVault } from "../vault/store";
+import { useVault } from "../vault/context";
 import { useNotificationsBadge } from "../features/notifications/badge";
 import { Toasts } from "./Toasts";
 
