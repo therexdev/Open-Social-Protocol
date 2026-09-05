@@ -267,9 +267,10 @@ describe("GET /v1/notifications/:account", () => {
     expect(paged.items.map((n: { id: string }) => n.id)).toEqual([body.items[2].id, body.items[3].id]);
 
     const forBob = (await get(`/v1/notifications/${bob.account}`)).body;
-    expect(forBob.items.map((n: { kind: string }) => n.kind)).toEqual(["keys", "role", "friend_request", "keys"]);
-    expect(forBob.items[0].data).toEqual({ audienceId: "", epoch: 0 });
-    expect(forBob.items[1]).toMatchObject({ communityId: history.communityIdB64, data: { role: 3 } });
+    expect(forBob.items.map((n: { kind: string }) => n.kind)).toEqual(["friend_request", "keys", "role", "friend_request", "keys"]);
+    expect(forBob.items[0].actor).toBe(alice.account);
+    expect(forBob.items[1].data).toEqual({ audienceId: "", epoch: 0 });
+    expect(forBob.items[2]).toMatchObject({ communityId: history.communityIdB64, data: { role: 3 } });
   });
 });
 

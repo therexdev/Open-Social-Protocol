@@ -243,7 +243,13 @@ export function buildHistory(deployment: Deployment = testDeployment()): History
     const when = ts();
     heights.edits = builder.height + 1;
     builder.block([
-      tx([published(alice, p1v2, when, { previous_version: p1.hash, version_number: 2 })]),
+      tx([
+        published(alice, p1v2, when, {
+          previous_version: p1.hash,
+          version_number: 2,
+          media: [{ content_hash: sha256("img"), mime: "image/png", size: "1234", locations: ["ipfs://img1", "https://cdn.example/img1"], key_ref: new Uint8Array(0) }],
+        }),
+      ]),
       tx([
         published(alice, p4, when),
         ev(
