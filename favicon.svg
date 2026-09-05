@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Open Social">
+  <rect width="64" height="64" rx="14" fill="#2f6df6"/>
+  <circle cx="24" cy="26" r="9" fill="#fff"/>
+  <circle cx="42" cy="38" r="9" fill="#fff" opacity="0.85"/>
+  <path d="M24 35c-9 0-15 5-15 12v3h30v-3c0-7-6-12-15-12z" fill="#fff"/>
+  <path d="M42 47c-4 0-8 1-10 3h20v-3c0-7-4-12-10-12" fill="#fff" opacity="0.85"/>
+</svg>
