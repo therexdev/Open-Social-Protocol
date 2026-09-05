@@ -43,3 +43,4 @@ packages/contracts/*/assembly/index.ts
 packages/contracts/*/abi/*.abi
 packages/contracts/*/build/
 deployments/localnet.json
+apps/extension/dist.zip

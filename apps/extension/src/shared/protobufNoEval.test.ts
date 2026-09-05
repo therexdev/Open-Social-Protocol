@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import protobuf from "protobufjs";
 import { DESCRIPTORS } from "@osp/proto";
-import { canonicalize, encode, identityFromSeed, toKoilibJson, Serializer, buildProofManifest, encodeProofManifest } from "@osp/sdk";
+import { addressToBytes, canonicalize, encode, identityFromSeed, toKoilibJson, Serializer, buildProofManifest, encodeProofManifest } from "@osp/sdk";
 import { deterministicRng } from "../../../../packages/sdk/src/testing/fixtures";
-import { originalProtobuf } from "./protobufNoEval";
+import { originalProtobuf, withProtobufCodegen } from "./protobufNoEval";
 
 const rng = deterministicRng("protobuf-parity");
 const me = identityFromSeed(rng(32));
@@ -19,9 +19,11 @@ function referenceRoot(): protobuf.Root {
 
 function referenceType(root: protobuf.Root, name: string): protobuf.Type {
   const type = root.lookupType(name);
-  // generated constructor + generated encoder/decoder/converters
-  type.ctor = (originalProtobuf.generateConstructor(type) as unknown as () => protobuf.Constructor<object>)();
-  originalProtobuf.setup.call(type);
+  // generated constructor + generated encoder/decoder/converters (code generation is otherwise forbidden in tests)
+  withProtobufCodegen(() => {
+    type.ctor = (originalProtobuf.generateConstructor(type) as unknown as () => protobuf.Constructor<object>)();
+    originalProtobuf.setup.call(type);
+  });
   return type;
 }
 
@@ -34,7 +36,7 @@ const samples: Array<[string, Record<string, unknown>]> = [
     "publications.publish_arguments",
     { author: me.account, post_id: rng(32), sequence: "7", audience: 1, epoch: 3, envelope: rng(90), content_hash: rng(32), idempotency_key: rng(16), device: me.account, media: [{ content_hash: rng(32), mime: "image/png", size: "12345", locations: ["ipfs://a", "https://b"] }] },
   ],
-  ["osp.envelope.aad", { protocol_version: 1, chain_id: rng(34), author: me.account, audience: 2, audience_id: rng(16), epoch: 4294967295, version_number: 2 }],
+  ["osp.envelope.aad", { protocol_version: 1, chain_id: rng(34), author: addressToBytes(me.account), audience: 2, audience_id: rng(16), epoch: 4294967295, version_number: 2 }],
   ["identity.authorize_device_arguments", { account: me.account, device: me.account, capabilities: 15, expires_at: "1893456000000", label: "Chrome extension" }],
   ["publications.published_event", { author: me.account, post_id: rng(32), content_hash: rng(32), version_number: 1, sequence: "18446744073709551615", audience: 0, epoch: 0, envelope: rng(10), idempotency_key: rng(16), protocol_version: 1, timestamp: "1700000000000" }],
   ["relationships.get_audience_result", { value: { epoch: 9, updated_at: "1" } }],
@@ -70,6 +72,15 @@ describe("protobuf runtime without code generation", () => {
       expect(JSON.stringify(actual), name).toBe(JSON.stringify(expected));
       expect(intType.verify(intType.fromObject(canonicalize(intType, value)))).toBeNull();
     }
+  });
+
+  it("never generates code once installed (the MV3 CSP would reject it)", () => {
+    // setup.ts forbids code generation for the whole suite; a generated-code type would throw here.
+    const type = interpretedRoot().lookupType("publications.publish_arguments");
+    expect(() => type.encode(type.fromObject(canonicalize(type, samples[0]![1]))).finish()).not.toThrow();
+    expect(() => withProtobufCodegen(() => originalProtobuf.setup.call(interpretedRoot().lookupType("osp.envelope.aad")))).not.toThrow();
+    const fresh = interpretedRoot().lookupType("osp.envelope.aad");
+    expect(() => originalProtobuf.setup.call(fresh)).toThrow(/generate code/);
   });
 
   it("rejects truncated input like the generated decoder", () => {

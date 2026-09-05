@@ -70,6 +70,8 @@ export async function maybeInsertFeedCards(runtime: FeedCardsRuntime): Promise<H
   const doc = runtime.document;
   const existing = doc.querySelector<HTMLElement>(`[${FEED_ATTR}]`);
   if (existing) return existing;
+  // No feed on this page (composer-only views, settings, ...): do not even ask the service worker.
+  if (!findFeedRoot(doc)) return null;
   let state = pending.get(doc);
   if (!state) {
     const request = Promise.resolve(runtime.sendMessage({ type: "feed.request", payload: { limit: 5 } }))

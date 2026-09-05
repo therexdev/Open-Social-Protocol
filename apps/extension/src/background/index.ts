@@ -39,7 +39,11 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   else if (alarm.name === SWEEP_ALARM) void background.sweep().then(() => background.refreshBadge());
 });
 
-// Losing the host permission (chrome://extensions) must unregister the adapter.
+// Host permissions can change outside the options page (chrome://extensions "site access"):
+// losing them must unregister the adapter, regaining them re-registers it for the granted sites.
 chrome.permissions.onRemoved.addListener(() => {
+  void background.syncAdapters();
+});
+chrome.permissions.onAdded.addListener(() => {
   void background.syncAdapters();
 });

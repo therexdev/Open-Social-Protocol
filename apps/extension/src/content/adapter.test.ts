@@ -50,7 +50,7 @@ describe("facebook composer adapter", () => {
 
   it("sends only the composer text to the service worker and shows the toast", async () => {
     document.body.innerHTML = fixture("composer.html");
-    const sendMessage = vi.fn(async () => ({ ok: true, result: { queued: true } }));
+    const sendMessage = vi.fn(async (_message: unknown) => ({ ok: true, result: { queued: true } }));
     const running = startFacebookAdapter({
       document,
       location: { href: "https://www.facebook.com/" },
@@ -63,11 +63,18 @@ describe("facebook composer adapter", () => {
     expect(startFacebookAdapter({ document, location: { href: "x" }, sendMessage, randomAttemptId: () => "" })).toBeNull(); // no double start
     (document.querySelector(`[${CONTROL_ATTR}] input`) as HTMLInputElement).checked = true;
     document.querySelector('[aria-label="Post"]')!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    expect(sendMessage).toHaveBeenCalledTimes(1);
-    expect(sendMessage.mock.calls[0]![0]).toEqual({
+    const sent = sendMessage.mock.calls.map((call) => call[0] as { type: string });
+    // besides the proposal, the adapter only ever asks whether labeled feed cards are enabled
+    expect(sent.filter((m) => m.type !== "crosspost.propose").every((m) => m.type === "feed.request")).toBe(true);
+    const proposals = sent.filter((m) => m.type === "crosspost.propose");
+    expect(proposals).toHaveLength(1);
+    expect(proposals[0]).toEqual({
       type: "crosspost.propose",
       payload: { hostSite: "facebook", text: "Hello from the fixture composer", attemptId: "ab".repeat(16), url: "https://www.facebook.com/", submitted: true, userGesture: true },
     });
+    // a second activation of the same text within the debounce window does not propose twice
+    document.querySelector('[aria-label="Post"]')!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(sendMessage.mock.calls.map((call) => call[0] as { type: string }).filter((m) => m.type === "crosspost.propose")).toHaveLength(1);
     await vi.waitFor(() => expect(document.querySelector(`[${TOAST_ATTR}]`)?.textContent).toContain(TOAST_SENT));
     running!.stop();
   });

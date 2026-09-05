@@ -61,7 +61,6 @@ interface ExtType extends MessageType {
 let installed = false;
 const original = {
   setup: Type.prototype.setup,
-  ctor: Object.getOwnPropertyDescriptor(Type.prototype, "ctor"),
   generateConstructor: Type.generateConstructor,
 };
 
@@ -75,32 +74,69 @@ export function canEval(): boolean {
   }
 }
 
-/** Replaces protobufjs code generation with interpreted equivalents. Idempotent. */
+/**
+ * Replaces protobufjs code generation with interpreted equivalents. Idempotent.
+ *
+ * Two hooks cover every code path that would otherwise call `Function(...)`:
+ *  - `Type.prototype.setup` builds encode/decode/verify/fromObject/toObject (encoder.js,
+ *    decoder.js, verifier.js, converter.js all use codegen);
+ *  - `Type.generateConstructor` builds the message constructor. The `Type#ctor` accessor is
+ *    defined non-configurable by protobufjs, so it cannot be redefined; it does not need to be,
+ *    because its getter delegates to `Type.generateConstructor(this)()` and its setter only
+ *    wires the prototype/static helpers (no code generation).
+ */
 export function installNoEvalProtobuf(): void {
   if (installed) return;
   installed = true;
   Type.prototype.setup = function setup(this: MessageType) {
     return interpretedSetup(this as ExtType);
   };
-  Object.defineProperty(Type.prototype, "ctor", {
-    configurable: true,
-    enumerable: false,
-    get(this: ExtType) {
-      if (!this._ctor) this.ctor = plainConstructor(this);
-      return this._ctor as protobuf.Constructor<object>;
-    },
-    set: original.ctor?.set,
-  });
   Type.generateConstructor = ((mtype: MessageType) => () => plainConstructor(mtype as ExtType)) as unknown as typeof Type.generateConstructor;
 }
 
-/** Restores the generated-code behaviour (tests only). */
+/** Restores the generated-code behaviour (tests only). Types already set up keep their functions. */
 export function uninstallNoEvalProtobuf(): void {
   if (!installed) return;
   installed = false;
   Type.prototype.setup = original.setup;
-  if (original.ctor) Object.defineProperty(Type.prototype, "ctor", original.ctor);
   Type.generateConstructor = original.generateConstructor;
+}
+
+/** True once `installNoEvalProtobuf()` has run. */
+export function isNoEvalProtobufInstalled(): boolean {
+  return installed;
+}
+
+type Codegen = (...args: unknown[]) => unknown;
+const utilWithCodegen = util as unknown as { codegen: Codegen };
+const originalCodegen = utilWithCodegen.codegen;
+let codegenForbidden = false;
+
+/**
+ * Test aid: makes every remaining protobufjs code-generation path throw, so a test suite run
+ * with the interpreted runtime proves that no `Function(...)` call is ever needed (the exact
+ * situation of the MV3 service worker). Returns a function that lifts the ban.
+ */
+export function forbidProtobufCodegen(): () => void {
+  codegenForbidden = true;
+  utilWithCodegen.codegen = function forbidden() {
+    throw new Error("protobufjs tried to generate code after installNoEvalProtobuf(); this would throw under the MV3 CSP");
+  };
+  return () => {
+    codegenForbidden = false;
+    utilWithCodegen.codegen = originalCodegen;
+  };
+}
+
+/** Runs `fn` with the original code generator available (reference encoders in tests). */
+export function withProtobufCodegen<T>(fn: () => T): T {
+  const wasForbidden = codegenForbidden;
+  utilWithCodegen.codegen = originalCodegen;
+  try {
+    return fn();
+  } finally {
+    if (wasForbidden) forbidProtobufCodegen();
+  }
 }
 
 export const originalProtobuf = original;

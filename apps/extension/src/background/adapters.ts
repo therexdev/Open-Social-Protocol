@@ -14,30 +14,51 @@ export const FACEBOOK_SCRIPT_FILE = "content/facebook.js";
 type ChromeLike = Pick<typeof chrome, "permissions" | "scripting">;
 
 export function adapterApi(api: ChromeLike = chrome) {
+  /** The Facebook host patterns the user currently grants (chrome://extensions lets them revoke one site at a time). */
+  async function facebookGrantedOrigins(): Promise<string[]> {
+    const granted: string[] = [];
+    for (const origin of FACEBOOK_ORIGINS) {
+      try {
+        if (await api.permissions.contains({ origins: [origin] })) granted.push(origin);
+      } catch {
+        // treated as not granted
+      }
+    }
+    return granted;
+  }
+
   async function facebookGranted(): Promise<boolean> {
+    return (await facebookGrantedOrigins()).length > 0;
+  }
+
+  async function registeredFacebookScript(): Promise<chrome.scripting.RegisteredContentScript | undefined> {
     try {
-      return await api.permissions.contains({ origins: FACEBOOK_ORIGINS });
+      const scripts = await api.scripting.getRegisteredContentScripts({ ids: [FACEBOOK_SCRIPT_ID] });
+      return scripts.find((s) => s.id === FACEBOOK_SCRIPT_ID);
     } catch {
-      return false;
+      return undefined;
     }
   }
 
   async function facebookRegistered(): Promise<boolean> {
-    try {
-      const scripts = await api.scripting.getRegisteredContentScripts({ ids: [FACEBOOK_SCRIPT_ID] });
-      return scripts.some((s) => s.id === FACEBOOK_SCRIPT_ID);
-    } catch {
-      return false;
-    }
+    return (await registeredFacebookScript()) !== undefined;
   }
 
+  /** Registers the adapter for exactly the granted Facebook origins (re-registers when the set changed). */
   async function registerFacebook(): Promise<void> {
-    if (await facebookRegistered()) return;
+    const matches = await facebookGrantedOrigins();
+    if (matches.length === 0) throw new Error("Grant the Facebook host permission first.");
+    const existing = await registeredFacebookScript();
+    if (existing) {
+      const same = existing.matches?.length === matches.length && matches.every((m) => existing.matches?.includes(m));
+      if (same) return;
+      await api.scripting.unregisterContentScripts({ ids: [FACEBOOK_SCRIPT_ID] });
+    }
     await api.scripting.registerContentScripts([
       {
         id: FACEBOOK_SCRIPT_ID,
         js: [FACEBOOK_SCRIPT_FILE],
-        matches: FACEBOOK_ORIGINS,
+        matches,
         runAt: "document_idle",
         world: "ISOLATED",
         persistAcrossSessions: true,
@@ -72,5 +93,5 @@ export function adapterApi(api: ChromeLike = chrome) {
     return { facebook: { wanted: settings.facebookAdapter, granted: await facebookGranted(), registered: await facebookRegistered() }, feedInsertion: settings.feedInsertion };
   }
 
-  return { facebookGranted, facebookRegistered, registerFacebook, unregisterFacebook, sync, disableFacebook, status };
+  return { facebookGranted, facebookGrantedOrigins, facebookRegistered, registerFacebook, unregisterFacebook, sync, disableFacebook, status };
 }

@@ -5,7 +5,8 @@ import { build } from "vite";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
-const root = path.dirname(fileURLToPath(new URL("../", import.meta.url)));
+// apps/extension (this file lives in apps/extension/scripts)
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const entries = {
   facebook: "src/content/facebook.ts",
 };
@@ -14,6 +15,7 @@ for (const [name, entry] of Object.entries(entries)) {
   await build({
     root,
     configFile: false,
+    publicDir: false, // icons are emitted by the main build (manifest references)
     logLevel: "warn",
     build: {
       outDir: "dist",

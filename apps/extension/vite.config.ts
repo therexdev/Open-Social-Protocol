@@ -1,7 +1,7 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { crx } from "@crxjs/vite-plugin";
-import manifest from "./manifest.config";
+import manifest from "./manifest.config.ts";
 
 // Builds the manifest, the service worker, the side panel and the options page.
 // Content scripts are built separately as self-contained classic scripts (scripts/build-content.mjs)

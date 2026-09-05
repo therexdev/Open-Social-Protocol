@@ -6,11 +6,16 @@ page, and an optional, clearly labeled Facebook cross-post adapter. Built with V
 React 19 and `@osp/sdk`.
 
 ```sh
-npm run build -w apps/extension   # tsc --noEmit + vite build (manifest, worker, side panel, options) + content scripts
-npm test -w apps/extension        # vitest (jsdom)
+npm run build -w apps/extension   # tsc --noEmit + vite build (manifest, worker, side panel, options) + content scripts + dist smoke
+npm test -w apps/extension        # vitest (jsdom), protobuf code generation forbidden for the whole run
+npm run smoke -w apps/extension   # boots dist/ under Node with eval disabled (part of build; needs a build first)
 npm run zip -w apps/extension     # apps/extension/dist.zip for store upload (node only, no extra deps)
 npm run icons -w apps/extension   # regenerate public/icons/*.png (node only)
 ```
+
+Build output (`dist/`): `manifest.json`, `service-worker-loader.js` + `assets/index.ts-*.js` (module service
+worker), `src/sidepanel/index.html`, `src/options/index.html`, `content/facebook.js` (classic script, registered at
+runtime), `public/icons/*`. Everything is bundled; nothing is loaded from the network.
 
 ## Load unpacked
 
@@ -34,10 +39,20 @@ read-only mode (no chain writes); the indexer and endpoints can still be configu
 | Unlocked secrets | Memory + `chrome.storage.session` (trusted contexts only, never written to disk, cleared when the browser closes). Auto-lock via `chrome.alarms` (default 15 min of inactivity, configurable). |
 | Device authority | By default this browser holds **only a device key** (`publish | react | comment | relationships`, 30-day expiry, authorized with `identity.authorize_device` signed by the owner key) plus the X25519 encryption secret needed to read friends-only posts. The identity seed is discarded after authorization unless the user opts to keep it. A device can never rotate keys, authorize devices, block or recover. Revocation happens from the web client. |
 | Message validation | Every message is checked in order: object shape and 32 KiB size cap, `sender.id === chrome.runtime.id`, known type, source classification by origin (extension pages vs content scripts), then for content scripts: a real tab, top frame only, origin among the *granted* optional host permissions, only `crosspost.propose` and `feed.request`, per-tab rate limit, user gesture for proposals; finally a strict per-type payload schema that rejects unknown keys. Replies carry minimal data. |
-| Content scripts | No static `content_scripts` in the manifest and no remotely hosted code. The Facebook adapter is registered with `chrome.scripting.registerContentScripts` only after the user grants the optional host permission from the options page, runs in the **isolated world**, and is unregistered (permission removed) when disabled or when the permission is revoked in `chrome://extensions`. |
+| Content scripts | No static `content_scripts` in the manifest and no remotely hosted code. The Facebook adapter is registered with `chrome.scripting.registerContentScripts` only after the user grants the optional host permission from the options page, runs in the **isolated world** with `matches` limited to the Facebook origins actually granted, and is unregistered (permission removed) when disabled. `permissions.onRemoved` / `onAdded` re-sync the registration when site access changes in `chrome://extensions`. |
 | Publication consent | Nothing is published from a host page. A content-script proposal becomes a **draft**; publishing happens only from the side panel confirmation surface (audience + permanence notice, honest revocation notice for friends-only posts). |
-| CSP | `script-src 'self'; object-src 'self'`. protobufjs (used by the SDK and koilib) normally generates encoders with `Function()`, which this CSP forbids; `src/shared/protobufNoEval.ts` installs interpreted encoders/decoders with byte-for-byte parity (tested against the generated code) and is the first import of the worker. |
+| CSP | `script-src 'self'; object-src 'self'`. protobufjs (used by the SDK and koilib) normally generates encoders with `Function()`, which this CSP forbids; `src/shared/protobufNoEval.ts` replaces `Type.prototype.setup` and `Type.generateConstructor` with interpreted equivalents (byte-for-byte parity tested against the generated code) and is the first import of the worker (`src/background/bootstrap.ts`). The whole test suite runs with code generation forbidden (`forbidProtobufCodegen` in `src/test/setup.ts`), and `scripts/smoke-dist.mjs` boots the built worker with `Function`/`eval` disabled. |
 | Telemetry | None. |
+
+### Message contract
+
+Every message is `{ type, payload? }` (no other keys); every reply is `{ ok: true, result }` or
+`{ ok: false, error: { code, message } }`. `src/shared/protocol.ts` holds the types.
+
+| Sender | Types |
+| --- | --- |
+| Side panel / options | `vault.status|touch|create|import|unlock|lock|export|destroy`, `device.authorize|status`, `settings.get|update`, `adapter.status|enable|disable`, `feed.get`, `crosspost.list|create|confirm|retry|reconcile|markHost|recordProof|discard`, `page.current` |
+| Facebook content script (granted origin, top frame, user gesture) | `crosspost.propose` `{ hostSite: "facebook", text, attemptId, url, submitted, userGesture }`, `feed.request` `{ limit? }` |
 
 ### Storage layout
 
@@ -79,9 +94,12 @@ the textbox `textContent`, a toast, and a bounded `MutationObserver` (childList 
 (`div[role="dialog"]` containing `[contenteditable="true"][role="textbox"]`; submit = `[aria-label]` matching
 `/^(post|publish)$/i`, else the last enabled button in the footer). When the checkbox is on and the user activates the
 submit control it sends `{ type: "crosspost.propose", payload: { hostSite, text, attemptId, url, submitted, userGesture } }`
-and shows "Sent to Open Social - confirm in the side panel". If the selectors fail nothing is injected and nothing breaks:
-the side panel composer keeps working. `src/content/feedCards.ts` (off by default) inserts one labeled container
-"Open Social Protocol posts" (text only, up to 5 public posts) at the top of `[role="feed"]` or `main`.
+(a fresh 16-byte attempt id per activation, de-duplicated for 2 s) and shows "Sent to Open Social - confirm in the side
+panel"; the service worker stores a **draft** and sets the action badge. If the selectors fail nothing is injected and
+nothing breaks: the side panel composer keeps working. `src/content/feedCards.ts` (off by default) inserts one labeled
+container "Open Social Protocol posts" (text only, up to 5 public posts) at the top of `[role="feed"]` or `main`; it asks
+the worker (`feed.request`) at most once per page and only when such a feed root exists. The content script is built as a
+self-contained classic script (`scripts/build-content.mjs`, IIFE) because runtime-registered scripts cannot be modules.
 
 Fixtures under `src/content/__fixtures__/` (`composer.html`, `no-composer.html`) drive `src/content/adapter.test.ts`:
 exactly one control is injected, the submit hook reads the composer text only, a page without a composer gets nothing.
@@ -89,14 +107,26 @@ exactly one control is injected, the submit hook reads the composer text only, a
 ## Tests
 
 `src/test/chromeMock.ts` provides an in-memory `chrome` (runtime messaging with sender simulation, storage areas, alarms,
-permissions, scripting registration, action badge, side panel, tabs). Suites:
+permissions, scripting registration, action badge, side panel, tabs); `src/test/support.ts` wires `createBackground` to it
+with a fake koilib provider that answers the reads the worker performs and records broadcasts. Setup files:
+`src/test/nodeRealm.ts` (restores Node's `Uint8Array` on the jsdom global so `Buffer`/WebCrypto/noble outputs pass
+`instanceof` checks; a browser has one realm) and `src/test/setup.ts` (WebCrypto, `installNoEvalProtobuf`, code
+generation forbidden, chrome mock). Suites (`npm test -w apps/extension`, 39 tests):
 
 * `src/background/messages.test.ts` - router validation (sender id, origin, types, size, gesture, frames, rate limit);
-* `src/background/crosspost.test.ts` - orchestrator persistence and transitions incl. the `koinosUnknown` lookup path, plus an
-  end-to-end run through the service worker with a fake koilib provider (`ProtocolClient` reads/writes mocked);
+* `src/background/crosspost.test.ts` - orchestrator persistence and transitions incl. the `koinosUnknown` lookup path,
+  duplicate-key resolution, proof recording, sweep, plus an end-to-end run through the service worker (create account,
+  authorize device, publish with a node timeout, reconcile from chain, content-script proposals gated by the adapter state);
 * `src/background/vault.test.ts` - device-key policy (owner seed not persisted unless opted in), auto-lock, import;
 * `src/content/adapter.test.ts` - adapter detection against the fixtures, observer bounds, labeled feed cards;
-* `src/shared/protobufNoEval.test.ts` - byte parity of the no-eval protobuf runtime with protobufjs' generated code.
+* `src/shared/protobufNoEval.test.ts` - byte parity of the no-eval protobuf runtime with protobufjs' generated code and
+  proof that the installed runtime never generates code.
+
+`scripts/smoke-dist.mjs` (last step of `npm run build`) checks the manifest gates (MV3, module worker, side panel, options,
+no static content scripts, exact permissions, CSP without `unsafe-eval`, classic content script) and boots the built worker
+under Node with `Function`/`eval` disabled and a worker-like global: side panel bound to the action, alarms, session storage
+access level, and the router refusing wrong senders, non-granted origins, privileged types and oversize messages, then a
+vault create/lock round trip through the real bundle.
 
 ## Release gates (docs/client-ux-principles.md, "Extension journey")
 
@@ -104,7 +134,7 @@ permissions, scripting registration, action badge, side panel, tabs). Suites:
 | --- | --- |
 | 1. Install; unlock/import/create the same identity | `src/sidepanel/Onboarding.tsx`, `src/background/vault.ts` (identity file = SDK `exportIdentity` format) |
 | 2. Feed and composer everywhere (generic sidebar) | side panel (`Feed.tsx`, `Composer.tsx`), "Share current page" via `activeTab` |
-| 3. Facebook permission granted from the options page | `src/options/App.tsx` (`chrome.permissions.request`) -> `adapter.enable` -> `registerContentScripts` |
+| 3. Facebook permission granted from the options page | `src/options/App.tsx` (`chrome.permissions.request`) -> `adapter.enable` -> `registerContentScripts` for the granted origins |
 | 4. Labeled control + extension-rendered confirmation (audience + permanence) | `src/content/facebookAdapter.ts`, `ConfirmSheet` in `Composer.tsx` / `Queue.tsx` |
 | 5. Signing/encryption in the worker, no keys in pages | `src/background/*`; pages use `src/shared/rpc.ts` only |
 | 6. Every content-script message validated (type, origin, tab, size, gesture) | `src/background/messages.ts` + tests |

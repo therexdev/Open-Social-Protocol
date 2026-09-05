@@ -13,8 +13,9 @@
  *    capabilities and expiry, but cannot rotate keys, authorize devices, block or recover. Losing
  *    the browser loses nothing that the identity file cannot restore.
  *
- * The SDK's VaultSecrets requires a 32-byte `seed`; in device mode that slot carries the
- * encryption secret and `meta.mode === "device"` says so (see openIssues in the report).
+ * The SDK's VaultSecrets requires a 32-byte `seed`; in device mode that slot carries the X25519
+ * encryption secret (never the identity seed) and `meta.mode === "device"` /
+ * `meta.seedSlot === "encryption-secret"` say so, so a blob can never be mistaken for an identity.
  *
  * While unlocked, the secrets live in memory and in chrome.storage.session (cleared when the
  * browser closes, never written to disk) so a restarted service worker stays unlocked until the

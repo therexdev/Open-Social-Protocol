@@ -13,7 +13,7 @@ const ATTEMPT = "0102030405060708090a0b0c0d0e0f10";
 function deps(overrides: Partial<CrossPostDeps> = {}) {
   const storage = memoryArea();
   const chain = new Map<string, Uint8Array>();
-  let clock = 1000;
+  let clock = 10 * 60_000; // the fake clock starts well past STALE_SUBMITTING_MS so a record with updatedAt 0 counts as interrupted
   const publishCalls: string[] = [];
   const base: CrossPostDeps = {
     storage,
@@ -147,6 +147,31 @@ describe("cross-post orchestrator", () => {
     expect(done.state).toBe("succeeded");
     expect(done.postId).toBe("12".repeat(32));
     expect(done.hostStatus).toBe("not_required");
+  });
+
+  it("explains a failed Koinos-only attempt without inventing a host side, and retry republishes", async () => {
+    let fail = true;
+    const d = deps({
+      publishKoinos: async (record) => {
+        if (fail) throw new Error("Protocol contracts are not deployed on harbinger yet");
+        d.chain.set(record.idempotencyKey, fromHex("34".repeat(32)));
+        return { txId: "0x1220" + "66".repeat(32), postId: "34".repeat(32), contentHash: "cc".repeat(32), sequence: "4", epoch: 0, versionNumber: 1, sponsored: false };
+      },
+    });
+    await d.orchestrator.create({ text: "side panel post", audience: 0, adapter: "sidepanel" }, ATTEMPT);
+    const failed = await d.orchestrator.confirm(ATTEMPT);
+    expect(failed.hostStatus).toBe("not_required");
+    expect(failed.koinosStatus).toBe("failed");
+    expect(failed.text).toBe("side panel post"); // the draft text is kept for the retry
+    const explanation = explain(failed);
+    expect(explanation.title).toBe("Not published on Open Social");
+    expect(explanation.detail).toContain("not deployed");
+    expect(explanation.actions).toEqual(["retry", "discard"]);
+    fail = false;
+    const done = await d.orchestrator.retry(ATTEMPT);
+    expect(done.state).toBe("succeeded");
+    expect(done.postId).toBe("34".repeat(32));
+    expect(done.text).toBeUndefined();
   });
 
   it("records the signed proof once both sides are known and exposes host marking", async () => {

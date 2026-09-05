@@ -7,7 +7,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -p tsconfig.json --noEmit && vite build && node scripts/build-content.mjs",
+    "build": "tsc -p tsconfig.json --noEmit && vite build && node scripts/build-content.mjs && node scripts/smoke-dist.mjs",
+    "smoke": "node scripts/smoke-dist.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "icons": "node scripts/icons.mjs",

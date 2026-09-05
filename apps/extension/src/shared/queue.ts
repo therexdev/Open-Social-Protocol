@@ -80,6 +80,15 @@ export function explain(record: StoredCrossPost, now: number = Date.now()): Queu
           attention: true,
         };
       }
+      if (record.hostStatus === "not_required") {
+        // A Koinos-only attempt (side panel / shared page) whose publication failed.
+        return {
+          title: "Not published on Open Social",
+          detail: `${record.lastError ?? "The publication failed."} Retry re-uses the same idempotency key, so a duplicate can never be created.`,
+          actions: ["retry", "discard"],
+          attention: true,
+        };
+      }
       return {
         title: `Posted on ${host || "the host"}, not on Open Social`,
         detail: `The host publication is kept (${record.hostRef ?? "reference recorded"}). Retry publishes only the Koinos side with the same idempotency key.${record.lastError ? ` Last error: ${record.lastError}` : ""}`,

@@ -101,7 +101,7 @@ export function createChromeMock(options: ChromeMockOptions = {}) {
     storage: { local: area(), session: area(), onChanged: new Evt<(changes: unknown, areaName: string) => void>() },
     alarms: {
       create: async (name: string, info: chrome.alarms.AlarmCreateInfo) => {
-        alarms.set(name, { name, scheduledTime: Date.now() + (info.delayInMinutes ?? info.periodInMinutes ?? 0) * 60_000, periodInMinutes: info.periodInMinutes });
+        alarms.set(name, { name, scheduledTime: Date.now() + (info.delayInMinutes ?? info.periodInMinutes ?? 0) * 60_000, periodInMinutes: info.periodInMinutes, persistAcrossSessions: true });
       },
       clear: async (name: string) => alarms.delete(name),
       get: async (name: string) => alarms.get(name),
