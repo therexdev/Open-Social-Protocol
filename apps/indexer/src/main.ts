@@ -92,8 +92,14 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     if (!indexer.syncer) throw new Error("--once needs a deployment");
     const result = await indexer.syncer.syncToHead();
     const tip = indexer.db.lastCheckpoint();
+    if (result.stalled) logger.warn(`the node served no block above ${tip?.height ?? "the start height"} although its head is ${indexer.syncer.state.head?.height ?? "unknown"}; not caught up`);
     process.stdout.write(
-      `${JSON.stringify({ applied: result.applied, rolledBack: result.rolledBack ?? null, indexed: tip ? { height: String(tip.height), id: tip.block_id, stateHash: tip.state_hash } : null })}\n`,
+      `${JSON.stringify({
+        applied: result.applied,
+        caughtUp: result.caughtUp,
+        rolledBack: result.rolledBack ?? null,
+        indexed: tip ? { height: String(tip.height), id: tip.block_id, stateHash: tip.state_hash } : null,
+      })}\n`,
     );
     await indexer.close();
     return;

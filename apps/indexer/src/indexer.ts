@@ -49,6 +49,7 @@ export function createIndexer(options: IndexerOptions): Indexer {
         db,
         chain,
         startHeight: config.startHeight,
+        chainId: config.deployment.chainId,
         batchSize: config.batchSize,
         pollIntervalMs: config.pollIntervalMs,
         ...(config.reversibleWindow !== undefined && { reversibleWindow: config.reversibleWindow }),

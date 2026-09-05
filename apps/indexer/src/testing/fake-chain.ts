@@ -172,6 +172,11 @@ export interface FakeProviderOptions {
   chainId?: string;
   /** Last irreversible height (default: head - 10, floored at start - 1). */
   lib?: number;
+  /**
+   * Highest height `getBlocks` serves (default: the head). Simulates a node whose block store
+   * lags `chain.get_head_info`: the head advances but blocks above this height are not returned.
+   */
+  blockStoreHeight?: number;
 }
 
 /** A koilib provider serving the blocks of a ChainBuilder. `use(builder)` switches forks. */
@@ -180,11 +185,19 @@ export class FakeProvider implements ProviderInterface {
   private libOverride: number | undefined;
   readonly calls: string[] = [];
   chainId: string;
+  /** Blocks above this height are not served by `getBlocks` (undefined: serve everything). */
+  blockStoreHeight: number | undefined;
 
   constructor(builder: ChainBuilder, options: FakeProviderOptions = {}) {
     this.builder = builder;
     this.chainId = options.chainId ?? builder.deployment.chainId;
     this.libOverride = options.lib;
+    this.blockStoreHeight = options.blockStoreHeight;
+  }
+
+  /** Number of RPC calls made so far (getHeadInfo, getChainId and getBlocks). */
+  get callCount(): number {
+    return this.calls.length;
   }
 
   /** Switches the served chain (a fork) and optionally the LIB. */
@@ -240,6 +253,7 @@ export class FakeProvider implements ProviderInterface {
     };
   }
   async getChainId(): Promise<string> {
+    this.calls.push("getChainId");
     return this.chainId;
   }
   async getBlocks(height: number, numBlocks = 1, idRef?: string): ReturnType<ProviderInterface["getBlocks"]> {
@@ -250,6 +264,8 @@ export class FakeProvider implements ProviderInterface {
       if (index < 0) throw new Error(`FakeProvider: unknown head block ${idRef}`);
       chain = chain.slice(0, index + 1);
     }
+    // A lagging block store knows the head (chain.get_head_info) but cannot serve the blocks above its own height.
+    if (this.blockStoreHeight !== undefined) chain = chain.filter((b) => Number(b.block_height) <= this.blockStoreHeight!);
     return chain
       .filter((b) => Number(b.block_height) >= height && Number(b.block_height) < height + numBlocks)
       .map((b) => ({ block_id: b.block_id, block_height: b.block_height, block: b.block!, receipt: b.receipt! })) as Awaited<

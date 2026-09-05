@@ -251,7 +251,9 @@ export function buildHistory(deployment: Deployment = testDeployment()): History
         }),
       ]),
       tx([
-        published(alice, p4, when),
+        published(alice, p4, when, {
+          media: [{ content_hash: sha256("img-deleted"), mime: "image/jpeg", size: "99", locations: ["ipfs://img-deleted"], key_ref: new Uint8Array(0) }],
+        }),
         ev(
           "osp.publications.lifecycle",
           { author: alice.account, post_id: p4.id, version: p4.hash, state: LIFECYCLE.DELETED, reason: "oops", replacement_id: new Uint8Array(0), timestamp: when },

@@ -105,7 +105,12 @@ export function statusView(options: ApiOptions): Record<string, unknown> {
   let healthy = false;
   if (deployment) {
     if (syncer) {
-      healthy = head !== undefined && indexed !== undefined && syncer.state.lastError === undefined && (lag ?? 0) <= 2 * syncer.batchSize;
+      healthy =
+        head !== undefined &&
+        indexed !== undefined &&
+        syncer.state.chainIdMatch !== false &&
+        syncer.state.lastError === undefined &&
+        (lag ?? 0) <= 2 * syncer.batchSize;
     } else {
       healthy = indexed !== undefined;
     }
@@ -116,6 +121,9 @@ export function statusView(options: ApiOptions): Record<string, unknown> {
   return {
     network: config.network,
     chainId: deployment?.chainId ?? null,
+    // Chain id the node reports and whether it matches the manifest (null until the first sync step compared them).
+    rpcChainId: syncer?.state.rpcChainId ?? null,
+    chainIdMatch: syncer?.state.chainIdMatch ?? null,
     contracts,
     head: head ? { height: String(head.height), id: head.id } : null,
     lastIrreversible: head ? String(head.lastIrreversible) : null,
@@ -131,6 +139,7 @@ export function statusView(options: ApiOptions): Record<string, unknown> {
       lastError: syncer?.state.lastError ?? null,
       lag: lag ?? null,
       rollbacks: syncer?.state.rollbacks ?? 0,
+      stalled: (syncer?.state.stalledSteps ?? 0) > 0,
     },
     rpc: config.rpc,
   };
@@ -192,6 +201,11 @@ export function buildApi(options: ApiOptions): FastifyInstance {
     const profile = q.getProfile(db, account);
     if (!profile) return sendError(reply, new ApiError(404, "not_found", "identity not registered"));
     return profile;
+  });
+
+  app.get("/v1/accounts/:account/devices", async (request) => {
+    const account = parseAddress(param(request, "account"), "account")!;
+    return { items: q.devicesFor(db, account) };
   });
 
   app.get("/v1/graph/:account", async (request) => {

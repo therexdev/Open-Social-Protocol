@@ -12,7 +12,17 @@ Design rules (docs/protocol-spec.md section 11, docs/adr/0006-indexer-determinis
 * **Reversible window.** Blocks above the last irreversible block (LIB) can be rolled back. A fork is
   detected when a block's `header.previous` is not the stored id at `height - 1` (or when the stored tip
   is no longer the canonical block at its height). The indexer then deletes the log above the last final
-  checkpoint, truncates the projections and replays the log.
+  checkpoint, truncates the projections and replays the log. When the node's head drops *below* the
+  indexed tip while the block at the head height still matches (the chain shrank, or a failover node is
+  behind), the blocks above the head are dropped once the shrink persists over two consecutive polls, so
+  stale blocks never keep feeding feeds, notifications or state hashes.
+* **Right network.** `chain.get_chain_id` is compared with the manifest's `chainId` before the first block
+  is applied; on a mismatch nothing is indexed, `/v1/status` reports `chainIdMatch: false`, `healthy: false`
+  and the error, and the check is retried every poll.
+* **Polite polling.** Within one poll tick the loop repeats a step only while it makes progress (blocks
+  applied or a rollback). A caught-up tip, a node whose block store lags its head (empty or short
+  `get_blocks` answer, reported as `sync.stalled`), or an error waits `OSP_POLL_INTERVAL_MS`. `--once`
+  stops on a stall too (`caughtUp: false`).
 * **Checkpoint per block:** `(height, block_id, previous_id, timestamp, state_hash)`.
 * **Never stores plaintext.** Envelopes and sealed keys are opaque bytes; the indexer has no keys.
 * **Untrusted convenience.** Anything served here is reproducible from open chain data by anyone; a
@@ -42,7 +52,7 @@ Development: `npm run dev -w apps/indexer` (tsx, no build step).
 ```
 node dist/main.js [options]
   --rebuild            delete the database and replay the chain from the start height
-  --once               sync to the chain head, print { indexed: { height, id, stateHash } } and exit (no API)
+  --once               sync to the chain head, print { applied, caughtUp, rolledBack, indexed: { height, id, stateHash } } and exit (no API)
   --no-sync            serve the API from the existing database without syncing
   --network <name>     OSP_NETWORK
   --port <port>        OSP_INDEXER_PORT
@@ -96,7 +106,11 @@ its transaction receipt. Events of reverted transactions are ignored.
 * **Publications.** `published` inserts a post and its version 1; later versions update the latest fields
   and add a `post_versions` row. `lifecycle`: a later event wins, `deleted` (2) is terminal. Listings
   (`/v1/feed`, `/v1/accounts/:a/posts`, `/v1/posts/:id/replies`) exclude `author_hidden` (1) and
-  `deleted` (2) posts; `/v1/posts/:id` still returns them with their state. Replies never appear in feeds.
+  `deleted` (2) posts; `/v1/posts/:id` still returns them with their `state` **as tombstones**: `envelope`
+  is `""` and `media` is `[]` (the indexer stops hydrating deleted/hidden content, spec section 6) while
+  `postId`, `author`, `contentHash`, `versions[]`, `stateReason` and `replacementId` stay so clients can
+  render a placeholder. The bytes remain in the log and the projection (never claims erasure; a rebuild
+  reproduces them). Replies never appear in feeds.
 * **Reactions.** Latest state per `(actor, post, reaction)`; `removed = true` deletes the row.
 * **Keys.** `keys_distributed` packages are parsed with `parseKeyPackageSet`; every sealed key becomes a
   `key_packages` row addressed to its recipient (a malformed package set is kept in the log but projects nothing).
@@ -144,13 +158,14 @@ cursors are opaque strings; CORS is enabled for every origin. Errors are
 
 | Route | Result |
 | --- | --- |
-| `GET /v1/status` | `{ network, chainId, contracts, head: { height, id }, lastIrreversible, indexed: { height, id, stateHash }, startHeight, healthy, version, deployed, sync: { running, lastSyncAt, lastError, lag, rollbacks }, rpc }` |
-| `GET /v1/profiles/:account` | `{ account, owner, encryptionKey, keyVersion, profileHash, profileUri, protocolVersion, deviceEpoch, registeredAt, updatedAt, counts: { posts, friends, followers, following }, recovery: { policy, pendingPolicy, pendingRecovery }, devices: [...] }` or 404 |
+| `GET /v1/status` | `{ network, chainId, rpcChainId, chainIdMatch, contracts, head: { height, id }, lastIrreversible, indexed: { height, id, stateHash }, startHeight, healthy, version, deployed, sync: { running, lastSyncAt, lastError, lag, rollbacks, stalled }, rpc }` - `chainId` is the manifest's, `rpcChainId` the node's (`null` until fetched), `chainIdMatch` `true`/`false`/`null` (not yet compared) |
+| `GET /v1/profiles/:account` | `{ account, owner, encryptionKey, keyVersion, profileHash, profileUri, protocolVersion, deviceEpoch, registeredAt, updatedAt, counts: { posts, friends, followers, following }, recovery: { policy, pendingPolicy, pendingRecovery }, devices: [{ device, capabilities, expiresAt, deviceEpoch, revoked, label, authorizedAt }] }` or 404 |
+| `GET /v1/accounts/:account/devices` | `{ items: [{ device, capabilities, expiresAt, deviceEpoch, revoked, label, authorizedAt }] }` - every device ever authorized for the account (revoked ones flagged), the same list as `profiles[].devices`; `{ items: [] }` for unknown accounts |
 | `GET /v1/profiles?query=<address prefix>&limit=` | `{ items: [profile summary] }` (exact match first) |
 | `GET /v1/graph/:account` | `{ account, friends: [{ account, since, nonce }], pendingIncoming: [{ account, requestedAt, nonce }], pendingOutgoing: [...], followers: [account], following: [account], blocked: [account], blockedBy: [account], audienceEpoch }` |
 | `GET /v1/feed?viewer=&scope=public\|friends\|all&cursor=&limit=` | `{ items: [PostView], nextCursor }` - `public`: everyone-audience posts; `friends` (viewer required): posts by the viewer's active friends plus the viewer's own, any audience; `all`: the union. With a viewer, authors the viewer blocked are excluded. Newest first by `(blockHeight, txIndex, sequence)` of the first version. |
 | `GET /v1/accounts/:account/posts?cursor=&limit=` | `{ items: [PostView], nextCursor }` (includes replies) |
-| `GET /v1/posts/:postId?viewer=` | `PostView` (404 when unknown; deleted/hidden posts are returned with their `state`) |
+| `GET /v1/posts/:postId?viewer=` | `PostView` (404 when unknown; deleted/hidden posts are returned with their `state` but with `envelope: ""` and `media: []`) |
 | `GET /v1/posts/:postId/replies?cursor=&limit=` | `{ items: [PostView], nextCursor }` |
 | `GET /v1/notifications/:account?since=&limit=` | `{ items: [{ id, kind, actor, postId?, communityId?, data, timestamp, blockHeight }], nextCursor }` in arrival order; without `since` the most recent `limit` items, with `since` (a previous `nextCursor`) only newer ones |
 | `GET /v1/keys/:account?author=&audienceId=&epoch=&limit=` | `{ items: [{ author, audienceId, epoch, recipient, recipientKeyVersion, sealedKey, blockHeight, txId, timestamp }] }` - sealed epoch keys addressed to `:account`; `sealedKey` is the encoded `osp.envelope.sealed_key` |
@@ -173,18 +188,19 @@ cursors are opaque strings; CORS is enabled for every origin. Errors are
   labels: [{ communityId, postId, label, reason, actor, timestamp, blockHeight, txId }] }
 ```
 
-`envelope` is the latest version's envelope; `txId`/`blockHeight` refer to the first version (the post's
-position), `versions[]` carries the per-version transaction. `healthy` is true when a deployment is
-loaded, the last sync step succeeded and the indexed tip lags the head by at most `2 * OSP_BATCH_SIZE`.
+`envelope` is the latest version's envelope (`""` for `author_hidden`/`deleted` posts, whose `media` is
+also `[]`); `txId`/`blockHeight` refer to the first version (the post's position), `versions[]` carries
+the per-version transaction. `healthy` is true when a deployment is loaded, the node's chain id matches
+the manifest, the last sync step succeeded and the indexed tip lags the head by at most
+`2 * OSP_BATCH_SIZE`.
 
-## Known upstream issues (worked around locally)
+## Upstream notes
 
-* `@osp/proto` sorts descriptor keys recursively (`packages/proto/scripts/generate.mjs`, `sortKeys`), which
-  reorders enum `values`; `@osp/sdk` decodes with protobufjs `defaults: true`
-  (`packages/sdk/src/encoding.ts`, `decode`), so an enum field that is absent from the wire (the canonical
-  encoding of 0) decodes as the alphabetically first value: `audience_kind` 0 -> 2, `community_role` 0 -> 4,
-  `outcome_state` 0 -> 3, `relationship_status` 0 -> 2, `contract_status` 0 -> 1. `src/decode.ts` re-reads the
-  wire bytes and resets absent enum fields to 0 before anything is projected.
+* `@osp/proto` used to sort enum `values` alphabetically, so an enum field absent from the wire (the
+  canonical encoding of 0) decoded as the alphabetically first value. That is fixed upstream (declaration
+  order is kept; `decode()` returns 0). `src/decode.ts` keeps a defensive guard that re-reads the wire
+  bytes and resets *absent* enum fields to 0; it never touches a field that is present, so it cannot
+  override a real value. `decode.test.ts` pins both the upstream behaviour and the guard's transparency.
 * `decodeReceiptEvents` / `decodeBlockEvents` do not expose the transaction index or the raw event bytes and
   do not skip reverted transactions, so `src/chain.ts` walks the receipts itself and calls `decodeEvent`.
 * `sponsor_set_event` carries only `endpoint`, `policy_version` and `active`; the policy details are read
@@ -196,6 +212,11 @@ loaded, the last sync step succeeded and the indexed tip lags the head by at mos
 (registrations, friend flow, public and friends posts with real envelopes and sealed keys, reactions,
 a reply, an edit, lifecycle changes, community role and label, sponsor, registry, device, recovery,
 block + audience rotation, plus foreign and reverted events that must be ignored) exercised through
-every API route with `fastify.inject`; determinism (two indexers, identical hashes and output);
-reorgs (fork above LIB, shorter canonical chain, refusal below the final height); `--rebuild`
+every API route with `fastify.inject`; a second scripted history (`projections.test.ts`) for every
+remaining event handler (profile/key/device/recovery updates, friend removal, unfollow, unblock,
+community policy and owner transfers, sponsor deactivation, grant revocation, registry deprecation /
+cancellation / admin change); determinism (two indexers, identical hashes and output); reorgs (fork
+above LIB, shorter canonical chain, persisting vs transient shrunken head, refusal below the final
+height); the poll loop (`start()`/`stop()` against a node whose block store lags its head: bounded RPC
+calls, resumption, stalled `--once`, serialised `syncOnce()`); chain id verification; `--rebuild`
 reproducibility; not-deployed mode. `npm run typecheck -w apps/indexer` checks sources and tests.

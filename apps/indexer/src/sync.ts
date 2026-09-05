@@ -39,6 +39,12 @@ export interface SyncOptions {
   chain: ChainSource;
   /** First height to index (inclusive). */
   startHeight: number;
+  /**
+   * Chain id the node must report (the deployment manifest's `chainId`). Verified through
+   * `chain.get_chain_id` before the first block is applied; a mismatch is a SyncError on every
+   * step (nothing is ever indexed from the wrong network).
+   */
+  chainId?: string;
   batchSize?: number;
   pollIntervalMs?: number;
   /** When set, blocks below `head - reversibleWindow` are treated as final even if LIB lags. */
@@ -49,18 +55,33 @@ export interface SyncOptions {
 export interface SyncResult {
   applied: number;
   caughtUp: boolean;
+  /**
+   * The node reported a head above our tip but served no applicable block (block store lagging
+   * `chain.get_head_info`, failover to a node that is behind, a gap in the response): nothing
+   * was applied and nothing can be until the next poll.
+   */
+  stalled?: boolean;
   rolledBack?: { from: number; to: number };
 }
 
 export interface SyncState {
   head?: ChainHead;
+  /** Chain id reported by the node (once `chain.get_chain_id` answered). */
+  rpcChainId?: string;
+  /** Whether `rpcChainId` matches the configured chain id (undefined until compared). */
+  chainIdMatch?: boolean;
   lastError?: string;
   lastSyncAt?: number;
   running: boolean;
   syncing: boolean;
   rollbacks: number;
   blocksApplied: number;
+  /** Consecutive steps that stalled (see SyncResult.stalled); 0 once a block is applied or the tip is caught up. */
+  stalledSteps: number;
 }
+
+/** Upper bound on consecutive steps within one poll tick (a safety net; the loop normally stops when a step makes no progress). */
+export const MAX_STEPS_PER_TICK = 1000;
 
 /** The JSON view of a block's events (what gets hashed and served by `/v1/events`). */
 export function eventViews(block: ChainBlock): EventView[] {
@@ -156,18 +177,24 @@ export class Syncer {
   readonly db: IndexerDb;
   readonly chain: ChainSource;
   readonly startHeight: number;
+  readonly chainId: string | undefined;
   readonly batchSize: number;
   readonly pollIntervalMs: number;
   readonly reversibleWindow: number | undefined;
   readonly logger: Logger;
-  readonly state: SyncState = { running: false, syncing: false, rollbacks: 0, blocksApplied: 0 };
+  readonly state: SyncState = { running: false, syncing: false, rollbacks: 0, blocksApplied: 0, stalledSteps: 0 };
   private timer: ReturnType<typeof setTimeout> | undefined;
-  private inFlight: Promise<unknown> | undefined;
+  /** Serialises steps: every syncOnce() call is chained behind the previous one. */
+  private queue: Promise<unknown> = Promise.resolve();
+  private chainIdVerified = false;
+  /** Head seen below our tip on the previous step (a shrink is acted on only when it persists). */
+  private shrunkHead: ChainHead | undefined;
 
   constructor(options: SyncOptions) {
     this.db = options.db;
     this.chain = options.chain;
     this.startHeight = Math.max(1, options.startHeight);
+    this.chainId = options.chainId;
     this.batchSize = Math.max(1, options.batchSize ?? 50);
     this.pollIntervalMs = Math.max(1, options.pollIntervalMs ?? 2000);
     this.reversibleWindow = options.reversibleWindow;
@@ -179,6 +206,24 @@ export class Syncer {
     const lib = Number.isFinite(head.lastIrreversible) ? head.lastIrreversible : 0;
     if (this.reversibleWindow === undefined) return lib;
     return Math.max(lib, head.height - this.reversibleWindow);
+  }
+
+  /**
+   * Compares the node's chain id with the configured one (once; retried on every step until it
+   * succeeds). A mismatch means the manifest and the RPC belong to different networks: no block
+   * is applied and `/v1/status` reports `chainIdMatch: false`.
+   */
+  private async verifyChainId(): Promise<void> {
+    if (this.chainIdVerified) return;
+    const rpcChainId = await this.chain.getChainId();
+    this.state.rpcChainId = rpcChainId;
+    if (this.chainId !== undefined) {
+      this.state.chainIdMatch = rpcChainId === this.chainId;
+      if (!this.state.chainIdMatch) {
+        throw new SyncError(`chain id mismatch: the node reports ${rpcChainId} but the deployment manifest expects ${this.chainId}; refusing to index`);
+      }
+    }
+    this.chainIdVerified = true;
   }
 
   /**
@@ -204,37 +249,38 @@ export class Syncer {
     return to;
   }
 
-  /** One sync step: verifies the tip, fetches up to `batchSize` blocks and applies them. */
-  async syncOnce(): Promise<SyncResult> {
-    if (this.inFlight) await this.inFlight;
-    const run = this.step();
-    this.inFlight = run.catch(() => undefined);
-    try {
-      return await run;
-    } finally {
-      this.inFlight = undefined;
+  /**
+   * One sync step: verifies the tip, fetches up to `batchSize` blocks and applies them.
+   * Steps never overlap: concurrent callers are queued behind the in-flight step.
+   */
+  syncOnce(): Promise<SyncResult> {
+    const run = this.queue.then(() => this.step());
+    this.queue = run.catch(() => undefined);
+    return run;
+  }
+
+  private finish(result: SyncResult): SyncResult {
+    if (result.stalled) {
+      this.state.stalledSteps++;
+    } else {
+      if (this.state.stalledSteps > 0) this.logger.info("node serves blocks again; resuming");
+      this.state.stalledSteps = 0;
     }
+    this.state.lastError = undefined;
+    this.state.lastSyncAt = Date.now();
+    return result;
   }
 
   private async step(): Promise<SyncResult> {
     this.state.syncing = true;
     try {
+      await this.verifyChainId();
       const head = await this.chain.getHead();
       this.state.head = head;
       const last = this.db.lastCheckpoint();
 
-      if (last && last.height >= head.height) {
-        // Caught up (or the chain shrank): make sure our block at the head height is canonical.
-        const canonicalId = last.height === head.height ? head.id : (await this.chain.getBlocks(head.height, 1, head.id))[0]?.id;
-        const ours = this.db.checkpointAt(head.height);
-        if (canonicalId && ours && ours.block_id !== canonicalId) {
-          const to = await this.rollback(head, head.height);
-          return { applied: 0, caughtUp: false, rolledBack: { from: last.height, to } };
-        }
-        this.state.lastError = undefined;
-        this.state.lastSyncAt = Date.now();
-        return { applied: 0, caughtUp: true };
-      }
+      if (last && last.height >= head.height) return this.finish(await this.reconcileTip(head, last));
+      this.shrunkHead = undefined;
 
       const next = last ? last.height + 1 : this.startHeight;
       const count = Math.min(this.batchSize, head.height - next + 1);
@@ -246,9 +292,7 @@ export class Syncer {
         const parent = this.db.checkpointAt(block.height - 1);
         if (parent && block.previous && parent.block_id !== block.previous) {
           const to = await this.rollback(head, block.height);
-          this.state.lastError = undefined;
-          this.state.lastSyncAt = Date.now();
-          return { applied, caughtUp: false, rolledBack: { from: parent.height, to } };
+          return this.finish({ applied, caughtUp: false, rolledBack: { from: parent.height, to } });
         }
         applyBlock(this.db, block, this.startHeight);
         applied++;
@@ -256,9 +300,12 @@ export class Syncer {
         this.state.blocksApplied++;
         if (block.events.length > 0) this.logger.debug(`block ${block.height}: ${block.events.length} protocol events`);
       }
-      this.state.lastError = undefined;
-      this.state.lastSyncAt = Date.now();
-      return { applied, caughtUp: expected > head.height };
+      const caughtUp = expected > head.height;
+      const stalled = !caughtUp && applied === 0;
+      if (stalled && this.state.stalledSteps === 0) {
+        this.logger.warn(`node reports head ${head.height} but served no block at height ${next} (block store behind the head?); waiting for the next poll`);
+      }
+      return this.finish({ applied, caughtUp, ...(stalled && { stalled: true }) });
     } catch (error) {
       this.state.lastError = (error as Error).message;
       throw error;
@@ -267,19 +314,60 @@ export class Syncer {
     }
   }
 
-  /** Syncs until caught up with the head (tests, `--once`). Rollbacks are followed automatically. */
+  /**
+   * Our tip is at or above the head. Verifies that our block at the head height is still the
+   * canonical one (rolling back on a mismatch). When the head is *below* our tip and the block
+   * there matches, the blocks above it are not on the chain the node serves: they are truncated
+   * once the shrink persists over two consecutive steps (one poll of tolerance for a failover
+   * node that is merely behind), so stale blocks never keep feeding feeds and state hashes.
+   */
+  private async reconcileTip(head: ChainHead, last: CheckpointRow): Promise<SyncResult> {
+    const floor = this.startHeight - 1;
+    const canonicalId = last.height === head.height ? head.id : (await this.chain.getBlocks(head.height, 1, head.id))[0]?.id;
+    const ours = head.height > floor ? this.db.checkpointAt(head.height) : undefined;
+    if (canonicalId && ours && ours.block_id !== canonicalId) {
+      this.shrunkHead = undefined;
+      const to = await this.rollback(head, head.height);
+      return { applied: 0, caughtUp: false, rolledBack: { from: last.height, to } };
+    }
+    if (last.height === head.height) {
+      this.shrunkHead = undefined;
+      return { applied: 0, caughtUp: true };
+    }
+    // head.height < last.height and (when known) our block at the head height is canonical.
+    if (!this.shrunkHead) {
+      this.shrunkHead = head;
+      this.logger.warn(`head ${head.height} is below the indexed tip ${last.height}; truncating if it persists on the next poll`);
+      return { applied: 0, caughtUp: true };
+    }
+    const to = Math.max(head.height, floor);
+    this.logger.warn(`head ${head.height} stayed below the indexed tip ${last.height}; dropping blocks above ${to} and replaying the log`);
+    const replayed = rollbackTo(this.db, to);
+    this.state.rollbacks++;
+    this.shrunkHead = undefined;
+    this.logger.info(`rollback complete: ${replayed} events replayed`);
+    return { applied: 0, caughtUp: true, rolledBack: { from: last.height, to } };
+  }
+
+  /**
+   * Syncs until caught up with the head (tests, `--once`). Rollbacks are followed automatically;
+   * a stalled step ends the run with `caughtUp: false, stalled: true` instead of spinning.
+   */
   async syncToHead(maxRounds = 10_000): Promise<SyncResult> {
     let result: SyncResult = { applied: 0, caughtUp: false };
     for (let i = 0; i < maxRounds; i++) {
       const step = await this.syncOnce();
       const rolledBack = step.rolledBack ?? result.rolledBack;
-      result = { applied: result.applied + step.applied, caughtUp: step.caughtUp, ...(rolledBack && { rolledBack }) };
-      if (step.caughtUp) return result;
+      result = { applied: result.applied + step.applied, caughtUp: step.caughtUp, ...(step.stalled && { stalled: true }), ...(rolledBack && { rolledBack }) };
+      if (step.caughtUp || step.stalled) return result;
     }
     throw new SyncError("syncToHead did not catch up");
   }
 
-  /** Starts the poll loop. */
+  /**
+   * Starts the poll loop. Within one tick, steps repeat only while they make progress (blocks
+   * applied or a rollback); a caught-up, stalled or failed step waits `pollIntervalMs`.
+   */
   start(): void {
     if (this.state.running) return;
     this.state.running = true;
@@ -287,7 +375,11 @@ export class Syncer {
       if (!this.state.running) return;
       try {
         let result = await this.syncOnce();
-        while (this.state.running && !result.caughtUp) result = await this.syncOnce();
+        let steps = 1;
+        while (this.state.running && !result.caughtUp && !result.stalled && steps < MAX_STEPS_PER_TICK) {
+          result = await this.syncOnce();
+          steps++;
+        }
       } catch (error) {
         this.logger.warn(`sync error: ${(error as Error).message}`);
       }
@@ -301,6 +393,6 @@ export class Syncer {
     this.state.running = false;
     if (this.timer) clearTimeout(this.timer);
     this.timer = undefined;
-    if (this.inFlight) await this.inFlight;
+    await this.queue;
   }
 }

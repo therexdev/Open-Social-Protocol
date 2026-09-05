@@ -1,13 +1,14 @@
 /**
- * Event decoding with a local workaround for an upstream bug.
+ * Event decoding with a defensive enum-default guard.
  *
- * `@osp/proto` emits enum descriptors with their values sorted alphabetically and `@osp/sdk`
- * decodes with protobufjs `defaults: true`, which fills an absent enum field with the *first*
- * declared value rather than 0. Canonical encoding omits zero values, so e.g. a
- * `published_event` with `audience = everyone (0)` decodes as `custom (2)`, a `role_set_event`
- * with `role = none (0)` as `admin (4)` and a `cross_post_outcome_event` with
- * `state = succeeded (0)` as `failed (3)`. Until that is fixed upstream, every decoded event
- * is corrected here: enum fields absent from the wire bytes are reset to 0 (recursively).
+ * `@osp/proto` once emitted enum descriptors with their values sorted alphabetically, and
+ * `@osp/sdk` decodes with protobufjs `defaults: true`, so an enum field absent from the wire
+ * (the canonical encoding of 0) decoded as the alphabetically first value (`audience = everyone`
+ * came back as `custom`). `@osp/proto` now keeps enum declaration order and `decode()` returns 0
+ * for absent enum fields; `decode.test.ts` pins that. The guard below is kept as belt and braces
+ * for the projections: it re-reads the wire bytes and resets enum fields that are *absent* to 0.
+ * It never touches a field that is present on the wire, so a real (non-zero, or explicitly
+ * encoded zero) value is never overridden.
  */
 import { decodeEvent, eventTypeForName, fromBase64url, lookupType, type DecodedEvent, type Deployment, type ProtoObject } from "@osp/sdk";
 

@@ -70,6 +70,11 @@ export interface Page<T> {
 
 export const LISTING_STATES_EXCLUDED = [1, 2] as const;
 
+/** Lifecycle states whose content is no longer hydrated (`author_hidden`, `deleted`). */
+export function isRedactedState(state: number): boolean {
+  return (LISTING_STATES_EXCLUDED as readonly number[]).includes(state);
+}
+
 // ---------------------------------------------------------------------------
 // Cursors
 // ---------------------------------------------------------------------------
@@ -169,11 +174,16 @@ function postView(db: IndexerDb, row: PostRow, viewer?: string): PostView {
       blockHeight: String(v.block_height),
       timestamp: String(v.timestamp),
     }));
+  // Deleted (2) and author_hidden (1) posts are served as tombstones: the indexer stops hydrating
+  // their content (spec section 6) while the id, state and version metadata stay fetchable.
+  const redacted = isRedactedState(row.state);
   let media: MediaView[] = [];
-  try {
-    media = JSON.parse(row.media_json) as MediaView[];
-  } catch {
-    media = [];
+  if (!redacted) {
+    try {
+      media = JSON.parse(row.media_json) as MediaView[];
+    } catch {
+      media = [];
+    }
   }
   return {
     postId: row.post_id,
@@ -185,7 +195,7 @@ function postView(db: IndexerDb, row: PostRow, viewer?: string): PostView {
     audience: row.audience,
     audienceId: row.audience_id,
     epoch: row.epoch,
-    envelope: envelopeString(row.envelope),
+    envelope: redacted ? "" : envelopeString(row.envelope),
     media,
     replyTo: row.reply_to,
     state: row.state,
@@ -357,10 +367,9 @@ export function profileCounts(db: IndexerDb, account: string): ProfileCounts {
   };
 }
 
-export function getProfile(db: IndexerDb, account: string): ProfileView | undefined {
-  const row = db.get<Row>("SELECT * FROM identities WHERE account = ?", account);
-  if (!row) return undefined;
-  const devices = db.all<Row>("SELECT * FROM devices WHERE account = ? ORDER BY device ASC", account).map((d) => ({
+/** Devices ever authorized for `account` (revoked ones included, flagged), `GET /v1/accounts/:account/devices`. */
+export function devicesFor(db: IndexerDb, account: string): DeviceView[] {
+  return db.all<Row>("SELECT * FROM devices WHERE account = ? ORDER BY device ASC", account).map((d) => ({
     device: String(d.device),
     capabilities: Number(d.capabilities),
     expiresAt: String(d.expires_at),
@@ -369,6 +378,12 @@ export function getProfile(db: IndexerDb, account: string): ProfileView | undefi
     label: String(d.label),
     authorizedAt: String(d.authorized_at),
   }));
+}
+
+export function getProfile(db: IndexerDb, account: string): ProfileView | undefined {
+  const row = db.get<Row>("SELECT * FROM identities WHERE account = ?", account);
+  if (!row) return undefined;
+  const devices = devicesFor(db, account);
   return {
     ...profileSummary(row),
     protocolVersion: Number(row.protocol_version),

@@ -65,6 +65,10 @@ describe("GET /v1/status", () => {
     expect(body.healthy).toBe(true);
     expect(body.deployed).toBe(true);
     expect(typeof body.version).toBe("string");
+    // chain id verified against the node before the first block was applied
+    expect(body.rpcChainId).toBe(history.deployment.chainId);
+    expect(body.chainIdMatch).toBe(true);
+    expect(body.sync).toMatchObject({ running: false, lastError: null, lag: 0, rollbacks: 0, stalled: false });
   });
 });
 
@@ -86,6 +90,18 @@ describe("GET /v1/profiles", () => {
     expect(body.devices[0]).toMatchObject({ device: history.device, capabilities: 7, label: "laptop", revoked: false });
     expect(body.recovery.policy).toEqual({ guardians: [history.actors.carol.account, history.actors.bob.account], threshold: 1, delayMs: "3600000" });
     expect(body.recovery.pendingRecovery.newOwner).toBe(history.newOwner);
+  });
+
+  it("GET /v1/accounts/:account/devices lists the devices exactly as the profile does", async () => {
+    const alice = history.actors.alice.account;
+    const { status, body } = await get(`/v1/accounts/${alice}/devices`);
+    expect(status).toBe(200);
+    expect(body).toEqual({
+      items: [{ device: history.device, capabilities: 7, expiresAt: "1790000000000", deviceEpoch: 0, revoked: false, label: "laptop", authorizedAt: history.builder.timestampAt(109) }],
+    });
+    expect(body.items).toEqual((await get(`/v1/profiles/${alice}`)).body.devices);
+    expect((await get(`/v1/accounts/${history.actors.bob.account}/devices`)).body).toEqual({ items: [] });
+    expect((await get("/v1/accounts/not-an-address/devices")).status).toBe(400);
   });
 
   it("404s for unknown accounts and 400s for invalid ones", async () => {
@@ -201,12 +217,28 @@ describe("GET /v1/posts", () => {
     expect(body.replyTo).toBe("");
   });
 
-  it("keeps deleted and hidden posts fetchable by id with their state", async () => {
-    const deleted = (await get(`/v1/posts/${history.posts.p4.idB64}`)).body;
+  it("keeps deleted and hidden posts fetchable by id with their state but stops hydrating their content", async () => {
+    const { p3, p4 } = history.posts;
+    const deleted = (await get(`/v1/posts/${p4.idB64}`)).body;
     expect(deleted.state).toBe(2);
     expect(deleted.stateReason).toBe("oops");
-    const hidden = (await get(`/v1/posts/${history.posts.p3.idB64}`)).body;
+    // Tombstone: no envelope, no media (spec section 6), but the metadata clients need stays.
+    expect(deleted.envelope).toBe("");
+    expect(deleted.media).toEqual([]);
+    expect(deleted).toMatchObject({ postId: p4.idB64, author: history.actors.alice.account, contentHash: p4.hashB64, versionNumber: 1, replacementId: "" });
+    expect(deleted.versions).toEqual([{ contentHash: p4.hashB64, versionNumber: 1, txId: expect.any(String), blockHeight: "106", timestamp: history.builder.timestampAt(106) }]);
+    const hidden = (await get(`/v1/posts/${p3.idB64}`)).body;
     expect(hidden.state).toBe(1);
+    expect(hidden.envelope).toBe("");
+    expect(hidden.media).toEqual([]);
+    expect(hidden.contentHash).toBe(p3.hashB64);
+    // Never claims erasure: the log and the projection still hold the bytes (a rebuild reproduces them).
+    expect(indexer.db.get<{ n: number }>("SELECT length(envelope) AS n FROM posts WHERE post_id = ?", p4.idB64)!.n).toBe(p4.envelope.length);
+    expect(JSON.parse(indexer.db.get<{ m: string }>("SELECT media_json AS m FROM posts WHERE post_id = ?", p4.idB64)!.m)).toHaveLength(1);
+    // Listings exclude them altogether.
+    const alicePosts = (await get(`/v1/accounts/${history.actors.alice.account}/posts`)).body;
+    expect(alicePosts.items.map((p: { postId: string }) => p.postId)).not.toContain(p4.idB64);
+    expect((await get(`/v1/accounts/${history.actors.carol.account}/posts`)).body.items).toEqual([]);
     const missing = await get(`/v1/posts/${toBase64url(new Uint8Array(32).fill(9))}`);
     expect(missing.status).toBe(404);
   });
