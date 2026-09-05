@@ -35,6 +35,16 @@ const MAX_LIST_LIMIT: u32 = 100;
 const HTTPS_PREFIX: string = "https://";
 const LOCALHOST: string = "http://localhost";
 
+// A maximum-size sponsor_record (32 allowed calls x 64 entry points, two
+// 256-character URIs) encodes to roughly 13 KiB, well above the SDK's default
+// 1 KiB system-call buffer through which call arguments and database reads are
+// returned (the chain fails a call whose result does not fit). The generated
+// entry point reads the arguments before constructing the contract, so the
+// buffer is enlarged here at module initialization: imported modules run their
+// top-level statements before index.ts calls main().
+const SYSTEM_BUFFER_SIZE: u32 = 32 * 1024;
+System.setSystemBufferSize(SYSTEM_BUFFER_SIZE);
+
 export class Sponsorship {
   contractId: Uint8Array;
   sponsors: Storage.Map<Uint8Array, sponsorship.sponsor_record>;
