@@ -6,13 +6,18 @@
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
+  "bin": {
+    "osp-indexer": "./dist/main.js"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "clean": "rm -rf dist",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json",
     "test": "vitest run",
     "start": "node --experimental-sqlite dist/main.js",
-    "dev": "node --experimental-sqlite --import tsx src/main.ts"
+    "dev": "node --experimental-sqlite --import tsx src/main.ts",
+    "rebuild": "node --experimental-sqlite dist/main.js --rebuild",
+    "state-hash": "node --experimental-sqlite dist/main.js --once"
   },
   "dependencies": {
     "@fastify/cors": "^11.0.0",

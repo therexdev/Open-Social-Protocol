@@ -5,6 +5,7 @@ import {
   Signer,
   SponsorClient,
   Transaction,
+  encode,
   verifySponsorDiscovery,
   type Deployment,
   type OperationJson,
@@ -183,6 +184,40 @@ describe("POST /v1/sponsor acceptance", () => {
     const tx = await userTx(harness, [await reactOp(harness.client, other.getAddress(), user.getAddress())]);
     const { status } = await sponsorRequest(harness.app, tx);
     expect(status).toBe(200);
+    await harness.app.close();
+  });
+
+  it("accepts a recovered identity whose current owner key is the payee", async () => {
+    const identityEntryPoint = ABIS.identity.methods.get_identity!.entry_point;
+    let lookups = 0;
+    const harness = await start({
+      provider: {
+        onRead: (op) => {
+          if (op.entry_point !== identityEntryPoint) return undefined;
+          lookups += 1;
+          const args = harness.client.contracts.decodeOperation({ call_contract: op })?.args as { account: string };
+          return args.account === other.getAddress()
+            ? encode("identity.get_identity_result", { value: { account: other.getAddress(), owner: user.getAddress(), encryption_key: new Uint8Array(32), key_version: 1 } })
+            : undefined;
+        },
+      },
+    });
+    // `other` was recovered to the `user` key: user signs as payee for other's account
+    const recovered = await harness.client.ops.identity.update_profile({ account: other.getAddress(), profile_hash: new Uint8Array(32), profile_uri: "" });
+    const ok = await sponsorRequest(harness.app, await userTx(harness, [recovered, await reactOp(harness.client, other.getAddress())], { rcLimit: "400000000" }));
+    expect(ok.status, JSON.stringify(ok.body)).toBe(200);
+    expect(lookups).toBe(1); // one lookup per account per transaction
+    // an unregistered or differently owned account is still refused
+    const unknown = await harness.client.ops.identity.update_profile({ account: sponsor, profile_hash: new Uint8Array(32), profile_uri: "" });
+    await expectRefusal(harness.app, await userTx(harness, [unknown]), 400, "invalid_transaction", /owner/);
+    // a device-bound operation never consults the owner
+    const withDevice = await reactOp(harness.client, other.getAddress(), sponsor);
+    await expectRefusal(harness.app, await userTx(harness, [withDevice]), 400, "invalid_transaction", /device/);
+    // an RPC failure during the lookup is temporarily_unavailable, not a silent refusal
+    harness.provider.readContract = async () => {
+      throw new Error("fetch failed");
+    };
+    await expectRefusal(harness.app, await userTx(harness, [recovered]), 503, "temporarily_unavailable", /owner/);
     await harness.app.close();
   });
 

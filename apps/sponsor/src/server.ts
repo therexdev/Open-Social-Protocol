@@ -174,6 +174,7 @@ export class SponsorService {
       contracts: client.contracts,
       allowlist,
       limits: { maxBytesPerOp: this.limits.maxBytesPerOp, maxRcPerOp: this.limits.maxRcPerOp, maxOpsPerTx: this.limits.maxOpsPerTx },
+      ownerOf: async (account) => (await client.reads.identity.get_identity({ account }))?.value?.owner,
     };
   }
 
@@ -229,7 +230,7 @@ export class SponsorService {
     try {
       if (!isAddress(payee)) throw new SponsorRefusal("invalid_transaction", "payee must be a Base58 address");
       if (payee === sponsor) throw new SponsorRefusal("invalid_transaction", "payee must not be the sponsor");
-      const validated = validateOperations(operations, payee, this.context());
+      const validated = await validateOperations(operations, payee, this.context());
       let rcLimit = BigInt(this.limits.maxRcPerOp) * BigInt(validated.length);
       let available: bigint;
       try {

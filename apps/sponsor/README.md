@@ -52,7 +52,10 @@ a deployed protocol contract with an allowlisted entry point, each `args` payloa
 method (`account`, `author`, `actor`, `requester`, `approver`, `follower`, `creator`, `owner`,
 `sponsor`, or `guardian` for `identity.propose_recovery`; see `ACTOR_FIELDS` in
 `src/policy.ts`) must equal `header.payee`. When the operation names a `device`, the device may
-be the payee instead (spec section 3.2: the device signs). Methods anyone may call
+be the payee instead (spec section 3.2: the device signs). When neither matches and no device is
+named, the sponsor reads `identity.get_identity(actor).owner` once per account and accepts a
+payee that is the identity's current owner key (recovered identities, spec section 3.3); an RPC
+failure during that lookup is `temporarily_unavailable`. Methods anyone may call
 (`identity.execute_recovery`, `communities.execute_owner_transfer`) have no actor to bind. Usage
 is always charged to the payee, and a signature must recover to the payee, so a user can only
 spend their own quota.
@@ -115,8 +118,15 @@ With `@osp/sdk`:
 
 ```ts
 const client = new ProtocolClient({ deployment, sponsors: ["https://sponsor.example.org"] });
-const { sponsored, receipt } = await client.submit({ operations: [op], signer: me.signer });
+const { policy } = await client.sponsors.sponsors[0].discover();
+const rcLimit = (BigInt(policy.maxRcPerOp) * BigInt(operations.length)).toString();
+const { sponsored, receipt } = await client.submit({ operations, signer: me.signer, rcLimit });
 ```
+
+Pass `rcLimit`: without it koilib sets `rc_limit` to the payer's entire available RC, which is
+above any sponsor's `maxRcPerOp x ops` ceiling, so the sponsor answers `too_large` and the SDK
+falls back to self-pay. Alternatively build the transaction with `POST /v1/prepare`
+(`SponsorClient.prepare`), which already applies the ceiling.
 
 ## On-chain registration
 

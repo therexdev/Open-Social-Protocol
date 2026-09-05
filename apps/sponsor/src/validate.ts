@@ -49,6 +49,13 @@ export interface ValidationContext {
   contracts: ProtocolContracts;
   allowlist: Allowlist;
   limits: ValidationLimits;
+  /**
+   * Resolves the current owner key of an identity (`identity.get_identity(account).owner`).
+   * Consulted only when neither the actor nor the device equals the payee, so that a
+   * recovered identity (owner != account, spec section 3.3) can still be sponsored.
+   * Undefined = no lookup (strict actor/device == payee).
+   */
+  ownerOf?: ((account: string) => Promise<string | undefined>) | undefined;
 }
 
 export interface ValidatedOperation {
@@ -93,9 +100,9 @@ function argsLength(args: unknown, index: number): number {
 
 /**
  * Validates operations for `payee`: shape, allowlist, byte ceiling and actor binding.
- * Shared by `/v1/prepare` and `/v1/sponsor`.
+ * Shared by `/v1/prepare` and `/v1/sponsor`. Only the optional owner lookup is async.
  */
-export function validateOperations(operations: unknown, payee: string, ctx: ValidationContext): ValidatedOperation[] {
+export async function validateOperations(operations: unknown, payee: string, ctx: ValidationContext): Promise<ValidatedOperation[]> {
   if (!Array.isArray(operations) || operations.length === 0) {
     throw new SponsorRefusal("invalid_transaction", "transaction must contain at least one operation");
   }
@@ -103,7 +110,20 @@ export function validateOperations(operations: unknown, payee: string, ctx: Vali
     throw new SponsorRefusal("too_large", `at most ${ctx.limits.maxOpsPerTx} operations per transaction (got ${operations.length})`);
   }
   const out: ValidatedOperation[] = [];
-  operations.forEach((raw: unknown, index: number) => {
+  const owners = new Map<string, string | undefined>();
+  const ownerOf = async (account: string): Promise<string | undefined> => {
+    if (!ctx.ownerOf) return undefined;
+    if (!owners.has(account)) {
+      try {
+        owners.set(account, await ctx.ownerOf(account));
+      } catch (error) {
+        throw new SponsorRefusal("temporarily_unavailable", `cannot resolve the owner of ${account}: ${(error as Error).message}`);
+      }
+    }
+    return owners.get(account);
+  };
+  for (let index = 0; index < operations.length; index += 1) {
+    const raw: unknown = operations[index];
     if (!isRecord(raw)) throw new SponsorRefusal("invalid_transaction", `operation ${index}: not an object`);
     const keys = Object.keys(raw);
     if (keys.length !== 1 || keys[0] !== "call_contract" || !isRecord(raw.call_contract)) {
@@ -139,10 +159,11 @@ export function validateOperations(operations: unknown, payee: string, ctx: Vali
       }
       if (value === payee) actor = value;
       else if (device === payee) actor = device;
+      else if (!device && (await ownerOf(value)) === payee) actor = value;
       else {
         throw new SponsorRefusal(
           "invalid_transaction",
-          `operation ${index}: ${decoded.contract}.${decoded.method}.${field} (${value}) must equal the payee ${payee}${device ? " (or the device must)" : ""}`,
+          `operation ${index}: ${decoded.contract}.${decoded.method}.${field} (${value}) must equal the payee ${payee}${device ? " (or the device must)" : " (or the payee must be its current owner)"}`,
         );
       }
     }
@@ -156,7 +177,7 @@ export function validateOperations(operations: unknown, payee: string, ctx: Vali
       actor,
       operation,
     });
-  });
+  }
   return out;
 }
 
@@ -192,7 +213,7 @@ export async function validateTransaction(input: unknown, ctx: ValidationContext
     throw new SponsorRefusal("invalid_transaction", "header.operation_merkle_root is required");
   }
 
-  const operations = validateOperations(input.operations, payee, ctx);
+  const operations = await validateOperations(input.operations, payee, ctx);
 
   const rcLimit = parseRcLimit(header.rc_limit);
   const rcCeiling = BigInt(ctx.limits.maxRcPerOp) * BigInt(operations.length);
