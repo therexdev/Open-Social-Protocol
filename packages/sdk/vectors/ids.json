@@ -1,0 +1,23 @@
+{
+  "description": "spec 2.1-2.3 identifiers",
+  "chainId": "EiBncD4pKRIQWco_WRqo5Q-xnXR7JuO3PtZv983mKdKHSQ==",
+  "protocolVersion": 1,
+  "author": "13fYBKMeZBbRwAD9bYmZrnG2mU4XiJTAjE",
+  "authorBytes": "001d3a1586fe613ef6ce40bce0cd0fc2ab5e0e1d828844d695",
+  "postId": {
+    "envelope": "08011a360801121b48656c6c6f2c20667269656e64732120c3a9c3a0c3bc20f09f918b1a0a746578742f706c61696e2a02656e3080a8ecfb9b32",
+    "contentHash": "04a41a29c283bc260a411109160192cbb9f9e87592eaeaef1e88eba0bb51f2d6",
+    "sequence": "1",
+    "postId": "021f40375dc4a6f62086df41263b3097db6a8ac012ffc113bbb7a831ad7e43fe",
+    "sequence2": "18446744073709551615",
+    "postId2": "99e70c9a7326baa22b2e9f64f0f696d54afa19870a903fed2b9ee52158a26851"
+  },
+  "idempotency": {
+    "attemptId": "101112131415161718191a1b1c1d1e1f",
+    "key": "a29d9f5897016bad3815c3f6382d992f"
+  },
+  "audience": {
+    "label": "close-friends",
+    "audienceId": "2c0aa8a65e97b9a50abd2bcfeb111304"
+  }
+}

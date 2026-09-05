@@ -1,0 +1,607 @@
+{
+  "description": "spec 7 transition table (states after each event and the final record)",
+  "cases": [
+    {
+      "name": "both succeed",
+      "start": {
+        "idempotencyKey": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+        "attemptId": "a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2",
+        "hostSite": "facebook",
+        "audience": 1,
+        "state": "draft",
+        "hostStatus": "pending",
+        "koinosStatus": "pending",
+        "updatedAt": 1000
+      },
+      "steps": [
+        {
+          "event": {
+            "type": "retry",
+            "at": 2000
+          },
+          "state": "submitting"
+        },
+        {
+          "event": {
+            "type": "hostSucceeded",
+            "hostRef": "fb:1",
+            "at": 2001
+          },
+          "state": "submitting"
+        },
+        {
+          "event": {
+            "type": "koinosSucceeded",
+            "txId": "0x1220aa",
+            "postId": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "at": 2002
+          },
+          "state": "succeeded"
+        }
+      ],
+      "final": {
+        "idempotencyKey": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+        "attemptId": "a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2",
+        "hostSite": "facebook",
+        "audience": 1,
+        "state": "succeeded",
+        "hostStatus": "ok",
+        "koinosStatus": "ok",
+        "updatedAt": 2002,
+        "hostRef": "fb:1",
+        "postId": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "koinosTxId": "0x1220aa"
+      }
+    },
+    {
+      "name": "host ok koinos failed -> partial -> retry koinos only",
+      "start": {
+        "idempotencyKey": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+        "attemptId": "a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2",
+        "hostSite": "facebook",
+        "audience": 1,
+        "state": "draft",
+        "hostStatus": "pending",
+        "koinosStatus": "pending",
+        "updatedAt": 1000
+      },
+      "steps": [
+        {
+          "event": {
+            "type": "retry",
+            "at": 2000
+          },
+          "state": "submitting"
+        },
+        {
+          "event": {
+            "type": "hostSucceeded",
+            "hostRef": "fb:1",
+            "at": 2001
+          },
+          "state": "submitting"
+        },
+        {
+          "event": {
+            "type": "koinosFailed",
+            "error": "insufficient rc",
+            "at": 2002
+          },
+          "state": "partial"
+        },
+        {
+          "event": {
+            "type": "retry",
+            "at": 2003
+          },
+          "state": "submitting"
+        }
+      ],
+      "final": {
+        "idempotencyKey": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+        "attemptId": "a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2",
+        "hostSite": "facebook",
+        "audience": 1,
+        "state": "submitting",
+        "hostStatus": "ok",
+        "koinosStatus": "pending",
+        "updatedAt": 2003,
+        "hostRef": "fb:1"
+      }
+    },
+    {
+      "name": "koinos ok host failed -> partial (postId kept)",
+      "start": {
+        "idempotencyKey": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+        "attemptId": "a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2",
+        "hostSite": "facebook",
+        "audience": 1,
+        "state": "draft",
+        "hostStatus": "pending",
+        "koinosStatus": "pending",
+        "updatedAt": 1000
+      },
+      "steps": [
+        {
+          "event": {
+            "type": "retry",
+            "at": 2000
+          },
+          "state": "submitting"
+        },
+        {
+          "event": {
+            "type": "koinosSucceeded",
+            "txId": "0x1220aa",
+            "postId": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "at": 2001
+          },
+          "state": "submitting"
+        },
+        {
+          "event": {
+            "type": "hostFailed",
+            "error": "http 500",
+            "at": 2002
+          },
+          "state": "partial"
+        },
+        {
+          "event": {
+            "type": "retry",
+            "at": 2003
+          },
+          "state": "submitting"
+        }
+      ],
+      "final": {
+        "idempotencyKey": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+        "attemptId": "a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2",
+        "hostSite": "facebook",
+        "audience": 1,
+        "state": "submitting",
+        "hostStatus": "pending",
+        "koinosStatus": "ok",
+        "updatedAt": 2003,
+        "postId": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "koinosTxId": "0x1220aa"
+      }
+    },
+    {
+      "name": "koinos unknown blocks retry",
+      "start": {
+        "idempotencyKey": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+        "attemptId": "a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2",
+        "hostSite": "facebook",
+        "audience": 1,
+        "state": "draft",
+        "hostStatus": "pending",
+        "koinosStatus": "pending",
+        "updatedAt": 1000
+      },
+      "steps": [
+        {
+          "event": {
+            "type": "retry",
+            "at": 2000
+          },
+          "state": "submitting"
+        },
+        {
+          "event": {
+            "type": "koinosUnknown",
+            "error": "timeout",
+            "at": 2001
+          },
+          "state": "unknown"
+        },
+        {
+          "event": {
+            "type": "retry",
+            "at": 2002
+          },
+          "state": "unknown"
+        }
+      ],
+      "final": {
+        "idempotencyKey": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+        "attemptId": "a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2",
+        "hostSite": "facebook",
+        "audience": 1,
+        "state": "unknown",
+        "hostStatus": "pending",
+        "koinosStatus": "unknown",
+        "updatedAt": 2002,
+        "lastError": "lookup required before retry"
+      }
+    },
+    {
+      "name": "koinos unknown -> lookupFound -> host ok -> succeeded",
+      "start": {
+        "idempotencyKey": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+        "attemptId": "a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2",
+        "hostSite": "facebook",
+        "audience": 1,
+        "state": "draft",
+        "hostStatus": "pending",
+        "koinosStatus": "pending",
+        "updatedAt": 1000
+      },
+      "steps": [
+        {
+          "event": {
+            "type": "retry",
+            "at": 2000
+          },
+          "state": "submitting"
+        },
+        {
+          "event": {
+            "type": "koinosUnknown",
+            "at": 2001
+          },
+          "state": "unknown"
+        },
+        {
+          "event": {
+            "type": "lookupFound",
+            "postId": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "txId": "0x1220bb",
+            "at": 2002
+          },
+          "state": "submitting"
+        },
+        {
+          "event": {
+            "type": "hostSucceeded",
+            "hostRef": "fb:2",
+            "at": 2003
+          },
+          "state": "succeeded"
+        }
+      ],
+      "final": {
+        "idempotencyKey": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+        "attemptId": "a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2",
+        "hostSite": "facebook",
+        "audience": 1,
+        "state": "succeeded",
+        "hostStatus": "ok",
+        "koinosStatus": "ok",
+        "updatedAt": 2003,
+        "postId": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "koinosTxId": "0x1220bb",
+        "hostRef": "fb:2"
+      }
+    },
+    {
+      "name": "koinos unknown -> lookupMissing -> retryable",
+      "start": {
+        "idempotencyKey": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+        "attemptId": "a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2",
+        "hostSite": "facebook",
+        "audience": 1,
+        "state": "draft",
+        "hostStatus": "pending",
+        "koinosStatus": "pending",
+        "updatedAt": 1000
+      },
+      "steps": [
+        {
+          "event": {
+            "type": "retry",
+            "at": 2000
+          },
+          "state": "submitting"
+        },
+        {
+          "event": {
+            "type": "koinosUnknown",
+            "at": 2001
+          },
+          "state": "unknown"
+        },
+        {
+          "event": {
+            "type": "lookupMissing",
+            "at": 2002
+          },
+          "state": "submitting"
+        }
+      ],
+      "final": {
+        "idempotencyKey": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+        "attemptId": "a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2",
+        "hostSite": "facebook",
+        "audience": 1,
+        "state": "submitting",
+        "hostStatus": "pending",
+        "koinosStatus": "failed",
+        "updatedAt": 2002,
+        "lastError": "not found on chain; safe to retry"
+      }
+    },
+    {
+      "name": "both failed -> failed -> retry",
+      "start": {
+        "idempotencyKey": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+        "attemptId": "a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2",
+        "hostSite": "facebook",
+        "audience": 1,
+        "state": "draft",
+        "hostStatus": "pending",
+        "koinosStatus": "pending",
+        "updatedAt": 1000
+      },
+      "steps": [
+        {
+          "event": {
+            "type": "retry",
+            "at": 2000
+          },
+          "state": "submitting"
+        },
+        {
+          "event": {
+            "type": "hostFailed",
+            "error": "a",
+            "at": 2001
+          },
+          "state": "submitting"
+        },
+        {
+          "event": {
+            "type": "koinosFailed",
+            "error": "b",
+            "at": 2002
+          },
+          "state": "failed"
+        },
+        {
+          "event": {
+            "type": "retry",
+            "at": 2003
+          },
+          "state": "submitting"
+        }
+      ],
+      "final": {
+        "idempotencyKey": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+        "attemptId": "a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2",
+        "hostSite": "facebook",
+        "audience": 1,
+        "state": "submitting",
+        "hostStatus": "pending",
+        "koinosStatus": "pending",
+        "updatedAt": 2003
+      }
+    },
+    {
+      "name": "conflicting post id -> reconcile_required",
+      "start": {
+        "idempotencyKey": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+        "attemptId": "a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2",
+        "hostSite": "facebook",
+        "audience": 1,
+        "state": "draft",
+        "hostStatus": "pending",
+        "koinosStatus": "pending",
+        "updatedAt": 1000
+      },
+      "steps": [
+        {
+          "event": {
+            "type": "retry",
+            "at": 2000
+          },
+          "state": "submitting"
+        },
+        {
+          "event": {
+            "type": "koinosSucceeded",
+            "txId": "0x1",
+            "postId": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "at": 2001
+          },
+          "state": "submitting"
+        },
+        {
+          "event": {
+            "type": "lookupFound",
+            "postId": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "at": 2002
+          },
+          "state": "reconcile_required"
+        },
+        {
+          "event": {
+            "type": "retry",
+            "at": 2003
+          },
+          "state": "reconcile_required"
+        }
+      ],
+      "final": {
+        "idempotencyKey": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+        "attemptId": "a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2",
+        "hostSite": "facebook",
+        "audience": 1,
+        "state": "reconcile_required",
+        "hostStatus": "pending",
+        "koinosStatus": "ok",
+        "updatedAt": 2002,
+        "postId": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "koinosTxId": "0x1",
+        "lastError": "post id dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd conflicts with cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      }
+    },
+    {
+      "name": "lookupMissing after success -> reconcile_required",
+      "start": {
+        "idempotencyKey": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+        "attemptId": "a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2",
+        "hostSite": "facebook",
+        "audience": 1,
+        "state": "draft",
+        "hostStatus": "pending",
+        "koinosStatus": "pending",
+        "updatedAt": 1000
+      },
+      "steps": [
+        {
+          "event": {
+            "type": "retry",
+            "at": 2000
+          },
+          "state": "submitting"
+        },
+        {
+          "event": {
+            "type": "koinosSucceeded",
+            "txId": "0x1",
+            "postId": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "at": 2001
+          },
+          "state": "submitting"
+        },
+        {
+          "event": {
+            "type": "lookupMissing",
+            "at": 2002
+          },
+          "state": "reconcile_required"
+        }
+      ],
+      "final": {
+        "idempotencyKey": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+        "attemptId": "a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2",
+        "hostSite": "facebook",
+        "audience": 1,
+        "state": "reconcile_required",
+        "hostStatus": "pending",
+        "koinosStatus": "ok",
+        "updatedAt": 2002,
+        "postId": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "koinosTxId": "0x1",
+        "lastError": "chain lookup found no post for an idempotency key recorded as succeeded"
+      }
+    },
+    {
+      "name": "koinos-only succeeds",
+      "start": {
+        "idempotencyKey": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+        "attemptId": "a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2",
+        "audience": 1,
+        "state": "draft",
+        "hostStatus": "not_required",
+        "koinosStatus": "pending",
+        "updatedAt": 1000
+      },
+      "steps": [
+        {
+          "event": {
+            "type": "retry",
+            "at": 2000
+          },
+          "state": "submitting"
+        },
+        {
+          "event": {
+            "type": "koinosSucceeded",
+            "txId": "0x1",
+            "postId": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "at": 2001
+          },
+          "state": "succeeded"
+        }
+      ],
+      "final": {
+        "idempotencyKey": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+        "attemptId": "a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2",
+        "audience": 1,
+        "state": "succeeded",
+        "hostStatus": "not_required",
+        "koinosStatus": "ok",
+        "updatedAt": 2001,
+        "postId": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "koinosTxId": "0x1"
+      }
+    },
+    {
+      "name": "duplicate success is a no-op",
+      "start": {
+        "idempotencyKey": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+        "attemptId": "a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2",
+        "hostSite": "facebook",
+        "audience": 1,
+        "state": "draft",
+        "hostStatus": "pending",
+        "koinosStatus": "pending",
+        "updatedAt": 1000
+      },
+      "steps": [
+        {
+          "event": {
+            "type": "retry",
+            "at": 2000
+          },
+          "state": "submitting"
+        },
+        {
+          "event": {
+            "type": "koinosSucceeded",
+            "txId": "0x1",
+            "postId": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "at": 2001
+          },
+          "state": "submitting"
+        },
+        {
+          "event": {
+            "type": "koinosSucceeded",
+            "txId": "0x1",
+            "postId": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "at": 2002
+          },
+          "state": "submitting"
+        },
+        {
+          "event": {
+            "type": "hostSucceeded",
+            "hostRef": "fb:1",
+            "at": 2003
+          },
+          "state": "succeeded"
+        },
+        {
+          "event": {
+            "type": "hostSucceeded",
+            "hostRef": "fb:1",
+            "at": 2004
+          },
+          "state": "succeeded"
+        },
+        {
+          "event": {
+            "type": "retry",
+            "at": 2005
+          },
+          "state": "succeeded"
+        }
+      ],
+      "final": {
+        "idempotencyKey": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+        "attemptId": "a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2",
+        "hostSite": "facebook",
+        "audience": 1,
+        "state": "succeeded",
+        "hostStatus": "ok",
+        "koinosStatus": "ok",
+        "updatedAt": 2004,
+        "postId": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "koinosTxId": "0x1",
+        "hostRef": "fb:1"
+      }
+    }
+  ]
+}

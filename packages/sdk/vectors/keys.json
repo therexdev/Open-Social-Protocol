@@ -1,0 +1,26 @@
+{
+  "description": "identity derivation: Signer.fromSeed(hex(seed)) and HKDF-SHA256(seed, salt=empty, info='osp/v1/enc-key'||u32be(keyVersion), 32)",
+  "cases": [
+    {
+      "seed": "0101010101010101010101010101010101010101010101010101010101010101",
+      "account": "13fYBKMeZBbRwAD9bYmZrnG2mU4XiJTAjE",
+      "keyVersion": 1,
+      "encryptionSecret": "e0d53dcb12f5b9c9f31d105ef874229b4596314030de53622d28e669106b01e0",
+      "encryptionPublicKey": "10905d06b74082e88b8cfa56844383722f4eac00ee392fc7005704a376bf6e77"
+    },
+    {
+      "seed": "0202020202020202020202020202020202020202020202020202020202020202",
+      "account": "14DHRtca9fJm2foV1mdLYDMJS421MAUWYJ",
+      "keyVersion": 1,
+      "encryptionSecret": "0769e6e1e04c0411364ecc75cb1fc1d9caf11c84abd4ae66d38f54c05618b5a8",
+      "encryptionPublicKey": "b74c8aa94b4e99aadc64af35b39f653cb42593e8d72a90ac91d31b62b4746958"
+    },
+    {
+      "seed": "0303030303030303030303030303030303030303030303030303030303030303",
+      "account": "1E87oouoNSo1B4ybxxtVfw6C99htYqx8vX",
+      "keyVersion": 2,
+      "encryptionSecret": "027841e68fb4ce566c5f0cee2342230ffb11eb0985d5e93f6d45a5fdaf3022db",
+      "encryptionPublicKey": "439e813f13d337750c97731e082159272ae42e5bcf8abdfd812f6566a43da547"
+    }
+  ]
+}

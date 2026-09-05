@@ -138,7 +138,7 @@ export class Identity {
   loadRecovery(account: Uint8Array): identity.recovery_state {
     const state = this.recovery.get(account);
     if (state == null) return new identity.recovery_state(null, null, null);
-    return state!;
+    return state;
   }
 
   /**
@@ -158,22 +158,22 @@ export class Identity {
       return new identity.resolve_actor_result(false, null, "unregistered");
     }
     if (Util.isEmpty(device) || Arrays.equal(device!, account!)) {
-      return new identity.resolve_actor_result(true, rec!.owner, null);
+      return new identity.resolve_actor_result(true, rec.owner, null);
     }
     const dev = this.devices.get(this.deviceKey(account!, device!));
     if (dev == null) {
       return new identity.resolve_actor_result(false, null, "unknown device");
     }
-    if (dev!.revoked) {
+    if (dev.revoked) {
       return new identity.resolve_actor_result(false, null, "device revoked");
     }
-    if (dev!.device_epoch != rec!.device_epoch) {
+    if (dev.device_epoch != rec.device_epoch) {
       return new identity.resolve_actor_result(false, null, "device epoch expired");
     }
-    if (dev!.expires_at <= Util.now()) {
+    if (dev.expires_at <= Util.now()) {
       return new identity.resolve_actor_result(false, null, "device expired");
     }
-    if (capability != 0 && (dev!.capabilities & capability) == 0) {
+    if (capability != 0 && (dev.capabilities & capability) == 0) {
       return new identity.resolve_actor_result(false, null, "capability not granted");
     }
     return new identity.resolve_actor_result(true, device, null);

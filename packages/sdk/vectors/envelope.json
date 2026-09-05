@@ -1,0 +1,121 @@
+{
+  "description": "spec 5.1: aad = canonical(osp.envelope.aad) with post_id empty for version 1; payload = XChaCha20-Poly1305(contentKey, nonce, canonical(content), aad); wrapped = XChaCha20-Poly1305(epochKey, wrapNonce, contentKey, 'osp/v1/wrap'||aad)",
+  "chainId": "EiBncD4pKRIQWco_WRqo5Q-xnXR7JuO3PtZv983mKdKHSQ==",
+  "cases": [
+    {
+      "name": "suite0-everyone-first-version",
+      "suite": 0,
+      "content": {
+        "version": 1,
+        "text": "Hello, friends! éàü 👋",
+        "mime": "text/plain",
+        "lang": "en",
+        "created_at": 1725494400000
+      },
+      "contentBytes": "0801121b48656c6c6f2c20667269656e64732120c3a9c3a0c3bc20f09f918b1a0a746578742f706c61696e2a02656e3080a8ecfb9b32",
+      "aad": {
+        "chainId": "EiBncD4pKRIQWco_WRqo5Q-xnXR7JuO3PtZv983mKdKHSQ==",
+        "author": "13fYBKMeZBbRwAD9bYmZrnG2mU4XiJTAjE",
+        "audience": 0,
+        "epoch": 0,
+        "versionNumber": 1,
+        "aadBytes": "08011222122067703e2929121059ca3f591aa8e50fb19d747b26e3b73ed66ff7cde629d287491a19001d3a1586fe613ef6ce40bce0cd0fc2ab5e0e1d828844d6954001"
+      },
+      "envelope": "08011a360801121b48656c6c6f2c20667269656e64732120c3a9c3a0c3bc20f09f918b1a0a746578742f706c61696e2a02656e3080a8ecfb9b32",
+      "contentHash": "04a41a29c283bc260a411109160192cbb9f9e87592eaeaef1e88eba0bb51f2d6"
+    },
+    {
+      "name": "suite1-friends-first-version",
+      "suite": 1,
+      "content": {
+        "version": 1,
+        "text": "Hello, friends! éàü 👋",
+        "mime": "text/plain",
+        "lang": "en",
+        "created_at": 1725494400000
+      },
+      "contentBytes": "0801121b48656c6c6f2c20667269656e64732120c3a9c3a0c3bc20f09f918b1a0a746578742f706c61696e2a02656e3080a8ecfb9b32",
+      "aad": {
+        "chainId": "EiBncD4pKRIQWco_WRqo5Q-xnXR7JuO3PtZv983mKdKHSQ==",
+        "author": "13fYBKMeZBbRwAD9bYmZrnG2mU4XiJTAjE",
+        "audience": 1,
+        "epoch": 2,
+        "versionNumber": 1,
+        "aadBytes": "08011222122067703e2929121059ca3f591aa8e50fb19d747b26e3b73ed66ff7cde629d287491a19001d3a1586fe613ef6ce40bce0cd0fc2ab5e0e1d828844d695280138024001",
+        "decoded": {
+          "protocol_version": 1,
+          "chain_id": "122067703e2929121059ca3f591aa8e50fb19d747b26e3b73ed66ff7cde629d28749",
+          "author": "001d3a1586fe613ef6ce40bce0cd0fc2ab5e0e1d828844d695",
+          "post_id": "",
+          "audience": 1,
+          "audience_id": "",
+          "epoch": 2,
+          "version_number": 1
+        }
+      },
+      "epochKey": "18c8ed86caed9bff67d635575905f7b5a59c6c882c0ee43030fc770bd1b4f082",
+      "contentKey": "38e6a53911cf4db0ce91e329294a9e6db5103b05035d8e5d3dbbd0471710cfe0",
+      "nonce": "ee003ecff84d4f696147ef2f09ef6de0c9a1d32c4c7b82b3",
+      "wrapNonce": "5a626fb688fcdd65dd516aadf6f6b5b0ea319827c406b6e2",
+      "envelope": "080110011a464a370de1f2f26bcfbd8ccf51ab6bf85401542c1a8057b512d60cc08223ac1227f0f369f218b68afa88081687d208b7260c21f752793231427f2200978e693783fd4cfde608af2218ee003ecff84d4f696147ef2f09ef6de0c9a1d32c4c7b82b32a30ec36a743a2fc4610ab75180c4c635ad4331c53d96565754e25dcb30590fef19b692d42b77984946b797b3743937162be32185a626fb688fcdd65dd516aadf6f6b5b0ea319827c406b6e2",
+      "envelopeFields": {
+        "version": 1,
+        "suite": 1,
+        "payload": "4a370de1f2f26bcfbd8ccf51ab6bf85401542c1a8057b512d60cc08223ac1227f0f369f218b68afa88081687d208b7260c21f752793231427f2200978e693783fd4cfde608af",
+        "nonce": "ee003ecff84d4f696147ef2f09ef6de0c9a1d32c4c7b82b3",
+        "wrapped_content_key": "ec36a743a2fc4610ab75180c4c635ad4331c53d96565754e25dcb30590fef19b692d42b77984946b797b3743937162be",
+        "wrap_nonce": "5a626fb688fcdd65dd516aadf6f6b5b0ea319827c406b6e2"
+      },
+      "contentHash": "025c5458492d1950e7ef4d94561d5d74db1c975e3f53cb27552044d806062918"
+    },
+    {
+      "name": "suite1-custom-audience-second-version",
+      "suite": 1,
+      "content": {
+        "version": 1,
+        "text": "Photo",
+        "mime": "text/plain",
+        "lang": "en",
+        "created_at": 1725494400000,
+        "media": [
+          {
+            "content_hash": "7777777777777777777777777777777777777777777777777777777777777777",
+            "mime": "image/jpeg",
+            "size": 123456,
+            "locations": [
+              "ipfs://bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi"
+            ],
+            "wrapped_key": "787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878",
+            "nonce": "797979797979797979797979797979797979797979797979",
+            "alt_text": "A photo"
+          }
+        ]
+      },
+      "contentBytes": "0801120550686f746f1a0a746578742f706c61696e22cb010a207777777777777777777777777777777777777777777777777777777777777777120a696d6167652f6a70656718c0c4072242697066733a2f2f62616679626569676479727a74357366703775646d37687537367568377932366e6633656675796c71616266336f636c67747179353566627a64692a3078787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787832187979797979797979797979797979797979797979797979793a07412070686f746f2a02656e3080a8ecfb9b32",
+      "aad": {
+        "chainId": "EiBncD4pKRIQWco_WRqo5Q-xnXR7JuO3PtZv983mKdKHSQ==",
+        "author": "13fYBKMeZBbRwAD9bYmZrnG2mU4XiJTAjE",
+        "postId": "4242424242424242424242424242424242424242424242424242424242424242",
+        "audience": 2,
+        "audienceId": "2c0aa8a65e97b9a50abd2bcfeb111304",
+        "epoch": 7,
+        "versionNumber": 2,
+        "aadBytes": "08011222122067703e2929121059ca3f591aa8e50fb19d747b26e3b73ed66ff7cde629d287491a19001d3a1586fe613ef6ce40bce0cd0fc2ab5e0e1d828844d69522204242424242424242424242424242424242424242424242424242424242424242280232102c0aa8a65e97b9a50abd2bcfeb11130438074002"
+      },
+      "epochKey": "18c8ed86caed9bff67d635575905f7b5a59c6c882c0ee43030fc770bd1b4f082",
+      "contentKey": "0b8311b023b5e5582a9eb04c3259077d487a8e8b5c2cf3747e191eada0c55e4c",
+      "nonce": "8aa397f9783526d61251f221103c4d6ca0f8fa6f149e4d02",
+      "wrapNonce": "59339a84d768ff485dd4046b310068769ffbec556ff1d189",
+      "envelope": "080110011afe01b8c9d66d3805f2cbe131a6f4182f603853dd28f8ddf45e1fde604246bd33fd68a8700bb5dc6e0711c8ae4b47e07ad54bcc05527e948443e8d7336c5883c69c84d824d6ff5de13ce976d11c9deb1b30bb1a8cc349641778f92f6cd1e7a9613e246276ba1a47d46adf38ae2efa2a9b83244fba66ba89011c6ae3c401492f535be7720b1ad73412c2601b6027e848f9ea1ff3c08af47bce508c40090904471cfe695e994d6cb2bb0fba3deb4a80ee1130197a4f3a3f6951f4954472bb911af0c75bca17d589d355d4f5a52b7893f927c05c8624b188cc3d3bdb08abe71fe4561862c4f09f00cf2ffb014817cfd75c4f6f1292dab969f45601be969779d84efe22188aa397f9783526d61251f221103c4d6ca0f8fa6f149e4d022a3058912a7d1c14605c51798a438111b3c16bfe2837934b4dc40a52112a688843d53651c273d2a940c5faa2598443eb946f321859339a84d768ff485dd4046b310068769ffbec556ff1d189",
+      "envelopeFields": {
+        "version": 1,
+        "suite": 1,
+        "payload": "b8c9d66d3805f2cbe131a6f4182f603853dd28f8ddf45e1fde604246bd33fd68a8700bb5dc6e0711c8ae4b47e07ad54bcc05527e948443e8d7336c5883c69c84d824d6ff5de13ce976d11c9deb1b30bb1a8cc349641778f92f6cd1e7a9613e246276ba1a47d46adf38ae2efa2a9b83244fba66ba89011c6ae3c401492f535be7720b1ad73412c2601b6027e848f9ea1ff3c08af47bce508c40090904471cfe695e994d6cb2bb0fba3deb4a80ee1130197a4f3a3f6951f4954472bb911af0c75bca17d589d355d4f5a52b7893f927c05c8624b188cc3d3bdb08abe71fe4561862c4f09f00cf2ffb014817cfd75c4f6f1292dab969f45601be969779d84efe",
+        "nonce": "8aa397f9783526d61251f221103c4d6ca0f8fa6f149e4d02",
+        "wrapped_content_key": "58912a7d1c14605c51798a438111b3c16bfe2837934b4dc40a52112a688843d53651c273d2a940c5faa2598443eb946f",
+        "wrap_nonce": "59339a84d768ff485dd4046b310068769ffbec556ff1d189"
+      },
+      "contentHash": "e561324ae6ae04cd2708f4138803bc7fad852502c1c25ea6fb6a8ba87b43da39"
+    }
+  ]
+}

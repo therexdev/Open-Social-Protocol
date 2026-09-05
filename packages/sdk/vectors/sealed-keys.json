@@ -1,0 +1,55 @@
+{
+  "description": "spec 5.2: seal_key = HKDF-SHA256(x25519(eph, pub), salt=eph.pub||pub, info='osp/v1/seal', 32); ciphertext = XChaCha20-Poly1305(seal_key, nonce, epochKey, aad = author||audience_id||u32be(epoch)||recipient)",
+  "author": "13fYBKMeZBbRwAD9bYmZrnG2mU4XiJTAjE",
+  "audienceId": "2c0aa8a65e97b9a50abd2bcfeb111304",
+  "epoch": 7,
+  "epochKey": "18c8ed86caed9bff67d635575905f7b5a59c6c882c0ee43030fc770bd1b4f082",
+  "recipients": [
+    {
+      "address": "13fYBKMeZBbRwAD9bYmZrnG2mU4XiJTAjE",
+      "keyVersion": 1,
+      "secretKey": "e0d53dcb12f5b9c9f31d105ef874229b4596314030de53622d28e669106b01e0",
+      "publicKey": "10905d06b74082e88b8cfa56844383722f4eac00ee392fc7005704a376bf6e77",
+      "ephemeralSecretKey": "ae3d26aba5b6a10b1b3f17945a6c7ca0a5421a07f68defdb6981c240b4bf3907",
+      "nonce": "ac2a9a21e9519195af21d7b31369234ccca6de44cdb5b775",
+      "sealed": {
+        "recipient": "001d3a1586fe613ef6ce40bce0cd0fc2ab5e0e1d828844d695",
+        "recipient_key_version": 1,
+        "ephemeral_public_key": "d2d385a840dab3fb30ab6b174160ab091a47bbf9fb959a5c943e41c57fd5b75e",
+        "nonce": "ac2a9a21e9519195af21d7b31369234ccca6de44cdb5b775",
+        "ciphertext": "229c8b666b3f7593d7282c5bbc7e4c87498386680b849b2943d91d55c929f870f5bf4f73ae82decad9df2b49de84898c"
+      }
+    },
+    {
+      "address": "14DHRtca9fJm2foV1mdLYDMJS421MAUWYJ",
+      "keyVersion": 1,
+      "secretKey": "0769e6e1e04c0411364ecc75cb1fc1d9caf11c84abd4ae66d38f54c05618b5a8",
+      "publicKey": "b74c8aa94b4e99aadc64af35b39f653cb42593e8d72a90ac91d31b62b4746958",
+      "ephemeralSecretKey": "661c3adc905d7009b28a3e9479cc273ab40cea2b714a033319229302285837af",
+      "nonce": "c68e2e27da722e8bad4ee944d83d8c1ad7c083317764e92f",
+      "sealed": {
+        "recipient": "00233b154f889c37cf43bbb69cf2b05dcd3fe4b9cd538187f3",
+        "recipient_key_version": 1,
+        "ephemeral_public_key": "d0aeac35099658535dd935130ef924dde24f78efa74e237ebe42287899638369",
+        "nonce": "c68e2e27da722e8bad4ee944d83d8c1ad7c083317764e92f",
+        "ciphertext": "fa1c19df50de0707492518baf39ff2555cfcc5b89f6a2b4eee2aa66af1cfee45e803386875913ae48488bca703f62b19"
+      }
+    },
+    {
+      "address": "1E87oouoNSo1B4ybxxtVfw6C99htYqx8vX",
+      "keyVersion": 2,
+      "secretKey": "027841e68fb4ce566c5f0cee2342230ffb11eb0985d5e93f6d45a5fdaf3022db",
+      "publicKey": "439e813f13d337750c97731e082159272ae42e5bcf8abdfd812f6566a43da547",
+      "ephemeralSecretKey": "9446673ad5b4b05e7ffe97964cff0a923638cf1d2dcc324fcb9e5db651a1fa68",
+      "nonce": "4c60471545c5e5f7d6c249f72085cfe87545194971c667eb",
+      "sealed": {
+        "recipient": "008ff23aaa302291cda3cbd4d46219db7e5e0eca14b903a6d4",
+        "recipient_key_version": 2,
+        "ephemeral_public_key": "9faf52b7ac97d12530e4a2a63e1b767e5adc9041df9077b46c75e47775a65260",
+        "nonce": "4c60471545c5e5f7d6c249f72085cfe87545194971c667eb",
+        "ciphertext": "1035f072e66d6c9569b7ab13d0d26ab8e8624e0598bdc2f6e9072ee16d4353b1e448eb03daebbcadd48d6556a2963e66"
+      }
+    }
+  ],
+  "keyPackageSet": "080110011a19001d3a1586fe613ef6ce40bce0cd0fc2ab5e0e1d828844d69522102c0aa8a65e97b9a50abd2bcfeb1113042807328b010a19001d3a1586fe613ef6ce40bce0cd0fc2ab5e0e1d828844d69510011a20d2d385a840dab3fb30ab6b174160ab091a47bbf9fb959a5c943e41c57fd5b75e2218ac2a9a21e9519195af21d7b31369234ccca6de44cdb5b7752a30229c8b666b3f7593d7282c5bbc7e4c87498386680b849b2943d91d55c929f870f5bf4f73ae82decad9df2b49de84898c328b010a1900233b154f889c37cf43bbb69cf2b05dcd3fe4b9cd538187f310011a20d0aeac35099658535dd935130ef924dde24f78efa74e237ebe422878996383692218c68e2e27da722e8bad4ee944d83d8c1ad7c083317764e92f2a30fa1c19df50de0707492518baf39ff2555cfcc5b89f6a2b4eee2aa66af1cfee45e803386875913ae48488bca703f62b19328b010a19008ff23aaa302291cda3cbd4d46219db7e5e0eca14b903a6d410021a209faf52b7ac97d12530e4a2a63e1b767e5adc9041df9077b46c75e47775a6526022184c60471545c5e5f7d6c249f72085cfe87545194971c667eb2a301035f072e66d6c9569b7ab13d0d26ab8e8624e0598bdc2f6e9072ee16d4353b1e448eb03daebbcadd48d6556a2963e66"
+}
