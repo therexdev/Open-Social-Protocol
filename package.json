@@ -22,7 +22,7 @@
     "build:contracts": "node scripts/build.mjs packages/contracts",
     "build:web": "node scripts/build.mjs packages/proto packages/sdk apps/web",
     "build:extension": "node scripts/build.mjs packages/proto packages/sdk apps/extension",
-    "test": "npm run test --workspaces --if-present && npm run test:scripts",
+    "test": "node scripts/test.mjs",
     "test:contracts": "npm run test -w packages/contracts",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",

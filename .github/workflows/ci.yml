@@ -16,17 +16,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci --no-audit --no-fund
-      - name: Build schemas, SDK and contracts
-        run: |
-          npm run build -w packages/proto
-          npm run build -w packages/sdk
-          npm run build -w packages/contracts
-      - name: Build services and clients
-        run: |
-          npm run build -w apps/indexer
-          npm run build -w apps/sponsor
-          npm run build -w apps/web
-          npm run build -w apps/extension
+      - name: Build all workspaces
+        run: npm run build:all
       - name: Test
         run: npm test
       - name: Upload contract artifacts
