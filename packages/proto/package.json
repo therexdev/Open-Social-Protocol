@@ -1,0 +1,31 @@
+{
+  "name": "@osp/proto",
+  "version": "0.1.0",
+  "description": "Open Social Protocol Protobuf schemas, generated JSON descriptors and koilib ABIs",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./abi/*": "./dist/abi/*.json",
+    "./descriptors/*": "./dist/descriptors/*.json",
+    "./osp/*": "./osp/*"
+  },
+  "files": [
+    "osp",
+    "dist",
+    "scripts"
+  ],
+  "scripts": {
+    "build": "node scripts/generate.mjs",
+    "clean": "rm -rf dist",
+    "test": "node scripts/generate.mjs && node --test scripts/generate.test.mjs"
+  },
+  "dependencies": {
+    "protobufjs": "^7.5.0"
+  }
+}

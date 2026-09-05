@@ -1,0 +1,150 @@
+syntax = "proto3";
+
+// Open Social Protocol - Sponsorship registry contract (protocol v1)
+//
+// On-chain discovery of Mana sponsors (payers) and their published policies,
+// plus prospective, revocable per-user grants. Sponsors are replaceable
+// services: any account may register, users may pick any sponsor or self-pay,
+// and a sponsor's refusal never affects protocol permission.
+
+package sponsorship;
+
+import "koinos/options.proto";
+
+message allowed_call {
+  bytes contract_id = 1 [(koinos.btype) = ADDRESS];
+  // Entry points the sponsor funds for this contract (empty = all entry points).
+  repeated uint32 entry_points = 2;
+}
+
+message sponsor_record {
+  bytes sponsor = 1 [(koinos.btype) = ADDRESS];
+  // HTTPS endpoint implementing the sponsor API (docs/sponsor-api.md).
+  string endpoint = 2;
+  string policy_uri = 3;
+  uint32 policy_version = 4;
+  repeated allowed_call allowed = 5;
+  uint64 max_rc_per_op = 6 [jstype = JS_STRING];
+  uint32 max_ops_per_user_per_day = 7;
+  uint32 max_bytes_per_op = 8;
+  bool active = 9;
+  uint64 registered_at = 10 [jstype = JS_STRING];
+  uint64 updated_at = 11 [jstype = JS_STRING];
+}
+
+message user_grant {
+  bytes sponsor = 1 [(koinos.btype) = ADDRESS];
+  bytes user = 2 [(koinos.btype) = ADDRESS];
+  uint32 daily_ops = 3;
+  uint64 expires_at = 4 [jstype = JS_STRING];
+  bool revoked = 5;
+  uint64 updated_at = 6 [jstype = JS_STRING];
+}
+
+// ---------------------------------------------------------------------------
+// Write methods
+// ---------------------------------------------------------------------------
+
+// @description Register or update a sponsor's discovery record and policy
+// @read-only false
+message set_sponsor_arguments {
+  bytes sponsor = 1 [(koinos.btype) = ADDRESS];
+  string endpoint = 2;
+  string policy_uri = 3;
+  uint32 policy_version = 4;
+  repeated allowed_call allowed = 5;
+  uint64 max_rc_per_op = 6 [jstype = JS_STRING];
+  uint32 max_ops_per_user_per_day = 7;
+  uint32 max_bytes_per_op = 8;
+  bool active = 9;
+}
+message set_sponsor_result {}
+
+// @description Deactivate a sponsor record
+// @read-only false
+message deactivate_sponsor_arguments {
+  bytes sponsor = 1 [(koinos.btype) = ADDRESS];
+}
+message deactivate_sponsor_result {}
+
+// @description Grant time-bounded sponsored capacity to a user
+// @read-only false
+message set_user_grant_arguments {
+  bytes sponsor = 1 [(koinos.btype) = ADDRESS];
+  bytes user = 2 [(koinos.btype) = ADDRESS];
+  uint32 daily_ops = 3;
+  uint64 expires_at = 4 [jstype = JS_STRING];
+}
+message set_user_grant_result {}
+
+// @description Revoke a user grant prospectively
+// @read-only false
+message revoke_user_grant_arguments {
+  bytes sponsor = 1 [(koinos.btype) = ADDRESS];
+  bytes user = 2 [(koinos.btype) = ADDRESS];
+}
+message revoke_user_grant_result {}
+
+// ---------------------------------------------------------------------------
+// Read methods
+// ---------------------------------------------------------------------------
+
+// @description Get a sponsor record
+// @read-only true
+message get_sponsor_arguments {
+  bytes sponsor = 1 [(koinos.btype) = ADDRESS];
+}
+message get_sponsor_result {
+  sponsor_record value = 1;
+}
+
+// @description List sponsor records (paginated by sponsor address)
+// @read-only true
+message list_sponsors_arguments {
+  bytes start = 1 [(koinos.btype) = ADDRESS];
+  uint32 limit = 2;
+}
+message list_sponsors_result {
+  repeated sponsor_record values = 1;
+}
+
+// @description Get a user grant
+// @read-only true
+message get_user_grant_arguments {
+  bytes sponsor = 1 [(koinos.btype) = ADDRESS];
+  bytes user = 2 [(koinos.btype) = ADDRESS];
+}
+message get_user_grant_result {
+  user_grant value = 1;
+}
+
+// ---------------------------------------------------------------------------
+// Events (name prefix: osp.sponsorship.*)
+// ---------------------------------------------------------------------------
+
+message sponsor_set_event {
+  bytes sponsor = 1 [(koinos.btype) = ADDRESS];
+  string endpoint = 2;
+  uint32 policy_version = 3;
+  bool active = 4;
+  uint64 timestamp = 5 [jstype = JS_STRING];
+}
+
+message sponsor_deactivated_event {
+  bytes sponsor = 1 [(koinos.btype) = ADDRESS];
+  uint64 timestamp = 2 [jstype = JS_STRING];
+}
+
+message user_grant_set_event {
+  bytes sponsor = 1 [(koinos.btype) = ADDRESS];
+  bytes user = 2 [(koinos.btype) = ADDRESS];
+  uint32 daily_ops = 3;
+  uint64 expires_at = 4 [jstype = JS_STRING];
+  uint64 timestamp = 5 [jstype = JS_STRING];
+}
+
+message user_grant_revoked_event {
+  bytes sponsor = 1 [(koinos.btype) = ADDRESS];
+  bytes user = 2 [(koinos.btype) = ADDRESS];
+  uint64 timestamp = 3 [jstype = JS_STRING];
+}

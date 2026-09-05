@@ -1,0 +1,6 @@
+{
+  "name": "@osp/contract-identity",
+  "version": "0.1.0",
+  "private": true,
+  "description": "OSP identity contract (built by ../scripts/build.mjs)"
+}

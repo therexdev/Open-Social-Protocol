@@ -1,0 +1,28 @@
+{
+  "name": "@osp/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Open Social Protocol Koinos smart contracts (AssemblyScript)",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs release",
+    "build:debug": "node scripts/build.mjs debug",
+    "generate": "node scripts/build.mjs generate",
+    "test": "node scripts/build.mjs debug && node scripts/test.mjs",
+    "clean": "rm -rf build */build */assembly/proto/*.ts */assembly/*.boilerplate.ts */assembly/index.ts"
+  },
+  "devDependencies": {
+    "@as-pect/assembly": "8.0.0",
+    "@as-pect/cli": "8.0.0",
+    "@as-pect/core": "8.0.0",
+    "@koinos/as-gen": "1.0.0",
+    "@koinos/as-proto-gen": "1.0.0",
+    "@koinos/mock-vm": "1.3.0",
+    "@koinos/sdk-as": "1.5.1",
+    "@roamin/protoc": "*",
+    "assemblyscript": "^0.28.0",
+    "micromatch": "^4.0.8",
+    "yaml": "^2.8.0"
+  }
+}

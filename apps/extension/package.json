@@ -1,0 +1,34 @@
+{
+  "name": "@osp/extension",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Open Social Protocol browser extension (Chrome Manifest V3): key-isolated service worker, side panel, generic sidebar and Facebook cross-post adapter",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -p tsconfig.json --noEmit && vite build",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@osp/proto": "0.1.0",
+    "@osp/sdk": "0.1.0",
+    "koilib": "^9.4.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "zustand": "^5.0.0"
+  },
+  "devDependencies": {
+    "@crxjs/vite-plugin": "^2.7.0",
+    "@types/chrome": "^0.2.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^6.0.0",
+    "jsdom": "^26.0.0",
+    "typescript": "^5.9.0",
+    "vite": "^8.0.0",
+    "vitest": "^5.0.0"
+  }
+}

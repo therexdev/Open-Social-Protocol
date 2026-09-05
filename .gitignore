@@ -1,0 +1,45 @@
+# dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# build outputs
+dist/
+build/
+*.tsbuildinfo
+packages/contracts/build/
+packages/contracts/assembly/proto/*.ts
+packages/contracts/assembly/*.boilerplate.ts
+apps/extension/dist/
+apps/web/dist/
+
+# local databases and runtime state
+*.sqlite
+*.sqlite-journal
+*.db
+data/
+.osp/
+
+# secrets - never commit keys
+.env
+.env.*
+!.env.example
+*.wif
+*.key
+!packages/contracts/**/fixtures/**/*.key
+wallets/
+
+# logs and temp
+*.log
+npm-debug.log*
+.DS_Store
+coverage/
+.vite/
+.turbo/
+tmp/
+packages/contracts/*/assembly/common/
+packages/contracts/*/assembly/proto/*.proto
+packages/contracts/*/assembly/index.ts
+packages/contracts/*/abi/*.abi
+packages/contracts/*/build/
+deployments/localnet.json

@@ -1,0 +1,313 @@
+syntax = "proto3";
+
+// Open Social Protocol - Identity registry contract (protocol v1)
+//
+// Canonical identity, encryption-key publication, device/session authorities
+// and guardian-based recovery. The Koinos account address is the stable
+// identity id. Routine social actions are authorized either by the current
+// owner key or by an explicitly authorized, expiring device key.
+//
+// Capability bits for device authorities (uint32 bitmask):
+//   1  = publish            (posts, versions, lifecycle)
+//   2  = react
+//   4  = comment            (replies)
+//   8  = relationships      (friend requests, follows; never block/unblock)
+//   16 = community          (community roles/labels within granted scopes)
+//   32 = profile            (profile document updates)
+// Device authorities can never rotate encryption keys, authorize other
+// devices, change recovery policy or transfer assets.
+
+package identity;
+
+import "koinos/options.proto";
+
+// ---------------------------------------------------------------------------
+// State objects
+// ---------------------------------------------------------------------------
+
+message identity_record {
+  bytes account = 1 [(koinos.btype) = ADDRESS];
+  // Current controlling address. Equals `account` until a recovery replaces it.
+  bytes owner = 2 [(koinos.btype) = ADDRESS];
+  // X25519 public key (32 bytes) used for audience-key envelopes.
+  bytes encryption_key = 3;
+  uint32 key_version = 4;
+  // sha256 digest of the canonical profile document (may be empty).
+  bytes profile_hash = 5;
+  // Optional content reference for the profile document (CID or URL).
+  string profile_uri = 6;
+  uint32 protocol_version = 7;
+  // Incremented on recovery; devices authorized under an older epoch are void.
+  uint32 device_epoch = 8;
+  uint64 registered_at = 9 [jstype = JS_STRING];
+  uint64 updated_at = 10 [jstype = JS_STRING];
+}
+
+message device_record {
+  bytes account = 1 [(koinos.btype) = ADDRESS];
+  bytes device = 2 [(koinos.btype) = ADDRESS];
+  uint32 capabilities = 3;
+  // Block timestamp (ms) after which the device authority is void. Required.
+  uint64 expires_at = 4 [jstype = JS_STRING];
+  uint32 device_epoch = 5;
+  bool revoked = 6;
+  string label = 7;
+  uint64 authorized_at = 8 [jstype = JS_STRING];
+}
+
+message recovery_policy {
+  repeated bytes guardians = 1 [(koinos.btype) = ADDRESS];
+  uint32 threshold = 2;
+  // Activation delay (ms) applied to policy changes and recoveries.
+  uint64 delay_ms = 3 [jstype = JS_STRING];
+}
+
+message pending_policy {
+  recovery_policy policy = 1;
+  uint64 effective_at = 2 [jstype = JS_STRING];
+}
+
+message pending_recovery {
+  bytes new_owner = 1 [(koinos.btype) = ADDRESS];
+  repeated bytes approvals = 2 [(koinos.btype) = ADDRESS];
+  // Zero until the guardian threshold is reached.
+  uint64 effective_at = 3 [jstype = JS_STRING];
+  uint64 proposed_at = 4 [jstype = JS_STRING];
+}
+
+message recovery_state {
+  recovery_policy policy = 1;
+  pending_policy pending_policy = 2;
+  pending_recovery pending_recovery = 3;
+}
+
+// ---------------------------------------------------------------------------
+// Write methods
+// ---------------------------------------------------------------------------
+
+// @description Register a protocol identity and publish its encryption key
+// @read-only false
+message register_arguments {
+  bytes account = 1 [(koinos.btype) = ADDRESS];
+  bytes encryption_key = 2;
+  uint32 key_version = 3;
+  bytes profile_hash = 4;
+  string profile_uri = 5;
+}
+message register_result {}
+
+// @description Update the profile document reference
+// @read-only false
+message update_profile_arguments {
+  bytes account = 1 [(koinos.btype) = ADDRESS];
+  bytes profile_hash = 2;
+  string profile_uri = 3;
+  // Optional device authority used to sign this call (capability: profile)
+  bytes device = 4 [(koinos.btype) = ADDRESS];
+}
+message update_profile_result {}
+
+// @description Rotate the encryption key (owner authority only)
+// @read-only false
+message rotate_encryption_key_arguments {
+  bytes account = 1 [(koinos.btype) = ADDRESS];
+  bytes encryption_key = 2;
+  uint32 key_version = 3;
+}
+message rotate_encryption_key_result {}
+
+// @description Authorize an expiring device/session key with limited capabilities
+// @read-only false
+message authorize_device_arguments {
+  bytes account = 1 [(koinos.btype) = ADDRESS];
+  bytes device = 2 [(koinos.btype) = ADDRESS];
+  uint32 capabilities = 3;
+  uint64 expires_at = 4 [jstype = JS_STRING];
+  string label = 5;
+}
+message authorize_device_result {}
+
+// @description Revoke a device/session key
+// @read-only false
+message revoke_device_arguments {
+  bytes account = 1 [(koinos.btype) = ADDRESS];
+  bytes device = 2 [(koinos.btype) = ADDRESS];
+}
+message revoke_device_result {}
+
+// @description Set or propose the guardian recovery policy (delayed when a policy already exists)
+// @read-only false
+message set_recovery_policy_arguments {
+  bytes account = 1 [(koinos.btype) = ADDRESS];
+  recovery_policy policy = 2;
+}
+message set_recovery_policy_result {}
+
+// @description Apply a pending recovery policy change after its delay
+// @read-only false
+message apply_recovery_policy_arguments {
+  bytes account = 1 [(koinos.btype) = ADDRESS];
+}
+message apply_recovery_policy_result {}
+
+// @description Cancel a pending recovery policy change (owner only)
+// @read-only false
+message cancel_recovery_policy_arguments {
+  bytes account = 1 [(koinos.btype) = ADDRESS];
+}
+message cancel_recovery_policy_result {}
+
+// @description Guardian proposes or approves replacing the owner key
+// @read-only false
+message propose_recovery_arguments {
+  bytes account = 1 [(koinos.btype) = ADDRESS];
+  bytes guardian = 2 [(koinos.btype) = ADDRESS];
+  bytes new_owner = 3 [(koinos.btype) = ADDRESS];
+}
+message propose_recovery_result {}
+
+// @description Current owner cancels a pending recovery
+// @read-only false
+message cancel_recovery_arguments {
+  bytes account = 1 [(koinos.btype) = ADDRESS];
+}
+message cancel_recovery_result {}
+
+// @description Execute an approved recovery after its delay (anyone may call)
+// @read-only false
+message execute_recovery_arguments {
+  bytes account = 1 [(koinos.btype) = ADDRESS];
+}
+message execute_recovery_result {}
+
+// ---------------------------------------------------------------------------
+// Read methods
+// ---------------------------------------------------------------------------
+
+// @description Get an identity record
+// @read-only true
+message get_identity_arguments {
+  bytes account = 1 [(koinos.btype) = ADDRESS];
+}
+message get_identity_result {
+  identity_record value = 1;
+}
+
+// @description Get a device authority record
+// @read-only true
+message get_device_arguments {
+  bytes account = 1 [(koinos.btype) = ADDRESS];
+  bytes device = 2 [(koinos.btype) = ADDRESS];
+}
+message get_device_result {
+  device_record value = 1;
+}
+
+// @description Get recovery policy and pending changes
+// @read-only true
+message get_recovery_arguments {
+  bytes account = 1 [(koinos.btype) = ADDRESS];
+}
+message get_recovery_result {
+  recovery_state value = 1;
+}
+
+// @description Resolve which address must have signed for an actor to perform a capability
+// @read-only true
+message resolve_actor_arguments {
+  bytes account = 1 [(koinos.btype) = ADDRESS];
+  // Empty when the owner signs directly.
+  bytes device = 2 [(koinos.btype) = ADDRESS];
+  uint32 capability = 3;
+}
+message resolve_actor_result {
+  bool ok = 1;
+  bytes signer = 2 [(koinos.btype) = ADDRESS];
+  string reason = 3;
+}
+
+// ---------------------------------------------------------------------------
+// Events (name prefix: osp.identity.*)
+// ---------------------------------------------------------------------------
+
+message registered_event {
+  bytes account = 1 [(koinos.btype) = ADDRESS];
+  bytes encryption_key = 2;
+  uint32 key_version = 3;
+  bytes profile_hash = 4;
+  string profile_uri = 5;
+  uint32 protocol_version = 6;
+  uint64 timestamp = 7 [jstype = JS_STRING];
+}
+
+message profile_updated_event {
+  bytes account = 1 [(koinos.btype) = ADDRESS];
+  bytes profile_hash = 2;
+  string profile_uri = 3;
+  uint64 timestamp = 4 [jstype = JS_STRING];
+}
+
+message key_rotated_event {
+  bytes account = 1 [(koinos.btype) = ADDRESS];
+  uint32 previous_version = 2;
+  bytes encryption_key = 3;
+  uint32 key_version = 4;
+  uint64 timestamp = 5 [jstype = JS_STRING];
+}
+
+message device_authorized_event {
+  bytes account = 1 [(koinos.btype) = ADDRESS];
+  bytes device = 2 [(koinos.btype) = ADDRESS];
+  uint32 capabilities = 3;
+  uint64 expires_at = 4 [jstype = JS_STRING];
+  string label = 5;
+  uint32 device_epoch = 6;
+  uint64 timestamp = 7 [jstype = JS_STRING];
+}
+
+message device_revoked_event {
+  bytes account = 1 [(koinos.btype) = ADDRESS];
+  bytes device = 2 [(koinos.btype) = ADDRESS];
+  uint64 timestamp = 3 [jstype = JS_STRING];
+}
+
+message recovery_policy_proposed_event {
+  bytes account = 1 [(koinos.btype) = ADDRESS];
+  recovery_policy policy = 2;
+  uint64 effective_at = 3 [jstype = JS_STRING];
+}
+
+message recovery_policy_set_event {
+  bytes account = 1 [(koinos.btype) = ADDRESS];
+  recovery_policy policy = 2;
+  uint64 timestamp = 3 [jstype = JS_STRING];
+}
+
+message recovery_policy_cancelled_event {
+  bytes account = 1 [(koinos.btype) = ADDRESS];
+  uint64 timestamp = 2 [jstype = JS_STRING];
+}
+
+message recovery_proposed_event {
+  bytes account = 1 [(koinos.btype) = ADDRESS];
+  bytes guardian = 2 [(koinos.btype) = ADDRESS];
+  bytes new_owner = 3 [(koinos.btype) = ADDRESS];
+  uint32 approvals = 4;
+  uint32 threshold = 5;
+  // Non-zero once the threshold is reached.
+  uint64 effective_at = 6 [jstype = JS_STRING];
+  uint64 timestamp = 7 [jstype = JS_STRING];
+}
+
+message recovery_cancelled_event {
+  bytes account = 1 [(koinos.btype) = ADDRESS];
+  uint64 timestamp = 2 [jstype = JS_STRING];
+}
+
+message recovered_event {
+  bytes account = 1 [(koinos.btype) = ADDRESS];
+  bytes previous_owner = 2 [(koinos.btype) = ADDRESS];
+  bytes new_owner = 3 [(koinos.btype) = ADDRESS];
+  uint32 device_epoch = 4;
+  uint64 timestamp = 5 [jstype = JS_STRING];
+}

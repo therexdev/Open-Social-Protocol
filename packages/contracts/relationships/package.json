@@ -1,0 +1,6 @@
+{
+  "name": "@osp/contract-relationships",
+  "version": "0.1.0",
+  "private": true,
+  "description": "OSP relationships contract (built by ../scripts/build.mjs)"
+}

@@ -1,0 +1,46 @@
+name: ci
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Build schemas, SDK and contracts
+        run: |
+          npm run build -w packages/proto
+          npm run build -w packages/sdk
+          npm run build -w packages/contracts
+      - name: Build services and clients
+        run: |
+          npm run build -w apps/indexer
+          npm run build -w apps/sponsor
+          npm run build -w apps/web
+          npm run build -w apps/extension
+      - name: Test
+        run: npm test
+      - name: Upload contract artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: contracts-release
+          path: packages/contracts/build/release
+      - name: Upload web build
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: apps/web/dist
+      - name: Upload extension build
+        uses: actions/upload-artifact@v4
+        with:
+          name: extension-dist
+          path: apps/extension/dist

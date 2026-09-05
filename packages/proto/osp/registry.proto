@@ -1,0 +1,179 @@
+syntax = "proto3";
+
+// Open Social Protocol - Protocol registry contract (protocol v1)
+//
+// Well-known discovery point for the current contract set. Every change is a
+// published, time-locked proposal that the admin can cancel before activation.
+// Clients may pin an older compatible version; deprecation is a signal, not a
+// switch-off.
+
+package registry;
+
+import "koinos/options.proto";
+
+enum contract_status {
+  proposed = 0;
+  active = 1;
+  deprecated = 2;
+}
+
+message contract_entry {
+  string name = 1;
+  bytes address = 2 [(koinos.btype) = ADDRESS];
+  uint32 version = 3;
+  // sha256 of the ABI JSON published for this contract version.
+  bytes abi_hash = 4;
+  contract_status status = 5;
+  uint64 effective_at = 6 [jstype = JS_STRING];
+  string notes = 7;
+  uint64 updated_at = 8 [jstype = JS_STRING];
+}
+
+message registry_config {
+  bytes admin = 1 [(koinos.btype) = ADDRESS];
+  uint64 upgrade_delay_ms = 2 [jstype = JS_STRING];
+  uint32 protocol_version = 3;
+  bytes pending_admin = 4 [(koinos.btype) = ADDRESS];
+  uint64 admin_transfer_effective_at = 5 [jstype = JS_STRING];
+}
+
+// ---------------------------------------------------------------------------
+// Write methods
+// ---------------------------------------------------------------------------
+
+// @description Initialize the registry (contract account only, once)
+// @read-only false
+message init_arguments {
+  bytes admin = 1 [(koinos.btype) = ADDRESS];
+  uint64 upgrade_delay_ms = 2 [jstype = JS_STRING];
+  uint32 protocol_version = 3;
+}
+message init_result {}
+
+// @description Propose a contract entry (activates after the upgrade delay; immediate during bootstrap when no entry exists)
+// @read-only false
+message propose_contract_arguments {
+  string name = 1;
+  bytes address = 2 [(koinos.btype) = ADDRESS];
+  uint32 version = 3;
+  bytes abi_hash = 4;
+  string notes = 5;
+}
+message propose_contract_result {}
+
+// @description Apply a proposed contract entry after its delay (anyone may call)
+// @read-only false
+message apply_contract_arguments {
+  string name = 1;
+}
+message apply_contract_result {}
+
+// @description Cancel a proposed contract entry (admin only)
+// @read-only false
+message cancel_contract_arguments {
+  string name = 1;
+}
+message cancel_contract_result {}
+
+// @description Mark an active contract entry deprecated (admin only)
+// @read-only false
+message deprecate_contract_arguments {
+  string name = 1;
+  string notes = 2;
+}
+message deprecate_contract_result {}
+
+// @description Propose a time-locked admin transfer (admin only)
+// @read-only false
+message propose_admin_arguments {
+  bytes new_admin = 1 [(koinos.btype) = ADDRESS];
+}
+message propose_admin_result {}
+
+// @description Cancel a pending admin transfer (admin only)
+// @read-only false
+message cancel_admin_arguments {}
+message cancel_admin_result {}
+
+// @description Execute a pending admin transfer after its delay (anyone may call)
+// @read-only false
+message execute_admin_arguments {}
+message execute_admin_result {}
+
+// ---------------------------------------------------------------------------
+// Read methods
+// ---------------------------------------------------------------------------
+
+// @description Get the active entry for a contract name
+// @read-only true
+message get_contract_arguments {
+  string name = 1;
+}
+message get_contract_result {
+  contract_entry value = 1;
+}
+
+// @description Get the proposed (pending) entry for a contract name
+// @read-only true
+message get_proposed_contract_arguments {
+  string name = 1;
+}
+message get_proposed_contract_result {
+  contract_entry value = 1;
+}
+
+// @description List all active contract entries
+// @read-only true
+message list_contracts_arguments {}
+message list_contracts_result {
+  repeated contract_entry values = 1;
+}
+
+// @description Get registry configuration
+// @read-only true
+message get_config_arguments {}
+message get_config_result {
+  registry_config value = 1;
+}
+
+// ---------------------------------------------------------------------------
+// Events (name prefix: osp.registry.*)
+// ---------------------------------------------------------------------------
+
+message contract_proposed_event {
+  string name = 1;
+  bytes address = 2 [(koinos.btype) = ADDRESS];
+  uint32 version = 3;
+  bytes abi_hash = 4;
+  uint64 effective_at = 5 [jstype = JS_STRING];
+}
+
+message contract_activated_event {
+  string name = 1;
+  bytes address = 2 [(koinos.btype) = ADDRESS];
+  uint32 version = 3;
+  uint64 timestamp = 4 [jstype = JS_STRING];
+}
+
+message contract_cancelled_event {
+  string name = 1;
+  uint64 timestamp = 2 [jstype = JS_STRING];
+}
+
+message contract_deprecated_event {
+  string name = 1;
+  bytes address = 2 [(koinos.btype) = ADDRESS];
+  uint32 version = 3;
+  uint64 timestamp = 4 [jstype = JS_STRING];
+}
+
+message admin_proposed_event {
+  bytes new_admin = 1 [(koinos.btype) = ADDRESS];
+  uint64 effective_at = 2 [jstype = JS_STRING];
+}
+
+message admin_changed_event {
+  bytes previous_admin = 1 [(koinos.btype) = ADDRESS];
+  bytes new_admin = 2 [(koinos.btype) = ADDRESS];
+  uint64 timestamp = 3 [jstype = JS_STRING];
+}

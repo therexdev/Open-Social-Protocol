@@ -1,0 +1,242 @@
+syntax = "proto3";
+
+// Open Social Protocol - Relationship registry contract (protocol v1)
+//
+// Mutual friendships, unilateral follows, blocks and the per-author
+// friends-audience epoch. Relationship state is public metadata by design
+// (see whitepaper section 4). Removing or blocking a friend advances the
+// actor's audience epoch so that future friends-only content is encrypted
+// under a key the removed party never receives.
+
+package relationships;
+
+import "koinos/options.proto";
+
+enum relationship_status {
+  none = 0;
+  pending = 1;
+  active = 2;
+  inactive = 3;
+}
+
+// Stored under the canonical (sorted) pair key.
+message relationship_record {
+  bytes a = 1 [(koinos.btype) = ADDRESS];
+  bytes b = 2 [(koinos.btype) = ADDRESS];
+  relationship_status status = 3;
+  bytes requester = 4 [(koinos.btype) = ADDRESS];
+  // Incremented on every transition of this pair; used by clients to bind
+  // key packages to a specific relationship instance.
+  uint64 nonce = 5 [jstype = JS_STRING];
+  uint64 updated_at = 6 [jstype = JS_STRING];
+}
+
+message audience_state {
+  uint32 epoch = 1;
+  uint64 updated_at = 2 [jstype = JS_STRING];
+}
+
+message block_record {
+  bool blocked = 1;
+  uint64 updated_at = 2 [jstype = JS_STRING];
+}
+
+message follow_record {
+  bool active = 1;
+  uint64 updated_at = 2 [jstype = JS_STRING];
+}
+
+// ---------------------------------------------------------------------------
+// Admin
+// ---------------------------------------------------------------------------
+
+// @description Set the identity contract used for actor resolution (contract account only)
+// @read-only false
+message set_identity_contract_arguments {
+  bytes address = 1 [(koinos.btype) = ADDRESS];
+}
+message set_identity_contract_result {}
+
+// ---------------------------------------------------------------------------
+// Write methods
+// ---------------------------------------------------------------------------
+
+// @description Send a friend request
+// @read-only false
+message request_friend_arguments {
+  bytes requester = 1 [(koinos.btype) = ADDRESS];
+  bytes recipient = 2 [(koinos.btype) = ADDRESS];
+  bytes device = 3 [(koinos.btype) = ADDRESS];
+}
+message request_friend_result {}
+
+// @description Accept a pending friend request
+// @read-only false
+message accept_friend_arguments {
+  bytes approver = 1 [(koinos.btype) = ADDRESS];
+  bytes requester = 2 [(koinos.btype) = ADDRESS];
+  bytes device = 3 [(koinos.btype) = ADDRESS];
+  // Optional reference (hash) to the audience key package delivered to the requester.
+  bytes key_package_ref = 4;
+}
+message accept_friend_result {}
+
+// @description Remove a friend (either side); advances the actor's audience epoch
+// @read-only false
+message remove_friend_arguments {
+  bytes actor = 1 [(koinos.btype) = ADDRESS];
+  bytes peer = 2 [(koinos.btype) = ADDRESS];
+  bytes device = 3 [(koinos.btype) = ADDRESS];
+}
+message remove_friend_result {}
+
+// @description Block an account (owner authority only); ends any friendship and advances the epoch
+// @read-only false
+message block_arguments {
+  bytes actor = 1 [(koinos.btype) = ADDRESS];
+  bytes target = 2 [(koinos.btype) = ADDRESS];
+}
+message block_result {}
+
+// @description Unblock an account (owner authority only)
+// @read-only false
+message unblock_arguments {
+  bytes actor = 1 [(koinos.btype) = ADDRESS];
+  bytes target = 2 [(koinos.btype) = ADDRESS];
+}
+message unblock_result {}
+
+// @description Follow an account (unilateral)
+// @read-only false
+message follow_arguments {
+  bytes follower = 1 [(koinos.btype) = ADDRESS];
+  bytes target = 2 [(koinos.btype) = ADDRESS];
+  bytes device = 3 [(koinos.btype) = ADDRESS];
+}
+message follow_result {}
+
+// @description Unfollow an account
+// @read-only false
+message unfollow_arguments {
+  bytes follower = 1 [(koinos.btype) = ADDRESS];
+  bytes target = 2 [(koinos.btype) = ADDRESS];
+  bytes device = 3 [(koinos.btype) = ADDRESS];
+}
+message unfollow_result {}
+
+// @description Manually advance the friends-audience epoch (key rotation)
+// @read-only false
+message rotate_audience_arguments {
+  bytes actor = 1 [(koinos.btype) = ADDRESS];
+  bytes device = 2 [(koinos.btype) = ADDRESS];
+}
+message rotate_audience_result {}
+
+// ---------------------------------------------------------------------------
+// Read methods
+// ---------------------------------------------------------------------------
+
+// @description Get the relationship between two accounts
+// @read-only true
+message get_relationship_arguments {
+  bytes a = 1 [(koinos.btype) = ADDRESS];
+  bytes b = 2 [(koinos.btype) = ADDRESS];
+}
+message get_relationship_result {
+  relationship_record value = 1;
+}
+
+// @description Get the friends-audience epoch of an account
+// @read-only true
+message get_audience_arguments {
+  bytes account = 1 [(koinos.btype) = ADDRESS];
+}
+message get_audience_result {
+  audience_state value = 1;
+}
+
+// @description Check whether actor has blocked target
+// @read-only true
+message is_blocked_arguments {
+  bytes actor = 1 [(koinos.btype) = ADDRESS];
+  bytes target = 2 [(koinos.btype) = ADDRESS];
+}
+message is_blocked_result {
+  bool value = 1;
+}
+
+// @description Get a follow edge
+// @read-only true
+message get_follow_arguments {
+  bytes follower = 1 [(koinos.btype) = ADDRESS];
+  bytes target = 2 [(koinos.btype) = ADDRESS];
+}
+message get_follow_result {
+  follow_record value = 1;
+}
+
+// @description Get the identity contract address configured for actor resolution
+// @read-only true
+message get_identity_contract_arguments {}
+message get_identity_contract_result {
+  bytes value = 1 [(koinos.btype) = ADDRESS];
+}
+
+// ---------------------------------------------------------------------------
+// Events (name prefix: osp.relationships.*)
+// ---------------------------------------------------------------------------
+
+message friend_requested_event {
+  bytes requester = 1 [(koinos.btype) = ADDRESS];
+  bytes recipient = 2 [(koinos.btype) = ADDRESS];
+  uint64 nonce = 3 [jstype = JS_STRING];
+  uint64 timestamp = 4 [jstype = JS_STRING];
+}
+
+message friend_accepted_event {
+  bytes approver = 1 [(koinos.btype) = ADDRESS];
+  bytes requester = 2 [(koinos.btype) = ADDRESS];
+  uint64 nonce = 3 [jstype = JS_STRING];
+  bytes key_package_ref = 4;
+  uint64 timestamp = 5 [jstype = JS_STRING];
+}
+
+message friend_removed_event {
+  bytes actor = 1 [(koinos.btype) = ADDRESS];
+  bytes peer = 2 [(koinos.btype) = ADDRESS];
+  uint64 nonce = 3 [jstype = JS_STRING];
+  uint32 new_epoch = 4;
+  uint64 timestamp = 5 [jstype = JS_STRING];
+}
+
+message blocked_event {
+  bytes actor = 1 [(koinos.btype) = ADDRESS];
+  bytes target = 2 [(koinos.btype) = ADDRESS];
+  uint32 new_epoch = 3;
+  uint64 timestamp = 4 [jstype = JS_STRING];
+}
+
+message unblocked_event {
+  bytes actor = 1 [(koinos.btype) = ADDRESS];
+  bytes target = 2 [(koinos.btype) = ADDRESS];
+  uint64 timestamp = 3 [jstype = JS_STRING];
+}
+
+message followed_event {
+  bytes follower = 1 [(koinos.btype) = ADDRESS];
+  bytes target = 2 [(koinos.btype) = ADDRESS];
+  uint64 timestamp = 3 [jstype = JS_STRING];
+}
+
+message unfollowed_event {
+  bytes follower = 1 [(koinos.btype) = ADDRESS];
+  bytes target = 2 [(koinos.btype) = ADDRESS];
+  uint64 timestamp = 3 [jstype = JS_STRING];
+}
+
+message audience_rotated_event {
+  bytes account = 1 [(koinos.btype) = ADDRESS];
+  uint32 new_epoch = 2;
+  string reason = 3;
+  uint64 timestamp = 4 [jstype = JS_STRING];
+}

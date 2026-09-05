@@ -1,0 +1,127 @@
+syntax = "proto3";
+
+// Open Social Protocol - Off-chain content structures (protocol v1)
+//
+// These messages are never interpreted by contracts. They define the bytes
+// carried inside publications.publish_arguments.envelope, the associated data
+// bound by AEAD, the sealed key packages carried by distribute_keys, the
+// profile document and the signed proof manifest. Canonical encoding is
+// protobuf binary with fields written in ascending field-number order and no
+// maps (see docs/protocol-spec.md section 3).
+
+package osp.envelope;
+
+// Cipher suites. Suite 0 is plaintext (everyone audience only).
+enum suite {
+  plaintext = 0;
+  // XChaCha20-Poly1305 content encryption; X25519 + HKDF-SHA256 sealed keys.
+  xchacha20poly1305_x25519 = 1;
+}
+
+message media_item {
+  bytes content_hash = 1;
+  string mime = 2;
+  uint64 size = 3;
+  repeated string locations = 4;
+  // Per-media random key, encrypted under the content key (suite 1) or empty (suite 0).
+  bytes wrapped_key = 5;
+  bytes nonce = 6;
+  string alt_text = 7;
+}
+
+// Plaintext content of a post, before encryption.
+message content {
+  uint32 version = 1;
+  string text = 2;
+  string mime = 3;
+  repeated media_item media = 4;
+  // Optional language tag (BCP 47).
+  string lang = 5;
+  // Client-set creation time (ms). Informational; the chain timestamp is authoritative.
+  uint64 created_at = 6;
+  // Optional link to a host-site publication (e.g. facebook URL) for cross-posts.
+  string external_ref = 7;
+}
+
+// Authenticated associated data for AEAD (suite 1). Serialized canonically and
+// passed as AAD; never stored separately because every field is reproducible
+// from the on-chain publish arguments.
+message aad {
+  uint32 protocol_version = 1;
+  bytes chain_id = 2;
+  bytes author = 3;
+  bytes post_id = 4;
+  uint32 audience = 5;
+  bytes audience_id = 6;
+  uint32 epoch = 7;
+  uint32 version_number = 8;
+}
+
+// Bytes stored on chain as publish_arguments.envelope.
+message envelope {
+  uint32 version = 1;
+  suite suite = 2;
+  // suite 0: encoded `content`; suite 1: AEAD ciphertext of encoded `content`.
+  bytes payload = 3;
+  // 24-byte XChaCha20 nonce (suite 1).
+  bytes nonce = 4;
+  // Content key wrapped under the audience epoch key (suite 1):
+  // XChaCha20-Poly1305(epoch_key, wrap_nonce, content_key, aad = "osp/v1/wrap").
+  bytes wrapped_content_key = 5;
+  bytes wrap_nonce = 6;
+}
+
+// A sealed audience-epoch key for one recipient.
+message sealed_key {
+  bytes recipient = 1;
+  // Recipient encryption key version the key was sealed to.
+  uint32 recipient_key_version = 2;
+  // Sender ephemeral X25519 public key (32 bytes).
+  bytes ephemeral_public_key = 3;
+  bytes nonce = 4;
+  // XChaCha20-Poly1305(HKDF(x25519(eph, recipient_pub)), nonce, epoch_key, aad)
+  bytes ciphertext = 5;
+}
+
+// Carried in distribute_keys_arguments.packages.
+message key_package_set {
+  uint32 version = 1;
+  suite suite = 2;
+  bytes author = 3;
+  bytes audience_id = 4;
+  uint32 epoch = 5;
+  repeated sealed_key keys = 6;
+}
+
+// Profile document referenced by identity_record.profile_hash / profile_uri.
+message profile {
+  uint32 version = 1;
+  string display_name = 2;
+  string bio = 3;
+  media_item avatar = 4;
+  repeated string links = 5;
+}
+
+// Signed proof manifest binding a publication to its provenance.
+message proof_manifest {
+  uint32 version = 1;
+  bytes author = 2;
+  bytes post_id = 3;
+  bytes content_hash = 4;
+  uint32 version_number = 5;
+  bytes transaction_id = 6;
+  uint64 block_height = 7;
+  uint32 audience = 8;
+  bytes audience_id = 9;
+  uint32 epoch = 10;
+  repeated string storage_refs = 11;
+  string adapter = 12;
+  string external_ref = 13;
+  uint32 outcome = 14;
+  bytes idempotency_key = 15;
+  uint64 created_at = 16;
+  // secp256k1 signature by the author (or authorized device) over
+  // sha256("osp/v1/manifest" || canonical manifest bytes without signature).
+  bytes signature = 17;
+  bytes signer = 18;
+}

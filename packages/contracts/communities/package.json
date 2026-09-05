@@ -1,0 +1,6 @@
+{
+  "name": "@osp/contract-communities",
+  "version": "0.1.0",
+  "private": true,
+  "description": "OSP communities contract (built by ../scripts/build.mjs)"
+}

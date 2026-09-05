@@ -1,0 +1,226 @@
+syntax = "proto3";
+
+// Open Social Protocol - Communities contract (protocol v1)
+//
+// Optional community layer over base identity/relationship/publication facts:
+// signed roles with scope and expiry, policy references, moderation labels and
+// time-locked ownership transfer. Communities can never invalidate an
+// underlying signed publication; they only publish admission, ranking and
+// moderation facts that clients and indexers may honour.
+
+package communities;
+
+import "koinos/options.proto";
+
+enum community_role {
+  none = 0;
+  guest = 1;
+  member = 2;
+  moderator = 3;
+  admin = 4;
+  owner = 5;
+  banned = 6;
+}
+
+message community_record {
+  bytes id = 1;
+  bytes owner = 2 [(koinos.btype) = ADDRESS];
+  string name = 3;
+  bytes policy_hash = 4;
+  string policy_uri = 5;
+  // Delay applied to ownership transfers (ms).
+  uint64 transfer_delay_ms = 6 [jstype = JS_STRING];
+  bytes pending_owner = 7 [(koinos.btype) = ADDRESS];
+  uint64 transfer_effective_at = 8 [jstype = JS_STRING];
+  uint64 created_at = 9 [jstype = JS_STRING];
+  uint64 updated_at = 10 [jstype = JS_STRING];
+}
+
+message role_record {
+  community_role role = 1;
+  // Optional scope restricting the role (e.g. a topic or label namespace).
+  bytes scope = 2;
+  uint64 expires_at = 3 [jstype = JS_STRING];
+  bytes granted_by = 4 [(koinos.btype) = ADDRESS];
+  uint64 granted_at = 5 [jstype = JS_STRING];
+}
+
+// ---------------------------------------------------------------------------
+// Admin
+// ---------------------------------------------------------------------------
+
+// @description Set the identity contract used for actor resolution (contract account only)
+// @read-only false
+message set_identity_contract_arguments {
+  bytes address = 1 [(koinos.btype) = ADDRESS];
+}
+message set_identity_contract_result {}
+
+// ---------------------------------------------------------------------------
+// Write methods
+// ---------------------------------------------------------------------------
+
+// @description Create a community; the creator becomes owner
+// @read-only false
+message create_community_arguments {
+  bytes creator = 1 [(koinos.btype) = ADDRESS];
+  // Client-chosen unique id (<= 32 bytes), e.g. sha256(name || creator).
+  bytes id = 2;
+  string name = 3;
+  bytes policy_hash = 4;
+  string policy_uri = 5;
+  uint64 transfer_delay_ms = 6 [jstype = JS_STRING];
+  bytes device = 7 [(koinos.btype) = ADDRESS];
+}
+message create_community_result {}
+
+// @description Grant, change or revoke a scoped, expiring role
+// @read-only false
+message set_role_arguments {
+  bytes community_id = 1;
+  bytes actor = 2 [(koinos.btype) = ADDRESS];
+  bytes subject = 3 [(koinos.btype) = ADDRESS];
+  community_role role = 4;
+  bytes scope = 5;
+  uint64 expires_at = 6 [jstype = JS_STRING];
+  bytes device = 7 [(koinos.btype) = ADDRESS];
+}
+message set_role_result {}
+
+// @description Update the community policy reference (owner or admin)
+// @read-only false
+message set_policy_arguments {
+  bytes community_id = 1;
+  bytes actor = 2 [(koinos.btype) = ADDRESS];
+  bytes policy_hash = 3;
+  string policy_uri = 4;
+  bytes device = 5 [(koinos.btype) = ADDRESS];
+}
+message set_policy_result {}
+
+// @description Propose a time-locked ownership transfer (owner only)
+// @read-only false
+message propose_owner_transfer_arguments {
+  bytes community_id = 1;
+  bytes owner = 2 [(koinos.btype) = ADDRESS];
+  bytes new_owner = 3 [(koinos.btype) = ADDRESS];
+}
+message propose_owner_transfer_result {}
+
+// @description Cancel a pending ownership transfer (owner only)
+// @read-only false
+message cancel_owner_transfer_arguments {
+  bytes community_id = 1;
+  bytes owner = 2 [(koinos.btype) = ADDRESS];
+}
+message cancel_owner_transfer_result {}
+
+// @description Execute an ownership transfer after its delay (anyone may call)
+// @read-only false
+message execute_owner_transfer_arguments {
+  bytes community_id = 1;
+}
+message execute_owner_transfer_result {}
+
+// @description Publish a moderation label for a post (moderator, admin or owner)
+// @read-only false
+message set_label_arguments {
+  bytes community_id = 1;
+  bytes actor = 2 [(koinos.btype) = ADDRESS];
+  bytes post_id = 3;
+  // Label vocabulary is community policy (e.g. "hide", "warn:nsfw", "appeal:granted").
+  string label = 4;
+  string reason = 5;
+  bytes device = 6 [(koinos.btype) = ADDRESS];
+}
+message set_label_result {}
+
+// ---------------------------------------------------------------------------
+// Read methods
+// ---------------------------------------------------------------------------
+
+// @description Get a community record
+// @read-only true
+message get_community_arguments {
+  bytes id = 1;
+}
+message get_community_result {
+  community_record value = 1;
+}
+
+// @description Get the role of an account in a community
+// @read-only true
+message get_role_arguments {
+  bytes community_id = 1;
+  bytes subject = 2 [(koinos.btype) = ADDRESS];
+}
+message get_role_result {
+  role_record value = 1;
+}
+
+// @description Get the identity contract address configured for actor resolution
+// @read-only true
+message get_identity_contract_arguments {}
+message get_identity_contract_result {
+  bytes value = 1 [(koinos.btype) = ADDRESS];
+}
+
+// ---------------------------------------------------------------------------
+// Events (name prefix: osp.communities.*)
+// ---------------------------------------------------------------------------
+
+message community_created_event {
+  bytes id = 1;
+  bytes owner = 2 [(koinos.btype) = ADDRESS];
+  string name = 3;
+  bytes policy_hash = 4;
+  string policy_uri = 5;
+  uint64 transfer_delay_ms = 6 [jstype = JS_STRING];
+  uint64 timestamp = 7 [jstype = JS_STRING];
+}
+
+message role_set_event {
+  bytes community_id = 1;
+  bytes actor = 2 [(koinos.btype) = ADDRESS];
+  bytes subject = 3 [(koinos.btype) = ADDRESS];
+  community_role role = 4;
+  bytes scope = 5;
+  uint64 expires_at = 6 [jstype = JS_STRING];
+  uint64 timestamp = 7 [jstype = JS_STRING];
+}
+
+message policy_set_event {
+  bytes community_id = 1;
+  bytes actor = 2 [(koinos.btype) = ADDRESS];
+  bytes policy_hash = 3;
+  string policy_uri = 4;
+  uint64 timestamp = 5 [jstype = JS_STRING];
+}
+
+message owner_transfer_proposed_event {
+  bytes community_id = 1;
+  bytes owner = 2 [(koinos.btype) = ADDRESS];
+  bytes new_owner = 3 [(koinos.btype) = ADDRESS];
+  uint64 effective_at = 4 [jstype = JS_STRING];
+}
+
+message owner_transfer_cancelled_event {
+  bytes community_id = 1;
+  uint64 timestamp = 2 [jstype = JS_STRING];
+}
+
+message owner_transferred_event {
+  bytes community_id = 1;
+  bytes previous_owner = 2 [(koinos.btype) = ADDRESS];
+  bytes new_owner = 3 [(koinos.btype) = ADDRESS];
+  uint64 timestamp = 4 [jstype = JS_STRING];
+}
+
+message label_set_event {
+  bytes community_id = 1;
+  bytes actor = 2 [(koinos.btype) = ADDRESS];
+  bytes post_id = 3;
+  string label = 4;
+  string reason = 5;
+  uint64 timestamp = 6 [jstype = JS_STRING];
+}

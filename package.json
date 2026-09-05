@@ -1,0 +1,40 @@
+{
+  "name": "open-social-protocol",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Open Social Protocol: a Koinos-based, encrypted, frontend-neutral social layer. Monorepo for the protocol (schemas, contracts, SDK), the reference web client, the browser extension, and the replaceable infrastructure (indexer, Mana sponsor).",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "workspaces": [
+    "packages/proto",
+    "packages/sdk",
+    "packages/contracts",
+    "apps/indexer",
+    "apps/sponsor",
+    "apps/web",
+    "apps/extension"
+  ],
+  "scripts": {
+    "build": "npm run build -w packages/proto -w packages/sdk -w apps/web",
+    "build:all": "npm run build -w packages/proto -w packages/sdk -w packages/contracts -w apps/indexer -w apps/sponsor -w apps/web -w apps/extension",
+    "build:contracts": "npm run build -w packages/contracts",
+    "build:web": "npm run build -w packages/proto -w packages/sdk -w apps/web",
+    "build:extension": "npm run build -w packages/proto -w packages/sdk -w apps/extension",
+    "test": "npm run test --workspaces --if-present",
+    "test:contracts": "npm run test -w packages/contracts",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "clean": "npm run clean --workspaces --if-present",
+    "deploy:testnet": "npm run build -w packages/proto -w packages/sdk && npm run build -w packages/contracts && node --import tsx scripts/deploy-contracts.ts --network harbinger",
+    "deploy:localnet": "npm run build -w packages/proto -w packages/sdk && npm run build -w packages/contracts && node --import tsx scripts/deploy-contracts.ts --network localnet",
+    "indexer": "npm run start -w apps/indexer",
+    "sponsor": "npm run start -w apps/sponsor",
+    "web": "npm run dev -w apps/web"
+  },
+  "devDependencies": {
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0"
+  }
+}

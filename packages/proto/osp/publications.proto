@@ -1,0 +1,296 @@
+syntax = "proto3";
+
+// Open Social Protocol - Publication contract (protocol v1)
+//
+// Signed, versioned publications (posts, replies), lifecycle facts,
+// non-economic reactions, audience-key distribution and cross-post outcome
+// records. Publication content lives in transaction/event history; active
+// contract state keeps only what later validation requires (post existence,
+// author, latest version, lifecycle state, author sequence, idempotency keys).
+//
+// Identifier rules (normative, see docs/protocol-spec.md):
+//   content_hash = sha256(envelope_bytes)
+//   post_id      = sha256("osp/v1/post-id" || chain_id || u32be(protocol_version)
+//                         || author(25 bytes) || u64be(sequence) || content_hash)
+// A version is identified by its content_hash. Edits publish a new version under
+// the same post_id and must reference the previous version's content_hash.
+
+package publications;
+
+import "koinos/options.proto";
+
+enum audience_kind {
+  everyone = 0;
+  friends = 1;
+  custom = 2;
+}
+
+enum lifecycle_state {
+  active = 0;
+  author_hidden = 1;
+  deleted = 2;
+  unavailable = 3;
+  migrated = 4;
+  superseded = 5;
+}
+
+enum outcome_state {
+  succeeded = 0;
+  partial = 1;
+  unknown = 2;
+  failed = 3;
+  reconcile_required = 4;
+}
+
+message media_ref {
+  // sha256 of the encrypted media bytes.
+  bytes content_hash = 1;
+  string mime = 2;
+  uint64 size = 3 [jstype = JS_STRING];
+  // Content identifiers or URLs where identical ciphertext can be fetched.
+  repeated string locations = 4;
+  // Reference to the key material protecting this media (opaque to the contract).
+  bytes key_ref = 5;
+}
+
+message post_record {
+  bytes author = 1 [(koinos.btype) = ADDRESS];
+  uint64 sequence = 2 [jstype = JS_STRING];
+  uint32 version_count = 3;
+  bytes latest_version = 4;
+  lifecycle_state state = 5;
+  bytes reply_to = 6;
+  audience_kind audience = 7;
+  uint64 created_at = 8 [jstype = JS_STRING];
+  uint64 updated_at = 9 [jstype = JS_STRING];
+}
+
+message author_state {
+  uint64 next_sequence = 1 [jstype = JS_STRING];
+  uint64 last_publish_at = 2 [jstype = JS_STRING];
+  uint64 post_count = 3 [jstype = JS_STRING];
+}
+
+message limits {
+  uint32 max_envelope_bytes = 1;
+  uint32 max_media_refs = 2;
+  uint32 max_key_package_bytes = 3;
+  uint32 max_idempotency_key_bytes = 4;
+  uint32 max_location_chars = 5;
+  uint32 protocol_version = 6;
+}
+
+message post_ref {
+  bytes post_id = 1;
+}
+
+// ---------------------------------------------------------------------------
+// Admin
+// ---------------------------------------------------------------------------
+
+// @description Set the identity contract used for actor resolution (contract account only)
+// @read-only false
+message set_identity_contract_arguments {
+  bytes address = 1 [(koinos.btype) = ADDRESS];
+}
+message set_identity_contract_result {}
+
+// @description Set the relationships contract used for block checks (contract account only)
+// @read-only false
+message set_relationships_contract_arguments {
+  bytes address = 1 [(koinos.btype) = ADDRESS];
+}
+message set_relationships_contract_result {}
+
+// ---------------------------------------------------------------------------
+// Write methods
+// ---------------------------------------------------------------------------
+
+// @description Publish a post, reply, or a new version of an existing post
+// @read-only false
+message publish_arguments {
+  bytes author = 1 [(koinos.btype) = ADDRESS];
+  bytes post_id = 2;
+  // Empty for the first version; previous content_hash for edits.
+  bytes previous_version = 3;
+  // Must equal the author's next_sequence for a first version; ignored for edits.
+  uint64 sequence = 4 [jstype = JS_STRING];
+  audience_kind audience = 5;
+  // Audience identifier: empty for everyone/friends (friends implies the author's
+  // friends audience), or a custom audience id.
+  bytes audience_id = 6;
+  uint32 epoch = 7;
+  // Encrypted (or plaintext for everyone) content envelope, at most max_envelope_bytes.
+  bytes envelope = 8;
+  // sha256 of envelope; verified on-chain when envelope is non-empty.
+  bytes content_hash = 9;
+  repeated media_ref media = 10;
+  // post_id of the parent when this publication is a reply/comment.
+  bytes reply_to = 11;
+  // Client-chosen idempotency key (<= 32 bytes). Duplicate keys per author are rejected.
+  bytes idempotency_key = 12;
+  bytes device = 13 [(koinos.btype) = ADDRESS];
+}
+message publish_result {}
+
+// @description Set the lifecycle state of a post version (tombstone, hide, supersede)
+// @read-only false
+message set_lifecycle_arguments {
+  bytes author = 1 [(koinos.btype) = ADDRESS];
+  bytes post_id = 2;
+  bytes version = 3;
+  lifecycle_state state = 4;
+  string reason = 5;
+  // Replacement post_id for migrated/superseded states.
+  bytes replacement_id = 6;
+  bytes device = 7 [(koinos.btype) = ADDRESS];
+}
+message set_lifecycle_result {}
+
+// @description Add or remove a non-economic reaction
+// @read-only false
+message react_arguments {
+  bytes actor = 1 [(koinos.btype) = ADDRESS];
+  bytes post_id = 2;
+  // Reaction type code; 1 = like. Additional codes are client vocabulary.
+  uint32 reaction = 3;
+  bool remove = 4;
+  bytes device = 5 [(koinos.btype) = ADDRESS];
+}
+message react_result {}
+
+// @description Distribute sealed audience-epoch keys to audience members (event only)
+// @read-only false
+message distribute_keys_arguments {
+  bytes author = 1 [(koinos.btype) = ADDRESS];
+  bytes audience_id = 2;
+  uint32 epoch = 3;
+  // Encoded osp.envelope.key_package_set (see packages/proto/osp/envelope.proto).
+  bytes packages = 4;
+  bytes device = 5 [(koinos.btype) = ADDRESS];
+}
+message distribute_keys_result {}
+
+// @description Record the outcome of a cross-platform publication attempt
+// @read-only false
+message record_cross_post_arguments {
+  bytes author = 1 [(koinos.btype) = ADDRESS];
+  bytes idempotency_key = 2;
+  // Adapter identifier, e.g. "facebook", "atproto".
+  string adapter = 3;
+  outcome_state state = 4;
+  // External identifier or URL of the host-site publication.
+  string external_ref = 5;
+  bytes post_id = 6;
+  // sha256 of the signed proof manifest.
+  bytes manifest_hash = 7;
+  bytes device = 8 [(koinos.btype) = ADDRESS];
+}
+message record_cross_post_result {}
+
+// ---------------------------------------------------------------------------
+// Read methods
+// ---------------------------------------------------------------------------
+
+// @description Get compact post state
+// @read-only true
+message get_post_arguments {
+  bytes post_id = 1;
+}
+message get_post_result {
+  post_record value = 1;
+}
+
+// @description Get an author's sequence state
+// @read-only true
+message get_author_state_arguments {
+  bytes author = 1 [(koinos.btype) = ADDRESS];
+}
+message get_author_state_result {
+  author_state value = 1;
+}
+
+// @description Resolve an idempotency key to the post it created
+// @read-only true
+message get_post_by_idempotency_key_arguments {
+  bytes author = 1 [(koinos.btype) = ADDRESS];
+  bytes idempotency_key = 2;
+}
+message get_post_by_idempotency_key_result {
+  post_ref value = 1;
+}
+
+// @description Get protocol limits enforced by this contract
+// @read-only true
+message get_limits_arguments {}
+message get_limits_result {
+  limits value = 1;
+}
+
+// @description Get configured dependency contracts
+// @read-only true
+message get_dependencies_arguments {}
+message get_dependencies_result {
+  bytes identity = 1 [(koinos.btype) = ADDRESS];
+  bytes relationships = 2 [(koinos.btype) = ADDRESS];
+}
+
+// ---------------------------------------------------------------------------
+// Events (name prefix: osp.publications.*)
+// ---------------------------------------------------------------------------
+
+message published_event {
+  bytes author = 1 [(koinos.btype) = ADDRESS];
+  bytes post_id = 2;
+  bytes content_hash = 3;
+  bytes previous_version = 4;
+  uint32 version_number = 5;
+  uint64 sequence = 6 [jstype = JS_STRING];
+  audience_kind audience = 7;
+  bytes audience_id = 8;
+  uint32 epoch = 9;
+  bytes envelope = 10;
+  repeated media_ref media = 11;
+  bytes reply_to = 12;
+  bytes idempotency_key = 13;
+  uint32 protocol_version = 14;
+  uint64 timestamp = 15 [jstype = JS_STRING];
+}
+
+message lifecycle_event {
+  bytes author = 1 [(koinos.btype) = ADDRESS];
+  bytes post_id = 2;
+  bytes version = 3;
+  lifecycle_state state = 4;
+  string reason = 5;
+  bytes replacement_id = 6;
+  uint64 timestamp = 7 [jstype = JS_STRING];
+}
+
+message reaction_event {
+  bytes actor = 1 [(koinos.btype) = ADDRESS];
+  bytes post_id = 2;
+  bytes post_author = 3 [(koinos.btype) = ADDRESS];
+  uint32 reaction = 4;
+  bool removed = 5;
+  uint64 timestamp = 6 [jstype = JS_STRING];
+}
+
+message keys_distributed_event {
+  bytes author = 1 [(koinos.btype) = ADDRESS];
+  bytes audience_id = 2;
+  uint32 epoch = 3;
+  bytes packages = 4;
+  uint64 timestamp = 5 [jstype = JS_STRING];
+}
+
+message cross_post_outcome_event {
+  bytes author = 1 [(koinos.btype) = ADDRESS];
+  bytes idempotency_key = 2;
+  string adapter = 3;
+  outcome_state state = 4;
+  string external_ref = 5;
+  bytes post_id = 6;
+  bytes manifest_hash = 7;
+  uint64 timestamp = 8 [jstype = JS_STRING];
+}
