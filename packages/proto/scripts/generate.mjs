@@ -39,11 +39,15 @@ function stableStringify(value) {
   return JSON.stringify(sortKeys(value), null, 2) + "\n";
 }
 
-function sortKeys(value) {
-  if (Array.isArray(value)) return value.map(sortKeys);
+function sortKeys(value, parentKey) {
+  if (Array.isArray(value)) return value.map((v) => sortKeys(v));
   if (value && typeof value === "object") {
     const out = {};
-    for (const key of Object.keys(value).sort()) out[key] = sortKeys(value[key]);
+    // Enum `values` must keep their declaration order: protobufjs uses the FIRST
+    // listed value as the default for absent enum fields (proto3 requires it to be
+    // the zero value). Everything else is sorted for deterministic output.
+    const keys = parentKey === "values" ? Object.keys(value) : Object.keys(value).sort();
+    for (const key of keys) out[key] = sortKeys(value[key], key);
     return out;
   }
   return value;

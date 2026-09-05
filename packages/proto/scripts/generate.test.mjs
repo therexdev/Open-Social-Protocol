@@ -30,3 +30,12 @@ test("every contract exposes read and write methods", () => {
   }
   assert.ok(manifest.events.publications.some((e) => e.name === "osp.publications.published"));
 });
+
+test("enum values keep declaration order so the zero value is the protobufjs default", () => {
+  const d = JSON.parse(readFileSync(join(dist, "descriptors", "publications.json"), "utf8"));
+  const values = d.nested.publications.nested.audience_kind.values;
+  assert.deepEqual(Object.keys(values), ["everyone", "friends", "custom"]);
+  assert.equal(values[Object.keys(values)[0]], 0);
+  const role = d.nested.communities?.nested?.community_role?.values;
+  if (role) assert.equal(role[Object.keys(role)[0]], 0);
+});

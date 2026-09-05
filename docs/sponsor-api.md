@@ -1,8 +1,10 @@
 # Sponsor HTTP API (v1)
 
-All responses are JSON. Errors use `{ "error": { "category": <string>, "message": <string> } }`
-with categories: `quota_exceeded`, `method_not_allowed`, `too_large`, `chain_mismatch`,
-`invalid_signature`, `invalid_transaction`, `temporarily_unavailable`.
+All responses are JSON. Errors use `{ "error": { "category": <string>, "message": <string>, "retryAfterSec"?: number, "logs"?: string[] } }`
+with categories and HTTP statuses: `quota_exceeded` 429, `method_not_allowed` 403, `too_large` 413,
+`chain_mismatch` 400, `invalid_signature` 400, `invalid_transaction` 400, `temporarily_unavailable` 503.
+A broadcast whose outcome is unknown (RPC timeout) returns 200 with a receipt carrying `rpc_error`;
+clients must treat it as an unknown outcome and reconcile (spec section 7), never re-submit.
 
 ## `GET /.well-known/osp-sponsor.json`
 Signed discovery document:

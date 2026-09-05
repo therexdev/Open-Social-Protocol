@@ -273,7 +273,11 @@ public: registered on chain (`sponsorship.set_sponsor`) and served from the endp
 3. never modifies operations after the user signature; it only appends its signature;
 4. reports aggregate utilization and stable refusal categories
    (`quota_exceeded`, `method_not_allowed`, `too_large`, `chain_mismatch`,
-   `invalid_signature`, `temporarily_unavailable`);
+   `invalid_signature`, `invalid_transaction`, `temporarily_unavailable`), with HTTP
+   status 429 / 403 / 413 / 400 / 400 / 400 / 503 respectively; a transaction whose
+   outcome is unknown after broadcast (RPC timeout) is reported as a 200 response whose
+   receipt carries `rpc_error`, never as a refusal, so clients treat it as `koinosUnknown`
+   and reconcile instead of re-submitting;
 5. can be replaced by any other sponsor or by self-pay without an identity change.
 
 Sponsor HTTP API (`docs/sponsor-api.md`): `POST /v1/sponsor` with `{ transaction }`
