@@ -3,8 +3,8 @@
  * packages/sdk/src/testing/fixtures.ts, which is not part of the SDK build) and a fake
  * indexer served through an injectable fetch.
  */
-import { Signer, encode, type CallContractOperationJson, type Deployment, type ProviderInterface, type TransactionJson, type TransactionReceipt } from "@osp/sdk";
-import { toBase64url } from "../util/bytes";
+import { Signer, encode, lookupType, type CallContractOperationJson, type Deployment, type OperationJson, type ProviderInterface, type TransactionJson, type TransactionReceipt } from "@osp/sdk";
+import { bytesOf, toBase64url } from "../util/bytes";
 import type { FetchLike } from "../api/indexer";
 
 export const HARBINGER_CHAIN_ID = "EiBncD4pKRIQWco_WRqo5Q-xnXR7JuO3PtZv983mKdKHSQ==";
@@ -123,4 +123,14 @@ export function fakeIndexerFetch(routes: Record<string, unknown | RouteHandler>,
     if (body instanceof Response) return body;
     return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
   };
+}
+
+/**
+ * Decodes call_contract args without filling defaults, so absent fields are `undefined`.
+ * Works around the SDK `decode` default for enums (first descriptor key instead of 0).
+ */
+export function decodeCallArgs(typeName: string, op: OperationJson): Record<string, unknown> {
+  const type = lookupType(typeName);
+  const message = type.decode(bytesOf(op.call_contract?.args));
+  return type.toObject(message, { longs: String, enums: Number, defaults: false }) as Record<string, unknown>;
 }

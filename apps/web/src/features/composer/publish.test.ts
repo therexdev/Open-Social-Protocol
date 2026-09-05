@@ -13,7 +13,7 @@ import {
 } from "@osp/sdk";
 import { KeyStore } from "../../api/keystore";
 import { IndexerClient } from "../../api/indexer";
-import { fakeIndexerFetch, fakeProvider, fixtureDeployment, readResult } from "../../testing/fixtures";
+import { decodeCallArgs, fakeIndexerFetch, fakeProvider, fixtureDeployment, readResult } from "../../testing/fixtures";
 import { buildPublishPlan, findExistingPost } from "./publish";
 
 const seed = (label: string) => new Uint8Array(32).map((_, i) => (label.charCodeAt(i % label.length) * 7 + i) & 0xff);
@@ -123,8 +123,9 @@ describe("buildPublishPlan", () => {
       media: [{ url: "https://cdn.example.org/a.png", mime: "image/png", size: 1234, contentHash: new Uint8Array(32).fill(4) }],
     });
     expect(plan.operations).toHaveLength(1);
-    const args = chain.contracts.decodeOperation(plan.operations[0]!)!.args as { audience: number; epoch: number; media: Array<{ mime: string; locations: string[] }>; envelope: Uint8Array };
-    expect(args.audience).toBe(AUDIENCE.EVERYONE);
+    const args = chain.contracts.decodeOperation(plan.operations[0]!)!.args as { epoch: number; media: Array<{ mime: string; locations: string[] }>; envelope: Uint8Array };
+    // absent audience (everyone = 0): read without default filling, see decodeCallArgs
+    expect(decodeCallArgs("publications.publish_arguments", plan.operations[0]!).audience ?? AUDIENCE.EVERYONE).toBe(AUDIENCE.EVERYONE);
     expect(args.media[0]?.mime).toBe("image/png");
     expect(args.media[0]?.locations).toEqual(["https://cdn.example.org/a.png"]);
     expect(decryptContent({ envelope: args.envelope }).text).toBe("public post");

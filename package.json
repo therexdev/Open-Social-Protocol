@@ -22,7 +22,7 @@
     "build:contracts": "npm run build -w packages/contracts",
     "build:web": "npm run build -w packages/proto -w packages/sdk -w apps/web",
     "build:extension": "npm run build -w packages/proto -w packages/sdk -w apps/extension",
-    "test": "npm run test --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present && npm run test:scripts",
     "test:contracts": "npm run test -w packages/contracts",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
@@ -31,7 +31,8 @@
     "deploy:localnet": "npm run build -w packages/proto -w packages/sdk && npm run build -w packages/contracts && node --import tsx scripts/deploy-contracts.ts --network localnet",
     "indexer": "npm run start -w apps/indexer",
     "sponsor": "npm run start -w apps/sponsor",
-    "web": "npm run dev -w apps/web"
+    "web": "npm run dev -w apps/web",
+    "test:scripts": "node --import tsx --test scripts/*.test.ts"
   },
   "devDependencies": {
     "tsx": "^4.20.0",

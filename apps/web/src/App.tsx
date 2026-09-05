@@ -16,7 +16,8 @@ import { RecoveryPage } from "./features/recovery/RecoveryPage";
 import { SettingsPage } from "./features/settings/SettingsPage";
 import { useAccount } from "./stores/account";
 import { useSettings } from "./stores/settings";
-import { useVault, type VaultStore } from "./vault/store";
+import { VaultProvider, useVault } from "./vault/context";
+import { useVault as defaultVault, type VaultStore } from "./vault/store";
 
 /** Pages that need an account: onboarding when none exists, unlock when locked. */
 function RequireAccount({ children }: { children: ReactNode }) {
@@ -117,16 +118,18 @@ export interface AppProps {
   vault?: VaultStore;
 }
 
-export function App({ vault = useVault }: AppProps) {
+export function App({ vault = defaultVault }: AppProps) {
   useEffect(() => {
     if (vault.getState().status === "loading") void vault.getState().init();
   }, [vault]);
   return (
-    <ServicesProvider>
-      <AccountEffects />
-      <Layout>
-        <AppRoutes />
-      </Layout>
-    </ServicesProvider>
+    <VaultProvider store={vault}>
+      <ServicesProvider>
+        <AccountEffects />
+        <Layout>
+          <AppRoutes />
+        </Layout>
+      </ServicesProvider>
+    </VaultProvider>
   );
 }

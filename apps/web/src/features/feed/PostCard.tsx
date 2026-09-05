@@ -12,7 +12,7 @@ import { AccountLink, Button, Details } from "../../components/ui";
 import { useProfileName } from "../profile/useProfileName";
 import { useCanAct, useSubmitContext } from "../session";
 import { usePostContent } from "./usePostContent";
-import type { OpenedContent } from "../../api/decrypt";
+import type { OpenedContent, PostContent } from "../../api/decrypt";
 
 export function audienceLabel(audience: number): string {
   if (audience === AUDIENCE.EVERYONE) return "Everyone";
@@ -54,8 +54,7 @@ function MediaList({ content }: { content: OpenedContent }) {
   );
 }
 
-export function PostBody({ post }: { post: PostView }) {
-  const content = usePostContent(post);
+export function PostBody({ content }: { content: PostContent | undefined }) {
   if (!content) return <p className="muted">Opening…</p>;
   switch (content.status) {
     case "plain":
@@ -101,6 +100,9 @@ export interface PostCardProps {
 
 export function PostCard({ post, onChanged, expanded = false }: PostCardProps) {
   const name = useProfileName(post.author);
+  const content = usePostContent(post);
+  // A plaintext envelope is by definition an everyone post, whatever the indexer's audience field says.
+  const audience = content?.status === "plain" ? AUDIENCE.EVERYONE : post.audience;
   const can = useCanAct();
   const submit = useSubmitContext();
   const { resolved } = useServices();
@@ -142,7 +144,7 @@ export function PostCard({ post, onChanged, expanded = false }: PostCardProps) {
     <article className="post" aria-label={`Post by ${name}`}>
       <header className="post-header">
         <AccountLink account={post.author} name={name} className="post-author" />
-        <span className={`chip chip-${post.audience === AUDIENCE.EVERYONE ? "public" : "friends"}`}>{audienceLabel(post.audience)}</span>
+        <span className={`chip chip-${audience === AUDIENCE.EVERYONE ? "public" : "friends"}`}>{audienceLabel(audience)}</span>
         <time dateTime={new Date(Number(post.createdAt) || 0).toISOString()} title={formatDateTime(post.createdAt)} className="muted">
           {timeAgo(post.createdAt)}
         </time>
@@ -162,7 +164,7 @@ export function PostCard({ post, onChanged, expanded = false }: PostCardProps) {
           Reply to <Link to={`/post/${post.replyTo}`}>a post</Link>
         </p>
       )}
-      <PostBody post={post} />
+      <PostBody content={content} />
       <footer className="post-footer">
         <Button variant="ghost" onClick={react} disabled={!can.ok || deleted} busy={busy} aria-pressed={liked} title={can.ok ? undefined : can.reason}>
           {liked ? "♥" : "♡"} {likes > 0 ? likes : ""} {liked ? "Liked" : "Like"}
