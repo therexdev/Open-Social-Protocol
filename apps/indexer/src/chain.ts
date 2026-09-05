@@ -3,7 +3,8 @@
  * decoded protocol events (ADR 0006: only events whose `source` is a configured protocol
  * contract address are kept; decoding uses the @osp/proto descriptors through @osp/sdk).
  */
-import { Provider, decodeEvent, type BlockReceipt, type BlockJson, type DecodedEvent, type Deployment, type ProviderInterface } from "@osp/sdk";
+import { Provider, decodeEvent, type DecodedEvent, type Deployment, type ProviderInterface } from "@osp/sdk";
+import type { BlockJson, BlockReceipt } from "koilib";
 
 export interface ChainHead {
   height: number;

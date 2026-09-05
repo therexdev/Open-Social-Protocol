@@ -400,11 +400,11 @@ export class IndexerDb {
     return this.prepare(sql).run(...params);
   }
 
-  get<T extends Row = Row>(sql: string, ...params: SQLInputValue[]): T | undefined {
+  get<T = Row>(sql: string, ...params: SQLInputValue[]): T | undefined {
     return this.prepare(sql).get(...params) as T | undefined;
   }
 
-  all<T extends Row = Row>(sql: string, ...params: SQLInputValue[]): T[] {
+  all<T = Row>(sql: string, ...params: SQLInputValue[]): T[] {
     return this.prepare(sql).all(...params) as T[];
   }
 

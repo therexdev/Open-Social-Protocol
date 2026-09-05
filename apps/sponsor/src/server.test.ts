@@ -189,7 +189,16 @@ describe("POST /v1/sponsor acceptance", () => {
   it("works end to end through the SDK ProtocolClient.submit", async () => {
     const harness = await start();
     const sponsorClient = new SponsorClient({ endpoint: "https://sponsor.test", fetch: injectFetch(harness.app), expectedChainId: HARBINGER_CHAIN_ID });
-    const result = await harness.client.submit({ operations: [await followOp(harness.client)], signer: user, sponsor: sponsorClient });
+    // Without an explicit rcLimit the SDK lets koilib default rc_limit to the payer's whole RC,
+    // which is above the per-operation ceiling: the sponsor refuses and the SDK self-pays.
+    const uncapped = await harness.client.submit({ operations: [await followOp(harness.client)], signer: user, sponsor: sponsorClient });
+    expect(uncapped.sponsored).toBe(false);
+    expect(uncapped.refusals.map((r) => r.error.category)).toEqual(["too_large"]);
+    expect(harness.provider.sent).toHaveLength(1); // the self-paid fallback
+    harness.provider.sent.length = 0;
+    const policy = await sponsorClient.discover();
+    const rcLimit = (BigInt(policy.policy.maxRcPerOp) * 1n).toString();
+    const result = await harness.client.submit({ operations: [await followOp(harness.client)], signer: user, sponsor: sponsorClient, rcLimit });
     expect(result.sponsored).toBe(true);
     expect(result.sponsor).toBe(sponsor);
     expect(result.refusals).toEqual([]);
