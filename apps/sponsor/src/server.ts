@@ -5,7 +5,7 @@
  * `createServer` wraps it in Fastify. Both are fully injectable so tests run offline with a
  * fake provider and a synthetic deployment.
  */
-import Fastify, { type FastifyInstance, type FastifyServerOptions } from "fastify";
+import Fastify, { type FastifyError, type FastifyInstance, type FastifyServerOptions } from "fastify";
 import cors from "@fastify/cors";
 import {
   Provider,
@@ -112,7 +112,8 @@ export class SponsorService {
   readonly state: ServiceState;
   readonly deployment: Deployment | undefined;
   readonly signer: Signer | undefined;
-  readonly sponsor: string | undefined;
+  /** Sponsor (payer) address, when a key is configured. */
+  readonly address: string | undefined;
   readonly provider: ProviderInterface | undefined;
   readonly client: ProtocolClient | undefined;
   readonly allowlist: Allowlist | undefined;
@@ -141,7 +142,7 @@ export class SponsorService {
       new QuotaStore({ path: c.dbPath, limits: { dailyOps: c.dailyOps, burstOps: c.burstOps, burstWindowSec: c.burstWindowSec }, now: this.now });
     this.deployment = options.deployment;
     this.signer = options.signer;
-    this.sponsor = options.signer?.getAddress();
+    this.address = options.signer?.getAddress();
     if (!options.deployment) {
       this.state = options.deploymentError ? "invalid_deployment" : "not_deployed";
     } else if (!options.signer) {
@@ -159,10 +160,10 @@ export class SponsorService {
 
   /** Throws `temporarily_unavailable` unless the service has a deployment and a key. */
   private serving(): { deployment: Deployment; signer: Signer; sponsor: string; provider: ProviderInterface; client: ProtocolClient; allowlist: Allowlist } {
-    if (this.state !== "serving" || !this.deployment || !this.signer || !this.sponsor || !this.provider || !this.client || !this.allowlist) {
+    if (this.state !== "serving" || !this.deployment || !this.signer || !this.address || !this.provider || !this.client || !this.allowlist) {
       throw new SponsorRefusal("temporarily_unavailable", stateMessage(this.state, this.options));
     }
-    return { deployment: this.deployment, signer: this.signer, sponsor: this.sponsor, provider: this.provider, client: this.client, allowlist: this.allowlist };
+    return { deployment: this.deployment, signer: this.signer, sponsor: this.address, provider: this.provider, client: this.client, allowlist: this.allowlist };
   }
 
   private context(): ValidationContext {
@@ -191,7 +192,7 @@ export class SponsorService {
       message: stateMessage(this.state, this.options),
       version: SPONSOR_VERSION,
       network: this.config.network,
-      sponsor: this.sponsor ?? null,
+      sponsor: this.address ?? null,
       chainId: this.deployment?.chainId ?? null,
       rpc: this.deployment?.rpc ?? this.config.rpc ?? [],
       deploymentPath: this.options.deploymentPath ?? null,
@@ -307,10 +308,18 @@ function categoryFor(status: number): SponsorErrorCategory {
   return "invalid_transaction";
 }
 
+declare module "fastify" {
+  interface FastifyInstance {
+    /** The sponsor service behind the routes (tests, main). */
+    sponsorService: SponsorService;
+  }
+}
+
 /** Builds the Fastify app; `app.sponsorService` exposes the service for tests and main. */
-export async function createServer(options: ServerOptions): Promise<FastifyInstance & { sponsorService: SponsorService }> {
+export async function createServer(options: ServerOptions): Promise<FastifyInstance> {
   const service = new SponsorService(options);
   const app = Fastify({ logger: options.logger ?? false, bodyLimit: options.bodyLimit ?? 256 * 1024 });
+  app.decorate("sponsorService", service);
   await app.register(cors, { origin: "*", methods: ["GET", "POST", "OPTIONS"] });
 
   app.setErrorHandler((error, _request, reply) => {
@@ -323,9 +332,10 @@ export async function createServer(options: ServerOptions): Promise<FastifyInsta
       });
       return;
     }
-    const status = typeof error.statusCode === "number" && error.statusCode >= 400 ? error.statusCode : 500;
+    const err = error as Partial<FastifyError>;
+    const status = typeof err.statusCode === "number" && err.statusCode >= 400 ? err.statusCode : 500;
     if (status >= 500) app.log.error(error);
-    void reply.status(status).send({ error: { category: categoryFor(status), message: status >= 500 ? "internal error" : error.message } });
+    void reply.status(status).send({ error: { category: categoryFor(status), message: status >= 500 ? "internal error" : String(err.message ?? "bad request") } });
   });
   app.setNotFoundHandler((request, reply) => {
     void reply.status(404).send({ error: { category: "invalid_transaction", message: `no route for ${request.method} ${request.url}` } });
@@ -355,5 +365,5 @@ export async function createServer(options: ServerOptions): Promise<FastifyInsta
   app.get("/v1/utilization", async () => service.utilization());
 
   app.addHook("onClose", async () => service.close());
-  return Object.assign(app, { sponsorService: service });
+  return app;
 }

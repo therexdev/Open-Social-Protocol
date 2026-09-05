@@ -43,8 +43,8 @@ async function main(): Promise<void> {
   if (status.allowed.length > 0) log(`allowed methods: ${status.allowed.join(", ")}`);
   log(`limits: ${config.dailyOps} ops/day, ${config.burstOps} ops per ${config.burstWindowSec}s, ${config.maxBytesPerOp} bytes/op, ${config.maxRcPerOp} RC/op, ${config.maxOpsPerTx} ops/tx`);
 
-  if (status.state === "serving" && config.register && service.client && service.signer && service.allowlist && service.sponsor) {
-    const desired = desiredRecord({ sponsor: service.sponsor, publicUrl: config.publicUrl, allowlist: service.allowlist, limits: service.limits });
+  if (status.state === "serving" && config.register && service.client && service.signer && service.allowlist && service.address) {
+    const desired = desiredRecord({ sponsor: service.address, publicUrl: config.publicUrl, allowlist: service.allowlist, limits: service.limits });
     void ensureRegistered({ client: service.client, signer: service.signer, desired, log }).then((result) => {
       log(`on-chain registration: ${result.status}${"error" in result ? ` (${result.error})` : ""}`);
     });
