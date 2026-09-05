@@ -5,7 +5,7 @@
  * Refusals are typed (`SponsorError.category`) so clients can fall back to another sponsor
  * or self-pay without changing identity.
  */
-import { Signer } from "koilib";
+import { Signer, Transaction } from "koilib";
 import type { OperationJson, SignerInterface, TransactionJson, TransactionReceipt } from "koilib";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { SPONSOR_ERROR_CATEGORIES, type SponsorErrorCategory } from "./constants.js";
@@ -92,6 +92,64 @@ export function verifySponsorDiscovery(doc: SponsorDiscovery): { valid: boolean;
   }
 }
 
+/**
+ * Recomputes a transaction id locally from `header` (chain_id, rc_limit, nonce, payer, payee) and
+ * `operations` (operation merkle root), without any RPC. Throws when the header is incomplete.
+ */
+export async function recomputeTransactionId(transaction: TransactionJson): Promise<string> {
+  const header = transaction.header;
+  if (!header || !header.chain_id || header.rc_limit === undefined || header.nonce === undefined || !header.payer) {
+    throw new Error("incomplete transaction header (chain_id, rc_limit, nonce and payer are required)");
+  }
+  const copy: TransactionJson = { header: { ...header }, operations: [...(transaction.operations ?? [])] };
+  const prepared = await Transaction.prepareTransaction(copy);
+  if (!prepared.id) throw new Error("could not compute the transaction id");
+  return prepared.id;
+}
+
+function sameOperations(a: OperationJson[] | undefined, b: OperationJson[] | undefined): boolean {
+  return canonicalJson(a ?? []) === canonicalJson(b ?? []);
+}
+
+/**
+ * Checks that what a sponsor returned from `POST /v1/sponsor` is the transaction the user signed
+ * (spec section 10: a sponsor only appends its signature). Verified: same id, same operations,
+ * same header (the id is recomputed from the returned header + operations), the user's
+ * signatures preserved as a prefix, and a receipt for that id. Throws `SponsorError`
+ * (`invalid_transaction`) otherwise so pools move on or self-pay.
+ */
+export async function verifySponsorResult(signed: TransactionJson, result: SponsorResult, endpoint?: string): Promise<void> {
+  const fail = (message: string): never => {
+    throw new SponsorError("invalid_transaction", `sponsor returned a different transaction: ${message}`, {
+      ...(endpoint !== undefined && { endpoint }),
+    });
+  };
+  const returned = result.transaction;
+  if (!signed.id) fail("the submitted transaction has no id");
+  if (!returned || typeof returned !== "object" || !returned.header) fail("no transaction header");
+  if (returned.id !== signed.id) fail(`id ${String(returned.id)} != ${String(signed.id)}`);
+  const header = returned.header as NonNullable<TransactionJson["header"]>;
+  const signedHeader = signed.header ?? {};
+  if (header.payer !== signedHeader.payer) fail("payer changed");
+  if ((header.payee ?? "") !== (signedHeader.payee ?? "")) fail("payee changed");
+  if (header.chain_id !== signedHeader.chain_id) fail("chain id changed");
+  if (!sameOperations(returned.operations, signed.operations)) fail("operations changed");
+  let recomputed: string;
+  try {
+    recomputed = await recomputeTransactionId(returned);
+  } catch (error) {
+    return fail(`header cannot be verified: ${(error as Error).message}`);
+  }
+  if (recomputed !== signed.id) fail("header or operations do not hash to the signed id");
+  const userSignatures = signed.signatures ?? [];
+  const signatures = returned.signatures ?? [];
+  if (signatures.length < userSignatures.length || !userSignatures.every((sig, i) => signatures[i] === sig)) {
+    fail("the user's signatures were altered or dropped");
+  }
+  if (!result.receipt || typeof result.receipt !== "object") fail("no receipt");
+  if (result.receipt.id !== signed.id) fail(`receipt id ${String(result.receipt.id)} != ${String(signed.id)}`);
+}
+
 export interface SponsorClientOptions {
   /** Base URL, e.g. `https://sponsor.example.org`. */
   endpoint: string;
@@ -149,23 +207,55 @@ export class SponsorClient {
     return doc;
   }
 
-  /** `POST /v1/prepare`: an unsigned transaction with the sponsor as payer and a fresh payee nonce. */
+  /**
+   * `POST /v1/prepare`: an unsigned transaction with the sponsor as payer and a fresh payee nonce.
+   * The response is verified before it is handed back for signing: `header.payee` is `payee`,
+   * `header.payer` is the discovered sponsor address, `header.chain_id` matches the sponsor's
+   * network (and `expectedChainId` when set), the operations are exactly the requested ones and
+   * the transaction id is recomputed locally from the header and operations. Any mismatch throws
+   * `SponsorError` (`invalid_transaction` / `chain_mismatch`).
+   */
   async prepare(payee: string, operations: OperationJson[]): Promise<TransactionJson> {
+    const discovery = await this.discover();
     const body = (await this.request("POST", "/v1/prepare", { payee, operations })) as { transaction?: TransactionJson };
     const transaction = body?.transaction ?? (body as TransactionJson);
-    if (!transaction || typeof transaction !== "object" || !transaction.header) {
-      throw new SponsorError("invalid_transaction", "sponsor returned no transaction", { endpoint: this.endpoint });
+    const invalid = (message: string): never => {
+      throw new SponsorError("invalid_transaction", `sponsor returned an invalid prepared transaction: ${message}`, { endpoint: this.endpoint });
+    };
+    if (!transaction || typeof transaction !== "object" || !transaction.header) invalid("no transaction header");
+    const header = transaction.header as NonNullable<TransactionJson["header"]>;
+    if (header.payee !== payee) invalid(`payee ${String(header.payee)} != ${payee}`);
+    if (header.payer !== discovery.sponsor) invalid(`payer ${String(header.payer)} is not the sponsor ${discovery.sponsor}`);
+    const expectedChain = this.expectedChainId ?? discovery.network?.chainId;
+    if (expectedChain && header.chain_id !== expectedChain) {
+      throw new SponsorError("chain_mismatch", `prepared transaction is for chain ${String(header.chain_id)}`, { endpoint: this.endpoint });
     }
-    return transaction;
+    if (!sameOperations(transaction.operations, operations)) invalid("operations differ from the requested ones");
+    let id: string;
+    try {
+      id = await recomputeTransactionId(transaction);
+    } catch (error) {
+      return invalid((error as Error).message);
+    }
+    if (transaction.id !== undefined && transaction.id !== id) invalid("transaction id does not match its header");
+    if (transaction.signatures && transaction.signatures.length > 0) invalid("prepared transaction must be unsigned");
+    return { ...transaction, id, operations: [...operations] };
   }
 
-  /** `POST /v1/sponsor`: validates, co-signs and broadcasts a payee-signed transaction. */
+  /**
+   * `POST /v1/sponsor`: validates, co-signs and broadcasts a payee-signed transaction. The
+   * response is checked with `verifySponsorResult` (same id/header/operations, user signatures
+   * preserved, receipt for the same id); a sponsor that substitutes anything is refused with
+   * `SponsorError("invalid_transaction")`.
+   */
   async sponsor(transaction: TransactionJson): Promise<SponsorResult> {
     const body = (await this.request("POST", "/v1/sponsor", { transaction })) as Partial<SponsorResult>;
     if (!body?.transaction || !body.receipt) {
       throw new SponsorError("invalid_transaction", "sponsor returned no transaction/receipt", { endpoint: this.endpoint });
     }
-    return { transaction: body.transaction, receipt: body.receipt };
+    const result: SponsorResult = { transaction: body.transaction, receipt: body.receipt };
+    await verifySponsorResult(transaction, result, this.endpoint);
+    return result;
   }
 
   /** `GET /v1/utilization` (aggregate counters). */
