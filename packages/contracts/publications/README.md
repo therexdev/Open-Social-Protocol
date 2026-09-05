@@ -36,13 +36,21 @@ capability:
 
 | Method | Capability |
 | --- | --- |
-| `publish` without `reply_to` | `PUBLISH` (1) |
-| `publish` with `reply_to` (a comment) | `COMMENT` (4) |
+| `publish`, first version without `reply_to` | `PUBLISH` (1) |
+| `publish`, first version with `reply_to` (a comment) | `COMMENT` (4) |
+| `publish`, edit | decided by the **stored** post: `COMMENT` when its `reply_to` is set, else `PUBLISH` |
 | `set_lifecycle`, `distribute_keys`, `record_cross_post` | `PUBLISH` (1) |
 | `react` | `REACT` (2) |
 
+For edits the caller-supplied `reply_to` never influences the capability: a
+comment stays a comment whether or not the client repeats the link, so a device
+holding only `PUBLISH` cannot rewrite one and a `COMMENT` device can edit its
+comments without re-sending `reply_to` (ADR 0003 bounded-damage model).
+
 Argument validation runs before the identity lookup, so malformed calls revert
-without any cross-contract call. `set_identity_contract` and
+without any cross-contract call; for an edit the post record is loaded before
+the lookup as well (its thread position selects the capability), so
+`post not found` also reverts without one. `set_identity_contract` and
 `set_relationships_contract` require the `contract_call` authority of the
 contract's own account. Write methods revert with
 `identity contract not configured` until the identity contract is set; a reply

@@ -14,8 +14,10 @@
 // Authority: every mutating method resolves its signer through the identity
 // contract (identity.resolve_actor) and then requires that signer's
 // contract_call authority on the current transaction (Actor.requireAuthorized).
-// Replies require the COMMENT capability, reactions REACT, everything else
-// PUBLISH. The dependency setters are callable only by the contract account.
+// Replies require the COMMENT capability (for edits: the *stored* thread
+// position decides, never the caller-supplied reply_to), reactions REACT,
+// everything else PUBLISH. The dependency setters are callable only by the
+// contract account.
 import { System, Storage, Protobuf, authority, Arrays, Crypto } from "@koinos/sdk-as";
 import { publications } from "./proto/publications";
 import { relationships } from "./proto/relationships";
@@ -41,6 +43,10 @@ const MAX_REASON_CHARS: i32 = 256;
 const MAX_ADAPTER_CHARS: i32 = 64;
 const MAX_EXTERNAL_REF_CHARS: i32 = 256;
 const MAX_AUDIENCE_ID_BYTES: i32 = 32;
+// media_ref.key_ref is opaque key material (a wrapped content key + nonce or a
+// key reference, spec 5.1); bounded so a publish event cannot smuggle
+// arbitrary bytes past max_envelope_bytes.
+const MAX_KEY_REF_BYTES: i32 = 128;
 const HASH_LENGTH: i32 = 32;
 const FIRST_SEQUENCE: u64 = 1;
 
@@ -182,7 +188,7 @@ export class Publications {
     return Util.concat([author, key]);
   }
 
-  /** Validate media references (count, mime, content hash, locations). */
+  /** Validate media references (count, mime, content hash, locations, key_ref). */
   validateMedia(media: Array<publications.media_ref>): void {
     System.require(<u32>media.length <= MAX_MEDIA_REFS, "too many media refs");
     for (let i = 0; i < media.length; i++) {
@@ -193,6 +199,7 @@ export class Publications {
       for (let j = 0; j < ref.locations.length; j++) {
         System.require(<u32>ref.locations[j].length <= MAX_LOCATION_CHARS, "media location too long");
       }
+      this.optionalBytes(ref.key_ref, MAX_KEY_REF_BYTES, "media key_ref");
     }
   }
 
@@ -276,6 +283,9 @@ export class Publications {
     const audienceId = this.optionalBytes(args.audience_id, MAX_AUDIENCE_ID_BYTES, "audience_id");
     if (args.audience == publications.audience_kind.custom) {
       System.require(audienceId != null, "custom audience requires audience_id");
+    } else {
+      // everyone / friends: the audience id is implicit and must be empty (spec 2.3).
+      System.require(audienceId == null, "audience_id not allowed for this audience");
     }
     this.validateMedia(args.media);
     const idempotencyKey = this.optionalBytes(
@@ -283,14 +293,29 @@ export class Publications {
       <i32>MAX_IDEMPOTENCY_KEY_BYTES,
       "idempotency key"
     );
+    // reply_to is shape-checked here so a malformed link, like every other
+    // argument error, reverts before the identity lookup.
+    const requestedReplyTo: Uint8Array | null = Util.isEmpty(args.reply_to)
+      ? null
+      : this.requireHash(args.reply_to, "reply_to");
 
     // Replies need the COMMENT capability, top-level posts PUBLISH (spec 3.1).
-    const requestedReplyTo: Uint8Array | null = Util.isEmpty(args.reply_to) ? null : args.reply_to;
-    const capability = requestedReplyTo != null ? Capability.COMMENT : Capability.PUBLISH;
+    // For an edit the *stored* thread position decides: a comment stays a
+    // comment whether or not the caller repeats reply_to, so a device holding
+    // only PUBLISH can never rewrite one (ADR 0003 bounded-damage model).
+    const isFirstVersion = Util.isEmpty(args.previous_version);
+    let existing: publications.post_record | null = null;
+    let capability: u32 = Capability.PUBLISH;
+    if (isFirstVersion) {
+      if (requestedReplyTo != null) capability = Capability.COMMENT;
+    } else {
+      existing = this.posts.get(postId);
+      System.require(existing != null, "post not found");
+      if (!Util.isEmpty(existing!.reply_to)) capability = Capability.COMMENT;
+    }
     Actor.requireAuthorized(this.identityContract(), author, args.device, capability);
 
     const now = Util.now();
-    const isFirstVersion = Util.isEmpty(args.previous_version);
     let record: publications.post_record;
     let previousVersion: Uint8Array | null = null;
     let replyTo: Uint8Array | null = null;
@@ -307,7 +332,7 @@ export class Publications {
       );
 
       if (requestedReplyTo != null) {
-        const parentId = this.requireHash(requestedReplyTo, "reply_to");
+        const parentId = requestedReplyTo;
         const parent = this.posts.get(parentId);
         System.require(parent != null, "reply target not found");
         System.require(parent!.state != publications.lifecycle_state.deleted, "reply target deleted");
@@ -340,8 +365,6 @@ export class Publications {
       state.last_publish_at = now;
       this.authors.put(author, state);
     } else {
-      const existing = this.posts.get(postId);
-      System.require(existing != null, "post not found");
       record = existing!;
       System.require(Arrays.equal(record.author!, author), "author mismatch");
       System.require(record.state != publications.lifecycle_state.deleted, "post deleted");
@@ -528,15 +551,24 @@ export class Publications {
 
     Actor.requireAuthorized(this.identityContract(), author, args.device, Capability.PUBLISH);
 
+    // The post this author's key was bound to by publish, if any.
+    const bound = this.idempotency.get(this.idempotencyKey(author, idempotencyKey));
+    const boundPostId: Uint8Array | null = bound != null && !Util.isEmpty(bound.post_id) ? bound.post_id : null;
+
     if (postId != null) {
       const record = this.posts.get(postId);
       System.require(record != null, "post not found");
       System.require(Arrays.equal(record!.author!, author), "author mismatch");
       // A key already bound to a publication cannot be reported for another post.
-      const bound = this.idempotency.get(this.idempotencyKey(author, idempotencyKey));
-      if (bound != null && !Util.isEmpty(bound.post_id)) {
-        System.require(Arrays.equal(bound.post_id!, postId), "idempotency key bound to another post");
+      if (boundPostId != null) {
+        System.require(Arrays.equal(boundPostId, postId), "idempotency key bound to another post");
       }
+    }
+    // A succeeded outcome must be traceable back to the attempt: the key must
+    // belong to the author and refer to an existing post (spec 6). Together
+    // with the checks above this means the key is bound to exactly post_id.
+    if (args.state == publications.outcome_state.succeeded) {
+      System.require(boundPostId != null, "idempotency key not bound to a post");
     }
 
     const now = Util.now();

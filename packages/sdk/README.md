@@ -36,8 +36,13 @@ Decoded messages always carry every scalar field (defaults filled in). Encoding 
 (section 2): ascending field numbers, default values omitted, no maps.
 
 All errors are subclasses of `Error` with a stable `name`: `EncodingError`, `EnvelopeError`,
-`AudienceError`, `VaultError`, `DeploymentError`, `ContractError`, `ProtocolClientError`,
+`AudienceError`, `VaultError`, `DeploymentError`, `ContractError`, `ProtocolClientError`
+(with the subclasses `TransactionOutcomeUnknownError` and `TransactionRevertedError`),
 `SponsorError`, `ManifestError`.
+
+Untrusted inputs are validated before use: sponsor responses (`verifySponsorResult`,
+`SponsorClient.prepare`), vault blobs (`validateVaultKdf`), manifests (`validateProofManifest`),
+content (`validateContent`, `validateEnvelopeSize`).
 
 ---
 
@@ -82,6 +87,7 @@ fieldBtype(field: protobuf.Field): string | undefined
 utf8(text): Uint8Array; utf8Decode(bytes): string
 concat(...parts: Uint8Array[]): Uint8Array
 u32be(n: number): Uint8Array; u64be(n: number | bigint | string): Uint8Array
+toBigInt(v: number | bigint | string, label?): bigint           // EncodingError for non-integers
 bytesEqual(a, b): boolean; isBytes(v): v is Uint8Array; asBytes(v): Uint8Array
 toHex(bytes): string; fromHex(hex /* optional 0x */): Uint8Array
 toBase64url(bytes): string; fromBase64url(s): Uint8Array   // koilib-compatible (padded)
@@ -101,7 +107,7 @@ type AddressLike = string | Uint8Array; type ChainIdLike = string | Uint8Array
 addressToBytes(a: AddressLike): Uint8Array /* 25 */; addressToString(a: AddressLike): string; isAddress(v): v is string
 chainIdToBytes(chainId: ChainIdLike): Uint8Array          // base64url RPC value -> raw multihash bytes
 contentHash(envelopeBytes: Uint8Array): Uint8Array        // sha256
-postId({ chainId, protocolVersion?, author, sequence, contentHash }: PostIdInput): Uint8Array
+postId({ chainId, protocolVersion?, author, sequence, contentHash }: PostIdInput): Uint8Array   // EncodingError when sequence < 1 (1-based) or contentHash is not 32 bytes
 idempotencyKey(author: AddressLike, attemptId: Uint8Array /* 16 */): Uint8Array /* 16 */
 customAudienceId(author: AddressLike, label: string): Uint8Array /* 16 */
 newAttemptId(rng?: Rng): Uint8Array /* 16, persist it before submitting */
@@ -133,9 +139,12 @@ interface AadInput { protocolVersion?, chainId, author, postId?, audience, audie
 
 buildAad(input: AadInput): Uint8Array                     // post_id forced empty when versionNumber === 1
 decodeAad(bytes): { protocol_version, chain_id, author, post_id, audience, audience_id, epoch, version_number }
-encodeContent(content: Content): Uint8Array; decodeContent(bytes): Content (all fields)
+validateContent(content: Content): void                   // EnvelopeError above LIMITS.maxMediaRefs / maxLocationsPerRef / maxLocationChars
+validateEnvelopeSize(bytes: Uint8Array): void             // EnvelopeError above LIMITS.maxEnvelopeBytes (4096)
+encodeContent(content: Content): Uint8Array /* validates */; decodeContent(bytes): Content (all fields)
 encodeEnvelope(envelope): Uint8Array; decodeEnvelope(bytes): Required<Envelope>
 encryptContent({ content, aad?, epochKey?, suite?, rng?, contentKey?, nonce?, wrapNonce? }): { envelope, bytes, contentHash, contentKey? }
+                                                          // enforces validateContent + validateEnvelopeSize: an oversized post fails before it is persisted or cross-posted
 decryptContent({ envelope: Uint8Array | Envelope, aad?, epochKey? }): Content
 unwrapContentKey(envelope: Envelope, epochKey, aad): Uint8Array
 wrapAad(aadBytes): Uint8Array                             // "osp/v1/wrap" || aad
@@ -167,9 +176,15 @@ openEpochKey({ ...context, sealed, recipientSecretKey }): Uint8Array   // throws
 buildKeyPackageSet({ ...context, epochKey, recipients, rng? }): { set, bytes }   // throws above 16 KiB
 buildKeyPackageSets(options, maxBytes = LIMITS.maxKeyPackageBytes): { set, bytes }[]  // split per distribute_keys call
 encodeKeyPackageSet(set): Uint8Array; parseKeyPackageSet(bytes): KeyPackageSet
-findSealedKeyFor(set, recipient): SealedKey | undefined
-openEpochKeyFromSet(set, recipient, recipientSecretKey): Uint8Array | undefined
+findSealedKeysFor(set, recipient, keyVersion?): SealedKey[]           // every entry for the address (one per recipient_key_version after a rotation)
+findSealedKeyFor(set, recipient, keyVersion?): SealedKey | undefined  // the first of them
+openEpochKeyFromSet(set, recipient, recipientSecretKey, keyVersion?): Uint8Array | undefined
 ```
+
+`openEpochKeyFromSet` tries every entry sealed to the recipient (those with `recipient_key_version
+=== keyVersion` first) and returns the first that opens; `undefined` when the set has no entry for
+the recipient, `AudienceError` when none of its entries opens with the secret. Pass the key version
+the secret belongs to (`identity.encryption.keyVersion`) after `rotate_encryption_key`.
 
 ```ts
 const epochKey = newEpochKey();
@@ -188,11 +203,18 @@ signerFromSecret(secret: Uint8Array): Signer
 deviceKeyPair(rng?): { signer, address, secret }
 identityFromSeed(seed, keyVersion = 1): { seed, account, keyVersion, signer, encryption: { secretKey, publicKey, keyVersion } }
 lockVault(secrets: VaultSecrets, passphrase, { rng?, kdf?, salt?, nonce? }?): Promise<VaultBlob>
-unlockVault(blob: VaultBlob, passphrase): Promise<VaultSecrets>     // VaultError on wrong passphrase/tamper
+unlockVault(blob: VaultBlob, passphrase): Promise<VaultSecrets>     // VaultError on wrong passphrase/tamper/out-of-bounds kdf
+validateVaultKdf(kdf: VaultKdfParams): void               // VaultError unless scrypt within VAULT_KDF_LIMITS
 exportIdentity({ seed, keyVersion, account }): string     // JSON { version: 1, seed: hex, keyVersion, account }
 importIdentity(json: string | IdentityExport): { seed, keyVersion, account }   // verifies account matches seed
 VAULT_KDF_DEFAULT = { name: "scrypt", N: 32768, r: 8, p: 1, dkLen: 32 }
+VAULT_KDF_LIMITS  = { minN: 1024, maxN: 1048576 /* power of two */, minR: 1, maxR: 32, minP: 1, maxP: 16, dkLen: 32,
+                      maxMemoryBytes: 2**30 /* 128*N*r */, minSaltBytes: 16, maxSaltBytes: 64 }
 ```
+
+A vault blob is untrusted input: `unlockVault` rejects KDF parameters outside `VAULT_KDF_LIMITS`,
+malformed base64url fields, a salt outside 16..64 bytes or a nonce other than 24 bytes *before*
+running scrypt, so a hostile blob cannot make the client allocate gigabytes.
 
 `VaultSecrets = { seed, keyVersion, account, deviceSecret?, deviceAddress?, meta? }`;
 `VaultBlob = { version: 1, kdf, cipher: "xchacha20poly1305", salt, nonce, ciphertext }` (base64url fields,
@@ -246,18 +268,48 @@ class ProtocolClient {
   verifyChainId(): Promise<{ ok, actual }>
   prepare(operations, { payee, payer?, rcLimit?, nonce? }): Promise<TransactionJson>
   sign(tx, signer: SignerInterface): Promise<TransactionJson>
-  simulate(tx): Promise<{ receipt, rcUsed, events, logs, reverted }>   // sendTransaction(tx, broadcast=false)
-  broadcast(tx): Promise<{ transaction, receipt }>
+  simulate(tx): Promise<{ receipt, rcUsed, events, logs, reverted }>   // sendTransaction(tx, broadcast=false); throws TransactionOutcomeUnknownError on timeout
+  broadcast(tx): Promise<{ transaction, receipt }>        // throws TransactionOutcomeUnknownError / TransactionRevertedError
   submit({ operations, signer, sponsor?, selfPayFallback?, waitForReceipt?, waitTimeoutMs?, rcLimit? }): Promise<SubmitResult>
 }
 interface SubmitResult { transaction, receipt, events: DecodedEvent[], rcUsed, sponsored, sponsor?, refusals: SponsorRefusal[], block? }
+
+class TransactionOutcomeUnknownError extends ProtocolClientError { transaction, receipt, rpcError }   // node timed out: accepted or not is unknown
+class TransactionRevertedError extends ProtocolClientError { transaction, receipt, logs: string[] }   // applied and reverted
+assertReceiptKnown(tx, receipt): void; assertNotReverted(tx, receipt): void
+sponsoredRcLimit(discovery, operationCount): string | undefined   // policy.maxRcPerOp * operationCount
 ```
 
-`prepare` follows koilib `Transaction.prepareTransaction`: `header.payee` = user (nonce source),
-`header.payer` = sponsor or the user, `rc_limit` = payer's RC unless overridden, `chain_id` from
-the deployment. `submit` tries each sponsor (discover, prepare with `payer = sponsor`, sign as
-payee, `POST /v1/sponsor`), moves on after a `SponsorError`, then self-pays unless
-`selfPayFallback: false`.
+`prepare` follows koilib `Transaction.prepareTransaction`: `header.payee` = user (its nonce is
+fetched, never the sponsor's), `header.payer` = sponsor or the user, `rc_limit` = the payer's
+available RC unless `rcLimit` is given, `chain_id` from the deployment.
+
+`submit` tries each sponsor in order: discover (signed document, chain checked), prepare with
+`payer = sponsor` and `rc_limit = policy.maxRcPerOp * operations.length` (spec 10.2; a policy
+without a usable ceiling falls back to the payer's RC; `rcLimit` overrides), sign as payee,
+`POST /v1/sponsor`, then **verify the sponsor's answer** with `verifySponsorResult`: it must be the
+transaction the user signed (same id, header and operations, user signatures kept) plus a receipt
+for that id, otherwise the sponsor is refused with `SponsorError("invalid_transaction")`. Any
+`SponsorError` moves on to the next sponsor, then to self-pay unless `selfPayFallback: false`.
+
+Outcomes that are not a success are thrown, never returned as a `SubmitResult`:
+
+| Error | Meaning | Reconcile event (section 7) |
+| --- | --- | --- |
+| `TransactionOutcomeUnknownError` | koilib returned its synthetic timeout receipt (`receipt.rpc_error`); the transaction may or may not be in a block. Also raised when a *sponsor's* receipt carries `rpc_error` (never retried with another sponsor). | `koinosUnknown`, then `Reconciler.lookup` before any retry |
+| `TransactionRevertedError` | the node applied the transaction and it reverted (`receipt.reverted`, `logs`) | `koinosFailed` |
+| `SponsorError` (only with `selfPayFallback: false`) | every sponsor refused | not submitted; retry later or self-pay |
+| other errors (RPC rejected the transaction) | nothing was accepted | `koinosFailed` |
+
+```ts
+try {
+  const { transaction, events } = await client.submit({ operations: [publish], signer: me.signer });
+  record = transition(record, { type: "koinosSucceeded", txId: transaction.id!, postId: hex(postId) });
+} catch (error) {
+  if (error instanceof TransactionOutcomeUnknownError) record = transition(record, { type: "koinosUnknown", error: error.message });
+  else record = transition(record, { type: "koinosFailed", error: String(error) });
+}
+```
 
 ```ts
 const client = new ProtocolClient({ rpc: NETWORKS.harbinger.rpc, deployment, sponsors: ["https://sponsor.example.org"] });
@@ -274,12 +326,14 @@ interface SponsorDiscovery { version, sponsor, network: { chainId, rpc }, policy
 sponsorDiscoveryHash(doc): Uint8Array                    // sha256(canonicalJson(doc without signature))
 signSponsorDiscovery(doc: UnsignedSponsorDiscovery, signer): Promise<SponsorDiscovery>
 verifySponsorDiscovery(doc): { valid, signer? }          // Signer.recoverAddress === doc.sponsor
+recomputeTransactionId(tx): Promise<string>              // id from header (chain_id, rc_limit, nonce, payer, payee) + operations, no RPC
+verifySponsorResult(signed, { transaction, receipt }, endpoint?): Promise<void>   // SponsorError("invalid_transaction") on any substitution
 class SponsorClient {
   constructor({ endpoint, fetch?, expectedChainId?, timeoutMs? })
   endpoint; address?: string; policy?: SponsorDiscovery
   discover(force?): Promise<SponsorDiscovery>            // GET /.well-known/osp-sponsor.json, signature verified
-  prepare(payee, operations): Promise<TransactionJson>   // POST /v1/prepare
-  sponsor(transaction): Promise<{ transaction, receipt }> // POST /v1/sponsor
+  prepare(payee, operations): Promise<TransactionJson>   // POST /v1/prepare, response verified (see below)
+  sponsor(transaction): Promise<{ transaction, receipt }> // POST /v1/sponsor, response verified with verifySponsorResult
   utilization(): Promise<Record<string, unknown>>        // GET /v1/utilization
 }
 class SponsorPool {
@@ -292,6 +346,21 @@ class SponsorPool {
 Canonical JSON for the discovery signature: keys sorted recursively, no whitespace, `signature`
 removed, UTF-8, sha256, koilib compact recoverable signature (65 bytes) base64url. The sponsor
 service should produce it with `signSponsorDiscovery`.
+
+Sponsors are untrusted (spec section 1), so nothing they return is used unchecked:
+
+* `sponsor(tx)` checks `transaction.id === tx.id`, `receipt.id === tx.id`, identical `payer`,
+  `payee`, `chain_id` and operations, that the returned header + operations still hash to `tx.id`
+  (`recomputeTransactionId`) and that the user's signatures are a prefix of the returned ones.
+* `prepare(payee, operations)` runs `discover()` first and checks `header.payee === payee`,
+  `header.payer === discovery.sponsor`, `header.chain_id` = the sponsor's network chain (and
+  `expectedChainId` when set, else `chain_mismatch`), that `operations` are exactly the requested
+  ones, that the transaction is unsigned and that `id` matches the locally recomputed id (filled in
+  when the sponsor omits it). Sign the result with `client.sign(tx, signer)` and pass it to
+  `sponsor(...)`.
+
+Sponsor services should return the transaction exactly as received plus their signature, the
+receipt from `chain.submit_transaction`, and refuse anything above `policy.maxRcPerOp * ops`.
 
 ## events (section 12)
 
@@ -337,7 +406,9 @@ class Reconciler {
 
 `retry` on an `unknown` record only sets `lastError: "lookup required before retry"`; the
 `Reconciler` always looks up first, resolves duplicate-key rejections to the existing post and
-never calls `publishKoinos` once a post id is known.
+never calls `publishKoinos` once a post id is known. Map `ProtocolClient.submit` failures to
+events as in the table under *client/protocolClient*: `TransactionOutcomeUnknownError` ->
+`koinosUnknown`, `TransactionRevertedError` and RPC rejections -> `koinosFailed`.
 
 ```ts
 const reconciler = new Reconciler({ chain: { getPostByIdempotencyKey: (a) => client.reads.publications.get_post_by_idempotency_key(a) } });
@@ -348,13 +419,19 @@ record = await reconciler.retry(record, me.account, { publishKoinos, publishHost
 
 ```ts
 buildProofManifest({ author, post_id, content_hash, version_number, transaction_id, block_height, audience, audience_id?, epoch?,
-                     storage_refs?, adapter, external_ref?, outcome, idempotency_key, created_at? }): ProofManifest
+                     storage_refs?, adapter, external_ref?, outcome, idempotency_key, created_at? }): ProofManifest   // ManifestError when malformed
+validateProofManifest(m): string | undefined             // reason when malformed (section 2 sizes), undefined when well-formed
 encodeProofManifest(m): Uint8Array; decodeProofManifest(bytes): ProofManifest
 manifestSigningHash(m): Uint8Array                       // sha256("osp/v1/manifest" || canonical(m with signature/signer empty))
-signProofManifest(m, signer): Promise<ProofManifest>     // fills signature (65 bytes) and signer (25 bytes)
-verifyProofManifest(m, expectedSigners?): { valid, signer?, reason? }
+signProofManifest(m, signer): Promise<ProofManifest>     // fills signature (65 bytes) and signer (25 bytes); ManifestError when malformed
+verifyProofManifest(m, expectedSigners?): { valid, signer?, reason? }   // reason "malformed: ..." | "unsigned" | "signer mismatch" | ...
 manifestHash(m | bytes): Uint8Array                      // sha256(canonical signed bytes) -> record_cross_post.manifest_hash
 ```
+
+Well-formed means: 25-byte `author`, 32-byte `post_id` and `content_hash`, 16-byte
+`idempotency_key`, `audience_id` empty or 16 bytes, `version_number >= 1`, `transaction_id` a
+34-byte sha256 multihash (`0x1220...`; empty only when `outcome !== OUTCOME.SUCCEEDED`), decimal
+`block_height` / `created_at`.
 
 ## profile
 

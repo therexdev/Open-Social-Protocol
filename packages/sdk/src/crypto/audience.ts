@@ -220,21 +220,50 @@ export function parseKeyPackageSet(bytes: Uint8Array): KeyPackageSet {
   return set;
 }
 
-/** Finds the sealed key addressed to `recipient`, if any. */
-export function findSealedKeyFor(set: KeyPackageSet, recipient: AddressLike): SealedKey | undefined {
+/**
+ * Every sealed key addressed to `recipient`. A set may carry several entries for one address
+ * (one per `recipient_key_version` after `rotate_encryption_key`); `keyVersion` filters them.
+ */
+export function findSealedKeysFor(set: KeyPackageSet, recipient: AddressLike, keyVersion?: number): SealedKey[] {
   const target = addressToBytes(recipient);
-  return set.keys.find((key) => bytesEqual(key.recipient, target));
+  return set.keys.filter(
+    (key) => bytesEqual(key.recipient, target) && (keyVersion === undefined || key.recipient_key_version === keyVersion),
+  );
 }
 
-/** Finds and opens the epoch key for `recipient` from a key package set; undefined when not addressed. */
-export function openEpochKeyFromSet(set: KeyPackageSet, recipient: AddressLike, recipientSecretKey: Uint8Array): Uint8Array | undefined {
-  const sealed = findSealedKeyFor(set, recipient);
-  if (!sealed) return undefined;
-  return openEpochKey({
-    sealed,
-    recipientSecretKey,
-    author: set.author,
-    audienceId: set.audience_id,
-    epoch: set.epoch,
-  });
+/** The first sealed key addressed to `recipient` (for `keyVersion` when given), if any. */
+export function findSealedKeyFor(set: KeyPackageSet, recipient: AddressLike, keyVersion?: number): SealedKey | undefined {
+  return findSealedKeysFor(set, recipient, keyVersion)[0];
+}
+
+/**
+ * Finds and opens the epoch key for `recipient` from a key package set. Every entry addressed
+ * to the recipient is tried (those matching `keyVersion` first) and the first that opens wins.
+ * Returns undefined when the set has no entry for the recipient; throws `AudienceError` when
+ * none of its entries opens with `recipientSecretKey`.
+ */
+export function openEpochKeyFromSet(
+  set: KeyPackageSet,
+  recipient: AddressLike,
+  recipientSecretKey: Uint8Array,
+  keyVersion?: number,
+): Uint8Array | undefined {
+  const candidates = findSealedKeysFor(set, recipient);
+  if (candidates.length === 0) return undefined;
+  const ordered =
+    keyVersion === undefined
+      ? candidates
+      : [
+          ...candidates.filter((key) => key.recipient_key_version === keyVersion),
+          ...candidates.filter((key) => key.recipient_key_version !== keyVersion),
+        ];
+  let lastError: unknown;
+  for (const sealed of ordered) {
+    try {
+      return openEpochKey({ sealed, recipientSecretKey, author: set.author, audienceId: set.audience_id, epoch: set.epoch });
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new AudienceError("no sealed key for the recipient opens with this secret");
 }

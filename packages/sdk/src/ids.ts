@@ -3,7 +3,7 @@
  */
 import { sha256 } from "@noble/hashes/sha2.js";
 import { DOMAIN, LIMITS, PROTOCOL_VERSION } from "./constants.js";
-import { concat, EncodingError, fromBase58, fromBase64url, toBase58, u32be, u64be, utf8 } from "./encoding.js";
+import { concat, EncodingError, fromBase58, fromBase64url, toBase58, toBigInt, u32be, u64be, utf8 } from "./encoding.js";
 import { randomBytes, type Rng } from "./crypto/keys.js";
 
 /** A Koinos address as Base58 text or its 25 raw bytes. */
@@ -65,6 +65,9 @@ export interface PostIdInput {
 export function postId(input: PostIdInput): Uint8Array {
   if (input.contentHash.length !== LIMITS.hashBytes) {
     throw new EncodingError(`contentHash must be ${LIMITS.hashBytes} bytes`);
+  }
+  if (toBigInt(input.sequence, "sequence") < 1n) {
+    throw new EncodingError("sequence is 1-based (spec 2.1); the first publication has sequence 1");
   }
   return sha256(
     concat(

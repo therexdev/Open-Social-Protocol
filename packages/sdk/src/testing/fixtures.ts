@@ -60,6 +60,10 @@ export interface FakeProviderOptions {
 export interface FakeProvider extends ProviderInterface {
   sent: Array<{ transaction: TransactionJson; broadcast: boolean }>;
   reads: CallContractOperationJson[];
+  /** Accounts `getNextNonce` was called for, in order. */
+  nonceCalls: string[];
+  /** Accounts `getAccountRc` was called for, in order. */
+  rcCalls: string[];
 }
 
 export function fakeReceipt(tx: TransactionJson, extra: Partial<TransactionReceipt> = {}): TransactionReceipt {
@@ -86,13 +90,19 @@ export function fakeProvider(options: FakeProviderOptions = {}): FakeProvider {
   const provider: FakeProvider = {
     sent: [],
     reads: [],
+    nonceCalls: [],
+    rcCalls: [],
     call: notImplemented("call") as ProviderInterface["call"],
     getNonce: async (account: string) => nonces[account] ?? 0,
     getNextNonce: async (account: string) => {
+      provider.nonceCalls.push(account);
       const next = (nonces[account] ?? 0) + 1;
       return nonceValue(next);
     },
-    getAccountRc: async (account: string) => options.rc?.[account] ?? "500000000",
+    getAccountRc: async (account: string) => {
+      provider.rcCalls.push(account);
+      return options.rc?.[account] ?? "500000000";
+    },
     getTransactionsById: notImplemented("getTransactionsById") as ProviderInterface["getTransactionsById"],
     getBlocksById: notImplemented("getBlocksById") as ProviderInterface["getBlocksById"],
     getHeadInfo: notImplemented("getHeadInfo") as ProviderInterface["getHeadInfo"],

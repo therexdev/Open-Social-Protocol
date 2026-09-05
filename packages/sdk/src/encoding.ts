@@ -63,7 +63,8 @@ const UINT32_TYPES = new Set(["uint32", "fixed32"]);
 const INT64_TYPES = new Set(["int64", "sint64", "sfixed64"]);
 const UINT64_TYPES = new Set(["uint64", "fixed64"]);
 
-function toBigInt(value: unknown, path: string): bigint {
+/** Parses an integer given as number, bigint or decimal string (`label` names it in errors). */
+export function toBigInt(value: unknown, path: string = "integer"): bigint {
   if (typeof value === "bigint") return value;
   if (typeof value === "number") {
     if (!Number.isInteger(value)) throw new EncodingError(`${path}: expected an integer`);

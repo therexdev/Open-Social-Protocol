@@ -7,6 +7,7 @@ import {
   buildKeyPackageSet,
   buildKeyPackageSets,
   findSealedKeyFor,
+  findSealedKeysFor,
   newEpochKey,
   openEpochKey,
   openEpochKeyFromSet,
@@ -84,5 +85,40 @@ describe("audience keys", () => {
     expect(sets.every((s) => s.bytes.length <= 1500)).toBe(true);
     expect(sets.reduce((n, s) => n + s.set.keys.length, 0)).toBe(30);
     expect(() => buildKeyPackageSet({ epochKey, author, epoch: 1, recipients: [] })).toThrow(/no recipients/);
+  });
+
+  it("picks the sealed key for the recipient's key version after a rotation", () => {
+    const epochKey = newEpochKey(rng);
+    const seed = rng(32);
+    const v1 = deriveEncryptionKeyPair(seed, 1);
+    const v2 = deriveEncryptionKeyPair(seed, 2);
+    const carol = Signer.fromSeed("carol").getAddress();
+    // the author seals to both of carol's key versions in one set (old and rotated key)
+    const { bytes } = buildKeyPackageSet({
+      epochKey,
+      author,
+      epoch: 7,
+      recipients: [
+        { address: carol, publicKey: v1.publicKey, keyVersion: 1 },
+        { address: alice.address, publicKey: alice.publicKey, keyVersion: 1 },
+        { address: carol, publicKey: v2.publicKey, keyVersion: 2 },
+      ],
+      rng,
+    });
+    const set = parseKeyPackageSet(bytes);
+    expect(findSealedKeysFor(set, carol).map((k) => k.recipient_key_version)).toEqual([1, 2]);
+    expect(findSealedKeysFor(set, carol, 2).map((k) => k.recipient_key_version)).toEqual([2]);
+    expect(findSealedKeyFor(set, carol)?.recipient_key_version).toBe(1);
+    expect(findSealedKeyFor(set, carol, 2)?.recipient_key_version).toBe(2);
+    expect(findSealedKeyFor(set, carol, 3)).toBeUndefined();
+    // a client holding only the rotated secret recovers the key, with or without naming the version
+    expect(openEpochKeyFromSet(set, carol, v2.secretKey, 2)).toEqual(epochKey);
+    expect(openEpochKeyFromSet(set, carol, v2.secretKey)).toEqual(epochKey);
+    expect(openEpochKeyFromSet(set, carol, v1.secretKey, 1)).toEqual(epochKey);
+    // a version hint that does not match still falls back to the other entries
+    expect(openEpochKeyFromSet(set, carol, v1.secretKey, 2)).toEqual(epochKey);
+    // not addressed at all -> undefined; addressed but no entry opens -> AudienceError
+    expect(openEpochKeyFromSet(set, bob.address, bob.secretKey)).toBeUndefined();
+    expect(() => openEpochKeyFromSet(set, carol, bob.secretKey)).toThrow(AudienceError);
   });
 });

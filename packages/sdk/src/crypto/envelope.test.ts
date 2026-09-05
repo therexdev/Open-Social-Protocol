@@ -1,7 +1,20 @@
 import { describe, expect, it } from "vitest";
 import { Signer } from "koilib";
 import { AUDIENCE, LIMITS, SUITE } from "../constants.js";
-import { buildAad, decodeAad, decodeEnvelope, decryptContent, encodeEnvelope, encryptContent, EnvelopeError, unwrapContentKey, type AadInput } from "./envelope.js";
+import {
+  buildAad,
+  decodeAad,
+  decodeEnvelope,
+  decryptContent,
+  encodeContent,
+  encodeEnvelope,
+  encryptContent,
+  EnvelopeError,
+  unwrapContentKey,
+  validateContent,
+  validateEnvelopeSize,
+  type AadInput,
+} from "./envelope.js";
 import { newEpochKey } from "./audience.js";
 import { contentHash } from "../ids.js";
 import { deterministicRng, HARBINGER_CHAIN_ID } from "../testing/fixtures.js";
@@ -70,5 +83,34 @@ describe("envelope", () => {
     expect(decryptContent({ envelope: result.bytes }).text).toBe(content.text);
     expect(() => encryptContent({ content, aad, suite: SUITE.PLAINTEXT })).toThrow(/everyone/);
     expect(() => encryptContent({ content, aad })).toThrow(/plaintext|everyone/);
+  });
+
+  it("enforces the pilot size limits before anything is published", () => {
+    const rng = deterministicRng("envelope-limits");
+    const epochKey = newEpochKey(rng);
+    const everyone = { ...aad, audience: AUDIENCE.EVERYONE };
+    // envelope bytes (both suites)
+    const big = { version: 1, text: "x".repeat(LIMITS.maxEnvelopeBytes + 1) };
+    expect(() => encryptContent({ content: big, aad: everyone })).toThrow(/above the limit of 4096/);
+    expect(() => encryptContent({ content: big, aad, epochKey, rng })).toThrow(EnvelopeError);
+    // just under the limit still works (suite 1 adds nonce/wrapped key/tag overhead)
+    const ok = encryptContent({ content: { version: 1, text: "x".repeat(3900) }, aad, epochKey, rng });
+    expect(ok.bytes.length).toBeLessThanOrEqual(LIMITS.maxEnvelopeBytes);
+    expect(() => validateEnvelopeSize(new Uint8Array(LIMITS.maxEnvelopeBytes))).not.toThrow();
+    expect(() => validateEnvelopeSize(new Uint8Array(LIMITS.maxEnvelopeBytes + 1))).toThrow(EnvelopeError);
+    // media refs
+    const media = (n: number) => Array.from({ length: n }, () => ({ mime: "image/png", locations: ["https://m.example/a"] }));
+    expect(() => validateContent({ media: media(LIMITS.maxMediaRefs) })).not.toThrow();
+    expect(() => validateContent({ media: media(LIMITS.maxMediaRefs + 1) })).toThrow(/media refs/);
+    expect(() => encryptContent({ content: { media: media(9) }, aad: everyone })).toThrow(EnvelopeError);
+    // locations per ref
+    const locations = (n: number) => Array.from({ length: n }, (_, i) => `https://m.example/${i}`);
+    expect(() => validateContent({ media: [{ locations: locations(LIMITS.maxLocationsPerRef) }] })).not.toThrow();
+    expect(() => validateContent({ media: [{ locations: locations(LIMITS.maxLocationsPerRef + 1) }] })).toThrow(/locations/);
+    expect(() => encodeContent({ media: [{ locations: locations(5) }] })).toThrow(EnvelopeError);
+    // location length
+    expect(() => validateContent({ media: [{ locations: ["h".repeat(LIMITS.maxLocationChars)] }] })).not.toThrow();
+    expect(() => validateContent({ media: [{ locations: ["h".repeat(LIMITS.maxLocationChars + 1)] }] })).toThrow(/chars/);
+    expect(() => encryptContent({ content: { media: [{ locations: ["h".repeat(257)] }] }, aad, epochKey, rng })).toThrow(EnvelopeError);
   });
 });

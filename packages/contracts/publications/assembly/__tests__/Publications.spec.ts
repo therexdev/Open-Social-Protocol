@@ -889,18 +889,46 @@ describe("publications: publish (first version)", () => {
     }).toThrow();
     expectRevert("media location too long");
 
-    // Boundary values are accepted: 8 refs, 4 locations of 256 chars, 128-char mime.
+    // Boundary values are accepted: 8 refs, 4 locations of 256 chars,
+    // 128-char mime, 128-byte key_ref.
     asOwner(ALICE);
     const eight: publications.media_ref[] = [];
     for (let i = 0; i < 8; i++) {
       eight.push(
-        new publications.media_ref(null, "m".repeat(128), 0, ["l".repeat(256), "b", "c", "d"], null)
+        new publications.media_ref(null, "m".repeat(128), 0, ["l".repeat(256), "b", "c", "d"], filled(128, 0x23))
       );
     }
     PUBLISH = firstPost(ALICE, 2, ENV_B);
     PUBLISH.media = eight;
     callPublish();
     expect(postOrFail(PUBLISH.post_id!).sequence).toBe(2);
+    expect(publishedData(lastEvent()).media[7].key_ref!.length).toBe(128);
+  });
+
+  it("rejects an oversize media key_ref", () => {
+    // key_ref is opaque key material; unbounded it could carry arbitrary bytes
+    // past max_envelope_bytes into the event.
+    Testing.authorize([ALICE]);
+    PUBLISH = firstPost(ALICE, 1, ENV_A);
+    PUBLISH.media = [new publications.media_ref(null, "image/png", 1, ["ipfs://x"], filled(129, 0x24))];
+    expect(() => {
+      callPublish();
+    }).toThrow();
+    expectRevert("media key_ref too large");
+    expect(callCount()).toBe(0);
+    expect(post(PUBLISH.post_id!) == null).toBe(true);
+
+    // The eighth ref is checked too.
+    const refs: publications.media_ref[] = [];
+    for (let i = 0; i < 7; i++) refs.push(new publications.media_ref(null, "x", 0, [], filled(128, 1)));
+    refs.push(new publications.media_ref(null, "x", 0, [], filled(4096, 1)));
+    PUBLISH = firstPost(ALICE, 1, ENV_A);
+    PUBLISH.media = refs;
+    expect(() => {
+      callPublish();
+    }).toThrow();
+    expectRevert("media key_ref too large");
+    expect(callCount()).toBe(0);
   });
 
   it("stores audience kind and echoes audience id and epoch", () => {
@@ -947,6 +975,43 @@ describe("publications: publish (first version)", () => {
     }).toThrow();
     expectRevert("audience_id too large");
     expect(callCount()).toBe(0);
+  });
+
+  it("rejects an audience_id for the everyone and friends audiences", () => {
+    // Spec 2.3: the audience id is implicit (empty) for everyone and friends.
+    Testing.authorize([ALICE]);
+    PUBLISH = firstPost(ALICE, 1, ENV_A, EVERYONE);
+    PUBLISH.audience_id = AUDIENCE_ID;
+    expect(() => {
+      callPublish();
+    }).toThrow();
+    expectRevert("audience_id not allowed for this audience");
+
+    PUBLISH = firstPost(ALICE, 1, ENV_A, FRIENDS);
+    PUBLISH.audience_id = AUDIENCE_ID;
+    expect(() => {
+      callPublish();
+    }).toThrow();
+    expectRevert("audience_id not allowed for this audience");
+    expect(callCount()).toBe(0);
+
+    // Edits follow the same rule.
+    const postId = doPublish(firstPost(ALICE, 1, ENV_A, FRIENDS));
+    Testing.authorize([ALICE]);
+    PUBLISH = edit(ALICE, postId, sha256(ENV_A), ENV_B, FRIENDS);
+    PUBLISH.audience_id = AUDIENCE_ID;
+    expect(() => {
+      callPublish();
+    }).toThrow();
+    expectRevert("audience_id not allowed for this audience");
+    expect(postOrFail(postId).version_count).toBe(1);
+
+    // An empty (zero-length) audience_id is the same as none.
+    asOwner(ALICE);
+    PUBLISH = edit(ALICE, postId, sha256(ENV_A), ENV_B, FRIENDS);
+    PUBLISH.audience_id = new Uint8Array(0);
+    callPublish();
+    expect(postOrFail(postId).version_count).toBe(2);
   });
 
   it("stores the idempotency key and resolves it to the post", () => {
@@ -1046,13 +1111,25 @@ describe("publications: publish (reply)", () => {
     expect(eventCount()).toBe(0);
   });
 
-  it("rejects a malformed reply_to", () => {
-    asOwner(ALICE);
+  it("rejects a malformed reply_to before any cross-contract call", () => {
+    // No resolve_actor result is queued: the shape check must run first.
+    Testing.authorize([ALICE]);
     PUBLISH = firstPost(ALICE, 1, ENV_B, EVERYONE, filled(16, 1));
     expect(() => {
       callPublish();
     }).toThrow();
     expectRevert("reply_to must be 32 bytes");
+    expect(callCount()).toBe(0);
+
+    // Same for an edit.
+    PUBLISH = edit(BOB, TARGET, sha256(ENV_A), ENV_B);
+    PUBLISH.reply_to = filled(31, 1);
+    expect(() => {
+      callPublish();
+    }).toThrow();
+    expectRevert("reply_to must be 32 bytes");
+    expect(callCount()).toBe(0);
+    expect(postOrFail(TARGET).version_count).toBe(1);
   });
 
   it("rejects a reply to a missing post", () => {
@@ -1149,6 +1226,7 @@ describe("publications: publish (edit)", () => {
     expect(Arrays.equal(data.envelope!, ENV_B)).toBe(true);
     expect(data.timestamp).toBe(T0 + HOUR);
 
+    // A top-level post (stored reply_to empty) is edited with PUBLISH.
     expect(callCount()).toBe(1);
     expect(resolveCallAt(0).capability).toBe(PUBLISH_CAP);
   });
@@ -1216,13 +1294,16 @@ describe("publications: publish (edit)", () => {
     expect(postOrFail(POST_ID).version_count).toBe(1);
   });
 
-  it("rejects an edit of an unknown post", () => {
-    asOwner(ALICE);
+  it("rejects an edit of an unknown post before any cross-contract call", () => {
+    // The record is loaded first (its thread position selects the capability),
+    // so an unknown post never reaches the identity contract.
+    Testing.authorize([ALICE]);
     PUBLISH = edit(ALICE, filled(32, 0x44), sha256(ENV_A), ENV_B);
     expect(() => {
       callPublish();
     }).toThrow();
     expectRevert("post not found");
+    expect(callCount()).toBe(0);
   });
 
   it("validates the envelope of an edit", () => {
@@ -1264,7 +1345,8 @@ describe("publications: publish (edit)", () => {
     const reply = doReply(firstPost(ALICE, 2, ENV_D, EVERYONE, target));
     clearTrace();
 
-    // reply_to omitted: the stored link is emitted and the target author impacted.
+    // reply_to omitted: the stored link is emitted, the target author impacted
+    // and the COMMENT capability is still required (stored position decides).
     asOwner(ALICE);
     PUBLISH = edit(ALICE, reply, sha256(ENV_D), ENV_B);
     callPublish();
@@ -1274,6 +1356,7 @@ describe("publications: publish (edit)", () => {
     expect(Arrays.equal(publishedData(ev).reply_to!, target)).toBe(true);
     expect(Arrays.equal(postOrFail(reply).reply_to!, target)).toBe(true);
     expect(callCount()).toBe(1);
+    expect(resolveCallAt(0).capability).toBe(COMMENT_CAP);
 
     // reply_to equal to the stored link: accepted, COMMENT capability, no block check.
     asOwner(ALICE);
@@ -1303,6 +1386,57 @@ describe("publications: publish (edit)", () => {
     }).toThrow();
     expectRevert("reply_to change not allowed");
     expect(postOrFail(POST_ID).version_count).toBe(1);
+  });
+
+  it("derives the edit capability from the stored thread position, not from the request", () => {
+    const target = doPublish(firstPost(BOB, 1, ENV_C));
+    const reply = doReply(firstPost(ALICE, 2, ENV_D, EVERYONE, target));
+    clearTrace();
+
+    // A device holding only PUBLISH tries to rewrite the comment while
+    // omitting reply_to: the contract asks the identity contract for COMMENT,
+    // which the (stubbed) identity contract refuses, so the edit reverts.
+    // (The mock VM rolls recorded call arguments back with the revert, so the
+    // requested capability is asserted on the successful call below.)
+    Testing.authorize([DEVICE]);
+    Testing.mockResolveActor(false, null, "capability not granted", 1);
+    PUBLISH = edit(ALICE, reply, sha256(ENV_D), ENV_B);
+    PUBLISH.device = DEVICE;
+    expect(() => {
+      callPublish();
+    }).toThrow();
+    expectRevert("capability not granted");
+    expect(postOrFail(reply).version_count).toBe(1);
+    expect(Arrays.equal(postOrFail(reply).latest_version!, sha256(ENV_D))).toBe(true);
+    expect(eventCount()).toBe(0);
+
+    // A device holding COMMENT edits the comment without repeating reply_to:
+    // the identity lookup asks for COMMENT (stored position), not PUBLISH.
+    Testing.authorize([DEVICE]);
+    Testing.mockResolveActor(true, DEVICE, "", 1);
+    PUBLISH = edit(ALICE, reply, sha256(ENV_D), ENV_B);
+    PUBLISH.device = DEVICE;
+    callPublish();
+    MockVM.commitTransaction();
+    expect(callCount()).toBe(1);
+    let call = resolveCallAt(0);
+    expect(Arrays.equal(call.account!, ALICE)).toBe(true);
+    expect(Arrays.equal(call.device!, DEVICE)).toBe(true);
+    expect(call.capability).toBe(COMMENT_CAP);
+    expect(postOrFail(reply).version_count).toBe(2);
+    expect(Arrays.equal(publishedData(lastEvent()).reply_to!, target)).toBe(true);
+
+    // Conversely, a top-level post edited with reply_to empty asks for PUBLISH,
+    // never COMMENT, so a PUBLISH-only device can edit it.
+    Testing.authorize([DEVICE]);
+    Testing.mockResolveActor(true, DEVICE, "", 1);
+    PUBLISH = edit(ALICE, POST_ID, sha256(ENV_A), ENV_B);
+    PUBLISH.device = DEVICE;
+    callPublish();
+    expect(callCount()).toBe(2);
+    call = resolveCallAt(1);
+    expect(call.capability).toBe(PUBLISH_CAP);
+    expect(postOrFail(POST_ID).version_count).toBe(2);
   });
 
   it("rejects a transaction not signed by the resolved signer", () => {
@@ -1860,11 +1994,73 @@ describe("publications: record_cross_post", () => {
       callCrossPost();
     }).toThrow();
     expectRevert("idempotency key bound to another post");
-    // An unbound key may report any of the author's posts.
+    // ... whatever the outcome state.
     asOwner(ALICE);
-    CROSS = crossPost(ALICE, IDEM_KEY_2, "facebook", SUCCEEDED, "ref", other);
+    CROSS = crossPost(ALICE, IDEM_KEY, "facebook", PARTIAL, "ref", other);
+    expect(() => {
+      callCrossPost();
+    }).toThrow();
+    expectRevert("idempotency key bound to another post");
+    expect(eventCount()).toBe(0);
+    // An unbound key may report any of the author's posts for a non-final outcome.
+    asOwner(ALICE);
+    CROSS = crossPost(ALICE, IDEM_KEY_2, "facebook", PARTIAL, "ref", other);
     callCrossPost();
     expect(eventCount()).toBe(1);
+  });
+
+  it("requires the idempotency key of a succeeded outcome to be bound to the post", () => {
+    // Spec 6: the key must belong to the author and refer to an existing post.
+    const other = doPublish(firstPost(ALICE, 2, ENV_B)); // published without a key
+    clearTrace();
+
+    // A key never used by publish cannot report success, even for the author's own post.
+    asOwner(ALICE);
+    CROSS = crossPost(ALICE, IDEM_KEY_2, "facebook", SUCCEEDED, "ref", other);
+    expect(() => {
+      callCrossPost();
+    }).toThrow();
+    expectRevert("idempotency key not bound to a post");
+    asOwner(ALICE);
+    CROSS = crossPost(ALICE, IDEM_KEY_2, "facebook", SUCCEEDED, "ref", POST_ID);
+    expect(() => {
+      callCrossPost();
+    }).toThrow();
+    expectRevert("idempotency key not bound to a post");
+    expect(eventCount()).toBe(0);
+
+    // Another author's binding of the same key does not count.
+    doPublish(firstPost(BOB, 1, ENV_C, EVERYONE, null, IDEM_KEY_2));
+    clearTrace();
+    asOwner(ALICE);
+    CROSS = crossPost(ALICE, IDEM_KEY_2, "facebook", SUCCEEDED, "ref", other);
+    expect(() => {
+      callCrossPost();
+    }).toThrow();
+    expectRevert("idempotency key not bound to a post");
+    expect(eventCount()).toBe(0);
+
+    // A key bound by an edit qualifies as well.
+    asOwner(ALICE);
+    PUBLISH = edit(ALICE, other, sha256(ENV_B), ENV_D);
+    PUBLISH.idempotency_key = IDEM_KEY_2;
+    callPublish();
+    MockVM.commitTransaction();
+    clearTrace();
+    asOwner(ALICE);
+    CROSS = crossPost(ALICE, IDEM_KEY_2, "facebook", SUCCEEDED, "ref", other, MANIFEST);
+    callCrossPost();
+    expect(eventCount()).toBe(1);
+    const data = Protobuf.decode<publications.cross_post_outcome_event>(lastEvent().data, publications.cross_post_outcome_event.decode);
+    expect(Arrays.equal(data.post_id!, other)).toBe(true);
+    expect(Arrays.equal(data.idempotency_key!, IDEM_KEY_2)).toBe(true);
+
+    // Non-final outcomes stay reportable without a binding (the attempt may
+    // not have reached the chain yet).
+    asOwner(ALICE);
+    CROSS = crossPost(ALICE, filled(16, 0x25), "facebook", FAILED, "");
+    callCrossPost();
+    expect(eventCount()).toBe(2);
   });
 
   it("validates the idempotency key, adapter, external ref, manifest hash and state", () => {

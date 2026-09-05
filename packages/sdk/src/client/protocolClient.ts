@@ -6,7 +6,7 @@ import { Provider, Transaction } from "koilib";
 import type { OperationJson, ProviderInterface, SignerInterface, TransactionJson, TransactionReceipt } from "koilib";
 import { chainIdToBytes } from "../ids.js";
 import { decodeReceiptEvents, type DecodedEvent } from "../events.js";
-import { SponsorClient, SponsorError, SponsorPool, type SponsorRefusal } from "../sponsor.js";
+import { SponsorClient, SponsorError, SponsorPool, verifySponsorResult, type SponsorDiscovery, type SponsorRefusal } from "../sponsor.js";
 import type { ProtoObject } from "../encoding.js";
 import type { ContractName } from "../constants.js";
 import { ProtocolContracts } from "./contracts.js";
@@ -28,7 +28,7 @@ export interface PrepareOptions {
   payee: string;
   /** Sponsor address; defaults to the payee (self-pay). */
   payer?: string;
-  /** Overrides the RC limit (defaults to the payer's available RC). */
+  /** Overrides the RC limit (defaults to the payer's available RC, koilib semantics). */
   rcLimit?: string | number;
   /** Overrides the nonce (base64url `koinos.chain.value_type`). */
   nonce?: string;
@@ -53,6 +53,11 @@ export interface SubmitOptions {
   waitForReceipt?: boolean;
   /** Timeout for the wait (ms). */
   waitTimeoutMs?: number;
+  /**
+   * RC limit override. Sponsored transactions default to `policy.maxRcPerOp * operations.length`
+   * from the sponsor's signed discovery document (spec section 10.2); self-pay defaults to the
+   * user's available RC.
+   */
   rcLimit?: string | number;
 }
 
@@ -71,6 +76,75 @@ export interface SubmitResult {
 
 export class ProtocolClientError extends Error {
   override name = "ProtocolClientError";
+}
+
+/**
+ * The node did not answer in time (koilib returns a synthetic receipt carrying `rpc_error`):
+ * the transaction may or may not have been accepted. Spec section 7: move the cross-post
+ * record to `unknown` (`koinosUnknown`) and look the post up before any retry.
+ */
+export class TransactionOutcomeUnknownError extends ProtocolClientError {
+  override name = "TransactionOutcomeUnknownError";
+  readonly transaction: TransactionJson;
+  readonly receipt: TransactionReceipt;
+  readonly rpcError: unknown;
+
+  constructor(transaction: TransactionJson, receipt: TransactionReceipt) {
+    super(`transaction outcome unknown: ${safeJson(receipt.rpc_error)}`);
+    this.transaction = transaction;
+    this.receipt = receipt;
+    this.rpcError = receipt.rpc_error;
+  }
+}
+
+/** The node applied the transaction and it reverted; nothing was recorded (`koinosFailed`). */
+export class TransactionRevertedError extends ProtocolClientError {
+  override name = "TransactionRevertedError";
+  readonly transaction: TransactionJson;
+  readonly receipt: TransactionReceipt;
+  readonly logs: string[];
+
+  constructor(transaction: TransactionJson, receipt: TransactionReceipt) {
+    const logs = receipt.logs ?? [];
+    super(`transaction reverted${logs.length > 0 ? `: ${logs.join("; ")}` : ""}`);
+    this.transaction = transaction;
+    this.receipt = receipt;
+    this.logs = logs;
+  }
+}
+
+function safeJson(value: unknown): string {
+  try {
+    return JSON.stringify(value) ?? String(value);
+  } catch {
+    return String(value);
+  }
+}
+
+/** Throws `TransactionOutcomeUnknownError` for koilib's synthetic timeout receipts. */
+export function assertReceiptKnown(transaction: TransactionJson, receipt: TransactionReceipt): void {
+  if (receipt.rpc_error !== undefined && receipt.rpc_error !== null) throw new TransactionOutcomeUnknownError(transaction, receipt);
+}
+
+/** Throws `TransactionRevertedError` when the receipt reports a revert. */
+export function assertNotReverted(transaction: TransactionJson, receipt: TransactionReceipt): void {
+  if (receipt.reverted) throw new TransactionRevertedError(transaction, receipt);
+}
+
+/**
+ * `policy.maxRcPerOp * operationCount` from a sponsor discovery document (spec section 10.2),
+ * or undefined when the policy carries no usable ceiling.
+ */
+export function sponsoredRcLimit(discovery: Pick<SponsorDiscovery, "policy">, operationCount: number): string | undefined {
+  const raw = discovery.policy?.maxRcPerOp;
+  if (raw === undefined || raw === null || !Number.isInteger(operationCount) || operationCount < 1) return undefined;
+  try {
+    const perOp = BigInt(raw as string | number | bigint);
+    if (perOp <= 0n) return undefined;
+    return (perOp * BigInt(operationCount)).toString();
+  } catch {
+    return undefined;
+  }
 }
 
 export class ProtocolClient {
@@ -149,9 +223,14 @@ export class ProtocolClient {
     return signer.signTransaction(transaction);
   }
 
-  /** Applies the transaction without broadcasting (`broadcast: false`) and reports RC usage. */
+  /**
+   * Applies the transaction without broadcasting (`broadcast: false`) and reports RC usage.
+   * Throws `TransactionOutcomeUnknownError` when the node timed out; a revert is reported in
+   * `reverted`/`logs` (that is what a simulation is for).
+   */
   async simulate(transaction: TransactionJson): Promise<SimulateResult> {
     const { receipt } = await this.provider.sendTransaction(transaction, false);
+    assertReceiptKnown(transaction, receipt);
     return {
       receipt,
       rcUsed: receipt.rc_used ?? "0",
@@ -161,15 +240,25 @@ export class ProtocolClient {
     };
   }
 
-  /** Broadcasts a fully signed transaction (self-pay or already co-signed). */
+  /**
+   * Broadcasts a fully signed transaction (self-pay or already co-signed). Throws
+   * `TransactionOutcomeUnknownError` (node timeout: outcome unknown, look the post up before any
+   * retry) or `TransactionRevertedError` (applied and reverted) instead of returning such receipts.
+   */
   async broadcast(transaction: TransactionJson): Promise<{ transaction: TransactionJson; receipt: TransactionReceipt }> {
     const { transaction: sent, receipt } = await this.provider.sendTransaction(transaction, true);
+    assertReceiptKnown(sent, receipt);
+    assertNotReverted(sent, receipt);
     return { transaction: sent, receipt };
   }
 
   /**
-   * Prepares, signs and submits operations. With sponsors: prepare with `payer = sponsor`,
-   * sign as payee, `POST /v1/sponsor`; on refusal try the next sponsor, then self-pay.
+   * Prepares, signs and submits operations. With sponsors: prepare with `payer = sponsor` and
+   * `rc_limit = policy.maxRcPerOp * operations.length`, sign as payee, `POST /v1/sponsor`, verify
+   * that the sponsor returned exactly the signed transaction (plus its signature) and a receipt
+   * for it; on refusal try the next sponsor, then self-pay. Throws
+   * `TransactionOutcomeUnknownError` (timeout; map to the `koinosUnknown` reconcile event and
+   * look up before retrying) or `TransactionRevertedError` (map to `koinosFailed`).
    */
   async submit(options: SubmitOptions): Promise<SubmitResult> {
     const payee = options.signer.getAddress();
@@ -186,14 +275,17 @@ export class ProtocolClient {
       if (discovery.network?.chainId && discovery.network.chainId !== this.chainId) {
         throw new SponsorError("chain_mismatch", `sponsor serves chain ${discovery.network.chainId}`, { endpoint: sponsor.endpoint });
       }
+      const rcLimit = options.rcLimit ?? sponsoredRcLimit(discovery, options.operations.length);
       const prepared = await this.prepare(options.operations, {
         payee,
         payer: discovery.sponsor,
-        ...(options.rcLimit !== undefined && { rcLimit: options.rcLimit }),
+        ...(rcLimit !== undefined && { rcLimit }),
       });
       const signed = await this.sign(prepared, options.signer);
       const result = await sponsor.sponsor(signed);
-      return { ...result, sponsorAddress: discovery.sponsor };
+      // Never trust the sponsor's copy: it must be the transaction the user signed (spec 1, 10.3).
+      await verifySponsorResult(signed, result, sponsor.endpoint);
+      return { transaction: result.transaction, receipt: result.receipt, sponsorAddress: discovery.sponsor };
     });
 
     let transaction: TransactionJson;
@@ -203,6 +295,9 @@ export class ProtocolClient {
     if (attempt.ok) {
       transaction = attempt.value.transaction;
       receipt = attempt.value.receipt;
+      // A timeout on the sponsor's node is not a refusal: the transaction may be in flight.
+      assertReceiptKnown(transaction, receipt);
+      assertNotReverted(transaction, receipt);
       sponsored = true;
       sponsorAddress = attempt.value.sponsorAddress;
     } else {

@@ -32,6 +32,16 @@ describe("ids", () => {
     expect(postId({ chainId: HARBINGER_CHAIN_ID, author, sequence: 8, contentHash: ch })).not.toEqual(expected);
   });
 
+  it("rejects sequence 0 (spec 2.1: sequences are 1-based)", () => {
+    const ch = contentHash(envelope);
+    expect(() => postId({ chainId: HARBINGER_CHAIN_ID, author, sequence: 0, contentHash: ch })).toThrow(/1-based/);
+    expect(() => postId({ chainId: HARBINGER_CHAIN_ID, author, sequence: "0", contentHash: ch })).toThrow(/1-based/);
+    expect(() => postId({ chainId: HARBINGER_CHAIN_ID, author, sequence: 0n, contentHash: ch })).toThrow(/1-based/);
+    expect(() => postId({ chainId: HARBINGER_CHAIN_ID, author, sequence: -1, contentHash: ch })).toThrow();
+    expect(postId({ chainId: HARBINGER_CHAIN_ID, author, sequence: 1, contentHash: ch }).length).toBe(32);
+    expect(postId({ chainId: HARBINGER_CHAIN_ID, author, sequence: "18446744073709551615", contentHash: ch }).length).toBe(32);
+  });
+
   it("derives idempotency keys (16 bytes) per spec 2.2", () => {
     const attempt = newAttemptId(deterministicRng("attempt"));
     expect(attempt.length).toBe(16);

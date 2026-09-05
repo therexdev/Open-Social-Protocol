@@ -106,8 +106,39 @@ function aadBytes(aad: AadInput | Uint8Array): Uint8Array {
   return aad instanceof Uint8Array ? aad : buildAad(aad);
 }
 
-/** Canonical encoding of a content document. */
+/**
+ * Checks the pilot limits the chain enforces on a content document (spec section 6): at most
+ * `LIMITS.maxMediaRefs` media items, `LIMITS.maxLocationsPerRef` locations per item, each at
+ * most `LIMITS.maxLocationChars` characters. Throws `EnvelopeError`; UIs can call it early.
+ */
+export function validateContent(content: Content): void {
+  const media = content.media ?? [];
+  if (media.length > LIMITS.maxMediaRefs) {
+    throw new EnvelopeError(`content has ${media.length} media refs, above the limit of ${LIMITS.maxMediaRefs}`);
+  }
+  media.forEach((item, index) => {
+    const locations = item.locations ?? [];
+    if (locations.length > LIMITS.maxLocationsPerRef) {
+      throw new EnvelopeError(`media[${index}] has ${locations.length} locations, above the limit of ${LIMITS.maxLocationsPerRef}`);
+    }
+    locations.forEach((location, i) => {
+      if (location.length > LIMITS.maxLocationChars) {
+        throw new EnvelopeError(`media[${index}].locations[${i}] is ${location.length} chars, above the limit of ${LIMITS.maxLocationChars}`);
+      }
+    });
+  });
+}
+
+/** Throws `EnvelopeError` when encoded envelope bytes exceed `LIMITS.maxEnvelopeBytes`. */
+export function validateEnvelopeSize(bytes: Uint8Array): void {
+  if (bytes.length > LIMITS.maxEnvelopeBytes) {
+    throw new EnvelopeError(`envelope is ${bytes.length} bytes, above the limit of ${LIMITS.maxEnvelopeBytes}`);
+  }
+}
+
+/** Canonical encoding of a content document (validates the media limits first). */
 export function encodeContent(content: Content): Uint8Array {
+  validateContent(content);
   return encode(CONTENT_TYPE, content as Record<string, unknown>);
 }
 
@@ -151,7 +182,11 @@ export interface EncryptContentResult {
   contentKey?: Uint8Array;
 }
 
-/** Builds the envelope for a post. */
+/**
+ * Builds the envelope for a post. Enforces the pilot limits up front (`validateContent`,
+ * `LIMITS.maxEnvelopeBytes`) so an oversized post fails before anything is persisted or
+ * published elsewhere.
+ */
 export function encryptContent(options: EncryptContentOptions): EncryptContentResult {
   const suite = options.suite ?? (options.epochKey ? SUITE.XCHACHA20POLY1305_X25519 : SUITE.PLAINTEXT);
   const plaintext = encodeContent(options.content);
@@ -161,6 +196,7 @@ export function encryptContent(options: EncryptContentOptions): EncryptContentRe
     }
     const envelope: Envelope = { version: ENVELOPE_VERSION, suite, payload: plaintext };
     const bytes = encodeEnvelope(envelope);
+    validateEnvelopeSize(bytes);
     return { envelope, bytes, contentHash: hash(bytes) };
   }
   if (suite !== SUITE.XCHACHA20POLY1305_X25519) throw new EnvelopeError(`unsupported suite ${suite}`);
@@ -187,6 +223,7 @@ export function encryptContent(options: EncryptContentOptions): EncryptContentRe
     wrap_nonce: wrapNonce,
   };
   const bytes = encodeEnvelope(envelope);
+  validateEnvelopeSize(bytes);
   return { envelope, bytes, contentHash: hash(bytes), contentKey };
 }
 

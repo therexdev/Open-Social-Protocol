@@ -52,6 +52,58 @@ export interface VaultBlob {
 
 export const VAULT_KDF_DEFAULT: VaultKdfParams = { name: "scrypt", N: 2 ** 15, r: 8, p: 1, dkLen: 32 };
 
+/**
+ * Accepted scrypt parameter ranges. Blobs are untrusted input: without bounds a hostile blob
+ * could make the client allocate gigabytes before the AEAD tag check rejects it.
+ * scrypt memory is `128 * N * r` bytes; `maxMemoryBytes` caps it at 1 GiB.
+ */
+export const VAULT_KDF_LIMITS = {
+  minN: 2 ** 10,
+  maxN: 2 ** 20,
+  minR: 1,
+  maxR: 32,
+  minP: 1,
+  maxP: 16,
+  dkLen: 32,
+  maxMemoryBytes: 2 ** 30,
+  minSaltBytes: 16,
+  maxSaltBytes: 64,
+} as const;
+
+/** Throws `VaultError` unless `kdf` is scrypt with parameters inside `VAULT_KDF_LIMITS`. */
+export function validateVaultKdf(kdf: VaultKdfParams): void {
+  if (!kdf || typeof kdf !== "object") throw new VaultError("unsupported kdf parameters: missing");
+  if (kdf.name !== "scrypt") throw new VaultError(`unsupported kdf ${String(kdf.name)}`);
+  const { N, r, p, dkLen } = kdf;
+  const L = VAULT_KDF_LIMITS;
+  if (!Number.isInteger(N) || N < L.minN || N > L.maxN || (N & (N - 1)) !== 0) {
+    throw new VaultError(`unsupported kdf parameters: N must be a power of two between ${L.minN} and ${L.maxN}`);
+  }
+  if (!Number.isInteger(r) || r < L.minR || r > L.maxR) throw new VaultError(`unsupported kdf parameters: r must be between ${L.minR} and ${L.maxR}`);
+  if (!Number.isInteger(p) || p < L.minP || p > L.maxP) throw new VaultError(`unsupported kdf parameters: p must be between ${L.minP} and ${L.maxP}`);
+  if (dkLen !== L.dkLen) throw new VaultError(`unsupported kdf parameters: dkLen must be ${L.dkLen}`);
+  if (128 * N * r > L.maxMemoryBytes) throw new VaultError("unsupported kdf parameters: N * r too large");
+}
+
+function checkSalt(salt: Uint8Array): void {
+  if (salt.length < VAULT_KDF_LIMITS.minSaltBytes || salt.length > VAULT_KDF_LIMITS.maxSaltBytes) {
+    throw new VaultError(`salt must be between ${VAULT_KDF_LIMITS.minSaltBytes} and ${VAULT_KDF_LIMITS.maxSaltBytes} bytes`);
+  }
+}
+
+function checkNonce(nonce: Uint8Array): void {
+  if (nonce.length !== LIMITS.nonceBytes) throw new VaultError(`nonce must be ${LIMITS.nonceBytes} bytes`);
+}
+
+function decodeField(value: unknown, label: string): Uint8Array {
+  if (typeof value !== "string") throw new VaultError(`${label} must be a base64url string`);
+  try {
+    return fromBase64url(value);
+  } catch {
+    throw new VaultError(`${label} is not valid base64url`);
+  }
+}
+
 export interface LockVaultOptions {
   rng?: Rng;
   kdf?: Partial<Omit<VaultKdfParams, "name">>;
@@ -74,7 +126,8 @@ function vaultAad(blob: Omit<VaultBlob, "ciphertext" | "nonce">): Uint8Array {
 }
 
 async function deriveVaultKey(passphrase: string, salt: Uint8Array, kdf: VaultKdfParams): Promise<Uint8Array> {
-  if (kdf.name !== "scrypt") throw new VaultError(`unsupported kdf ${String(kdf.name)}`);
+  validateVaultKdf(kdf);
+  checkSalt(salt);
   return scryptAsync(utf8(passphrase.normalize("NFKC")), salt, { N: kdf.N, r: kdf.r, p: kdf.p, dkLen: kdf.dkLen });
 }
 
@@ -84,8 +137,11 @@ export async function lockVault(secrets: VaultSecrets, passphrase: string, optio
   if (secrets.seed.length !== LIMITS.seedBytes) throw new VaultError("seed must be 32 bytes");
   const rng = options.rng ?? randomBytes;
   const kdf: VaultKdfParams = { ...VAULT_KDF_DEFAULT, ...options.kdf, name: "scrypt" };
-  const salt = options.salt ?? rng(16);
+  validateVaultKdf(kdf);
+  const salt = options.salt ?? rng(VAULT_KDF_LIMITS.minSaltBytes);
   const nonce = options.nonce ?? rng(LIMITS.nonceBytes);
+  checkSalt(salt);
+  checkNonce(nonce);
   const header = { version: 1 as const, kdf, cipher: "xchacha20poly1305" as const, salt: toBase64url(salt) };
   const key = await deriveVaultKey(passphrase, salt, kdf);
   const plaintext: VaultPlaintext = {
@@ -104,12 +160,18 @@ export async function lockVault(secrets: VaultSecrets, passphrase: string, optio
 export async function unlockVault(blob: VaultBlob, passphrase: string): Promise<VaultSecrets> {
   if (blob.version !== 1) throw new VaultError(`unsupported vault version ${String(blob.version)}`);
   if (blob.cipher !== "xchacha20poly1305") throw new VaultError(`unsupported cipher ${String(blob.cipher)}`);
-  const salt = fromBase64url(blob.salt);
-  const nonce = fromBase64url(blob.nonce);
+  // Bound everything the blob claims before spending memory/CPU on it (a tampered blob cannot
+  // be detected by the AEAD tag until after the KDF has run).
+  validateVaultKdf(blob.kdf);
+  const salt = decodeField(blob.salt, "salt");
+  checkSalt(salt);
+  const nonce = decodeField(blob.nonce, "nonce");
+  checkNonce(nonce);
+  const ciphertext = decodeField(blob.ciphertext, "ciphertext");
   const key = await deriveVaultKey(passphrase, salt, blob.kdf);
   let plaintext: VaultPlaintext;
   try {
-    const bytes = xchacha20poly1305(key, nonce, vaultAad(blob)).decrypt(fromBase64url(blob.ciphertext));
+    const bytes = xchacha20poly1305(key, nonce, vaultAad(blob)).decrypt(ciphertext);
     plaintext = JSON.parse(utf8Decode(bytes)) as VaultPlaintext;
   } catch {
     throw new VaultError("cannot unlock vault: wrong passphrase or corrupted data");
