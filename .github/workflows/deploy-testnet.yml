@@ -1,0 +1,85 @@
+name: deploy-testnet
+
+# Deploys the six protocol contracts to the Koinos Harbinger testnet from a GitHub runner.
+# Required repository secrets:
+#   KOINOS_HARBINGER_DEPLOYER_WIF  private key (WIF) of a tKOIN-funded account (pays Mana)
+#   OSP_CONTRACT_SEED              long random string; contract addresses derive from it
+# Optional repository variables: OSP_REGISTRY_ADMIN, OSP_UPGRADE_DELAY_MS, KOINOS_RPC
+
+on:
+  workflow_dispatch:
+    inputs:
+      network:
+        description: Target network preset
+        default: harbinger
+        type: choice
+        options: [harbinger]
+      dry_run:
+        description: Simulate only (broadcast=false) and print the Mana/RC report
+        default: false
+        type: boolean
+      force:
+        description: Re-upload even when the bytecode is unchanged
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: deploy-${{ inputs.network }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Build schemas, SDK and release contracts
+        run: |
+          npm run build -w packages/proto
+          npm run build -w packages/sdk
+          npm run build -w packages/contracts
+      - name: Contract build manifest
+        run: cat packages/contracts/build/release/manifest.json
+      - name: Deploy
+        env:
+          KOINOS_HARBINGER_DEPLOYER_WIF: ${{ secrets.KOINOS_HARBINGER_DEPLOYER_WIF }}
+          OSP_CONTRACT_SEED: ${{ secrets.OSP_CONTRACT_SEED }}
+          OSP_REGISTRY_ADMIN: ${{ vars.OSP_REGISTRY_ADMIN }}
+          OSP_UPGRADE_DELAY_MS: ${{ vars.OSP_UPGRADE_DELAY_MS }}
+          KOINOS_RPC: ${{ vars.KOINOS_RPC }}
+        run: |
+          node --import tsx scripts/deploy-contracts.ts --network "${{ inputs.network }}" \
+            ${{ inputs.dry_run && '--dry-run' || '' }} ${{ inputs.force && '--force' || '' }}
+      - name: Verify
+        if: ${{ !inputs.dry_run }}
+        env:
+          KOINOS_RPC: ${{ vars.KOINOS_RPC }}
+        run: node --import tsx scripts/verify-deployment.ts --network "${{ inputs.network }}"
+      - name: Commit deployment manifest
+        if: ${{ !inputs.dry_run }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add deployments/${{ inputs.network }}.json
+          if git diff --cached --quiet; then
+            echo "deployment manifest unchanged"
+          else
+            git commit -m "Deploy contracts to ${{ inputs.network }} (${{ github.run_id }})"
+            git push origin HEAD:${{ github.ref_name }}
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deployment-${{ inputs.network }}
+          path: |
+            deployments/${{ inputs.network }}.json
+            packages/contracts/build/release

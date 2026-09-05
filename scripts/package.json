@@ -1,0 +1,6 @@
+{
+  "name": "osp-scripts",
+  "private": true,
+  "type": "module",
+  "description": "Deployment and verification scripts (not a workspace package; run with node --import tsx)"
+}

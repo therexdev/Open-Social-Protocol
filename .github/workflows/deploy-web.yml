@@ -1,0 +1,69 @@
+name: deploy-web
+
+# Builds the reference web client and publishes it for Hostinger:
+#  1. always: pushes apps/web/dist to the `hostinger-static` branch (Hostinger Git deployment)
+#  2. optional: FTP upload when HOSTINGER_FTP_* secrets are configured
+# Hostinger's own GitHub import (build command `npm run build`, output `apps/web/dist`) does not
+# need this workflow; see docs/hostinger.md.
+
+on:
+  push:
+    branches: [main, "claude/**"]
+    paths:
+      - "apps/web/**"
+      - "packages/proto/**"
+      - "packages/sdk/**"
+      - "deployments/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/deploy-web.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: deploy-web-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      VITE_OSP_NETWORK: ${{ vars.VITE_OSP_NETWORK || 'harbinger' }}
+      VITE_OSP_INDEXER_URL: ${{ vars.VITE_OSP_INDEXER_URL }}
+      VITE_OSP_SPONSOR_URL: ${{ vars.VITE_OSP_SPONSOR_URL }}
+      VITE_OSP_RPC_URLS: ${{ vars.VITE_OSP_RPC_URLS }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
+      - run: test -f apps/web/dist/index.html
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: apps/web/dist
+      - name: Publish static site branch
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: apps/web/dist
+          publish_branch: hostinger-static
+          force_orphan: true
+          commit_message: "Publish web client from ${{ github.sha }}"
+      - name: FTP deploy (optional)
+        if: ${{ env.FTP_SERVER != '' }}
+        env:
+          FTP_SERVER: ${{ secrets.HOSTINGER_FTP_SERVER }}
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.HOSTINGER_FTP_SERVER }}
+          username: ${{ secrets.HOSTINGER_FTP_USERNAME }}
+          password: ${{ secrets.HOSTINGER_FTP_PASSWORD }}
+          local-dir: apps/web/dist/
+          server-dir: ${{ secrets.HOSTINGER_FTP_DIR || 'public_html/' }}
