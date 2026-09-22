@@ -1,0 +1,114 @@
+syntax = "proto3";
+package messaging;
+import "koinos/options.proto";
+message conversation_record {
+  bytes a = 1 [(koinos.btype) = ADDRESS];
+  bytes b = 2 [(koinos.btype) = ADDRESS];
+  bytes requester = 3 [(koinos.btype) = ADDRESS];
+  uint32 status = 4;
+  uint64 generation = 5 [jstype = JS_STRING];
+  uint64 sequence = 6 [jstype = JS_STRING];
+  uint64 updated_at = 7 [jstype = JS_STRING];
+}
+message message_record {
+  bytes sender = 1 [(koinos.btype) = ADDRESS];
+  bytes recipient = 2 [(koinos.btype) = ADDRESS];
+  bytes message_id = 3;
+  bytes content_hash = 4;
+  uint64 generation = 5 [jstype = JS_STRING];
+  uint64 sequence = 6 [jstype = JS_STRING];
+  uint64 timestamp = 7 [jstype = JS_STRING];
+}
+// @description set dependencies
+// @read-only false
+message set_dependencies_arguments {
+  bytes identity = 1 [(koinos.btype) = ADDRESS];
+  bytes relationships = 2 [(koinos.btype) = ADDRESS];
+  bytes token = 3 [(koinos.btype) = ADDRESS];
+}
+message set_dependencies_result {
+
+}
+// @description get dependencies
+// @read-only true
+message get_dependencies_arguments {
+
+}
+message get_dependencies_result {
+  bytes identity = 1 [(koinos.btype) = ADDRESS];
+  bytes relationships = 2 [(koinos.btype) = ADDRESS];
+  bytes token = 3 [(koinos.btype) = ADDRESS];
+}
+// @description request conversation
+// @read-only false
+message request_conversation_arguments {
+  bytes actor = 1 [(koinos.btype) = ADDRESS];
+  bytes peer = 2 [(koinos.btype) = ADDRESS];
+  bytes device = 3 [(koinos.btype) = ADDRESS];
+  uint64 generation = 4 [jstype = JS_STRING];
+}
+message request_conversation_result {
+
+}
+// @description accept conversation
+// @read-only false
+message accept_conversation_arguments {
+  bytes actor = 1 [(koinos.btype) = ADDRESS];
+  bytes peer = 2 [(koinos.btype) = ADDRESS];
+  bytes device = 3 [(koinos.btype) = ADDRESS];
+  uint64 generation = 4 [jstype = JS_STRING];
+}
+message accept_conversation_result {
+
+}
+// @description close conversation
+// @read-only false
+message close_conversation_arguments {
+  bytes actor = 1 [(koinos.btype) = ADDRESS];
+  bytes peer = 2 [(koinos.btype) = ADDRESS];
+  bytes device = 3 [(koinos.btype) = ADDRESS];
+  uint64 generation = 4 [jstype = JS_STRING];
+}
+message close_conversation_result {
+
+}
+// @description send message
+// @read-only false
+message send_message_arguments {
+  bytes sender = 1 [(koinos.btype) = ADDRESS];
+  bytes recipient = 2 [(koinos.btype) = ADDRESS];
+  bytes device = 3 [(koinos.btype) = ADDRESS];
+  bytes message_id = 4;
+  uint64 generation = 5 [jstype = JS_STRING];
+  bytes envelope = 6;
+}
+message send_message_result {
+  message_record value = 1;
+}
+// @description get conversation
+// @read-only true
+message get_conversation_arguments {
+  bytes a = 1 [(koinos.btype) = ADDRESS];
+  bytes b = 2 [(koinos.btype) = ADDRESS];
+}
+message get_conversation_result {
+  conversation_record value = 1;
+}
+// @description get message
+// @read-only true
+message get_message_arguments {
+  bytes sender = 1 [(koinos.btype) = ADDRESS];
+  bytes message_id = 2;
+}
+message get_message_result {
+  message_record value = 1;
+}
+message conversation_changed_event {
+  conversation_record value = 1;
+  uint64 timestamp = 2 [jstype = JS_STRING];
+}
+message message_sent_event {
+  message_record value = 1;
+  bytes envelope = 2;
+  uint64 timestamp = 3 [jstype = JS_STRING];
+}

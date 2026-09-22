@@ -7,6 +7,7 @@
  */
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
 import cors from "@fastify/cors";
+import { toBase64url } from "@osp/sdk";
 import { isAddress } from "@osp/sdk";
 import type { IndexerConfig } from "./config.js";
 import type { IndexerDb } from "./db.js";
@@ -179,6 +180,29 @@ export function buildApi(options: ApiOptions): FastifyInstance {
   });
 
   app.get("/v1/status", async () => statusView(options));
+  // Encrypted bytes and public metadata only. Clients verify commitments through RPC.
+  app.get("/v1/conversations/:account", async request => {
+    const account=parseAddress(param(request,"account"),"account")!;
+    const limit=parseLimit(query(request,"limit"),50,100);
+    const before=query(request,"before");
+    if(before && !/^\d{1,20}$/.test(before)) throw new ApiError(400,"invalid_request","invalid timestamp");
+    const rows=db.all("SELECT data_json FROM conversations WHERE (a=? OR b=?) AND (? IS NULL OR CAST(updated_at AS INTEGER) < CAST(? AS INTEGER)) ORDER BY CAST(updated_at AS INTEGER) DESC, a, b LIMIT ?",account,account,before??null,before??null,limit);
+    return {items:rows.map(row=>JSON.parse(String(row.data_json)))};
+  });
+  app.get("/v1/messages/:account/:peer", async request => {
+    const account=parseAddress(param(request,"account"),"account")!,peer=parseAddress(param(request,"peer"),"peer")!;
+    const limit=parseLimit(query(request,"limit"),30,100),before=query(request,"before");
+    if(before && !/^\d{1,20}$/.test(before)) throw new ApiError(400,"invalid_request","invalid sequence");
+    const rows=db.all("SELECT * FROM direct_messages WHERE ((sender=? AND recipient=?) OR (sender=? AND recipient=?)) AND (? IS NULL OR (length(sequence)<length(?) OR (length(sequence)=length(?) AND sequence<?))) ORDER BY length(sequence) DESC, sequence DESC LIMIT ?",account,peer,peer,account,before??null,before??null,before??null,before??null,limit+1);
+    const page=rows.slice(0,limit);
+    return {items:page.map(row=>({...JSON.parse(String(row.data_json)),envelope:toBase64url(row.envelope as Uint8Array),txId:row.tx_id})),nextBefore:rows.length>limit?String(page[page.length-1]!.sequence):null};
+  });
+  app.get("/v1/token/:account/activity", async request => {
+    const account=parseAddress(param(request,"account"),"account")!;
+    const limit=parseLimit(query(request,"limit"),30,100);
+    const rows=db.all("SELECT * FROM token_activity WHERE actor=? OR recipient=? ORDER BY height DESC,tx_index DESC,sequence DESC LIMIT ?",account,account,limit);
+    return {items:rows.map(row=>({kind:row.kind,...JSON.parse(String(row.data_json)),txId:row.tx_id}))};
+  });
 
   // Every data route requires a deployment.
   app.addHook("onRequest", async (request, reply) => {

@@ -8,7 +8,7 @@ import { Provider, Signer } from "koilib";
 export const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const CONTRACT_BUILD_DIR = join(REPO_ROOT, "packages", "contracts", "build", "release");
 export const DEPLOYMENTS_DIR = join(REPO_ROOT, "deployments");
-export const CONTRACT_ORDER = ["identity", "relationships", "publications", "communities", "sponsorship", "registry"] as const;
+export const CONTRACT_ORDER = ["identity", "relationships", "publications", "communities", "sponsorship", "registry", "messaging", "token"] as const;
 export type ContractName = (typeof CONTRACT_ORDER)[number];
 
 export interface NetworkPreset {

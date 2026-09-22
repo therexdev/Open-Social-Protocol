@@ -177,4 +177,27 @@ export class Publications {
 
     return res;
   }
+
+  set_token_contract(
+    args: publications.set_token_contract_arguments
+  ): publications.set_token_contract_result {
+    // const address = args.address;
+
+    // YOUR CODE HERE
+
+    const res = new publications.set_token_contract_result();
+
+    return res;
+  }
+
+  get_token_contract(
+    args: publications.get_token_contract_arguments
+  ): publications.get_token_contract_result {
+    // YOUR CODE HERE
+
+    const res = new publications.get_token_contract_result();
+    // res.value = ;
+
+    return res;
+  }
 }

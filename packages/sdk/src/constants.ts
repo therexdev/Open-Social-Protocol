@@ -37,10 +37,12 @@ export const CAPABILITY = {
   RELATIONSHIPS: 8,
   COMMUNITY: 16,
   PROFILE: 32,
+  MESSAGING: 64,
+  SUPPORT: 128,
 } as const;
 
 /** Every capability bit set. */
-export const ALL_CAPABILITIES = 63;
+export const ALL_CAPABILITIES = 255;
 
 /** Pilot limits enforced on chain (spec section 6) plus fixed sizes of protocol values. */
 export const LIMITS = {

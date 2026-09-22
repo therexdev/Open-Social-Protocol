@@ -64,6 +64,8 @@ export function Layout({ children }: { children: ReactNode }) {
           </NavLink>
           <NavLink to="/compose">Post</NavLink>
           <NavLink to="/friends">Friends</NavLink>
+          <NavLink to="/messages">Messages</NavLink>
+          <NavLink to="/tokens">Tokens</NavLink>
           <NavLink to="/notifications">
             Activity
             {unread > 0 && (

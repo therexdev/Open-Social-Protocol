@@ -13,6 +13,8 @@ import { UnlockScreen } from "./features/onboarding/UnlockScreen";
 import { PostPage } from "./features/post/PostPage";
 import { ProfilePage } from "./features/profile/ProfilePage";
 import { RecoveryPage } from "./features/recovery/RecoveryPage";
+import { MessagesPage } from "./features/messages/MessagesPage";
+import { TokensPage } from "./features/tokens/TokensPage";
 import { SettingsPage } from "./features/settings/SettingsPage";
 import { useAccount } from "./stores/account";
 import { useSettings } from "./stores/settings";
@@ -117,6 +119,8 @@ export function AppRoutes() {
           </RequireAccount>
         }
       />
+      <Route path="/messages" element={<RequireAccount><MessagesPage /></RequireAccount>} />
+      <Route path="/tokens" element={<RequireAccount><TokensPage /></RequireAccount>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

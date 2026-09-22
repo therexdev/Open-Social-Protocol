@@ -268,6 +268,15 @@ export class IndexerClient {
     return this.baseUrl.length > 0;
   }
 
+  conversations(account: string): Promise<{items: import("@osp/sdk").ConversationRecord[]}> {
+    return this.get(`/v1/conversations/${encodeURIComponent(account)}`);
+  }
+  messages(account: string, peer: string, before?: string): Promise<{items: MessageView[]; nextBefore: string|null}> {
+    return this.get(`/v1/messages/${encodeURIComponent(account)}/${encodeURIComponent(peer)}${qs({before})}`);
+  }
+  tokenActivity(account: string): Promise<{items: Array<{kind: string; from?: string; to?: string; actor?: string; recipient?: string; value?: string; reward?: string; timestamp: string; txId: string}>}> {
+    return this.get(`/v1/token/${encodeURIComponent(account)}/activity`);
+  }
   status(): Promise<StatusView> {
     return this.get<StatusView>("/v1/status");
   }
@@ -374,3 +383,5 @@ export class IndexerClient {
     return body as T;
   }
 }
+
+export interface MessageView {sender:string;recipient:string;message_id:string;content_hash:string;generation:string;sequence:string;timestamp:string;envelope:string;txId:string;}

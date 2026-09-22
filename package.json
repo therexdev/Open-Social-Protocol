@@ -1,6 +1,6 @@
 {
   "name": "open-social-protocol",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Open Social Protocol: a Koinos-based, encrypted, frontend-neutral social layer. Monorepo for the protocol (schemas, contracts, SDK), the reference web client, the browser extension, and the replaceable infrastructure (indexer, Mana sponsor).",
   "license": "MIT",
@@ -32,7 +32,8 @@
     "indexer": "npm run start -w apps/indexer",
     "sponsor": "npm run start -w apps/sponsor",
     "web": "npm run dev -w apps/web",
-    "test:scripts": "node --import tsx --test scripts/*.test.ts"
+    "test:scripts": "node --import tsx --test scripts/*.test.ts",
+    "verify:testnet": "node --import tsx scripts/verify-deployment.ts --network harbinger"
   },
   "devDependencies": {
     "tsx": "^4.20.0",

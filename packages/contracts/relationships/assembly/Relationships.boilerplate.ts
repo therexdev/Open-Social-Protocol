@@ -183,4 +183,27 @@ export class Relationships {
 
     return res;
   }
+
+  set_token_contract(
+    args: relationships.set_token_contract_arguments
+  ): relationships.set_token_contract_result {
+    // const address = args.address;
+
+    // YOUR CODE HERE
+
+    const res = new relationships.set_token_contract_result();
+
+    return res;
+  }
+
+  get_token_contract(
+    args: relationships.get_token_contract_arguments
+  ): relationships.get_token_contract_result {
+    // YOUR CODE HERE
+
+    const res = new relationships.get_token_contract_result();
+    // res.value = ;
+
+    return res;
+  }
 }

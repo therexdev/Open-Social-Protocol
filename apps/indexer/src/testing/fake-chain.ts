@@ -25,6 +25,8 @@ export function testDeployment(startHeight = 100): Deployment {
       communities: entry("communities"),
       sponsorship: entry("sponsorship"),
       registry: entry("registry"),
+      messaging: entry("messaging"),
+      token: entry("token"),
     },
     startHeight: String(startHeight),
   };

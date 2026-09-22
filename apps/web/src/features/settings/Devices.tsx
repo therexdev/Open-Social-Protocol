@@ -16,6 +16,8 @@ function capabilities(bits: number): string {
   if (bits & CAPABILITY.RELATIONSHIPS) names.push("friends");
   if (bits & CAPABILITY.COMMUNITY) names.push("communities");
   if (bits & CAPABILITY.PROFILE) names.push("profile");
+  if (bits & CAPABILITY.MESSAGING) names.push("messages");
+  if (bits & CAPABILITY.SUPPORT) names.push("support posts");
   return names.join(", ") || "none";
 }
 

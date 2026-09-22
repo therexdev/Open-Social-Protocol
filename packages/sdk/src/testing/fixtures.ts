@@ -42,6 +42,8 @@ export function fixtureDeployment(): Deployment {
       communities: entry("communities"),
       sponsorship: entry("sponsorship"),
       registry: entry("registry"),
+      messaging: entry("messaging"),
+      token: entry("token"),
     },
     startHeight: "100",
   };

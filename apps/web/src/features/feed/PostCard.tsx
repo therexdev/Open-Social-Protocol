@@ -166,6 +166,12 @@ export function PostCard({ post, onChanged, expanded = false }: PostCardProps) {
       )}
       <PostBody content={content} />
       <footer className="post-footer">
+        {submit && post.author !== submit.signer.getAddress() && <Button variant="ghost" disabled={!can.ok || deleted || busy} onClick={async () => {
+          setBusy(true);
+          try { const op=await submit.client.ops.token.support({actor:submit.signer.getAddress(),post_id:bytesOf(post.postId)});await submitAction(submit,[op],{label:"Supporting this post",success:"Support recorded"}); }
+          catch { /* submitAction displays the reason */ }
+          finally { setBusy(false); }
+        }}>Support</Button>}
         <Button variant="ghost" onClick={react} disabled={!can.ok || deleted} busy={busy} aria-pressed={liked} title={can.ok ? undefined : can.reason}>
           {liked ? "♥" : "♡"} {likes > 0 ? likes : ""} {liked ? "Liked" : "Like"}
         </Button>

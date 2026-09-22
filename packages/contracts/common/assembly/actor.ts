@@ -24,6 +24,8 @@ export namespace Capability {
   export const RELATIONSHIPS: u32 = 8;
   export const COMMUNITY: u32 = 16;
   export const PROFILE: u32 = 32;
+  export const MESSAGING: u32 = 64;
+  export const SUPPORT: u32 = 128;
 }
 
 export namespace Actor {
