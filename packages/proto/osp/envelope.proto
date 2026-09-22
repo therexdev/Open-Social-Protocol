@@ -125,3 +125,11 @@ message proof_manifest {
   bytes signature = 17;
   bytes signer = 18;
 }
+
+// Message ciphertext plus per-participant content-key packages. No plaintext.
+message direct_message_envelope {
+  uint32 version = 1;
+  bytes nonce = 2;
+  bytes ciphertext = 3;
+  repeated sealed_key keys = 4;
+}

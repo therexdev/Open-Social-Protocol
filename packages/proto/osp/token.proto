@@ -1,0 +1,168 @@
+syntax = "proto3";
+package token;
+import "koinos/options.proto";
+message account_state {
+  uint64 balance = 1 [jstype = JS_STRING];
+  uint64 free_credits = 2 [jstype = JS_STRING];
+  uint64 token_credits = 3 [jstype = JS_STRING];
+  uint64 updated_at = 4 [jstype = JS_STRING];
+}
+message reward_state {
+  uint64 day = 1 [jstype = JS_STRING];
+  uint64 minted = 2 [jstype = JS_STRING];
+}
+message config {
+  bytes identity = 1 [(koinos.btype) = ADDRESS];
+  bytes relationships = 2 [(koinos.btype) = ADDRESS];
+  bytes publications = 3 [(koinos.btype) = ADDRESS];
+  bytes messaging = 4 [(koinos.btype) = ADDRESS];
+  uint64 reward_amount = 5 [jstype = JS_STRING];
+  uint64 daily_reward_cap = 6 [jstype = JS_STRING];
+  uint64 recipient_daily_cap = 7 [jstype = JS_STRING];
+  uint64 supply = 8 [jstype = JS_STRING];
+}
+// @description init
+// @read-only false
+message init_arguments {
+  bytes identity = 1 [(koinos.btype) = ADDRESS];
+  bytes relationships = 2 [(koinos.btype) = ADDRESS];
+  bytes publications = 3 [(koinos.btype) = ADDRESS];
+  bytes messaging = 4 [(koinos.btype) = ADDRESS];
+}
+message init_result {
+
+}
+// @description set reward policy
+// @read-only false
+message set_reward_policy_arguments {
+  uint64 reward_amount = 1 [jstype = JS_STRING];
+  uint64 daily_reward_cap = 2 [jstype = JS_STRING];
+  uint64 recipient_daily_cap = 3 [jstype = JS_STRING];
+}
+message set_reward_policy_result {
+
+}
+// @description get config
+// @read-only true
+message get_config_arguments {
+
+}
+message get_config_result {
+  config value = 1;
+}
+// @description get account
+// @read-only true
+message get_account_arguments {
+  bytes account = 1 [(koinos.btype) = ADDRESS];
+}
+message get_account_result {
+  account_state value = 1;
+  uint64 capacity = 2 [jstype = JS_STRING];
+}
+// @description support
+// @read-only false
+message support_arguments {
+  bytes actor = 1 [(koinos.btype) = ADDRESS];
+  bytes post_id = 2;
+  bytes device = 3 [(koinos.btype) = ADDRESS];
+}
+message support_result {
+  uint64 reward = 1 [jstype = JS_STRING];
+}
+// @description transfer
+// @read-only false
+message transfer_arguments {
+  bytes from = 1 [(koinos.btype) = ADDRESS];
+  bytes to = 2 [(koinos.btype) = ADDRESS];
+  uint64 value = 3 [jstype = JS_STRING];
+}
+message transfer_result {
+
+}
+// @description burn
+// @read-only false
+message burn_arguments {
+  bytes from = 1 [(koinos.btype) = ADDRESS];
+  uint64 value = 2 [jstype = JS_STRING];
+}
+message burn_result {
+
+}
+// @description consume
+// @read-only false
+message consume_arguments {
+  bytes account = 1 [(koinos.btype) = ADDRESS];
+  uint64 units = 2 [jstype = JS_STRING];
+}
+message consume_result {
+
+}
+// @description balance of
+// @read-only true
+message balance_of_arguments {
+  bytes owner = 1 [(koinos.btype) = ADDRESS];
+}
+message balance_of_result {
+  uint64 value = 1 [jstype = JS_STRING];
+}
+// @description total supply
+// @read-only true
+message total_supply_arguments {
+
+}
+message total_supply_result {
+  uint64 value = 1 [jstype = JS_STRING];
+}
+// @description name
+// @read-only true
+message name_arguments {
+
+}
+message name_result {
+  string value = 1;
+}
+// @description symbol
+// @read-only true
+message symbol_arguments {
+
+}
+message symbol_result {
+  string value = 1;
+}
+// @description decimals
+// @read-only true
+message decimals_arguments {
+
+}
+message decimals_result {
+  uint32 value = 1;
+}
+message account_updated_event {
+  bytes account = 1 [(koinos.btype) = ADDRESS];
+  account_state value = 2;
+  uint64 timestamp = 3 [jstype = JS_STRING];
+}
+message supported_event {
+  bytes actor = 1 [(koinos.btype) = ADDRESS];
+  bytes recipient = 2 [(koinos.btype) = ADDRESS];
+  bytes post_id = 3;
+  uint64 reward = 4 [jstype = JS_STRING];
+  uint64 timestamp = 5 [jstype = JS_STRING];
+}
+message transfer_event {
+  bytes from = 1 [(koinos.btype) = ADDRESS];
+  bytes to = 2 [(koinos.btype) = ADDRESS];
+  uint64 value = 3 [jstype = JS_STRING];
+  uint64 timestamp = 4 [jstype = JS_STRING];
+}
+message burn_event {
+  bytes from = 1 [(koinos.btype) = ADDRESS];
+  uint64 value = 2 [jstype = JS_STRING];
+  uint64 timestamp = 3 [jstype = JS_STRING];
+}
+message policy_changed_event {
+  uint64 reward_amount = 1 [jstype = JS_STRING];
+  uint64 daily_reward_cap = 2 [jstype = JS_STRING];
+  uint64 recipient_daily_cap = 3 [jstype = JS_STRING];
+  uint64 timestamp = 4 [jstype = JS_STRING];
+}

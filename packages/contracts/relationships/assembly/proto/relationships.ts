@@ -1972,6 +1972,127 @@ export namespace relationships {
     }
   }
 
+  export class set_token_contract_arguments {
+    static encode(message: set_token_contract_arguments, writer: Writer): void {
+      const unique_name_address = message.address;
+      if (unique_name_address !== null) {
+        writer.uint32(10);
+        writer.bytes(unique_name_address);
+      }
+    }
+
+    static decode(reader: Reader, length: i32): set_token_contract_arguments {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new set_token_contract_arguments();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1:
+            message.address = reader.bytes();
+            break;
+
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    address: Uint8Array | null;
+
+    constructor(address: Uint8Array | null = null) {
+      this.address = address;
+    }
+  }
+
+  @unmanaged
+  export class set_token_contract_result {
+    static encode(message: set_token_contract_result, writer: Writer): void {}
+
+    static decode(reader: Reader, length: i32): set_token_contract_result {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new set_token_contract_result();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    constructor() {}
+  }
+
+  @unmanaged
+  export class get_token_contract_arguments {
+    static encode(
+      message: get_token_contract_arguments,
+      writer: Writer
+    ): void {}
+
+    static decode(reader: Reader, length: i32): get_token_contract_arguments {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new get_token_contract_arguments();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    constructor() {}
+  }
+
+  export class get_token_contract_result {
+    static encode(message: get_token_contract_result, writer: Writer): void {
+      const unique_name_value = message.value;
+      if (unique_name_value !== null) {
+        writer.uint32(10);
+        writer.bytes(unique_name_value);
+      }
+    }
+
+    static decode(reader: Reader, length: i32): get_token_contract_result {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new get_token_contract_result();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1:
+            message.value = reader.bytes();
+            break;
+
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    value: Uint8Array | null;
+
+    constructor(value: Uint8Array | null = null) {
+      this.value = value;
+    }
+  }
+
   export enum relationship_status {
     none = 0,
     pending = 1,

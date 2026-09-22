@@ -17,7 +17,7 @@ import { DatabaseSync, type SQLInputValue, type StatementSync, type StatementRes
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import path from "node:path";
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 /** Every projection table (truncated on replay), in a fixed order. */
 export const PROJECTION_TABLES = [
@@ -39,6 +39,10 @@ export const PROJECTION_TABLES = [
   "user_grants",
   "registry_entries",
   "notifications",
+  "conversations",
+  "direct_messages",
+  "token_accounts",
+  "token_activity",
 ] as const;
 
 const MIGRATIONS: string[] = [
@@ -308,6 +312,16 @@ const MIGRATIONS: string[] = [
     sequence INTEGER NOT NULL
   );
   CREATE INDEX notifications_account ON notifications (account, id);
+  `,
+  `
+  CREATE TABLE conversations (a TEXT NOT NULL, b TEXT NOT NULL, data_json TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(a,b));
+  CREATE INDEX conversations_b ON conversations(b);
+  CREATE TABLE direct_messages (sender TEXT NOT NULL, recipient TEXT NOT NULL, message_id TEXT NOT NULL, sequence TEXT NOT NULL, data_json TEXT NOT NULL, envelope BLOB NOT NULL, height INTEGER NOT NULL, tx_id TEXT NOT NULL, PRIMARY KEY(sender,message_id));
+  CREATE INDEX messages_recipient ON direct_messages(recipient,sender);
+  CREATE TABLE token_accounts (account TEXT PRIMARY KEY, data_json TEXT NOT NULL);
+  CREATE TABLE token_activity (height INTEGER NOT NULL, tx_index INTEGER NOT NULL, sequence INTEGER NOT NULL, actor TEXT NOT NULL, recipient TEXT NOT NULL, kind TEXT NOT NULL, data_json TEXT NOT NULL, tx_id TEXT NOT NULL, PRIMARY KEY(height,tx_index,sequence));
+  CREATE INDEX token_activity_actor ON token_activity(actor,height);
+  CREATE INDEX token_activity_recipient ON token_activity(recipient,height);
   `,
 ];
 

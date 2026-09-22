@@ -52,6 +52,12 @@ async function main(): Promise<void> {
   check(rel?.value === identity, "relationships identity contract wired");
   const com = await read("communities", "get_identity_contract");
   check(com?.value === identity, "communities identity contract wired");
+  const token = deployment.contracts.token?.address;
+  for (const name of ["publications", "relationships"] as const) check((await read(name,"get_token_contract"))?.value === token, `${name} usage limits wired`);
+  const messages = await read("messaging", "get_dependencies");
+  check(messages?.identity === identity && messages?.relationships === relationships && messages?.token === token, "messaging dependencies wired");
+  const economy = (await read("token", "get_config"))?.value as Record<string,unknown> | undefined;
+  check(economy?.identity === identity && economy?.relationships === relationships && economy?.publications === deployment.contracts.publications?.address && economy?.messaging === deployment.contracts.messaging?.address, "token dependencies wired");
   const cfg = await read("registry", "get_config");
   check(Boolean((cfg?.value as Record<string, unknown> | undefined)?.admin), `registry initialised (admin ${(cfg?.value as Record<string, unknown> | undefined)?.admin})`);
   const list = await read("registry", "list_contracts");

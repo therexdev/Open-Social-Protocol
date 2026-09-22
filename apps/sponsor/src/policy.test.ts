@@ -6,11 +6,14 @@ import { fixtureDeployment } from "./__tests__/helpers.js";
 const deployment = fixtureDeployment();
 
 describe("default allowlist", () => {
-  it("covers every write method of the four social contracts except the admin setters", () => {
+  it("covers every write method of the social and messaging contracts except the admin setters", () => {
     const entries = defaultAllowlist(deployment);
     const names = entries.map((e) => `${e.contract}.${e.method}`);
-    expect(names).toHaveLength(31);
+    expect(names).toHaveLength(36);
     expect(names).toContain("identity.register");
+    expect(names).toContain("messaging.send_message");
+    expect(names).toContain("token.support");
+    for (const method of ["token.transfer", "token.burn", "token.consume", "token.init", "token.set_reward_policy", "messaging.set_dependencies", "publications.set_token_contract", "relationships.set_token_contract"]) expect(names).not.toContain(method);
     expect(names).toContain("relationships.follow");
     expect(names).toContain("publications.publish");
     expect(names).toContain("communities.set_label");
@@ -35,7 +38,7 @@ describe("default allowlist", () => {
     expect(allowlist.has(deployment.contracts.identity.address, publish.entry_point)).toBe(false);
     expect(allowlist.has(deployment.contracts.sponsorship.address, ABIS.sponsorship.methods.set_sponsor!.entry_point)).toBe(false);
     const discovery = allowlist.toDiscovery();
-    expect(discovery).toHaveLength(4);
+    expect(discovery).toHaveLength(6);
     const calls = allowlist.toAllowedCalls();
     expect(calls.map((c) => c.contract_id).sort()).toEqual(discovery.map((d) => d.contract).sort());
     expect(calls.every((c) => c.entry_points.length > 0)).toBe(true);

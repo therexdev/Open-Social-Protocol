@@ -222,6 +222,7 @@ export interface AddressResult {
 }
 
 export interface RelationshipsWriteMethods {
+  set_token_contract: SetContractAddressArgs;
   set_identity_contract: SetContractAddressArgs;
   request_friend: RequestFriendArgs;
   accept_friend: AcceptFriendArgs;
@@ -233,6 +234,7 @@ export interface RelationshipsWriteMethods {
   rotate_audience: RotateAudienceArgs;
 }
 export interface RelationshipsReadMethods {
+  get_token_contract: [Record<string, never>, AddressResult];
   get_relationship: [PairArgs, ValueResult<RelationshipRecord>];
   get_audience: [AccountArgs, ValueResult<AudienceState>];
   is_blocked: [ActorTargetArgs, BoolResult];
@@ -353,6 +355,7 @@ export interface PublicationsDependencies {
 }
 
 export interface PublicationsWriteMethods {
+  set_token_contract: SetContractAddressArgs;
   set_identity_contract: SetContractAddressArgs;
   set_relationships_contract: SetContractAddressArgs;
   publish: PublishArgs;
@@ -362,6 +365,7 @@ export interface PublicationsWriteMethods {
   record_cross_post: RecordCrossPostArgs;
 }
 export interface PublicationsReadMethods {
+  get_token_contract: [Record<string, never>, AddressResult];
   get_post: [PostIdArgs, ValueResult<PostRecord>];
   get_author_state: [AuthorArgs, ValueResult<AuthorState>];
   get_post_by_idempotency_key: [PostByIdempotencyKeyArgs, ValueResult<PostRef>];
@@ -604,7 +608,43 @@ export interface RegistryReadMethods {
 // Method tables
 // ---------------------------------------------------------------------------
 
+export interface ConversationRecord { a: string; b: string; requester: string; status: number; generation: string; sequence: string; updated_at: string; }
+export interface DirectMessageRecord { sender: string; recipient: string; message_id: Uint8Array; content_hash: Uint8Array; generation: string; sequence: string; timestamp: string; }
+export interface ConversationArgs { actor: Address; peer: Address; device?: Address; generation: U64; }
+export interface TokenAccount { balance: string; free_credits: string; token_credits: string; updated_at: string; }
+export interface TokenConfig { identity: string; relationships: string; publications: string; messaging: string; reward_amount: string; daily_reward_cap: string; recipient_daily_cap: string; supply: string; }
+export interface MessagingWriteMethods {
+  set_dependencies: { identity: Address; relationships: Address; token: Address };
+  request_conversation: ConversationArgs;
+  accept_conversation: ConversationArgs;
+  close_conversation: ConversationArgs;
+  send_message: { sender: Address; recipient: Address; device?: Address; message_id: Bytes; generation: U64; envelope: Bytes };
+}
+export interface MessagingReadMethods {
+  get_dependencies: [Record<string, never>, { identity: string; relationships: string; token: string }];
+  get_conversation: [{ a: Address; b: Address }, ValueResult<ConversationRecord>];
+  get_message: [{ sender: Address; message_id: Bytes }, ValueResult<DirectMessageRecord>];
+}
+export interface TokenWriteMethods {
+  init: { identity: Address; relationships: Address; publications: Address; messaging: Address };
+  set_reward_policy: { reward_amount: U64; daily_reward_cap: U64; recipient_daily_cap: U64 };
+  support: { actor: Address; post_id: Bytes; device?: Address };
+  transfer: { from: Address; to: Address; value: U64 };
+  burn: { from: Address; value: U64 };
+  consume: { account: Address; units: U64 };
+}
+export interface TokenReadMethods {
+  get_config: [Record<string, never>, ValueResult<TokenConfig>];
+  get_account: [{ account: Address }, ValueResult<TokenAccount> & { capacity: string }];
+  balance_of: [{ owner: Address }, { value: string }];
+  total_supply: [Record<string, never>, { value: string }];
+  name: [Record<string, never>, { value: string }];
+  symbol: [Record<string, never>, { value: string }];
+  decimals: [Record<string, never>, { value: number }];
+}
 export interface ContractWriteMethods {
+  messaging: MessagingWriteMethods;
+  token: TokenWriteMethods;
   identity: IdentityWriteMethods;
   relationships: RelationshipsWriteMethods;
   publications: PublicationsWriteMethods;
@@ -613,6 +653,8 @@ export interface ContractWriteMethods {
   registry: RegistryWriteMethods;
 }
 export interface ContractReadMethods {
+  messaging: MessagingReadMethods;
+  token: TokenReadMethods;
   identity: IdentityReadMethods;
   relationships: RelationshipsReadMethods;
   publications: PublicationsReadMethods;
@@ -890,6 +932,13 @@ export interface AdminChangedEvent {
 
 /** Event payload types keyed by full event name. */
 export interface EventPayloads {
+  "osp.messaging.conversation_changed": { value: ConversationRecord; timestamp: string };
+  "osp.messaging.message_sent": { value: DirectMessageRecord; envelope: Bytes; timestamp: string };
+  "osp.token.account_updated": { account: string; value: TokenAccount; timestamp: string };
+  "osp.token.supported": { actor: string; recipient: string; post_id: Bytes; reward: string; timestamp: string };
+  "osp.token.transfer": { from: string; to: string; value: string; timestamp: string };
+  "osp.token.burn": { from: string; value: string; timestamp: string };
+  "osp.token.policy_changed": { reward_amount: string; daily_reward_cap: string; recipient_daily_cap: string; timestamp: string };
   "osp.identity.registered": RegisteredEvent;
   "osp.identity.profile_updated": ProfileUpdatedEvent;
   "osp.identity.key_rotated": KeyRotatedEvent;

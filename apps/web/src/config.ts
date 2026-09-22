@@ -66,7 +66,7 @@ export function presetRpc(network: string, deployments: Record<string, Deploymen
 }
 
 export const APP_NAME = "Open Social";
-export const APP_VERSION = "0.1.0";
+export const APP_VERSION = "0.2.0";
 export const DOCS = {
   deployTestnet: "docs/deploy-testnet.md",
   repository: "https://github.com/therexdev/Open-Social-Protocol",

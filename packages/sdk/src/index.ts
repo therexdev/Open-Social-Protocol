@@ -16,3 +16,5 @@ export * from "./profile.js";
 export * from "./reconcile.js";
 export type { Abi, OperationJson, CallContractOperationJson, TransactionJson, TransactionReceipt, TransactionHeaderJson, ProviderInterface, SignerInterface, EventData as KoilibEventData, BlockReceipt } from "koilib";
 export { Signer, Provider, Contract, Transaction, Serializer, utils as koilibUtils } from "koilib";
+
+export * from "./crypto/messaging.js";

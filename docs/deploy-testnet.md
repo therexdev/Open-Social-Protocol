@@ -1,13 +1,12 @@
 # Launching on the Koinos Harbinger testnet
 
 ## What gets deployed
-Six contracts (`identity`, `relationships`, `publications`, `communities`, `sponsorship`,
-`registry`), wired together and recorded in `deployments/harbinger.json`.
+Eight contracts (`identity`, `relationships`, `publications`, `communities`, `sponsorship`,
+`registry`, `messaging`, `token`), wired together and recorded in `deployments/harbinger.json`.
 
 ## Prerequisites
 1. A funded Harbinger account. Request tKOIN in the `#faucet` channel of the official Koinos
-   Discord (`!faucet <address>`, 100 tKOIN per request). Deployment of all six contracts needs
-   roughly 20-40 Mana at current testnet prices; the deploy script prints the measured RC per
+   Discord (`!faucet <address>`, 100 tKOIN per request). Deployment of all eight contracts requires measured Mana; do not reuse the old six-contract estimate; the deploy script prints the measured RC per
    contract.
 2. Node 22 and `npm install` at the repository root.
 

@@ -31,6 +31,8 @@ export const CONTRACTS = [
   "communities",
   "sponsorship",
   "registry",
+  "messaging",
+  "token",
 ];
 const CLIENT_ONLY = ["envelope"];
 

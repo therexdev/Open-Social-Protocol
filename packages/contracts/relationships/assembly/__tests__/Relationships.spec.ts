@@ -676,7 +676,7 @@ describe("relationships: remove_friend", () => {
     befriend(ALICE, BOB);
   });
 
-  it("deactivates the edge, advances the actor epoch and emits friend_removed + audience_rotated", () => {
+  it("deactivates the edge and rotates BOTH audience keys", () => {
     Testing.setTime(T0 + HOUR);
     const before = eventCount();
     asOwner(ALICE, 1);
@@ -689,9 +689,9 @@ describe("relationships: remove_friend", () => {
 
     expect(epochOf(ALICE)).toBe(1);
     expect(audienceUpdatedAt(ALICE)).toBe(T0 + HOUR);
-    expect(epochOf(BOB)).toBe(0, "peer epoch unchanged");
+    expect(epochOf(BOB)).toBe(1, "peer also needs a new key");
 
-    expect(eventCount()).toBe(before + 2);
+    expect(eventCount()).toBe(before + 3);
     const removedEv = eventAt(before);
     expect(removedEv.name).toBe("osp.relationships.friend_removed");
     expectImpacted(removedEv, [ALICE, BOB]);
@@ -717,7 +717,7 @@ describe("relationships: remove_friend", () => {
     removeFriend(BOB, ALICE);
     expect(<i32>relOrFail(ALICE, BOB).status).toBe(INACTIVE);
     expect(epochOf(BOB)).toBe(1);
-    expect(epochOf(ALICE)).toBe(0);
+    expect(epochOf(ALICE)).toBe(1);
   });
 
   it("rejects removal when the edge is not active", () => {
@@ -728,7 +728,7 @@ describe("relationships: remove_friend", () => {
     }).toThrow();
     expectRevert("not friends");
     expect(relOrFail(ALICE, BOB).nonce).toBe(3);
-    expect(epochOf(BOB)).toBe(0);
+    expect(epochOf(BOB)).toBe(1);
 
     // Pending edges cannot be removed either.
     doRequest(ALICE, CAROL);
@@ -773,7 +773,7 @@ describe("relationships: remove_friend", () => {
     doRemove(ALICE, CAROL);
     expect(epochOf(ALICE)).toBe(2);
     expect(relOrFail(ALICE, CAROL).nonce).toBe(3);
-    const rotated = Protobuf.decode<relationships.audience_rotated_event>(lastEvent().data, relationships.audience_rotated_event.decode);
+    const rotated = Protobuf.decode<relationships.audience_rotated_event>(eventAt(1).data, relationships.audience_rotated_event.decode);
     expect(rotated.new_epoch).toBe(2);
     expect(rotated.reason!).toBe("friend_removed");
   });
@@ -824,9 +824,9 @@ describe("relationships: block", () => {
     expect(isFollowing(BOB, CAROL)).toBe(true, "unrelated follows untouched");
 
     expect(epochOf(ALICE)).toBe(1);
-    expect(epochOf(BOB)).toBe(0);
+    expect(epochOf(BOB)).toBe(1);
 
-    expect(eventCount()).toBe(before + 2, "exactly blocked + audience_rotated");
+    expect(eventCount()).toBe(before + 3, "blocked + both audience rotations");
     const blockedEv = eventAt(before);
     expect(blockedEv.name).toBe("osp.relationships.blocked");
     expectImpacted(blockedEv, [ALICE, BOB]);
@@ -882,7 +882,7 @@ describe("relationships: block", () => {
     doRemove(BOB, ALICE); // 3
     doBlock(ALICE, BOB);
     expect(relOrFail(ALICE, BOB).nonce).toBe(3);
-    expect(epochOf(ALICE)).toBe(1);
+    expect(epochOf(ALICE)).toBe(2);
   });
 
   it("rejects blocking yourself", () => {

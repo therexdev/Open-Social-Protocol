@@ -317,3 +317,57 @@ corresponding `*_event` message.
 
 Hidden graph metadata, erasure of delivered plaintext, direct messaging, protocol tokens,
 stake-weighted ranking in the base feed, remote-hosted extension code.
+
+## V1 revision: messaging and action tokens (September 22, 2026)
+
+This revision adds `messaging` and `token` to the deployment and schema registry.
+It supersedes older MVP statements deferring all private messaging or native tokens.
+Group chat and a reviewed group-key protocol remain outside this implementation.
+
+### Direct messaging
+
+`request_conversation` creates a pending request for a canonical address pair.
+`accept_conversation` requires the other participant's MESSAGING authority (bit 64).
+Both operations bind the exact conversation generation. Either participant may close;
+a new generation requires a new request and acceptance. Block checks run on each new
+request, acceptance and send. Close is allowed even while blocked or out of credits.
+
+`send_message` records a 32-byte sender-scoped message ID, SHA-256 ciphertext commitment,
+recipient, generation, sequence and timestamp. The ciphertext, at most 4,096 bytes, is
+emitted in a canonical event. Repeating the same ID and exact content returns the original
+record; conflicting content is rejected. The web outbox persists ciphertext before signing.
+
+The SDK encrypts up to 2,500 UTF-8 plaintext bytes with a fresh 32-byte content key and
+XChaCha20-Poly1305. That key is sealed to each participant's on-chain X25519 key. AEAD
+associated data binds the chain, messaging contract, parties, message ID and generation.
+The web client verifies the on-chain message record before displaying plaintext; an indexer
+cannot substitute author, recipient, ciphertext or generation. No forward-secrecy ratchet is
+claimed. Seed/key compromise can expose earlier retained ciphertext. Metadata remains public.
+
+### Action token and capacity
+
+`token.support` consumes one action credit and rewards the stored author of an active post,
+subject to anti-self-support, block, uniqueness, daily recipient/global and total-supply limits.
+SUPPORT is device capability bit 128. Token transfer and burn always resolve owner authority;
+a messaging or support device permission never confers token-transfer authority.
+
+See `v1-testing.md` for the complete numeric pilot defaults and hard limits in `Token.ts`.
+Account state separates token balance, free credits and token-backed credits. Regeneration
+uses block timestamps. A transfer moves proportional remaining token-backed credits along
+with the tokens. The sender and recipient are settled at the same timestamp before moving
+capacity, so repeated transfers cannot reset usage. Free credits remain with their account.
+Only configured protocol contracts may call `consume` for their authenticated actor.
+
+There is no dependency on ranking/moderation decisions and no promise of token value.
+Testnet parameters do not finalize a mainnet monetary or reward policy.
+
+### Privacy and compatibility
+
+Removing an active friendship rotates **both** parties' audience epochs. Blocking an active
+friend also rotates both; unrelated blocks do not rotate the target. Past plaintext and keys
+cannot be remotely revoked. The indexer applies both canonical audience-rotation events.
+
+Indexer schema v2 adds conversations, ciphertext history, token accounts and token activity.
+All are deterministic projections, rebuildable from the canonical log; reads return metadata
+and ciphertext only. Eight-address manifests are required by this client release. A prior
+six-contract deployment must be extended and verified before deploying this frontend.

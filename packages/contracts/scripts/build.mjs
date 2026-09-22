@@ -26,23 +26,22 @@ const repoRoot = resolve(pkgRoot, "..", "..");
 const schemaDir = resolve(repoRoot, "packages", "proto", "osp");
 const includeDir = join(pkgRoot, "proto-deps");
 
-export const CONTRACTS = ["identity", "relationships", "publications", "communities", "sponsorship", "registry"];
+export const CONTRACTS = ["identity", "relationships", "publications", "communities", "sponsorship", "registry", "messaging", "token"];
 // Schemas a contract needs message classes for (cross-contract calls), besides its own.
 export const DEPENDENCIES = {
   identity: [],
-  relationships: ["identity"],
-  publications: ["identity", "relationships"],
+  relationships: ["identity", "token"],
+  publications: ["identity", "relationships", "token"],
   communities: ["identity"],
   sponsorship: [],
   registry: [],
+  messaging: ["identity", "relationships", "token"],
+  token: ["identity", "relationships", "publications"],
 };
 
 function bin(name) {
   // Resolve a workspace binary regardless of hoisting.
-  const candidates = [
-    join(pkgRoot, "node_modules", ".bin", name),
-    join(repoRoot, "node_modules", ".bin", name),
-  ];
+  const candidates = [join(pkgRoot, "node_modules", ".bin", name), join(repoRoot, "node_modules", ".bin", name)];
   for (const c of candidates) if (existsSync(c)) return c;
   throw new Error(`binary not found: ${name} (run npm install)`);
 }
@@ -59,7 +58,12 @@ function runProtoc(args, cwd, attempts = 3) {
   const protoc = bin("protoc");
   let lastErr;
   for (let i = 0; i < attempts; i += 1) {
-    const res = spawnSync(protoc, args, { cwd, stdio: "inherit", env: { ...process.env, PATH: `${dirname(protoc)}:${process.env.PATH}` } });
+    const inputs = args.map((arg) => (arg.endsWith(".proto") && !arg.startsWith("-") ? resolve(cwd, arg) : arg));
+    const res = spawnSync(protoc, inputs, {
+      cwd,
+      stdio: "inherit",
+      env: { ...process.env, PATH: `${dirname(protoc)}:${process.env.PATH}` },
+    });
     if (res.status === 0) return;
     lastErr = new Error(`protoc ${args.join(" ")} failed with status ${res.status}`);
   }
@@ -95,19 +99,35 @@ function generate(name) {
 
   // Message classes for the contract schema and its dependencies.
   runProtoc(
-    [`-I${dir}`, `-I${includeDir}`, `--plugin=protoc-gen-as=${wrapperFor("as-proto-gen")}`, `--as_out=${dir}`, `assembly/proto/${name}.proto`, ...depNames.map((d) => `assembly/proto/${d}.proto`)],
+    [
+      `-I${dir}`,
+      `-I${includeDir}`,
+      `--plugin=protoc-gen-as=${wrapperFor("as-proto-gen")}`,
+      `--as_out=${dir}`,
+      `assembly/proto/${name}.proto`,
+      ...depNames.map((d) => `assembly/proto/${d}.proto`),
+    ],
     dir
   );
   // Entry-point dispatch (index.ts) and boilerplate.
   runProtoc(
-    [`-I${dir}`, `-I${includeDir}`, `--plugin=protoc-gen-as=${wrapperFor("koinos-as-gen")}`, `--as_out=${assembly}`, `assembly/proto/${name}.proto`],
+    [
+      `-I${dir}`,
+      `-I${includeDir}`,
+      `--plugin=protoc-gen-as=${wrapperFor("koinos-as-gen")}`,
+      `--as_out=${assembly}`,
+      `assembly/proto/${name}.proto`,
+    ],
     dir
   );
   // Koinos-format ABI: descriptor set (with imports) + method table.
   const abiDir = join(dir, "abi");
   mkdirSync(abiDir, { recursive: true });
   const descriptorPath = join(abiDir, `${name}.pb`);
-  runProtoc([`-I${dir}`, `-I${includeDir}`, "--include_imports", `--descriptor_set_out=${descriptorPath}`, `assembly/proto/${name}.proto`], dir);
+  runProtoc(
+    [`-I${dir}`, `-I${includeDir}`, "--include_imports", `--descriptor_set_out=${descriptorPath}`, `assembly/proto/${name}.proto`],
+    dir
+  );
   const abi = koinosAbi(name, readFileSync(src, "utf8"), readFileSync(descriptorPath));
   writeFileSync(join(abiDir, `${name}.abi`), JSON.stringify(abi, null, 2) + "\n");
   rmSync(descriptorPath);
@@ -166,11 +186,16 @@ function compile(name, mode) {
   const args = [
     asc,
     "assembly/index.ts",
-    "--target", mode,
-    "--use", "abort=",
-    "--use", "BUILD_FOR_TESTING=0",
-    "--disable", "sign-extension",
-    "--config", "asconfig.json",
+    "--target",
+    mode,
+    "--use",
+    "abort=",
+    "--use",
+    "BUILD_FOR_TESTING=0",
+    "--disable",
+    "sign-extension",
+    "--config",
+    "asconfig.json",
   ];
   run(process.execPath, args, { cwd: dir });
   const collected = join(pkgRoot, "build", mode);
@@ -178,29 +203,33 @@ function compile(name, mode) {
   copyFileSync(join(outDir, "contract.wasm"), join(collected, `${name}.wasm`));
   copyFileSync(join(dir, "abi", `${name}.abi`), join(collected, `${name}.abi`));
   const wasm = readFileSync(join(outDir, "contract.wasm"));
-  const abiHash = createHash("sha256").update(readFileSync(join(dir, "abi", `${name}.abi`))).digest("hex");
+  const abiHash = createHash("sha256")
+    .update(readFileSync(join(dir, "abi", `${name}.abi`)))
+    .digest("hex");
   const wasmHash = createHash("sha256").update(wasm).digest("hex");
   return { name, mode, bytes: wasm.length, wasmSha256: wasmHash, abiSha256: abiHash };
 }
 
-const [, , command = "release", only] = process.argv;
-const targets = only ? [only] : CONTRACTS.filter((c) => existsSync(join(pkgRoot, c, "asconfig.json")));
-if (targets.length === 0) {
-  console.error("no contracts found (expected <name>/asconfig.json)");
-  process.exit(1);
-}
-
-const summary = [];
-for (const name of targets) {
-  console.log(`[contracts] generating ${name}`);
-  generate(name);
-  if (command === "debug" || command === "release") {
-    console.log(`[contracts] compiling ${name} (${command})`);
-    summary.push(compile(name, command));
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const [, , command = "release", only] = process.argv;
+  const targets = only ? [only] : CONTRACTS.filter((c) => existsSync(join(pkgRoot, c, "asconfig.json")));
+  if (targets.length === 0) {
+    console.error("no contracts found (expected <name>/asconfig.json)");
+    process.exit(1);
   }
-}
-if (summary.length > 0) {
-  const manifestPath = join(pkgRoot, "build", command, "manifest.json");
-  writeFileSync(manifestPath, JSON.stringify({ generatedAt: "build", contracts: summary }, null, 2) + "\n");
-  for (const s of summary) console.log(`[contracts] ${s.name}: ${s.bytes} bytes wasm sha256=${s.wasmSha256.slice(0, 16)}...`);
+
+  const summary = [];
+  for (const name of targets) {
+    console.log(`[contracts] generating ${name}`);
+    generate(name);
+    if (command === "debug" || command === "release") {
+      console.log(`[contracts] compiling ${name} (${command})`);
+      summary.push(compile(name, command));
+    }
+  }
+  if (summary.length > 0) {
+    const manifestPath = join(pkgRoot, "build", command, "manifest.json");
+    writeFileSync(manifestPath, JSON.stringify({ generatedAt: "build", contracts: summary }, null, 2) + "\n");
+    for (const s of summary) console.log(`[contracts] ${s.name}: ${s.bytes} bytes wasm sha256=${s.wasmSha256.slice(0, 16)}...`);
+  }
 }

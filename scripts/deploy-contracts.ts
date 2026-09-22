@@ -49,7 +49,7 @@ async function main(): Promise<void> {
   log(`rpc:      ${preset.rpc.join(", ")}`);
   log(`chain id: ${chainId}`);
   if (preset.expectedChainId && preset.expectedChainId !== chainId) {
-    log(`WARNING: expected chain id ${preset.expectedChainId}; the RPC reports ${chainId}. Continuing with the RPC value.`);
+    throw new Error(`Wrong chain: expected ${preset.expectedChainId}, received ${chainId}`);
   }
   log(`deployer: ${deployerAddress} (rc: ${formatMana(await provider.getAccountRc(deployerAddress))})`);
   if (dryRun) log("mode:     DRY RUN (transactions are simulated with broadcast=false; nothing is committed)");
@@ -182,6 +182,17 @@ async function main(): Promise<void> {
   const comCfg = await read("communities", "get_identity_contract");
   if (comCfg?.value !== identity) await call("communities", "set_identity_contract", { address: identity }, signers.get("communities")!);
   else log("[communities] identity contract already set");
+
+  for (const name of ["relationships", "publications"] as const) {
+    const usage = await read(name, "get_token_contract");
+    if (usage?.value !== address("token")) await call(name, "set_token_contract", { address: address("token") }, signers.get(name)!);
+  }
+  const messagingDeps = await read("messaging", "get_dependencies").catch(() => undefined);
+  if (messagingDeps?.identity !== identity || messagingDeps?.relationships !== relationships || messagingDeps?.token !== address("token")) {
+    await call("messaging", "set_dependencies", { identity, relationships, token: address("token") }, signers.get("messaging")!);
+  }
+  const tokenConfig = await read("token", "get_config");
+  if (!tokenConfig?.value) await call("token", "init", { identity, relationships, publications: address("publications"), messaging: address("messaging") }, signers.get("token")!);
 
   // 3. Registry bootstrap.
   const admin = process.env.OSP_REGISTRY_ADMIN || deployerAddress;

@@ -240,3 +240,12 @@ message audience_rotated_event {
   string reason = 3;
   uint64 timestamp = 4 [jstype = JS_STRING];
 }
+
+// @description Configure protocol usage limits (contract account only)
+// @read-only false
+message set_token_contract_arguments { bytes address = 1 [(koinos.btype) = ADDRESS]; }
+message set_token_contract_result {}
+// @description Get protocol usage contract
+// @read-only true
+message get_token_contract_arguments {}
+message get_token_contract_result { bytes value = 1 [(koinos.btype) = ADDRESS]; }

@@ -9,6 +9,7 @@
  * Uint8Array, uint64 are decimal strings, enums are numbers.
  */
 import { encode, parseKeyPackageSet, toBase58, toBase64url, type ContractName, type ProtoObject } from "@osp/sdk";
+import { toJsonValue } from "./hash.js";
 import type { IndexerDb, Row } from "./db.js";
 import { decodeEventDataFixed } from "./decode.js";
 
@@ -784,6 +785,21 @@ function applyRegistry(db: IndexerDb, event: LogEvent): void {
 /** Applies one decoded event to the projections. Must run inside a transaction. */
 export function applyEvent(db: IndexerDb, event: LogEvent): void {
   switch (event.contract) {
+    case "messaging": {
+      const d=event.data, v=d.value as Record<string, unknown>;
+      if(event.name === "osp.messaging.conversation_changed" && v) {
+        db.run("INSERT INTO conversations VALUES (?,?,?,?) ON CONFLICT(a,b) DO UPDATE SET data_json=excluded.data_json,updated_at=excluded.updated_at",str(v.a),str(v.b),JSON.stringify(toJsonValue(v)),str(v.updated_at));
+      } else if(event.name === "osp.messaging.message_sent" && v) {
+        db.run("INSERT INTO direct_messages VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(sender,message_id) DO NOTHING",str(v.sender),str(v.recipient),b64(v.message_id),str(v.sequence),JSON.stringify(toJsonValue(v)),bytes(d.envelope),event.height,event.txId);
+      }
+      return;
+    }
+    case "token": {
+      const d=event.data;
+      if(event.name === "osp.token.account_updated") db.run("INSERT INTO token_accounts VALUES (?,?) ON CONFLICT(account) DO UPDATE SET data_json=excluded.data_json",str(d.account),JSON.stringify(toJsonValue(d.value)));
+      else db.run("INSERT INTO token_activity VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(height,tx_index,sequence) DO NOTHING",event.height,event.txIndex,event.sequence,str(d.actor||d.from),str(d.recipient||d.to),event.name,JSON.stringify(toJsonValue(d)),event.txId);
+      return;
+    }
     case "identity":
       return applyIdentity(db, event);
     case "relationships":

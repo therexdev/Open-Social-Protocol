@@ -126,7 +126,7 @@ describe("discovery", () => {
     expect(doc.policy.perUser).toEqual({ dailyOps: 200, burstOps: 20, burstWindowSec: 60 });
     const contracts = doc.policy.allowed.map((a) => a.contract).sort();
     expect(contracts).toEqual(
-      [deployment.contracts.identity, deployment.contracts.relationships, deployment.contracts.publications, deployment.contracts.communities]
+      [deployment.contracts.identity, deployment.contracts.relationships, deployment.contracts.publications, deployment.contracts.communities, deployment.contracts.messaging, deployment.contracts.token]
         .map((c) => c.address)
         .sort(),
     );

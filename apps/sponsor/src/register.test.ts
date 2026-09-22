@@ -44,7 +44,7 @@ describe("desiredRecord / recordMatches", () => {
     expect(desired.endpoint).toBe("https://sponsor.example.org");
     expect(desired.policy_uri).toBe("https://sponsor.example.org/.well-known/osp-sponsor.json");
     expect(desired.policy_version).toBe(3);
-    expect(desired.allowed).toHaveLength(4);
+    expect(desired.allowed).toHaveLength(6);
     expect(desired.max_rc_per_op).toBe("200000000");
     expect(desired.max_ops_per_user_per_day).toBe(200);
     expect(desired.max_bytes_per_op).toBe(6144);
@@ -90,7 +90,7 @@ describe("ensureRegistered", () => {
     expect(decoded?.method).toBe("set_sponsor");
     expect(decoded?.args.endpoint).toBe("https://sponsor.example.org");
     expect(decoded?.args.policy_version).toBe(3);
-    expect((decoded?.args.allowed as unknown[]).length).toBe(4);
+    expect((decoded?.args.allowed as unknown[]).length).toBe(6);
     expect(logs.some((l) => /creating on-chain sponsor record/.test(l))).toBe(true);
 
     // stale record -> update

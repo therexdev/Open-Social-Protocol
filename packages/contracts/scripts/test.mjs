@@ -12,6 +12,7 @@ import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CONTRACTS } from "./build.mjs";
+import { contractTestsPassed } from "./test-result.mjs";
 
 const require = createRequire(import.meta.url);
 const here = dirname(fileURLToPath(import.meta.url));
@@ -86,9 +87,14 @@ for (const name of only ? [only] : CONTRACTS) {
   const asconfig = writeAsconfig(dir);
   const res = spawnSync(bin("asp"), ["--config", "as-pect.config.js", "--as-config", asconfig], {
     cwd: dir,
-    stdio: "inherit",
+    stdio: ["ignore", "pipe", "pipe"],
+    encoding: "utf8",
+    maxBuffer: 32 * 1024 * 1024,
     env: { ...process.env, OSP_ASPECT_ASSEMBLY_INDEX: aspectAssemblyIndex },
   });
-  if (res.status !== 0) failed = true;
+  process.stdout.write(res.stdout ?? "");
+  process.stderr.write(res.stderr ?? "");
+  // as-pect 8 can exit zero even when assertions fail. Require its actual summary.
+  if (!contractTestsPassed(res.status, res.stdout ?? "")) failed = true;
 }
 process.exit(failed ? 1 : 0);

@@ -1,6 +1,6 @@
 name: deploy-testnet
 
-# Deploys the six protocol contracts to the Koinos Harbinger testnet from a GitHub runner.
+# Deploys the eight protocol contracts to the Koinos Harbinger testnet from a GitHub runner.
 # Required repository secrets:
 #   KOINOS_HARBINGER_DEPLOYER_WIF  private key (WIF) of a tKOIN-funded account (pays Mana)
 #   OSP_CONTRACT_SEED              long random string; contract addresses derive from it
@@ -50,6 +50,13 @@ jobs:
           npm run build -w packages/contracts
       - name: Contract build manifest
         run: cat packages/contracts/build/release/manifest.json
+      - name: Check deployment credentials
+        env:
+          DEPLOYER_KEY: ${{ secrets.KOINOS_HARBINGER_DEPLOYER_WIF }}
+          CONTRACT_SEED: ${{ secrets.OSP_CONTRACT_SEED }}
+        run: |
+          test -n "$DEPLOYER_KEY" || { echo "::error::Configure KOINOS_HARBINGER_DEPLOYER_WIF with a funded Harbinger account"; exit 1; }
+          test -n "$CONTRACT_SEED" || { echo "::error::Configure OSP_CONTRACT_SEED and retain it for upgrades"; exit 1; }
       - name: Deploy
         env:
           KOINOS_HARBINGER_DEPLOYER_WIF: ${{ secrets.KOINOS_HARBINGER_DEPLOYER_WIF }}

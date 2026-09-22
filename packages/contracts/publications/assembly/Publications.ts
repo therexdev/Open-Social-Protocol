@@ -20,6 +20,7 @@
 // contract account.
 import { System, Storage, Protobuf, authority, Arrays, Crypto } from "@koinos/sdk-as";
 import { publications } from "./proto/publications";
+import { token } from "./proto/token";
 import { relationships } from "./proto/relationships";
 import { Actor, Capability, IS_BLOCKED_ENTRY_POINT } from "./common/actor";
 import { Util } from "./common/util";
@@ -67,6 +68,20 @@ const MAX_LIFECYCLE_STATE: i32 = <i32>publications.lifecycle_state.superseded;
 const MAX_OUTCOME_STATE: i32 = <i32>publications.outcome_state.reconcile_required;
 
 export class Publications {
+  usage: Storage.Obj<publications.get_token_contract_result> = new Storage.Obj<publications.get_token_contract_result>(System.getContractId(), 20, publications.get_token_contract_result.decode, publications.get_token_contract_result.encode, null);
+  set_token_contract(args: publications.set_token_contract_arguments): publications.set_token_contract_result {
+    System.requireAuthority(authority.authorization_type.contract_call, System.getContractId());
+    this.usage.put(new publications.get_token_contract_result(Util.requireAddress(args.address,"token")));
+    return new publications.set_token_contract_result();
+  }
+  get_token_contract(args: publications.get_token_contract_arguments): publications.get_token_contract_result {
+    const c=this.usage.get();return c==null?new publications.get_token_contract_result():c;
+  }
+  consume(account: Uint8Array): void {
+    const c=this.usage.get();if(c==null || Util.isEmpty(c.value))return; // pre-token deployments
+    const result=System.call(c.value!, 0x96f39e35, Protobuf.encode(new token.consume_arguments(account,1),token.consume_arguments.encode));
+    System.require(result.code==0,"usage allowance exhausted");
+  }
   contractId: Uint8Array;
   posts: Storage.Map<Uint8Array, publications.post_record>;
   authors: Storage.Map<Uint8Array, publications.author_state>;
@@ -402,6 +417,7 @@ export class Publications {
       this.posts.put(postId, record);
     }
 
+    this.consume(author);
     const impacted: Uint8Array[] = [author];
     if (replyAuthor != null && !Arrays.equal(replyAuthor, author)) impacted.push(replyAuthor);
 
@@ -498,6 +514,7 @@ export class Publications {
     const impacted: Uint8Array[] = [actor];
     if (!Arrays.equal(postAuthor, actor)) impacted.push(postAuthor);
 
+    if (!args.remove) this.consume(actor);
     const ev = new publications.reaction_event(actor, postId, postAuthor, args.reaction, args.remove, now);
     System.event(
       "osp.publications.reaction",

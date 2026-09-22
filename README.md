@@ -7,12 +7,22 @@ project proposal, roadmap, technical plan and whitepaper (`docs/`):
 
 | Product | Location | What it is |
 | --- | --- | --- |
-| **Protocol** | `packages/proto`, `packages/contracts`, `packages/sdk` | Versioned Protobuf schemas, six AssemblyScript Koinos contracts, TypeScript SDK with encryption, signing, reconciliation and golden vectors |
+| **Protocol** | `packages/proto`, `packages/contracts`, `packages/sdk` | Versioned Protobuf schemas, eight AssemblyScript Koinos contracts, TypeScript SDK with encryption, signing, reconciliation and golden vectors |
 | **Reference web client** | `apps/web` | Responsive React client: onboarding, key vault, feed, composer, profiles, friends, notifications, settings, recovery. Static build hosted on Hostinger from GitHub |
 | **Browser extension** | `apps/extension` | Chrome Manifest V3: key-isolated service worker, side panel feed/composer, generic sidebar, Facebook cross-post adapter with idempotent reconciliation |
 | **Infrastructure** | `apps/indexer`, `apps/sponsor`, `scripts/`, `deployments/` | Replayable indexer with query API, Mana sponsor service, testnet deployment tooling |
 
 Core proposition: *your identity, relationships and content should outlive any one application.*
+
+## V1 update - September 22
+
+Encrypted direct messages (recipient consent, verified ciphertext, refresh-safe retries),
+action tokens, capped Support rewards and regenerative usage limits are implemented.
+Friendship removal rotates both users' future audience keys. Messages and Tokens are in
+the web app; the extension continues to provide the feed and Facebook cross-posting.
+
+Read [the testing handoff](docs/v1-testing.md) for deployment prerequisites, test steps and
+explicit pilot economics. Live Harbinger deployment is **not confirmed** by this source update.
 
 ## Status
 
@@ -57,7 +67,7 @@ the `hostinger-static` branch produced by `.github/workflows/deploy-web.yml`.
 ```
 packages/proto        schemas (osp/*.proto) + generated descriptors and koilib ABIs
 packages/contracts    AssemblyScript contracts: identity, relationships, publications,
-                      communities, sponsorship, registry (+ mock-VM unit tests)
+                      communities, sponsorship, registry, messaging, token (+ mock-VM unit tests)
 packages/sdk          @osp/sdk: ids, canonical encoding, encryption, protocol client,
                       sponsor client, reconciliation state machine, proof manifests, vectors
 apps/web              reference client (Vite + React)

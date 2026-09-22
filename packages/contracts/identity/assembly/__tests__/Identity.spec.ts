@@ -415,7 +415,7 @@ describe("identity: devices", () => {
     }).toThrow();
     expectRevert("capabilities must not be empty");
     expect(() => {
-      contract.authorize_device(new identity.authorize_device_arguments(ALICE, DEVICE, 64, T0 + DAY, ""));
+      contract.authorize_device(new identity.authorize_device_arguments(ALICE, DEVICE, 256, T0 + DAY, ""));
     }).toThrow();
     expectRevert("unknown capability bits");
     expect(() => {

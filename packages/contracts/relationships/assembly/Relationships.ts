@@ -16,6 +16,7 @@
 // block/unblock are owner-only (no device field).
 import { System, Storage, Protobuf, authority, Arrays } from "@koinos/sdk-as";
 import { relationships } from "./proto/relationships";
+import { token } from "./proto/token";
 import { Actor, Capability } from "./common/actor";
 import { Util } from "./common/util";
 
@@ -43,6 +44,20 @@ const REASON_BLOCKED: string = "blocked";
 const REASON_MANUAL: string = "manual";
 
 export class Relationships {
+  usage: Storage.Obj<relationships.get_token_contract_result> = new Storage.Obj<relationships.get_token_contract_result>(System.getContractId(), 20, relationships.get_token_contract_result.decode, relationships.get_token_contract_result.encode, null);
+  set_token_contract(args: relationships.set_token_contract_arguments): relationships.set_token_contract_result {
+    System.requireAuthority(authority.authorization_type.contract_call, System.getContractId());
+    this.usage.put(new relationships.get_token_contract_result(Util.requireAddress(args.address,"token")));
+    return new relationships.set_token_contract_result();
+  }
+  get_token_contract(args: relationships.get_token_contract_arguments): relationships.get_token_contract_result {
+    const c=this.usage.get();return c==null?new relationships.get_token_contract_result():c;
+  }
+  consume(account: Uint8Array): void {
+    const c=this.usage.get();if(c==null || Util.isEmpty(c.value))return; // pre-token deployments
+    const result=System.call(c.value!, 0x96f39e35, Protobuf.encode(new token.consume_arguments(account,1),token.consume_arguments.encode));
+    System.require(result.code==0,"usage allowance exhausted");
+  }
   contractId: Uint8Array;
   edges: Storage.Map<Uint8Array, relationships.relationship_record>;
   blocks: Storage.Map<Uint8Array, relationships.block_record>;
@@ -139,6 +154,7 @@ export class Relationships {
   /** Advance the account's friends-audience epoch by one; returns the new epoch. */
   advanceEpoch(account: Uint8Array, now: u64): u32 {
     const state = this.loadAudience(account);
+    System.require(state.epoch < u32.MAX_VALUE, "audience epoch exhausted");
     state.epoch = state.epoch + 1;
     state.updated_at = now;
     this.audiences.put(account, state);
@@ -213,6 +229,7 @@ export class Relationships {
     );
     this.edges.put(key, rec);
 
+    this.consume(requester);
     const ev = new relationships.friend_requested_event(requester, recipient, nonce, now);
     System.event(
       "osp.relationships.friend_requested",
@@ -230,6 +247,7 @@ export class Relationships {
     System.require(!Arrays.equal(approver, requester), "approver and requester must differ");
 
     Actor.requireAuthorized(this.identityContract(), approver, args.device, Capability.RELATIONSHIPS);
+    this.requireNotBlocked(approver, requester, "requester");
     const keyPackageRef = this.optionalKeyPackageRef(args.key_package_ref);
 
     const key = this.pairKey(approver, requester);
@@ -285,6 +303,7 @@ export class Relationships {
       [actor, peer]
     );
     this.emitAudienceRotated(actor, newEpoch, REASON_FRIEND_REMOVED, now);
+    this.emitAudienceRotated(peer, this.advanceEpoch(peer, now), REASON_FRIEND_REMOVED, now);
     return new relationships.remove_friend_result();
   }
 
@@ -310,6 +329,7 @@ export class Relationships {
     // blocked_event carries the nonce-bearing state change for indexers).
     const pairKey = this.pairKey(actor, target);
     const rec = this.edges.get(pairKey);
+    const wasActive = rec != null && rec.status == relationships.relationship_status.active;
     if (
       rec != null &&
       (rec.status == relationships.relationship_status.pending ||
@@ -334,6 +354,7 @@ export class Relationships {
       [actor, target]
     );
     this.emitAudienceRotated(actor, newEpoch, REASON_BLOCKED, now);
+    if (wasActive) this.emitAudienceRotated(target, this.advanceEpoch(target, now), REASON_BLOCKED, now);
     return new relationships.block_result();
   }
 
@@ -376,6 +397,7 @@ export class Relationships {
     const now = Util.now();
     this.follows.put(this.directedKey(follower, target), new relationships.follow_record(true, now));
 
+    this.consume(follower);
     const ev = new relationships.followed_event(follower, target, now);
     System.event(
       "osp.relationships.followed",
