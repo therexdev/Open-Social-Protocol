@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Signer } from "koilib";
 import type { OperationJson, TransactionJson, TransactionReceipt } from "koilib";
-import { ProtocolClient, TransactionOutcomeUnknownError, TransactionRevertedError, sponsoredRcLimit } from "./protocolClient.js";
+import { InsufficientManaError, ProtocolClient, TransactionOutcomeUnknownError, TransactionRevertedError, sponsoredRcLimit } from "./protocolClient.js";
 import {
   SponsorClient,
   SponsorError,
@@ -110,6 +110,53 @@ async function reactOp(client: ProtocolClient): Promise<OperationJson> {
 }
 
 describe("ProtocolClient", () => {
+  it("does not sign or broadcast a self-paid transaction with zero Mana", async () => {
+    const provider = fakeProvider({ rc: { [user.getAddress()]: "0" } });
+    const client = new ProtocolClient({ rpc: provider, deployment });
+    const operation = await reactOp(client);
+    await expect(client.submit({ operations: [operation], signer: user, sponsor: null })).rejects.toMatchObject({
+      name: "InsufficientManaError", payer: user.getAddress(), refusals: [],
+    });
+    expect(provider.sent).toHaveLength(0);
+    expect(provider.nonceCalls).toHaveLength(0);
+  });
+
+  it("preserves the sponsor refusal when an unfunded account cannot self-pay", async () => {
+    const provider = fakeProvider({ rc: { [user.getAddress()]: "0" } });
+    const sponsor = await fakeSponsor({ refuse: { status: 429, category: "quota_exceeded", message: "daily allowance exhausted" } });
+    const client = new ProtocolClient({ rpc: provider, deployment });
+    const operation = await reactOp(client);
+    const error = await client.submit({ operations: [operation], signer: user, sponsor: sponsor.client }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(InsufficientManaError);
+    expect(error).toMatchObject({
+      payer: user.getAddress(),
+      refusals: [{ endpoint: sponsor.client.endpoint, error: { category: "quota_exceeded", message: "daily allowance exhausted" } }],
+    });
+    expect((error as Error).message).toContain("daily allowance exhausted");
+    expect(provider.sent).toHaveLength(0);
+    expect(sponsor.received).toHaveLength(1);
+  });
+
+  it("still sponsors an account with no Mana of its own", async () => {
+    const provider = fakeProvider({ rc: { [user.getAddress()]: "0" } });
+    const sponsor = await fakeSponsor();
+    const client = new ProtocolClient({ rpc: provider, deployment });
+    const result = await client.submit({ operations: [await reactOp(client)], signer: user, sponsor: sponsor.client });
+    expect(result.sponsored).toBe(true);
+    expect(result.transaction.header?.rc_limit).toBe("200000000");
+    expect(provider.rcCalls).toHaveLength(0);
+  });
+
+  it.each([0, "0", "000", -1, 1.5, Number.MAX_SAFE_INTEGER + 1, "", "abc", "18446744073709551616"])(
+    "rejects an unusable explicit RC limit %s before preparing a transaction", async (rcLimit) => {
+      const provider = fakeProvider();
+      const client = new ProtocolClient({ rpc: provider, deployment });
+      await expect(client.prepare([await reactOp(client)], { payee: user.getAddress(), rcLimit })).rejects.toThrow();
+      expect(provider.nonceCalls).toHaveLength(0);
+      expect(provider.sent).toHaveLength(0);
+    },
+  );
+
   it("prepares sponsored transactions with payer = sponsor, payee = user and the payee's nonce", async () => {
     const provider = fakeProvider({ nonces: { [user.getAddress()]: 4, [sponsorSigner.getAddress()]: 40 }, rc: { [sponsorSigner.getAddress()]: "900" } });
     const client = new ProtocolClient({ rpc: provider, deployment });

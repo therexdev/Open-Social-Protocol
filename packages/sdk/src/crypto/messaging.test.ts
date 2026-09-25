@@ -30,7 +30,7 @@ describe("direct message confidentiality and binding", () => {
   it("rejects tampered bytes, false chain commitments and relayed contexts", () => {
     const e = encryptDirectMessage(context, "Private hello", people),
       bad = e.envelope.slice();
-    bad[bad.length - 1] ^= 1;
+    bad[bad.length - 1] = bad[bad.length - 1]! ^ 1;
     const secret = (v: number) => deriveEncryptionSecret(bob.seed, v);
     expect(() => decryptDirectMessage(context, bad, e.contentHash, bob.account, secret)).toThrow(/commitment/);
     expect(() => decryptDirectMessage(context, e.envelope, new Uint8Array(32), bob.account, secret)).toThrow(/commitment/);

@@ -65,6 +65,18 @@ farming. Tokens do not affect ranking, moderation or voting.
 
 ## What a test report should include
 
+### Zero-Mana transaction errors
+
+The chain can report `missing expected field in transaction header: rc_limit` when a
+transaction has `rc_limit: "0"`. Older clients could submit that transaction after a
+sponsor refusal fell back to an unfunded account, hiding the original refusal. Updated
+clients stop before signing or broadcasting and preserve the sponsor's rejection reason.
+In Settings, confirm the HTTPS sponsor URL, select **Sponsors only (never pay myself)**
+while testing sponsorship, and save endpoints. Existing browser settings override build
+defaults; replacing the frontend does not erase an account or its saved settings.
+
+### Reporting a failure
+
 Send the action, the exact error, device/browser, and transaction ID if shown.
 For a missing item, include whether the indexer has caught up. Never include a
 private key, recovery file, passphrase, decrypted private post or private message.

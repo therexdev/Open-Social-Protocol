@@ -78,6 +78,26 @@ export class ProtocolClientError extends Error {
   override name = "ProtocolClientError";
 }
 
+/** No transaction can be submitted with a zero Mana budget. Keep any sponsor refusals. */
+export class InsufficientManaError extends ProtocolClientError {
+  override name = "InsufficientManaError";
+
+  constructor(readonly payer: string, readonly refusals: SponsorRefusal[] = []) {
+    const reason = refusals.at(-1)?.error.message;
+    super(`Insufficient Mana to submit this transaction (payer ${payer}).${reason ? ` Sponsor declined: ${reason}` : " Configure a funded sponsor or fund the paying account."}`);
+  }
+}
+
+function validatedRcLimit(value: unknown, payer: string): string {
+  if (!((typeof value === "string" && /^\d+$/.test(value)) || (typeof value === "number" && Number.isSafeInteger(value) && value >= 0))) {
+    throw new ProtocolClientError("rcLimit must be an unsigned 64-bit integer");
+  }
+  const limit = BigInt(value);
+  if (limit > 0xffffffffffffffffn) throw new ProtocolClientError("rcLimit exceeds the unsigned 64-bit range");
+  if (limit === 0n) throw new InsufficientManaError(payer);
+  return limit.toString();
+}
+
 /**
  * The node did not answer in time (koilib returns a synthetic receipt carrying `rpc_error`):
  * the transaction may or may not have been accepted. Spec section 7: move the cross-post
@@ -207,11 +227,14 @@ export class ProtocolClient {
     if (operations.length === 0) throw new ProtocolClientError("no operations");
     const payer = options.payer ?? options.payee;
     const sponsored = payer !== options.payee;
+    // The chain reports rc_limit=0 as a missing header field. Reject it before signing or
+    // sending, including when a sponsor refusal falls back to an unfunded user account.
+    const rcLimit = validatedRcLimit(options.rcLimit ?? await this.provider.getAccountRc(payer), payer);
     const header: NonNullable<TransactionJson["header"]> = {
       chain_id: this.chainId,
       payer,
       ...(sponsored && { payee: options.payee }),
-      ...(options.rcLimit !== undefined && { rc_limit: options.rcLimit }),
+      rc_limit: rcLimit,
       ...(options.nonce !== undefined && { nonce: options.nonce }),
     };
     return Transaction.prepareTransaction({ header, operations: [...operations] }, this.provider, payer);
@@ -305,10 +328,18 @@ export class ProtocolClient {
         const last = attempt.refusals[attempt.refusals.length - 1];
         throw last?.error ?? new ProtocolClientError("every sponsor refused");
       }
-      const prepared = await this.prepare(options.operations, {
-        payee,
-        ...(options.rcLimit !== undefined && { rcLimit: options.rcLimit }),
-      });
+      let prepared: TransactionJson;
+      try {
+        prepared = await this.prepare(options.operations, {
+          payee,
+          ...(options.rcLimit !== undefined && { rcLimit: options.rcLimit }),
+        });
+      } catch (error) {
+        if (error instanceof InsufficientManaError && attempt.refusals.length > 0) {
+          throw new InsufficientManaError(payee, attempt.refusals);
+        }
+        throw error;
+      }
       const signed = await this.sign(prepared, options.signer);
       ({ transaction, receipt } = await this.broadcast(signed));
     }

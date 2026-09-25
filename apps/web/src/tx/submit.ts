@@ -3,7 +3,7 @@
  * pending / confirmed / failed toasts (Mana only inside the details expander) and human wording
  * for sponsor refusals.
  */
-import { ProtocolClient, SponsorError, type OperationJson, type SignerInterface, type SubmitResult } from "@osp/sdk";
+import { InsufficientManaError, ProtocolClient, SponsorError, type OperationJson, type SignerInterface, type SubmitResult } from "@osp/sdk";
 import type { PaymentPreference } from "../stores/settings";
 import { useToasts } from "../stores/toasts";
 import { errorMessage } from "../util/format";
@@ -53,6 +53,12 @@ export function sponsorWording(error: SponsorError): string {
 
 /** Turns SDK / RPC failures into plain-language messages without jargon. */
 export function humanizeError(error: unknown): string {
+  if (error instanceof InsufficientManaError) {
+    const refusal = error.refusals.at(-1);
+    return refusal
+      ? `${sponsorWording(refusal.error)} Your account also has no Mana available for this action.`
+      : "Your account has no Mana available for this action. Add a funded sponsor in Settings or fund the paying account.";
+  }
   if (error instanceof SponsorError) return sponsorWording(error);
   if (error instanceof ActionError) return error.message;
   const message = errorMessage(error);
