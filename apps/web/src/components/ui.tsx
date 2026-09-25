@@ -1,5 +1,5 @@
 /** Small accessible building blocks shared by every page. */
-import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { shortAddress } from "../util/format";
 
@@ -121,24 +121,22 @@ export function ConfirmDialog({ open, title, children, confirmLabel = "Confirm",
       dialog.close();
     }
   }, [open]);
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    onConfirm();
-  };
+  // This dialog can live inside another form. Its actions must never submit that
+  // form or start a second review while a confirmed action is still running.
   return (
-    <dialog ref={ref} className="dialog" aria-labelledby={titleId} onCancel={(e) => { e.preventDefault(); onCancel(); }} onClose={onCancel}>
-      <form method="dialog" onSubmit={submit}>
+    <dialog ref={ref} className="dialog" aria-labelledby={titleId} onCancel={(e) => { e.preventDefault(); if (!busy) onCancel(); }} onClose={onCancel}>
+      <div>
         <h2 id={titleId}>{title}</h2>
         <div className="dialog-body">{children}</div>
         <div className="dialog-actions">
           <Button variant="ghost" onClick={onCancel} disabled={busy}>
             {cancelLabel}
           </Button>
-          <Button type="submit" variant={danger ? "danger" : "primary"} busy={busy}>
+          <Button type="button" variant={danger ? "danger" : "primary"} busy={busy} onClick={onConfirm}>
             {confirmLabel}
           </Button>
         </div>
-      </form>
+      </div>
     </dialog>
   );
 }

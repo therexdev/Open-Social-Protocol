@@ -104,7 +104,7 @@ export function ComposerForm({ draft, replyTo, edit, defaultAudience = AUDIENCE.
   };
 
   const send = async () => {
-    if (!confirm) return;
+    if (!confirm || busy) return;
     setBusy(true);
     try {
       const outcome = await publish({ draft: confirm.draft, media }, confirm.plan);
@@ -204,7 +204,7 @@ export function ComposerForm({ draft, replyTo, edit, defaultAudience = AUDIENCE.
       <ConfirmDialog
         open={confirm !== undefined}
         title={edit ? "Publish this edit?" : replyTo ? "Publish this reply?" : "Publish this post?"}
-        confirmLabel={`Publish to ${audienceLabel(audience)}`}
+        confirmLabel={busy ? "Publishing…" : `Publish to ${audienceLabel(audience)}`}
         busy={busy}
         onCancel={() => setConfirm(undefined)}
         onConfirm={() => void send()}
