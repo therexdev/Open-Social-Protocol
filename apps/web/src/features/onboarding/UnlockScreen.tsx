@@ -39,7 +39,7 @@ export function UnlockScreen() {
     <div className="page narrow">
       <Card title="Unlock your account">
         <p>
-          Account <span className="mono">{shortAddress(vault.account, 8)}</span> is locked on this device.
+          Account <span className="mono">{shortAddress(vault.account, 8)}</span> is saved on this device. Enter the passphrase you chose when creating or importing it.
         </p>
         <form
           className="stack"

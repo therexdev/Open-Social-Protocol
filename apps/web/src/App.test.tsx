@@ -8,9 +8,10 @@ import { IndexerClient } from "./api/indexer";
 import type { Services } from "./api/services";
 import { useAccount } from "./stores/account";
 import { fakeIndexerFetch, fakeProvider, fixtureDeployment } from "./testing/fixtures";
-import { createVaultStore } from "./vault/store";
+import { createVaultStore, VAULT_KEY } from "./vault/store";
 import { memoryStorage } from "./vault/storage";
 import { unsupportedPasskey } from "./vault/passkey";
+import { returnPath } from "./features/onboarding/OnboardingPage";
 
 const kdf = { N: 1024, r: 8, p: 1 };
 let root: Root | undefined;
@@ -26,14 +27,26 @@ function deployedServices(calls: string[]): AppProps["services"] {
   });
 }
 
-async function render(path: string, vault = createVaultStore({ storage: memoryStorage(), kdf, passkey: unsupportedPasskey }), services?: AppProps["services"]) {
+// Keep offline tests independent of the repository's live deployment manifest.
+const notDeployedServices: NonNullable<AppProps["services"]> = (resolved) => ({
+  resolved: {
+    ...resolved,
+    deployed: false,
+    deploymentMessage: "Protocol contracts are not deployed on harbinger yet",
+    indexerUrl: "",
+    sponsorUrls: [],
+  },
+  indexer: new IndexerClient({ baseUrl: "" }),
+});
+
+async function render(path: string, vault = createVaultStore({ storage: memoryStorage(), kdf, passkey: unsupportedPasskey }), services: AppProps["services"] = notDeployedServices) {
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
   await act(async () => {
     root!.render(
       <MemoryRouter initialEntries={[path]}>
-        <App vault={vault} {...(services && { services })} />
+        <App vault={vault} services={services} />
       </MemoryRouter>,
     );
   });
@@ -42,6 +55,19 @@ async function render(path: string, vault = createVaultStore({ storage: memorySt
     await new Promise((r) => setTimeout(r, 20));
   });
   return { vault, container: container! };
+}
+
+async function submitUnlock(container: HTMLElement, passphrase: string) {
+  const input = container.querySelector("input[type='password']") as HTMLInputElement;
+  expect(input).not.toBeNull();
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, passphrase);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await act(async () => {
+    input.form!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  });
 }
 
 afterEach(async () => {
@@ -53,6 +79,77 @@ afterEach(async () => {
 });
 
 describe("App", () => {
+  it("unlocks an account saved before a failed registration and resumes that same account", async () => {
+    const storage = memoryStorage();
+    const original = createVaultStore({ storage, kdf, passkey: unsupportedPasskey });
+    await original.getState().init();
+    const identity = await original.getState().create("correct horse battery");
+    const saved = structuredClone(storage.map.get(VAULT_KEY));
+    // A new store models reloading after creating the vault but before registration.
+    const reloaded = createVaultStore({ storage, kdf, passkey: unsupportedPasskey });
+    const { container } = await render("/welcome", reloaded, deployedServices([]));
+    expect(container.textContent).toContain("Unlock your account");
+    expect(container.textContent).not.toContain("Create an account");
+    await submitUnlock(container, "incorrect passphrase");
+    expect(reloaded.getState().status).toBe("locked");
+    expect(container.querySelector(".notice-error")).not.toBeNull();
+    expect(storage.map.get(VAULT_KEY)).toEqual(saved);
+    await submitUnlock(container, "correct horse battery");
+    expect(reloaded.getState().status).toBe("unlocked");
+    expect(reloaded.getState().account).toBe(identity.account);
+    expect(container.textContent).toContain("Join the network");
+    expect(container.textContent).toContain("Register on the network");
+    expect(container.textContent).not.toContain("Create an account");
+    expect(storage.map.get(VAULT_KEY)).toEqual(saved);
+  });
+
+  it("provides a working Unlock action from the public feed", async () => {
+    const vault = createVaultStore({ storage: memoryStorage(), kdf, passkey: unsupportedPasskey });
+    await vault.getState().init();
+    await vault.getState().create("correct horse battery");
+    vault.getState().lock();
+    const { container } = await render("/", vault, deployedServices([]));
+    const link = container.querySelector(".topbar-actions a") as HTMLAnchorElement;
+    expect(link.textContent).toBe("Unlock");
+    await act(async () => { link.click(); });
+    expect(container.textContent).toContain("Unlock your account");
+    expect(container.querySelector("input[type='password']")).not.toBeNull();
+  });
+
+  it("opens the passphrase form from Settings and returns a registered account there", async () => {
+    const vault = createVaultStore({ storage: memoryStorage(), kdf, passkey: unsupportedPasskey });
+    await vault.getState().init();
+    await vault.getState().create("correct horse battery");
+    vault.getState().lock();
+    const { container } = await render("/settings", vault, deployedServices([]));
+    const link = [...container.querySelectorAll("a")].find((a) => a.textContent === "Go to unlock")!;
+    await act(async () => { link.click(); });
+    expect(container.textContent).toContain("Unlock your account");
+    await submitUnlock(container, "correct horse battery");
+    await act(async () => { useAccount.getState().markRegistered(vault.getState().account!); });
+    expect(container.textContent).toContain("Network and endpoints");
+    expect(container.textContent).toContain("Export identity file");
+    expect(container.textContent).not.toContain("Register on the network");
+  });
+
+  it("returns to the unlock form if unfinished registration is locked again", async () => {
+    const vault = createVaultStore({ storage: memoryStorage(), kdf, passkey: unsupportedPasskey });
+    await vault.getState().init();
+    const identity = await vault.getState().create("correct horse battery");
+    const { container } = await render("/welcome", vault, deployedServices([]));
+    expect(container.textContent).toContain("Register on the network");
+    await act(async () => { vault.getState().lock(); });
+    expect(container.textContent).toContain("Unlock your account");
+    await submitUnlock(container, "correct horse battery");
+    expect(container.textContent).toContain("Register on the network");
+    expect(vault.getState().account).toBe(identity.account);
+  });
+
+  it("does not loop back to onboarding after unlocking", () => {
+    expect(returnPath({ from: "/welcome?resume=1#account" })).toBe("/");
+    expect(returnPath({ from: "/post/example?view=full#replies" })).toBe("/post/example?view=full#replies");
+  });
+
   it("routes a fresh visitor to onboarding and shows the not-deployed banner", async () => {
     const { container } = await render("/");
     expect(container.textContent).toContain("Welcome to Open Social");

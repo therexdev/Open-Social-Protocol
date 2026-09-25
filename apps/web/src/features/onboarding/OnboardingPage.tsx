@@ -1,15 +1,16 @@
 /** Primary journey step 1-2: create or import an account, protect it, register on chain. */
 import { useState } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import { useServices } from "../../api/services";
 import { buildProfileDocument } from "../../api/profiles";
-import { Button, Card, Field, Notice } from "../../components/ui";
+import { Button, Card, Field, Notice, Spinner } from "../../components/ui";
 import { useAccount } from "../../stores/account";
 import { useSettings } from "../../stores/settings";
 import { submitAction } from "../../tx/submit";
 import { readFileText } from "../../util/download";
 import { errorMessage } from "../../util/format";
 import { useVault } from "../../vault/context";
+import { UnlockScreen } from "./UnlockScreen";
 
 type Mode = "choose" | "create" | "import" | "register";
 
@@ -64,7 +65,7 @@ export function RegisterStep({ onDone }: { onDone: () => void }) {
       }}
     >
       <p>
-        Registering publishes your account and the key friends use to share private posts with you. {resolved.sponsorUrls.length > 0 ? "A sponsor pays the network fee." : "No sponsor is configured, so your account pays the fee; add one in Settings if you have none."}
+        Your account is saved on this device. Registering publishes your account and the key friends use to share private posts with you. {resolved.sponsorUrls.length > 0 ? "A sponsor pays the network fee." : "No sponsor is configured, so your account pays the fee; add one in Settings if you have none."}
       </p>
       <Field label="Display name (optional, public)">{(id) => <input id={id} value={name} onChange={(e) => setName(e.target.value)} maxLength={64} />}</Field>
       {!indexer.configured && <Notice kind="info">No indexer is configured yet; you can still register and add one in Settings later.</Notice>}
@@ -85,15 +86,20 @@ export function RegisterStep({ onDone }: { onDone: () => void }) {
 /** Where to go once onboarding is done: the link the visitor opened, else the feed. */
 export function returnPath(state: unknown): string {
   const from = (state as { from?: unknown } | null)?.from;
-  return typeof from === "string" && from.startsWith("/") && !from.startsWith("//") && from !== "/welcome" ? from : "/";
+  return typeof from === "string" && from.startsWith("/") && !from.startsWith("//") && from.split(/[?#]/, 1)[0] !== "/welcome" ? from : "/";
 }
 
 export function OnboardingPage() {
   const vault = useVault();
+  const accountState = useAccount();
+  const { resolved } = useServices();
   const navigate = useNavigate();
   const location = useLocation();
   const from = returnPath(location.state);
-  const [mode, setMode] = useState<Mode>(vault.status === "unlocked" ? "register" : "choose");
+  const [selectedMode, setMode] = useState<Mode>("choose");
+  // Unlocking changes vault state after this page has mounted. Always resume the saved
+  // identity instead of leaving "Create account" visible or relying on the initial mode.
+  const mode: Mode = vault.status === "unlocked" ? "register" : selectedMode;
   const [passphrase, setPassphrase] = useState("");
   const [confirm, setConfirm] = useState("");
   const [fileJson, setFileJson] = useState("");
@@ -118,16 +124,13 @@ export function OnboardingPage() {
     }
   };
 
-  if (vault.status === "locked" && mode === "choose") {
-    return (
-      <div className="page narrow">
-        <Card title="Welcome back">
-          <p>
-            This device already holds an account. <Link to="/">Unlock it</Link>, or <Link to="/recover">restore a different one</Link>.
-          </p>
-        </Card>
-      </div>
-    );
+  if (vault.status === "loading") return <Spinner label="Opening your saved account" />;
+  if (vault.status === "locked") return <UnlockScreen />;
+  if (vault.status === "unlocked" && resolved.deployed) {
+    if (accountState.account !== vault.account || accountState.registration === "unknown" || accountState.registration === "checking") {
+      return <Spinner label="Checking account registration" />;
+    }
+    if (accountState.registration === "registered") return <Navigate to={from} replace />;
   }
 
   return (

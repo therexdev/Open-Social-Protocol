@@ -250,7 +250,7 @@ export function SettingsPage() {
           <IdentitySection />
         ) : status === "locked" ? (
           <p>
-            Unlock your account to export it or change its protection. <Link to="/">Go to unlock</Link>
+            Unlock your account to export it or change its protection. <Link to="/welcome" state={{ from: "/settings" }}>Go to unlock</Link>
           </p>
         ) : (
           <p>

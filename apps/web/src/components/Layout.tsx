@@ -1,6 +1,6 @@
 /** App shell: header, navigation (bottom bar on small screens), deployment banner, toasts. */
 import { type ReactNode } from "react";
-import { NavLink, Link } from "react-router-dom";
+import { NavLink, Link, useLocation } from "react-router-dom";
 import { APP_NAME, DOCS } from "../config";
 import { useServices } from "../api/services";
 import { useAccount } from "../stores/account";
@@ -44,6 +44,7 @@ function RegistrationBanner() {
 }
 
 export function Layout({ children }: { children: ReactNode }) {
+  const location = useLocation();
   const status = useVault((s) => s.status);
   const lock = useVault((s) => s.lock);
   const unread = useNotificationsBadge();
@@ -82,7 +83,9 @@ export function Layout({ children }: { children: ReactNode }) {
               Lock
             </button>
           ) : status === "locked" ? (
-            <span className="muted">Locked</span>
+            <Link className="btn btn-ghost" to="/welcome" state={{ from: `${location.pathname}${location.search}${location.hash}` }}>
+              Unlock
+            </Link>
           ) : null}
         </div>
       </header>
