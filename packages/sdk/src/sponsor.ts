@@ -172,7 +172,8 @@ export class SponsorClient {
     this.endpoint = options.endpoint.replace(/\/+$/, "");
     const fetchFn = options.fetch ?? (globalThis.fetch as FetchLike | undefined);
     if (!fetchFn) throw new SponsorError("temporarily_unavailable", "no fetch implementation available", { endpoint: this.endpoint });
-    this.fetchFn = fetchFn;
+    // Browser fetch requires Window/WorkerGlobalScope as its receiver, not this client.
+    this.fetchFn = fetchFn.bind(globalThis);
     this.expectedChainId = options.expectedChainId;
     this.timeoutMs = options.timeoutMs ?? 30_000;
   }

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Signer } from "koilib";
 import type { OperationJson, TransactionJson, TransactionReceipt } from "koilib";
 import { InsufficientManaError, ProtocolClient, TransactionOutcomeUnknownError, TransactionRevertedError, sponsoredRcLimit } from "./protocolClient.js";
@@ -76,7 +76,7 @@ async function fakeSponsor(options: FakeSponsorOptions = {}) {
     }
     return jsonResponse(404, { error: { category: "invalid_transaction", message: "not found" } });
   };
-  return { client: new SponsorClient({ endpoint, fetch }), received, discovery };
+  return { client: new SponsorClient({ endpoint, fetch }), received, discovery, fetch };
 }
 
 /** A receipt carrying a fabricated `osp.publications.published` event. */
@@ -418,6 +418,27 @@ describe("ProtocolClient", () => {
 });
 
 describe("SponsorClient", () => {
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it.each([false, true])("uses the browser fetch receiver through discovery, preparation and sponsorship (injected=%s)", async (injected) => {
+    const sponsor = await fakeSponsor();
+    const browserFetch = function (this: unknown, url: string, init?: RequestInit): Promise<Response> {
+      if (this !== globalThis) throw new TypeError("Failed to execute 'fetch' on 'Window': Illegal invocation");
+      return sponsor.fetch(url, init);
+    };
+    vi.stubGlobal("fetch", browserFetch);
+    const client = new SponsorClient({ endpoint: "https://sponsor.test", ...(injected && { fetch: browserFetch }) });
+    const protocol = new ProtocolClient({ rpc: fakeProvider(), deployment });
+    const op = await reactOp(protocol);
+    const prepared = await client.prepare(user.getAddress(), [op]);
+    const signed = await protocol.sign(prepared, user);
+    const result = await client.sponsor(signed);
+    expect(client.address).toBe(sponsorSigner.getAddress());
+    expect(result.transaction.header?.payer).toBe(sponsorSigner.getAddress());
+    expect(result.transaction.signatures).toHaveLength(2);
+    expect(sponsor.received).toHaveLength(1);
+  });
+
   it("verifies discovery signatures", async () => {
     const sponsor = await fakeSponsor();
     const doc = await sponsor.client.discover();

@@ -260,7 +260,9 @@ export class IndexerClient {
 
   constructor(options: IndexerClientOptions) {
     this.baseUrl = options.baseUrl.replace(/\/+$/, "");
-    this.fetchFn = options.fetch ?? (globalThis.fetch as FetchLike | undefined);
+    const fetchFn = options.fetch ?? (globalThis.fetch as FetchLike | undefined);
+    // Browser fetch requires Window/WorkerGlobalScope as its receiver, not this client.
+    this.fetchFn = fetchFn?.bind(globalThis);
     this.timeoutMs = options.timeoutMs ?? 20_000;
   }
 
