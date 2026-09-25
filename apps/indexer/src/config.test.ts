@@ -13,7 +13,7 @@ describe("loadConfig", () => {
       const config = loadConfig({ OSP_NETWORK: "harbinger" }, { deploymentsDir: dir });
       expect(config.deployment).toBeUndefined();
       expect(config.deploymentError).toContain(path.join(dir, "harbinger.json"));
-      expect(config.rpc).toEqual(["https://harbinger-api.koinos.io", "https://api.harbinger.koinos.pro"]);
+      expect(config.rpc).toEqual(["https://testnet.koinosfoundation.org/jsonrpc"]);
       expect(config.dbPath).toBe(path.join("data", "indexer-harbinger.sqlite"));
       expect(config.port).toBe(DEFAULTS.port);
       expect(config.startHeight).toBe(1);

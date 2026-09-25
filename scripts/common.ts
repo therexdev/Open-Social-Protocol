@@ -9,6 +9,7 @@ import { NETWORKS as SDK_NETWORKS } from "@osp/sdk";
 export const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const CONTRACT_BUILD_DIR = join(REPO_ROOT, "packages", "contracts", "build", "release");
 export const DEPLOYMENTS_DIR = join(REPO_ROOT, "deployments");
+export const DEPLOYMENT_PROGRESS_DIR = join(REPO_ROOT, "deployment-progress");
 export const CONTRACT_ORDER = ["identity", "relationships", "publications", "communities", "sponsorship", "registry", "messaging", "token"] as const;
 export type ContractName = (typeof CONTRACT_ORDER)[number];
 
@@ -119,19 +120,19 @@ export function sha256Hex(bytes: Uint8Array | Buffer): string {
   return createHash("sha256").update(bytes).digest("hex");
 }
 
-export function deploymentPath(network: string): string {
-  return join(DEPLOYMENTS_DIR, `${network}.json`);
+export function deploymentPath(network: string, progress = false): string {
+  return join(progress ? DEPLOYMENT_PROGRESS_DIR : DEPLOYMENTS_DIR, `${network}.json`);
 }
 
-export function readDeployment(network: string): Deployment | null {
-  const file = deploymentPath(network);
+export function readDeployment(network: string, progress = false): Deployment | null {
+  const file = deploymentPath(network, progress);
   if (!existsSync(file)) return null;
   return JSON.parse(readFileSync(file, "utf8")) as Deployment;
 }
 
-export function writeDeployment(deployment: Deployment): string {
-  mkdirSync(DEPLOYMENTS_DIR, { recursive: true });
-  const file = deploymentPath(deployment.network);
+export function writeDeployment(deployment: Deployment, progress = false): string {
+  const file = deploymentPath(deployment.network, progress);
+  mkdirSync(dirname(file), { recursive: true });
   writeFileSync(file, JSON.stringify(deployment, null, 2) + "\n");
   return file;
 }

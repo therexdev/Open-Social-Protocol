@@ -52,6 +52,17 @@ frontend override. The pinned chain ID check deliberately rejects other networks
 * Register the sponsor on chain: the sponsor service does this on first start when
   `OSP_SPONSOR_REGISTER=true`.
 
+## Mana limits and interrupted deployments
+Each upload and configuration transaction is simulated without broadcasting first. The
+script then sets its RC limit to the measured cost plus 10% headroom and re-signs it.
+This avoids reserving the entire wallet's Mana for every transaction. Definite
+`insufficient pending account resources` refusals wait and retry the same signed
+transaction for up to five minutes; unknown submission outcomes are not blindly retried.
+Confirmed uploads are saved in `deployment-progress/<network>.json`, separate from the
+frontend's completed manifest. The workflow preserves that checkpoint even on failure.
+Start a new workflow run to load saved progress; the script verifies each recorded upload
+on chain before skipping it. Keep the same seed and leave force unchecked.
+
 ## Verifying the launch
 `node --import tsx scripts/verify-deployment.ts --network harbinger` performs read-only calls
 against every contract, checks the registry entries and prints a summary. The same script runs

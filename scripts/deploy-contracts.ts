@@ -13,7 +13,7 @@
 // co-signs as payer. Dependencies are wired with contract-account signatures and the
 // registry is initialised and bootstrapped. Results go to deployments/<network>.json.
 import { Contract, Signer, utils } from "koilib";
-import type { TransactionJson, TransactionJsonWait } from "koilib";
+import type { TransactionJson } from "koilib";
 import { ABIS, PROTOCOL_VERSION } from "@osp/proto";
 import {
   CONTRACT_ORDER,
@@ -31,6 +31,8 @@ import {
   requireSeed,
   writeDeployment,
 } from "./common.ts";
+import { submitMeasured } from "./deployment-transactions.ts";
+import { verifyUpload } from "./verify-upload.ts";
 
 const args = parseArgs(process.argv.slice(2));
 const { name: network, preset } = networkFromArgs(args);
@@ -54,7 +56,7 @@ async function main(): Promise<void> {
   log(`deployer: ${deployerAddress} (rc: ${formatMana(await provider.getAccountRc(deployerAddress))})`);
   if (dryRun) log("mode:     DRY RUN (transactions are simulated with broadcast=false; nothing is committed)");
 
-  const previous = readDeployment(network);
+  const previous = readDeployment(network, true) ?? readDeployment(network);
   const deployment: Deployment = {
     network,
     chainId,
@@ -73,10 +75,6 @@ async function main(): Promise<void> {
     throw new Error(`deployments/${network}.json was written for chain ${previous.chainId}; pass --force to overwrite`);
   }
 
-  const addDeployerSignature = async (tx: TransactionJson): Promise<void> => {
-    await deployer.signTransaction(tx);
-  };
-
   // Resolve every contract account first so addresses are known for wiring.
   const signers = new Map<ContractName, Signer>();
   for (const name of CONTRACT_ORDER) signers.set(name, contractSigner(network, name, seed, provider));
@@ -93,7 +91,8 @@ async function main(): Promise<void> {
     const art = readContractArtifacts(name);
     const signer = signers.get(name)!;
     const existing = deployment.contracts[name];
-    if (existing && existing.wasmSha256 === art.wasmSha256 && existing.address === signer.getAddress() && !force) {
+    if (existing && existing.wasmSha256 === art.wasmSha256 && existing.abiSha256 === art.abiSha256 &&
+        existing.address === signer.getAddress() && !force && await verifyUpload(provider, existing)) {
       log(`\n[${name}] unchanged (wasm sha256 ${art.wasmSha256.slice(0, 12)}...), skipping upload`);
       continue;
     }
@@ -103,21 +102,22 @@ async function main(): Promise<void> {
       bytecode: new Uint8Array(art.wasm),
       provider,
       signer,
-      options: { payer: deployerAddress, beforeSend: addDeployerSignature },
+      options: { payer: deployerAddress },
     });
     log(`\n[${name}] uploading ${art.wasm.length} bytes to ${signer.getAddress()}`);
+    const prepared = await contract.deploy({ abi: art.abi, sendTransaction: false, signTransaction: false });
+    const { transaction, receipt } = await submitMeasured(prepared.transaction as TransactionJson, provider, [signer, deployer], {
+      dryRun,
+      log: message => log(`[${name}] ${message}`),
+    });
     if (dryRun) {
-      const { transaction } = await contract.deploy({ abi: art.abi, sendTransaction: false, signTransaction: true });
-      await addDeployerSignature(transaction as TransactionJson);
-      const { receipt } = await provider.sendTransaction(transaction as TransactionJson, false);
       log(`[${name}] simulated: ${formatMana(receipt?.rc_used)}${receipt?.reverted ? " REVERTED" : ""}`);
       rcReport.push({ step: `upload ${name}`, rc: String(receipt?.rc_used ?? "?") });
       continue;
     }
-    const { transaction, receipt } = await contract.deploy({ abi: art.abi });
     if (!transaction || !receipt) throw new Error(`[${name}] deploy returned no receipt`);
     if (receipt.reverted) throw new Error(`[${name}] upload reverted: ${JSON.stringify(receipt)}`);
-    const { blockNumber } = await (transaction as TransactionJsonWait).wait("byBlock", 120000);
+    const { blockNumber } = await transaction.wait("byBlock", 120000);
     log(`[${name}] tx ${transaction.id} in block ${blockNumber}: ${formatMana(receipt.rc_used)}`);
     rcReport.push({ step: `upload ${name}`, rc: String(receipt.rc_used ?? "?") });
     if (blockNumber !== undefined) minBlock = minBlock === undefined ? blockNumber : Math.min(minBlock, blockNumber);
@@ -129,7 +129,8 @@ async function main(): Promise<void> {
       abiSha256: art.abiSha256,
       rcUsed: String(receipt.rc_used ?? ""),
     };
-    if (!dryRun) writeDeployment(deployment);
+    if (minBlock !== undefined && (!deployment.startHeight || Number(deployment.startHeight) > minBlock)) deployment.startHeight = String(minBlock);
+    writeDeployment(deployment, true);
   }
 
   if (dryRun) {
@@ -145,14 +146,17 @@ async function main(): Promise<void> {
       abi: ABIS[name] as never,
       provider,
       signer,
-      options: { payer: deployerAddress, beforeSend: signer.getAddress() === deployerAddress ? undefined : addDeployerSignature },
+      options: { payer: deployerAddress },
     });
     const fn = contract.functions[method];
     if (!fn) throw new Error(`${name}.${method} not in ABI`);
-    const { transaction, receipt } = await fn(callArgs);
+    const prepared = await fn(callArgs, { sendTransaction: false, signTransaction: false });
+    const { transaction, receipt } = await submitMeasured(prepared.transaction as TransactionJson, provider, [signer, deployer], {
+      log: message => log(`[${name}.${method}] ${message}`),
+    });
     if (!transaction || !receipt) throw new Error(`${name}.${method} returned no receipt`);
     if (receipt.reverted) throw new Error(`${name}.${method} reverted: ${JSON.stringify(receipt.logs ?? receipt)}`);
-    await (transaction as TransactionJsonWait).wait("byBlock", 120000);
+    await transaction.wait("byBlock", 120000);
     rcReport.push({ step: `${name}.${method}`, rc: String(receipt.rc_used ?? "?") });
     log(`[${name}] ${method} ok (${formatMana(receipt.rc_used)})`);
   };
@@ -239,6 +243,7 @@ async function main(): Promise<void> {
     deployment.startHeight = String(minBlock);
   }
   const file = writeDeployment(deployment);
+  writeDeployment(deployment, true);
   printRc(rcReport);
   log(`\nwrote ${file}`);
 }

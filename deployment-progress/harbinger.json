@@ -1,0 +1,23 @@
+{
+  "network": "harbinger",
+  "chainId": "EiAIKVvm6-V2qmsmUvPJy09vCCLbtn9lHFpwrJbcTIEWRQ==",
+  "rpc": [
+    "https://testnet.koinosfoundation.org/jsonrpc"
+  ],
+  "protocolVersion": 1,
+  "deployedAt": "2026-09-25T05:45:17.370Z",
+  "deployer": "19C9kF7uBC2a3kWY5iXF4zpWhzahGCmeJd",
+  "contracts": {
+    "identity": {
+      "address": "1JgvtKNBKCxT3D1xb8mmUJLCBpZnHqC3Rr",
+      "txId": "0x1220f7e22dc26dd865ff31f52d374d702a4b3231d1361644cbe65b2d77ba90f97d66",
+      "block": "8668232",
+      "wasmSha256": "f45a533a19647608e6050f36d6f2dbaefde6547d71618378a63c7f994e6615ec",
+      "abiSha256": "97f3143b7f100861c4f37e912287fa23d86019e30a3cfeeec3f46ba406fdca7c",
+      "rcUsed": "514579865"
+    }
+  },
+  "startHeight": "8668232",
+  "indexers": [],
+  "sponsors": []
+}

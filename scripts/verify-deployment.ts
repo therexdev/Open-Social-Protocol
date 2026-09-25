@@ -4,6 +4,7 @@
 import { Contract, Provider } from "koilib";
 import { ABIS } from "@osp/proto";
 import { CONTRACT_ORDER, type ContractName, log, networkFromArgs, parseArgs, readDeployment } from "./common.ts";
+import { verifyUpload } from "./verify-upload.ts";
 
 const args = parseArgs(process.argv.slice(2));
 const { name: network, preset } = networkFromArgs(args);
@@ -38,8 +39,7 @@ async function main(): Promise<void> {
       check(false, `${name} present in manifest`);
       continue;
     }
-    const meta = await provider.invokeGetContractMetadata(entry.address).catch(() => undefined);
-    check(Boolean(meta?.value?.hash), `${name} bytecode uploaded at ${entry.address}`);
+    check(await verifyUpload(provider, entry), `${name} upload receipt, bytecode and ABI verified at ${entry.address}`);
   }
 
   const identity = deployment.contracts.identity?.address;

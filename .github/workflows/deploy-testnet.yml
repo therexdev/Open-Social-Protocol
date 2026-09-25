@@ -1,6 +1,6 @@
 name: deploy-testnet
 
-# Deploys the eight protocol contracts to the Koinos Harbinger testnet from a GitHub runner.
+# Deploys eight contracts to the Foundation testnet (configuration name: harbinger).
 # Required repository secrets:
 #   KOINOS_HARBINGER_DEPLOYER_WIF  private key (WIF) of a tKOIN-funded account (pays Mana)
 #   OSP_CONTRACT_SEED              long random string; contract addresses derive from it
@@ -77,16 +77,30 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add deployments/${{ inputs.network }}.json
+          git add deployments/${{ inputs.network }}.json deployment-progress/${{ inputs.network }}.json
           if git diff --cached --quiet; then
             echo "deployment manifest unchanged"
           else
             git commit -m "Deploy contracts to ${{ inputs.network }} (${{ github.run_id }})"
             git push origin HEAD:${{ github.ref_name }}
           fi
+      - name: Preserve progress after a failed deployment
+        if: ${{ failure() && !inputs.dry_run }}
+        run: |
+          progress="deployment-progress/${{ inputs.network }}.json"
+          if [ ! -f "$progress" ]; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$progress"
+          if ! git diff --cached --quiet; then
+            git commit -m "Save deployment progress for ${{ inputs.network }} (${{ github.run_id }})"
+            git push origin HEAD:${{ github.ref_name }}
+          fi
       - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
         with:
           name: deployment-${{ inputs.network }}
           path: |
             deployments/${{ inputs.network }}.json
+            deployment-progress/${{ inputs.network }}.json
             packages/contracts/build/release
