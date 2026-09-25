@@ -38,8 +38,8 @@ npm run build:all           # schemas -> SDK -> contracts -> indexer -> sponsor 
 npm test                    # every workspace's tests (contract tests run in the Koinos mock VM)
 ```
 
-Run against the Harbinger testnet once `deployments/harbinger.json` exists
-(see `docs/deploy-testnet.md`):
+Run against the current Koinos Foundation testnet once `deployments/harbinger.json` exists
+(the configuration name remains `harbinger`; see [testnet setup](docs/deploy-testnet.md)):
 
 ```sh
 OSP_NETWORK=harbinger npm run indexer     # http://localhost:8787

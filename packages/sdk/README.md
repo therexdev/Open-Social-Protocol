@@ -69,7 +69,7 @@ REACTION = { LIKE: 1 }
 ENVELOPE_VERSION = 1; KEY_PACKAGE_VERSION = 1; MANIFEST_VERSION = 1; PROFILE_VERSION = 1
 EVENT_NAMES: { [contract]: { [short]: fullName } }   // EVENT_NAMES.publications.published === "osp.publications.published"
 SPONSOR_ERROR_CATEGORIES; type SponsorErrorCategory = "quota_exceeded" | "method_not_allowed" | "too_large" | "chain_mismatch" | "invalid_signature" | "invalid_transaction" | "temporarily_unavailable"
-NETWORKS = { harbinger: { name, rpc: ["https://harbinger-api.koinos.io", "https://api.harbinger.koinos.pro"], expectedChainId: "EiBncD4pKRIQWco_WRqo5Q-xnXR7JuO3PtZv983mKdKHSQ==" },
+NETWORKS = { harbinger: { name, rpc: ["https://testnet.koinosfoundation.org/jsonrpc"], expectedChainId: "EiAIKVvm6-V2qmsmUvPJy09vCCLbtn9lHFpwrJbcTIEWRQ==" },
              localnet:  { name, rpc: ["http://localhost:8080"] } }
 ```
 

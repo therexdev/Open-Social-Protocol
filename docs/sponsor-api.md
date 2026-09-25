@@ -13,7 +13,7 @@ Signed discovery document:
 {
   "version": 1,
   "sponsor": "1Sponsor...",
-  "network": { "chainId": "EiB...", "rpc": ["https://harbinger-api.koinos.io"] },
+  "network": { "chainId": "EiAIKVvm6-V2qmsmUvPJy09vCCLbtn9lHFpwrJbcTIEWRQ==", "rpc": ["https://testnet.koinosfoundation.org/jsonrpc"] },
   "policy": {
     "version": 1,
     "allowed": [{ "contract": "1Identity...", "entryPoints": [ ... ] }],

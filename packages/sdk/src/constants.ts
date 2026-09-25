@@ -159,12 +159,12 @@ export interface NetworkPreset {
   expectedChainId?: string;
 }
 
-/** Known networks. */
+/** Known networks. `harbinger` is retained as the configuration name for the current Foundation testnet. */
 export const NETWORKS: Readonly<Record<"harbinger" | "localnet", NetworkPreset>> = {
   harbinger: {
     name: "harbinger",
-    rpc: ["https://harbinger-api.koinos.io", "https://api.harbinger.koinos.pro"],
-    expectedChainId: "EiBncD4pKRIQWco_WRqo5Q-xnXR7JuO3PtZv983mKdKHSQ==",
+    rpc: ["https://testnet.koinosfoundation.org/jsonrpc"],
+    expectedChainId: "EiAIKVvm6-V2qmsmUvPJy09vCCLbtn9lHFpwrJbcTIEWRQ==",
   },
   localnet: {
     name: "localnet",

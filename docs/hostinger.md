@@ -16,7 +16,7 @@ The reference client is a static Vite build (`apps/web/dist`). Two supported pat
      workspace packages `@osp/proto` and `@osp/sdk` are built by the root build command.
 4. Optional environment variables (build time): `VITE_OSP_NETWORK=harbinger`,
    `VITE_OSP_INDEXER_URL=https://...`, `VITE_OSP_SPONSOR_URL=https://...`,
-   `VITE_OSP_RPC_URLS=https://harbinger-api.koinos.io`.
+   `VITE_OSP_RPC_URLS=https://testnet.koinosfoundation.org/jsonrpc`.
 5. Deploy. Every push to the selected branch triggers a rebuild.
 
 ## Path 2 - static branch (no build on Hostinger)

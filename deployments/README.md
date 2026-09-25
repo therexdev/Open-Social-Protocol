@@ -7,8 +7,8 @@ Never edit by hand except to add `indexers` / `sponsors` entries.
 ```json
 {
   "network": "harbinger",
-  "chainId": "EiBncD4pKRIQWco_WRqo5Q-xnXR7JuO3PtZv983mKdKHSQ==",
-  "rpc": ["https://harbinger-api.koinos.io", "https://api.harbinger.koinos.pro"],
+  "chainId": "EiAIKVvm6-V2qmsmUvPJy09vCCLbtn9lHFpwrJbcTIEWRQ==",
+  "rpc": ["https://testnet.koinosfoundation.org/jsonrpc"],
   "protocolVersion": 1,
   "deployedAt": "2026-09-05T00:00:00Z",
   "deployer": "1Deployer...",

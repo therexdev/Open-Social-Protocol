@@ -41,7 +41,7 @@ describe("settings store", () => {
     expect(resolved.deployed).toBe(false);
     expect(resolved.deployment).toBeUndefined();
     expect(resolved.deploymentMessage).toContain("not deployed on harbinger");
-    expect(resolved.rpcUrls).toEqual(["https://harbinger-api.koinos.io", "https://api.harbinger.koinos.pro"]);
+    expect(resolved.rpcUrls).toEqual(["https://testnet.koinosfoundation.org/jsonrpc"]);
     expect(resolved.indexerUrl).toBe("");
   });
 

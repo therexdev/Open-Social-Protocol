@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Provider, Signer } from "koilib";
+import { NETWORKS as SDK_NETWORKS } from "@osp/sdk";
 
 export const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const CONTRACT_BUILD_DIR = join(REPO_ROOT, "packages", "contracts", "build", "release");
@@ -21,8 +22,8 @@ export interface NetworkPreset {
 
 export const NETWORKS: Record<string, NetworkPreset> = {
   harbinger: {
-    rpc: ["https://harbinger-api.koinos.io", "https://api.harbinger.koinos.pro"],
-    expectedChainId: "EiBncD4pKRIQWco_WRqo5Q-xnXR7JuO3PtZv983mKdKHSQ==",
+    rpc: [...SDK_NETWORKS.harbinger.rpc],
+    expectedChainId: SDK_NETWORKS.harbinger.expectedChainId,
     wifEnv: "KOINOS_HARBINGER_DEPLOYER_WIF",
   },
   localnet: {

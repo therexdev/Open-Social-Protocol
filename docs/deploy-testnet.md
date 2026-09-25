@@ -1,13 +1,24 @@
-# Launching on the Koinos Harbinger testnet
+# Launching on the Koinos Foundation testnet
+
+The existing `harbinger` configuration name now targets the current Foundation testnet:
+`https://testnet.koinosfoundation.org/jsonrpc`, chain ID
+`EiAIKVvm6-V2qmsmUvPJy09vCCLbtn9lHFpwrJbcTIEWRQ==`.
+This is a different chain from the legacy Harbinger endpoint. Keep `OSP_NETWORK=harbinger`,
+the existing secret names and your saved `OSP_CONTRACT_SEED`; fund your deployer and sponsor
+on the current network. Legacy Harbinger balances and deployments do not carry over.
+Endpoint and faucet reference: https://github.com/koinos/koinos-testnet.
 
 ## What gets deployed
 Eight contracts (`identity`, `relationships`, `publications`, `communities`, `sponsorship`,
 `registry`, `messaging`, `token`), wired together and recorded in `deployments/harbinger.json`.
 
 ## Prerequisites
-1. A funded Harbinger account. Request tKOIN in the `#faucet` channel of the official Koinos
-   Discord (`!faucet <address>`, 100 tKOIN per request). Deployment of all eight contracts requires measured Mana; do not reuse the old six-contract estimate; the deploy script prints the measured RC per
-   contract.
+1. A funded account on the current Foundation testnet. Open
+   https://t.me/KoinosTestnetFaucetBot and send `/faucet <public-address>`.
+   The faucet currently sends 100 testnet vKOIN per request, with a 24-hour cooldown per
+   Telegram user and recipient address. Fund the deployer and sponsor accounts; you can
+   transfer part of the faucet grant to the sponsor. Deployment of all eight contracts
+   requires measured Mana; the deploy script prints the measured RC per contract.
 2. Node 22 and `npm install` at the repository root.
 
 ## Option A - GitHub Actions (recommended; no keys on a developer machine)
@@ -15,7 +26,9 @@ Eight contracts (`identity`, `relationships`, `publications`, `communities`, `sp
    * `KOINOS_HARBINGER_DEPLOYER_WIF` - private key (WIF) of the funded account.
    * `OSP_CONTRACT_SEED` - any long random string; contract addresses derive from it, so keep
      it to redeploy upgrades to the same addresses.
-2. Run the **Deploy contracts to Harbinger** workflow (`Actions -> deploy-testnet -> Run workflow`).
+2. Run the **deploy-testnet** workflow (`Actions -> deploy-testnet -> Run workflow`),
+   selecting the updated source branch, network `harbinger`, and leaving dry run and force
+   unchecked. Start a new run after code updates; re-running an old run uses its old commit.
 3. The workflow builds, deploys, verifies read-only calls against each contract and commits
    `deployments/harbinger.json` back to the branch. The web client and extension builds pick
    it up automatically.
@@ -26,8 +39,10 @@ export KOINOS_HARBINGER_DEPLOYER_WIF=5K...
 export OSP_CONTRACT_SEED="a long random phrase"
 npm run deploy:testnet
 ```
-Environment overrides: `KOINOS_RPC=https://harbinger-api.koinos.io,https://api.harbinger.koinos.pro`
-(comma-separated failover list), `OSP_UPGRADE_DELAY_MS`, `OSP_SPONSOR_ENDPOINT`.
+Environment overrides: `KOINOS_RPC=https://testnet.koinosfoundation.org/jsonrpc`
+(or a comma-separated list of endpoints for this same chain), `OSP_UPGRADE_DELAY_MS`.
+Remove any old `KOINOS_RPC` repository variable and update any explicit `VITE_OSP_RPC_URLS`
+frontend override. The pinned chain ID check deliberately rejects other networks.
 
 ## After deployment
 * Start an indexer: `OSP_NETWORK=harbinger npm run indexer` (reads `deployments/harbinger.json`).
