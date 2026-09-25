@@ -193,6 +193,10 @@ function compile(name, mode) {
     "abort=",
     "--use",
     "BUILD_FOR_TESTING=0",
+    // Koinos attaches its host memory/context before explicitly calling _start.
+    // Automatic WASM start functions invoke the generated main() too early.
+    "--exportStart",
+    "_start",
     "--disable",
     KOINOS_DISABLED_FEATURES.join(","),
     "--config",

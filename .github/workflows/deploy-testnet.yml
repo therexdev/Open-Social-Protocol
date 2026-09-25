@@ -50,6 +50,8 @@ jobs:
           npm run build -w packages/contracts
       - name: Contract build manifest
         run: cat packages/contracts/build/release/manifest.json
+      - name: Execute release contract bootstrap before spending Mana
+        run: node --import tsx scripts/deployment-runtime-smoke.ts
       - name: Check deployment credentials
         env:
           DEPLOYER_KEY: ${{ secrets.KOINOS_HARBINGER_DEPLOYER_WIF }}

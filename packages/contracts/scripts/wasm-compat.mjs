@@ -11,6 +11,7 @@ export function assertKoinosWasm(bytes, label = "contract") {
   while (pos < bytes.length) {
     const section = bytes[pos++];
     if (section > 11) fail(`unsupported section ${section} (requires a post-MVP feature)`);
+    if (section === 8) fail("automatic start section executes before Koinos attaches its host context; use --exportStart _start");
     let size = 0;
     let shift = 0;
     let byte;
@@ -31,4 +32,6 @@ export function assertKoinosWasm(bytes, label = "contract") {
   } finally {
     module.dispose();
   }
+  const exports = WebAssembly.Module.exports(new WebAssembly.Module(bytes));
+  if (!exports.some(entry => entry.name === "_start" && entry.kind === "function")) fail("missing exported _start entry point");
 }

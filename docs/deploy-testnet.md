@@ -55,6 +55,8 @@ frontend override. The pinned chain ID check deliberately rejects other networks
 ## Mana limits and interrupted deployments
 Each upload and configuration transaction is simulated without broadcasting first. The
 script then sets its RC limit to the measured cost plus 10% headroom and re-signs it.
+Upload transactions also include a read-only call against the newly uploaded bytecode,
+so simulation must execute it successfully before anything is broadcast.
 This avoids reserving the entire wallet's Mana for every transaction. Definite
 `insufficient pending account resources` refusals wait and retry the same signed
 transaction for up to five minutes; unknown submission outcomes are not blindly retried.
@@ -71,6 +73,14 @@ alone does not prove the bytecode can execute. `unknown section encountered 12` 
 an older build included the unsupported bulk-memory data-count section; update the
 source and start a new workflow run. Changed bytecode is uploaded to the same contract
 addresses automatically, with the same seed and force unchecked.
+
+The build also exports `_start` explicitly and rejects automatic WASM start sections.
+Koinos must attach the contract's memory and host context before executing its entry
+point; otherwise calls fail with `start function failed to execute`. The deployment
+workflow runs `scripts/deployment-runtime-smoke.ts` before accessing deployment keys.
+This executes the actual release binaries through their ABI, configures dependencies,
+registers all eight contracts, and verifies the resulting state. The same regression
+test runs in CI; as-pect unit tests alone do not exercise the release entry point.
 
 ## Refreshing an existing VPS installation
 After the workflow succeeds, pull its completed manifest into the outer repository

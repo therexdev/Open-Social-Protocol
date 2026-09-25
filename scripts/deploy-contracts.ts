@@ -33,6 +33,7 @@ import {
 } from "./common.ts";
 import { submitMeasured } from "./deployment-transactions.ts";
 import { verifyUpload } from "./verify-upload.ts";
+import { deploymentProbe } from "./deployment-probes.ts";
 
 const args = parseArgs(process.argv.slice(2));
 const { name: network, preset } = networkFromArgs(args);
@@ -105,7 +106,14 @@ async function main(): Promise<void> {
       options: { payer: deployerAddress },
     });
     log(`\n[${name}] uploading ${art.wasm.length} bytes to ${signer.getAddress()}`);
-    const prepared = await contract.deploy({ abi: art.abi, sendTransaction: false, signTransaction: false });
+    // Execute the new bytecode in the same transaction as its upload. Simulation now
+    // catches startup failures before broadcast, and an upload cannot succeed alone.
+    const probe = deploymentProbe(name, signer.getAddress());
+    log(`[${name}] validating execution with ${probe.name} in the upload transaction`);
+    const prepared = await contract.deploy({
+      abi: art.abi, sendTransaction: false, signTransaction: false,
+      nextOperations: [await contract.encodeOperation(probe)],
+    });
     const { transaction, receipt } = await submitMeasured(prepared.transaction as TransactionJson, provider, [signer, deployer], {
       dryRun,
       log: message => log(`[${name}] ${message}`),
