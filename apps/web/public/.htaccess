@@ -4,6 +4,13 @@
 Options -MultiViews
 RewriteEngine On
 RewriteBase /
+
+# Use one browser origin on the opensocial.online deployment so the saved account
+# and passkeys are not split between the www and apex hostnames. Other hosts keep
+# working, including the old site while users export their identity files.
+RewriteCond %{HTTP_HOST} ^www\.opensocial\.online$ [NC]
+RewriteRule ^ https://opensocial.online%{REQUEST_URI} [R=301,L,NE]
+
 RewriteRule ^index\.html$ - [L]
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d

@@ -2,6 +2,9 @@
 
 The reference client is a static Vite build (`apps/web/dist`). Two supported paths:
 
+For the ready-to-upload `opensocial.online` testnet deployment and moving an existing
+account from `social.usekoinos.com`, follow [opensocial-online.md](opensocial-online.md).
+
 ## Path 1 - Hostinger Node.js web app (build on Hostinger)
 1. hPanel -> Websites -> Add website -> **Node.js web app** -> **Import Git repository** ->
    connect GitHub and select `therexdev/Open-Social-Protocol`.
