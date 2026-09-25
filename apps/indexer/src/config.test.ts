@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { DEFAULTS, IndexerDb, computeStateHash, createIndexer, decodeCursor, encodeCursor, loadConfig } from "./index.js";
-import { parseArgs } from "./main.js";
+import { parseArgs } from "./cli.js";
 import { testDeployment } from "./testing/fake-chain.js";
 
 describe("loadConfig", () => {

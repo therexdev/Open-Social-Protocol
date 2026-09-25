@@ -13,6 +13,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CONTRACTS } from "./build.mjs";
 import { contractTestsPassed } from "./test-result.mjs";
+import { KOINOS_DISABLED_FEATURES } from "./wasm-compat.mjs";
 
 const require = createRequire(import.meta.url);
 const here = dirname(fileURLToPath(import.meta.url));
@@ -55,6 +56,7 @@ function writeAsconfig(dir) {
       noCoverage: { transform: ["@as-pect/transform"] },
     },
     options: {
+      disable: KOINOS_DISABLED_FEATURES,
       exportMemory: true,
       outFile: "output.wasm",
       textFile: "output.wat",

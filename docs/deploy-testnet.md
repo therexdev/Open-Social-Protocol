@@ -63,6 +63,36 @@ frontend's completed manifest. The workflow preserves that checkpoint even on fa
 Start a new workflow run to load saved progress; the script verifies each recorded upload
 on chain before skipping it. Keep the same seed and leave force unchecked.
 
+## Contract runtime compatibility
+The contract build targets WebAssembly 1.0 for Koinos's Fizzy runtime. It disables
+bulk memory, sign extension, nontrapping float conversion and mutable-global imports
+and exports, and checks every compiled artifact before deployment. A successful upload
+alone does not prove the bytecode can execute. `unknown section encountered 12` means
+an older build included the unsupported bulk-memory data-count section; update the
+source and start a new workflow run. Changed bytecode is uploaded to the same contract
+addresses automatically, with the same seed and force unchecked.
+
+## Refreshing an existing VPS installation
+After the workflow succeeds, pull its completed manifest into the outer repository
+directory and rebuild the services before restarting PM2:
+
+```sh
+cd ~/Open-Social-Protocol
+git pull --ff-only
+test -f deployments/harbinger.json
+npm ci
+npm run build -w packages/proto -w packages/sdk -w apps/indexer -w apps/sponsor
+pm2 restart osp-indexer osp-sponsor --update-env
+pm2 save
+curl http://127.0.0.1:8787/v1/status
+curl http://127.0.0.1:8788/healthz
+```
+
+The sponsor returns `not_deployed` until it can load that completed manifest. The
+indexer should still listen and report its undeployed status; a connection refusal
+needs `pm2 logs osp-indexer --lines 40 --nostream` to diagnose. Both services support
+PM2 loading their entry points through its launcher.
+
 ## Verifying the launch
 `node --import tsx scripts/verify-deployment.ts --network harbinger` performs read-only calls
 against every contract, checks the registry entries and prints a summary. The same script runs

@@ -18,6 +18,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync, readd
 import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { assertKoinosWasm, KOINOS_DISABLED_FEATURES } from "./wasm-compat.mjs";
 
 const require = createRequire(import.meta.url);
 const here = dirname(fileURLToPath(import.meta.url));
@@ -193,16 +194,17 @@ function compile(name, mode) {
     "--use",
     "BUILD_FOR_TESTING=0",
     "--disable",
-    "sign-extension",
+    KOINOS_DISABLED_FEATURES.join(","),
     "--config",
     "asconfig.json",
   ];
   run(process.execPath, args, { cwd: dir });
+  const wasm = readFileSync(join(outDir, "contract.wasm"));
+  assertKoinosWasm(wasm, `${name} (${mode})`);
   const collected = join(pkgRoot, "build", mode);
   mkdirSync(collected, { recursive: true });
   copyFileSync(join(outDir, "contract.wasm"), join(collected, `${name}.wasm`));
   copyFileSync(join(dir, "abi", `${name}.abi`), join(collected, `${name}.abi`));
-  const wasm = readFileSync(join(outDir, "contract.wasm"));
   const abiHash = createHash("sha256")
     .update(readFileSync(join(dir, "abi", `${name}.abi`)))
     .digest("hex");
