@@ -5,7 +5,7 @@
     "https://testnet.koinosfoundation.org/jsonrpc"
   ],
   "protocolVersion": 1,
-  "deployedAt": "2026-09-25T05:45:17.370Z",
+  "deployedAt": "2026-09-25T06:03:08.025Z",
   "deployer": "19C9kF7uBC2a3kWY5iXF4zpWhzahGCmeJd",
   "contracts": {
     "identity": {
@@ -15,6 +15,62 @@
       "wasmSha256": "f45a533a19647608e6050f36d6f2dbaefde6547d71618378a63c7f994e6615ec",
       "abiSha256": "97f3143b7f100861c4f37e912287fa23d86019e30a3cfeeec3f46ba406fdca7c",
       "rcUsed": "514579865"
+    },
+    "relationships": {
+      "address": "1Cc3Ra42NQ8Fz1n4Hw1f2jNsAZ3n7sg3Ur",
+      "txId": "0x1220c20faf99fce98e71f656c4e36322e5daf2e0b0bb78a3e82d4001ce18d19c0451",
+      "block": "8668602",
+      "wasmSha256": "856fd37b910652a9f178286bc8c7e4813420da5dcb875ca5d6b8a966e04042cc",
+      "abiSha256": "d8dfbd337684eb431c3a8c4678f18a9de3ca821d105fcf5db8edf227f7067927",
+      "rcUsed": "486666176"
+    },
+    "publications": {
+      "address": "1P2bThgYcJgj4MCC5AVrcXq5DDj9CRWruU",
+      "txId": "0x12201eb48fdee4a5b38daee54fa8061efc7ff0b79682c3cc8077e28d937902a26d00",
+      "block": "8668604",
+      "wasmSha256": "ab0f1d498fa488953b56c12c26a40ec1723c8a7ae945a4491ba6a02a93c91df5",
+      "abiSha256": "6959363283f555c0c13dfa3c96ffecc17a502cda9e8b1fb429104cff08ea6819",
+      "rcUsed": "550659547"
+    },
+    "communities": {
+      "address": "19qUJT9fPk44Qay4vP8itfdgHkXHyG21vk",
+      "txId": "0x122000957f47a82b363f2c2e0751de16107a7eb9c0f7a1e4972e4f8681f3bc3c347f",
+      "block": "8668607",
+      "wasmSha256": "bec16b0dd19e1bf9ea27f5da39e7b29af9a122afdcf74904b29668483561379c",
+      "abiSha256": "21bfad9ae4bf5b268b33d9af679681840064f5aa45c8219a4c31354e1ea76d23",
+      "rcUsed": "457593593"
+    },
+    "sponsorship": {
+      "address": "17aX6cmC3J1YtcM1DJXwD3e98PvhRhavjU",
+      "txId": "0x122056a994e91cc7b3a38b9ab0a71fa4d07b6ea8127c3c59792c1e3545a9b57e3962",
+      "block": "8668609",
+      "wasmSha256": "71c38e66967e6f08e7f4fb1363efb6e36621043302c482eeddd9f67ceb57484d",
+      "abiSha256": "095cad71f8c2483b5978823d40793849da69dd21324f9b628d63788a332d0725",
+      "rcUsed": "386253163"
+    },
+    "registry": {
+      "address": "1ALYxykwWdueLqSgU78PaZvhTH18z2BnTF",
+      "txId": "0x12207585e831476778f45407d2bc9dc07e71cf05b436dd26b4c3d36c38b918068597",
+      "block": "8668612",
+      "wasmSha256": "c3ca9c44de8730b3f8aec26a126a5de9934f8c490d09ef2497908fede145050e",
+      "abiSha256": "267e2c14468c340070934f1b53795f64365b1ecb6c658aa9965c7dab6a8794f8",
+      "rcUsed": "408564647"
+    },
+    "messaging": {
+      "address": "1AmU2JeuGFSg1oKaLUBJ9M3n5hwxrXGdQa",
+      "txId": "0x122056106b90edfbd7b63b9c4f47600cffa9e1087443c2a9392a4c738efbaca3a491",
+      "block": "8668614",
+      "wasmSha256": "4d023a2481b529b4bdd64ce34976a936860d4ab425c9ff3f62e9251793847e40",
+      "abiSha256": "93c4f43f855396c3dee365a65ea78ea3405bea67f923ddf04d994dc23edb8ff7",
+      "rcUsed": "414483687"
+    },
+    "token": {
+      "address": "1GxCaDA9kq6kKHtUxUEBs6boF1s5gX76fS",
+      "txId": "0x122027e18dd42e6fd1139d0ef42dfc09270e00d5ba624c48c18c2b375483128f5f66",
+      "block": "8668616",
+      "wasmSha256": "32984cd78eead61ad873902b837da666fbee439cc38005782d29b03e850bb0d9",
+      "abiSha256": "c2c6699a7d0cc89083bcce1493ad302f8684726e15e61d8bda843dd97e42d805",
+      "rcUsed": "427672381"
     }
   },
   "startHeight": "8668232",
