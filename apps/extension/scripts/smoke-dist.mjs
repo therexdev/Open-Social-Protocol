@@ -109,6 +109,14 @@ if (listeners.length === 1) {
   const status = await send({ type: "vault.status" }, page);
   check(status?.ok === true && status.result?.status === "empty", `vault.status: ${JSON.stringify(status)}`);
   check(status?.ok === true && typeof status.result?.network?.deployed === "boolean", "vault.status must report the deployment state");
+  const settings = await send({ type: "settings.get" }, page);
+  check(settings?.ok === true && Boolean(settings.result?.resolved?.indexerUrl), "release has no default indexer");
+  check(settings?.ok === true && settings.result?.resolved?.sponsorUrls?.length > 0, "release has no default sponsor for browser authorization");
+  // Upgrades preserve empty saved overrides; these must also inherit the release defaults.
+  await chrome.storage.local.set({ "osp.settings": { ...settings.result?.settings, indexerUrl: "", sponsorUrls: [] } });
+  const restored = await send({ type: "settings.get" }, page);
+  check(restored?.result?.resolved?.indexerUrl === settings.result?.resolved?.indexerUrl, "saved empty indexer override lost its default");
+  check(JSON.stringify(restored?.result?.resolved?.sponsorUrls) === JSON.stringify(settings.result?.resolved?.sponsorUrls), "saved empty sponsor override lost its defaults");
   const wrongSender = await send({ type: "vault.status" }, { ...page, id: "someone-else" });
   check(wrongSender?.ok === false && wrongSender.error?.code === "forbidden", `wrong sender must be refused: ${JSON.stringify(wrongSender)}`);
   const unknown = await send({ type: "nope" }, page);

@@ -1,0 +1,23 @@
+import { expect, it } from "vitest";
+import { createTestBackground } from "../test/support";
+import type { SettingsView } from "../shared/protocol";
+it.each([false, true])("authorizes a zero-Mana account through deployment-default sponsorship (already registered=%s)", async registered => {
+  const t = createTestBackground({ indexer: true, deploymentDefaultsOnly: true });
+  const passphrase = "correct horse battery";
+  const created = await t.call<{ account: string }>("vault.create", { passphrase });
+  if (registered) t.state.registerIdentity(created.account, new Uint8Array(32).fill(7), 1);
+  const getRc = t.provider.getAccountRc;
+  t.provider.getAccountRc = async account => account === created.account ? "0" : getRc(account);
+  const settings = await t.call<SettingsView>("settings.get");
+  expect(settings.settings.indexerUrl).toBe("");
+  expect(settings.settings.sponsorUrls).toEqual([]);
+  expect(settings.resolved.indexerUrl).not.toBe("");
+  expect(settings.resolved.sponsorUrls).toHaveLength(1);
+  await t.call("device.authorize", { passphrase, keepOwnerSeed: false });
+  expect(t.sponsor.received).toHaveLength(1);
+  const tx = t.sponsor.received[0]!;
+  expect(tx.header?.payer).toBe(t.sponsor.address);
+  expect(tx.header?.payee).toBe(created.account);
+  expect(tx.operations).toHaveLength(registered ? 1 : 2);
+  expect(await t.call("device.status")).toMatchObject({ authorized: true });
+});

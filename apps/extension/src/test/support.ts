@@ -393,6 +393,7 @@ export interface TestBackground {
 }
 
 export interface TestBackgroundOptions extends Partial<BackgroundOptions> {
+  deploymentDefaultsOnly?: boolean;
   origins?: string[];
   deployed?: boolean;
   /** Configure the fake sponsor (default true: a device-only vault publishes through a sponsor). */
@@ -421,7 +422,11 @@ export function createTestBackground(options: TestBackgroundOptions = {}): TestB
       if (url.startsWith(INDEXER_URL)) return indexer.handle(url, init);
       return jsonResponse(404, { error: { code: "not_found", message: "no such service in tests" } });
     });
-  const { origins: _origins, deployed: _deployed, sponsor: _sponsor, indexer: _indexer, ...rest } = options;
+  if (options.deploymentDefaultsOnly) {
+    deployment.indexers = withIndexer ? [INDEXER_URL] : [];
+    deployment.sponsors = withSponsor ? [SPONSOR_URL] : [];
+  }
+  const { deploymentDefaultsOnly: _defaults, origins: _origins, deployed: _deployed, sponsor: _sponsor, indexer: _indexer, ...rest } = options;
   const background = createBackground({
     local,
     session,
@@ -432,7 +437,7 @@ export function createTestBackground(options: TestBackgroundOptions = {}): TestB
     now: () => now.value,
     deployments: options.deployed === false ? {} : { fixture: deployment },
     deploymentErrors: {},
-    env: { network: "fixture", rpcUrls: [], indexerUrl: withIndexer ? INDEXER_URL : "", sponsorUrls: withSponsor ? [SPONSOR_URL] : [] },
+    env: { network: "fixture", rpcUrls: [], indexerUrl: withIndexer && !options.deploymentDefaultsOnly ? INDEXER_URL : "", sponsorUrls: withSponsor && !options.deploymentDefaultsOnly ? [SPONSOR_URL] : [] },
     attemptId: () => toHex(attemptRng(16)),
     ...rest,
     fetch,

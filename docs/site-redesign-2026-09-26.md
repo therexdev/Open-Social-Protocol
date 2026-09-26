@@ -54,6 +54,38 @@
   packaged smoke checks do not establish real mobile gesture feel, actual home-screen
   installation, or authenticated Facebook appearance. No claim of those checks is made.
 
+## Release configuration correction — extension 0.1.5
+
+The original redesign ZIPs omitted the live service defaults. The committed Harbinger
+deployment had empty `indexers` and `sponsors` arrays, and the release build did not supply
+environment overrides. The website therefore could not load feeds/profiles; browser
+authorization in the extension tried the account's own Mana without contacting a sponsor.
+The previous statement that these ZIPs included the existing endpoints was incorrect.
+Earlier tests injected service URLs and did not catch the packaging defect.
+
+The deployment now supplies `https://social-api.usekoinos.com` and
+`https://social-sponsor.usekoinos.com`. Fresh installs and saved empty overrides inherit
+them. Explicit custom endpoints/payment preferences are preserved, and Harbinger defaults
+do not leak into other networks. No contract or transaction behavior changes were needed.
+The extension manifest and UI version now both come from package version 0.1.5.
+
+Verification of this correction:
+
+- Added packaged-build checks that failed against both original ZIP builds before the fix.
+  The web check boots the actual compiled app with saved empty overrides, exercises nickname
+  search and Settings, and asserts effective services. The extension check exercises its
+  compiled worker settings for both fresh and saved empty overrides. Neither injects URLs.
+- Rebuilt with empty URL environment overrides: both packaged checks pass. Web and extension
+  typechecks pass, with 121 web and 89 extension tests passing; 2 opt-in live tests skipped.
+  Authorization regressions cover new and registered accounts with zero owner Mana, using
+  deployment-only sponsor defaults and verifying sponsor payer, owner payee and authorization.
+- Live indexer status reports healthy and the expected chain/contracts. SDK verification of
+  the live sponsor's signed discovery and chain succeeds. The sponsor prepared an unsigned
+  browser-authorization transaction for the reported account with itself as payer; available
+  sponsor RC was 1,020,300,000,000 and account RC was 0. No transaction was signed or broadcast.
+- Real browser authorization after installing the replacement remains a user-side action;
+  the diagnostic above does not claim a live authorization was completed.
+
 ## Release and rollout
 
 Website: replace the hosted static files with `OpenSocial-Online-Testnet.zip` contents,
@@ -64,7 +96,7 @@ shell; Install app is in the desktop sidebar or mobile More menu. A later releas
 update prompt instead of forcing a reload while someone is writing.
 
 Extension: replace files in the same unpacked-extension directory, reload the existing
-installation and refresh Facebook. This is version 0.1.4, with no additional permissions.
+installation and refresh Facebook. This is version 0.1.5, with no additional permissions.
 
 Native nickname endpoint: deploy the updated SDK and indexer when server access is available
 (`npm ci`, build proto/SDK/indexer, then restart `osp-indexer` using the existing deployment

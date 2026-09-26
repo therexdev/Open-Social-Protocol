@@ -77,3 +77,17 @@ describe("settings store", () => {
     expect(resolved.deploymentMessage).toContain("invalid");
   });
 });
+
+it("ships usable Harbinger services without build-time variables, including saved empty overrides", () => {
+  const storage = memoryStringStorage();
+  storage.setItem(SETTINGS_KEY, JSON.stringify({ network: "harbinger", indexerUrl: "", sponsorUrls: [], rpcUrls: [] }));
+  const store = createSettingsStore({ storage, env });
+  const resolved = resolveSettings(store.getState(), { env });
+  expect(resolved.deployed).toBe(true);
+  expect(resolved.indexerUrl).toBe("https://social-api.usekoinos.com");
+  expect(resolved.sponsorUrls).toEqual(["https://social-sponsor.usekoinos.com"]);
+  store.getState().update({ network: "mainnet" });
+  const mainnet = resolveSettings(store.getState(), { env });
+  expect(mainnet.indexerUrl).not.toBe("https://social-api.usekoinos.com");
+  expect(mainnet.sponsorUrls).not.toContain("https://social-sponsor.usekoinos.com");
+});
