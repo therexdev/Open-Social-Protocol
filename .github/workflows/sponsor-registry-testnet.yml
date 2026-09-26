@@ -1,0 +1,70 @@
+name: sponsor-registry-testnet
+
+# Explicit rollout branch: repair only the existing sponsorship contract.
+on:
+  push:
+    branches: [codex/sponsor-registry-testnet-rollout]
+    paths-ignore:
+      - 'deployments/**'
+      - 'deployment-progress/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+concurrency:
+  group: deploy-harbinger
+  cancel-in-progress: false
+
+jobs:
+  validate-and-upgrade:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build:all
+      - name: Verify code and real release registration payloads
+        run: |
+          npm run typecheck
+          npx tsc -p scripts/tsconfig.json --noEmit
+          npm test
+          node --import tsx scripts/deployment-runtime-smoke.ts
+      - name: Rehearse registration on an isolated Harbinger registry
+        env:
+          KOINOS_HARBINGER_DEPLOYER_WIF: ${{ secrets.KOINOS_HARBINGER_DEPLOYER_WIF }}
+          OSP_CONTRACT_SEED: ${{ secrets.OSP_CONTRACT_SEED }}
+          KOINOS_RPC: ${{ vars.KOINOS_RPC }}
+        run: node --import tsx scripts/test-sponsor-registry-testnet.ts --execute --run "${{ github.run_id }}-${{ github.run_attempt }}" --evidence testnet-evidence/sponsor-registry.json
+      - name: Upgrade only the existing sponsorship contract
+        env:
+          KOINOS_HARBINGER_DEPLOYER_WIF: ${{ secrets.KOINOS_HARBINGER_DEPLOYER_WIF }}
+          OSP_CONTRACT_SEED: ${{ secrets.OSP_CONTRACT_SEED }}
+          KOINOS_RPC: ${{ vars.KOINOS_RPC }}
+        run: node --import tsx scripts/deploy-contracts.ts --network harbinger --only sponsorship
+      - name: Verify deployment and public service readiness
+        run: |
+          node --import tsx scripts/verify-deployment.ts --network harbinger
+          node --import tsx scripts/activate-token-economy.ts --network harbinger --if-ready
+      - name: Preserve deployment record
+        if: ${{ always() }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add deployments/harbinger.json deployment-progress/harbinger.json
+          if ! git diff --cached --quiet; then
+            git commit -m "Record sponsor registry repair (${{ github.run_id }})"
+            git push origin HEAD:${{ github.ref_name }}
+          fi
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: sponsor-registry-testnet-evidence
+          path: |
+            deployments/harbinger.json
+            deployment-progress/harbinger.json
+            packages/contracts/build/release/sponsorship.*
+            testnet-evidence/sponsor-registry.json

@@ -83,6 +83,8 @@ for exact pilot parameters and [the implementation status](token-v2-implementati
    existing product actions. Do not add economy administration or arbitrary
    transfer/burn. With `OSP_SPONSOR_REGISTER=true`, startup registers the updated
    policy on chain. Confirm registration and signed discovery before testing.
+   Readiness checks both the signed HTTP policy and its active on-chain record;
+   a serving HTTP endpoint by itself does not establish registration.
 4. Upload the contents of `OpenSocial-Online-Testnet.zip` into the existing
    Hostinger `public_html`, retaining its root layout. The live
    `https://opensocial.online/release.json` must return JSON with `tokenEconomy: 1`.
@@ -147,3 +149,25 @@ published on `hostinger-static`; no FTP deployment credentials were configured.
 Deploy the backend services and website as described above, then rerun the gated
 activation. Passing the rollout while `ready: false` means **verified and staged**,
 not active voting for ordinary testers.
+
+## Sponsor registration repair
+
+The September 26 VPS restart exposed a pre-existing registration failure:
+`set_sponsor` reverted with `module exited due to trap`. The generated
+AssemblyScript decoder handled the repeated `entry_points` field only as
+unpacked values, while koilib/protobufjs sends its valid packed representation.
+AS-only contract tests used the same unpacked writer and missed the mismatch.
+
+The build now corrects generated repeated-uint32 decoders to accept packed,
+unpacked and mixed chunks with bounds checks. No schema, entry-point or account
+address changes are required. The release-WASM test now submits the service's
+actual policy and checks wire compatibility, malformed lengths, maximum policy
+size and authority. Activation additionally requires an active on-chain sponsor
+record matching its signed discovery policy and limits.
+
+The `sponsor-registry-testnet` workflow first runs those tests and an isolated
+Harbinger registration rehearsal, then upgrades **only sponsorship** in place.
+After a successful upgrade, restart the existing `osp-sponsor` process so its
+own retained key can register the policy. The contract deployer cannot register
+on the real sponsor's behalf. This workflow does not activate the economy;
+complete sponsor registration and website deployment before gated activation.

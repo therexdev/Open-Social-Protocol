@@ -105,7 +105,7 @@ SDK's `verifySponsorResult` checks before trusting a sponsor's answer.
 | `OSP_SPONSOR_MAX_RC_PER_OP` | `200000000` | RC ceiling per operation (`rc_limit <= ceiling x ops`) |
 | `OSP_SPONSOR_MAX_OPS_PER_TX` | `4` | Operations per transaction |
 | `OSP_SPONSOR_ALLOWLIST` | default policy | `contract:method,...` override |
-| `OSP_SPONSOR_POLICY_VERSION` | `1` | Policy version in discovery and on chain; bump when the policy changes |
+| `OSP_SPONSOR_POLICY_VERSION` | `2` | Policy version in discovery and on chain; bump when the policy changes |
 | `OSP_SPONSOR_REGISTER` | `true` | Register/update the on-chain sponsor record on start |
 | `OSP_SPONSOR_LOG_LEVEL` | `info` | Fastify/pino log level |
 
