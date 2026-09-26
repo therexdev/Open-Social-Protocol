@@ -114,3 +114,24 @@ Do not describe a staged release as live voting. Report the isolated rehearsal,
 public contract version, service readiness and actual activation separately.
 Mainnet economics, lower free allowances, farming resistance and real promotion
 engagement remain questions for the pilot; this release does not establish them.
+
+## Recorded chain evidence
+
+The first live rehearsal passed all 33 checks on isolated token
+`1PzCuVGLLCjsKL95w6Sn6U3rftu7whAttJ`. Its
+[public receipts](../deployments/evidence/token-economy-2026-09-26.json) include
+72 and 27 OSAT author payouts from a 100-token budget, permanent promotion burn,
+unchanged voter locks and rejection of duplicate/free/self votes. The busiest
+measured new user action in that run used about 28.9 million RC, below the
+current sponsor's 200 million RC per-operation ceiling.
+
+The public token upgrade was included at block **8713616**, transaction
+`0x1220e02991e53713e544328604c5006e4aa3f891595a6c279784770de5604c25ff36`.
+Verified release WASM SHA-256:
+`4407bf2d09147c8b6307d064e78834ab448a4942dff353294f1cbddc353c02ab`.
+Public reads afterward returned `resource_version: 2`, `economy_version: 0`.
+
+That rollout's subsequent product smoke run stopped on an unknown confirmation
+outcome at koilib's 15-second default. The SDK now waits up to 120 seconds by
+default, while preserving explicit overrides and never resubmitting on timeout.
+The product journey must pass on the resumed release before it is marked ready.

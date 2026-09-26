@@ -51,7 +51,7 @@ export interface SubmitOptions {
   selfPayFallback?: boolean;
   /** Wait for block inclusion and report the block (default false). */
   waitForReceipt?: boolean;
-  /** Timeout for the wait (ms). */
+  /** Timeout for block inclusion (ms), default 120000. Does not resubmit on timeout. */
   waitTimeoutMs?: number;
   /**
    * RC limit override. Sponsored transactions default to `policy.maxRcPerOp * operations.length`
@@ -365,11 +365,13 @@ export class ProtocolClient {
       refusals: attempt.refusals,
     };
     if (options.waitForReceipt && transaction.id) {
+      // A healthy Harbinger inclusion can exceed koilib's 15-second default.
+      const timeout = options.waitTimeoutMs ?? 120_000;
       const waitFn = (transaction as { wait?: (type?: "byBlock" | "byTransactionId", timeout?: number) => Promise<{ blockId: string; blockNumber?: number }> }).wait;
       try {
         result.block = waitFn
-          ? await waitFn("byTransactionId", options.waitTimeoutMs)
-          : await this.provider.wait(transaction.id, "byTransactionId", options.waitTimeoutMs);
+          ? await waitFn("byTransactionId", timeout)
+          : await this.provider.wait(transaction.id, "byTransactionId", timeout);
       } catch (error) {
         // Submission already succeeded. A confirmation timeout is not a rejection.
         throw new TransactionOutcomeUnknownError(transaction, { ...receipt, rpc_error: error instanceof Error ? error.message : String(error) });
