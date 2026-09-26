@@ -49,7 +49,7 @@ import type { DeviceInfo, VaultMode, VaultStatus } from "../shared/protocol";
 export const VAULT_KEY = "osp.vault";
 export const SESSION_KEY = "osp.session";
 /** publish | react | comment | relationships (never community/profile administration). */
-export const DEVICE_CAPABILITIES = CAPABILITY.PUBLISH | CAPABILITY.REACT | CAPABILITY.COMMENT | CAPABILITY.RELATIONSHIPS;
+export const DEVICE_CAPABILITIES = CAPABILITY.PUBLISH | CAPABILITY.REACT | CAPABILITY.COMMENT | CAPABILITY.RELATIONSHIPS | CAPABILITY.SUPPORT;
 export const MIN_PASSPHRASE = 8;
 
 export interface VaultRecord {

@@ -8,6 +8,8 @@ const SITE = "https://opensocial.online";
 type View = { enabled: boolean; item?: FeedItem };
 
 export function PostCard({ item }: { item: FeedItem }) {
+  const [actionError, setActionError] = useState("");
+  const openVote = (direction: number) => { void rpc("economy.open", { postId: item.postId, direction }).catch(e => setActionError(e.message)); };
   const [images, setImages] = useState<Record<number, boolean>>({});
   const name = item.authorName?.trim() || shortAddress(item.author);
   const postUrl = `${SITE}/post/${encodeURIComponent(item.postId)}`;
@@ -29,8 +31,11 @@ export function PostCard({ item }: { item: FeedItem }) {
       })}</ul>}
       {safeHttpUrl(item.externalRef) && <a href={item.externalRef} target="_blank" rel="noopener noreferrer">{item.externalRef}</a>}
     </div> : <p className="post-state">{["locked", "no-key"].includes(item.status) && <Icon name="lock" size={18}/>}{item.message || ({ tombstone: "This post was deleted by its author.", hidden: "The author hid this post.", unavailable: "This post is unavailable." } as Record<string, string>)[item.status] || "Open the extension to unlock or refresh this post."}</p>}
+    {item.promoted && <p className="promotion-label">Promoted · paid for by the author</p>}
+    {actionError && <p role="alert">{actionError}</p>}
     <footer className="post-footer">
-      {item.author !== item.viewer && <a className="btn btn-ghost" href={postUrl} target="_blank" rel="noopener noreferrer" title="Support this post on Open Social"><Icon name="spark" size={18}/>Support</a>}
+      {item.audience === 0 && readable && item.author !== item.viewer && <><button className="btn btn-ghost" onClick={() => openVote(1)}><Icon name="up" size={18}/>Upvote {item.economy?.reward?.up}</button><button className="btn btn-ghost" onClick={() => openVote(2)}><Icon name="down" size={18}/>Downvote {item.economy?.reward?.down}</button></>}
+      {item.audience === 0 && item.author === item.viewer && <button className="btn btn-ghost" onClick={() => openVote(1)}><Icon name="spark" size={18}/>Promote</button>}
       <a className="btn btn-ghost" href={postUrl} target="_blank" rel="noopener noreferrer" title="Like this post on Open Social"><Icon name="heart" size={18} className={item.liked ? "is-liked" : ""}/> {item.reactions > 0 ? item.reactions : ""} {item.liked ? "Liked" : "Like"}</a>
       <a className="btn btn-ghost" href={postUrl} target="_blank" rel="noopener noreferrer" title="Reply on Open Social"><Icon name="message" size={18}/>{item.replyCount > 0 ? `${item.replyCount} replies` : "Reply"}</a>
     </footer>

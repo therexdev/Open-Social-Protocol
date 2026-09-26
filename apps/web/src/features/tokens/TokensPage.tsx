@@ -1,3 +1,5 @@
+import { useEconomy } from "./EconomyContext";
+import { PendingRewards } from "./PendingRewards";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { isAddress, type TokenAccount } from "@osp/sdk";
 import { useServices } from "../../api/services";
@@ -6,6 +8,7 @@ import { humanizeError, submitAction } from "../../tx/submit";
 import { useMe, useSubmitContext } from "../session";
 import { capacityLabel, tokenResources } from "./resources";
 export function TokensPage() {
+  const { policy } = useEconomy();
   const me = useMe(),
     ctx = useSubmitContext(),
     { protocol, indexer } = useServices();
@@ -77,7 +80,7 @@ export function TokensPage() {
   return (
     <div className="page-stack">
       <h1>Action tokens</h1>
-      <p>Support useful posts and earn more capacity for social activity.</p>
+      <p>Use OSAT for activity, reward voting and promotion.</p>
       {error && <Notice kind="error">{error}</Notice>}
       <div className="token-summary">
         <Card title="Your tokens">
@@ -98,7 +101,7 @@ export function TokensPage() {
       {v2 && <div className="token-summary">
         <Card title="Free activity capacity"><p className="token-number">{capacityLabel(free, precision)} <small>of 100</small></p></Card>
         <Card title="Token activity capacity"><p className="token-number">{capacityLabel(paid, precision)} <small>actions</small></p>
-          <p className="muted">Paid actions use this capacity after free credits run out.</p></Card>
+          <p className="muted">Paid actions and reward votes share this capacity. Votes use paid capacity only; actions use it after free credits run out.</p></Card>
       </div>}
       <Button onClick={() => void refresh()} disabled={busy || !protocol}>
         Refresh balance
@@ -108,18 +111,15 @@ export function TokensPage() {
           Every account has a free allowance of 100 actions. Each action token adds one action of capacity. Posts, likes, friend requests,
           follows, message requests, messages and support use that capacity.
         </p>
-        <p>
-          Use <strong>Support</strong> on someone else's post to recognize it. Pilot rewards are capped per author and across the network.
-          Tokens give no control over feeds or moderation.
-        </p>
+        <p>{policy ? `Upvotes and downvotes consume the paid weight you choose. Each public post has one reward period, and each account can vote on it once. The ${policy.period_budget} OSAT period budget is shared among authors with positive net scores. Votes do not change moderation.` : "The capped Support pilot remains active until reward voting is activated."}</p>
         <p>
           {v2 ? "Free capacity is used first. Partial recovery adds up immediately: 100 exhausted free units recover one usable action in about 72 minutes. Only fully charged tokens can be sent or burned. Holding more unused tokens does not speed up depleted tokens." : "This deployment still uses the legacy daily resource policy."}
         </p>
         <p>
-          Koinos Mana is separate and must still be paid by you or a sponsor. The existing capped Support pilot remains active;
-          SWARM reward voting and paid promotion are not part of this recharge test.
+          Koinos Mana is separate and must still be paid by you or a sponsor. {policy ? `These are testnet pilot settings: ${policy.period_budget} OSAT per ${policy.period_blocks}-block period. Tester allocations are issued by the operator, capped at 100 OSAT per account and 10,000 overall; registering extra accounts gives no voting tokens.` : "Reward voting and promotion are awaiting activation on this network."}
         </p>
       </Card>
+      {policy && <PendingRewards onSettled={() => void refresh()}/>}
       <Card title="Send tokens">
         <form
           className="form-stack"
@@ -145,12 +145,12 @@ export function TokensPage() {
       </Card>
       <Card title="Recent activity">
         {activity.length === 0 ? (
-          <p className="muted">Your support and transfers will appear here.</p>
+          <p className="muted">Your votes, rewards, promotions and transfers will appear here.</p>
         ) : (
           activity.map((a, i) => (
             <div className="token-activity" key={a.txId + "-" + i}>
               <strong>
-                {a.kind.endsWith("supported")
+                {a.kind.endsWith("voted") ? `${a.vote?.direction === 2 ? "Downvote" : "Upvote"} · weight ${a.vote?.weight ?? "—"}` : a.kind.endsWith("reward_settled") ? "Reward settled" : a.kind.endsWith("promotion_changed") ? "Promotion updated" : a.kind.endsWith("test_tokens_granted") ? "Tester allocation" : a.kind.endsWith("supported")
                   ? a.recipient === me?.account
                     ? "Support received"
                     : "Supported a post"
@@ -160,7 +160,7 @@ export function TokensPage() {
                   ? "Received"
                   : "Sent"}
               </strong>
-              <span>{a.value ?? a.reward ?? "0"} OSAT</span>
+              <span>{typeof a.value === "string" ? `${a.value} OSAT` : a.reward !== undefined ? `${a.reward} OSAT` : a.value?.reward !== undefined ? `${a.value.reward} OSAT` : ""}</span>
               <small>
                 {a.from && (
                   <>

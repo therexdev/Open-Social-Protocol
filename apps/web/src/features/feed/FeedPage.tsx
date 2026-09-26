@@ -7,7 +7,7 @@ import { errorMessage } from "../../util/format";
 import { useVault } from "../../vault/context";
 import { Icon } from "../../components/Icon";
 import { useSwipeTabs } from "../../components/useSwipeTabs";
-import { PostCard } from "./PostCard";
+import { PromotedFeed } from "../tokens/PromotedFeed";
 
 type Tab = "public" | "friends";
 
@@ -86,7 +86,7 @@ function FeedPanel({ scope, viewer, active }: { scope: Tab; viewer: string | und
     {feed.error && <Notice kind="error">{feed.error}</Notice>}
     {!indexer.configured && <Empty>Configure an indexer in Settings to load posts.</Empty>}
     {indexer.configured && !feed.loading && feed.items.length === 0 && !feed.error && !(scope === "friends" && !viewer) && <Empty>{scope === "friends" ? "Nothing from your friends yet. Posts you and your friends publish appear here." : "No posts yet. Be the first to say hello."}</Empty>}
-    <div className="post-list">{feed.items.map(post => <PostCard key={`${post.postId}:${post.contentHash}`} post={post} onChanged={() => void feed.refresh()} />)}</div>
+    <PromotedFeed items={feed.items} viewer={viewer} scope={scope} active={active} onChanged={() => void feed.refresh()}/>
     {feed.loading && feed.items.length === 0 && <FeedSkeleton/>}
     <div className="row feed-pagination"><Button variant="ghost" onClick={() => void feed.refresh()} disabled={feed.loading}><Icon name="refresh"/> {feed.loading && feed.items.length > 0 ? "Refreshing…" : "Refresh"}</Button>{feed.hasMore && <Button onClick={() => void feed.more()} busy={feed.loading}>Load more</Button>}</div>
   </section>;

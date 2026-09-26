@@ -1,3 +1,4 @@
+import type { IndexedPostEconomy } from "@osp/sdk";
 import { searchPeople as matchPeople } from "@osp/sdk";
 /**
  * Typed client for the INDEXER API v1 (see apps/indexer/README.md). Every read the web client
@@ -94,6 +95,8 @@ export interface LabelView {
 }
 
 export interface PostView {
+  economy?: IndexedPostEconomy;
+  promoted?: { nonce: string; opportunity: string };
   postId: string;
   author: string;
   sequence: string;
@@ -277,8 +280,14 @@ export class IndexerClient {
   messages(account: string, peer: string, before?: string): Promise<{items: MessageView[]; nextBefore: string|null}> {
     return this.get(`/v1/messages/${encodeURIComponent(account)}/${encodeURIComponent(peer)}${qs({before})}`);
   }
-  tokenActivity(account: string): Promise<{items: Array<{kind: string; from?: string; to?: string; actor?: string; recipient?: string; value?: string; reward?: string; timestamp: string; txId: string}>}> {
+  tokenActivity(account: string): Promise<{items: Array<{kind: string; from?: string; to?: string; actor?: string; recipient?: string; value?: string | { reward?: string; burned?: string; cancelled?: boolean }; vote?: { weight: string; direction: number }; reward?: string; timestamp: string; txId: string}>}> {
     return this.get(`/v1/token/${encodeURIComponent(account)}/activity`);
+  }
+  promotions(viewer?: string, scope = "public"): Promise<{items: PostView[]}> {
+    return this.get(`/v1/promotions${qs({ viewer, scope })}`);
+  }
+  pendingRewards(account: string, cursor?: string): Promise<Page<PostView>> {
+    return this.get(`/v1/token/${encodeURIComponent(account)}/rewards${qs({ cursor })}`);
   }
   status(): Promise<StatusView> {
     return this.get<StatusView>("/v1/status");

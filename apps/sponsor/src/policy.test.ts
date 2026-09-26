@@ -9,11 +9,11 @@ describe("default allowlist", () => {
   it("covers every write method of the social and messaging contracts except the admin setters", () => {
     const entries = defaultAllowlist(deployment);
     const names = entries.map((e) => `${e.contract}.${e.method}`);
-    expect(names).toHaveLength(36);
+    expect(names).toHaveLength(40);
     expect(names).toContain("identity.register");
     expect(names).toContain("messaging.send_message");
     expect(names).toContain("token.support");
-    for (const method of ["token.transfer", "token.burn", "token.consume", "token.init", "token.set_reward_policy", "messaging.set_dependencies", "publications.set_token_contract", "relationships.set_token_contract"]) expect(names).not.toContain(method);
+    for (const method of ["token.transfer", "token.burn", "token.consume", "token.init", "token.set_reward_policy", "token.activate_economy", "token.grant_test_tokens", "messaging.set_dependencies", "publications.set_token_contract", "relationships.set_token_contract"]) expect(names).not.toContain(method);
     expect(names).toContain("relationships.follow");
     expect(names).toContain("publications.publish");
     expect(names).toContain("communities.set_label");

@@ -14,7 +14,7 @@ import { CONTRACT_NAMES, type ContractName, type Deployment, type SponsorPolicy 
 export const SPONSORED_CONTRACTS: readonly ContractName[] = ["identity", "relationships", "publications", "communities", "messaging"];
 
 /** Methods that are never sponsored by default (contract-account administration). */
-export const ADMIN_METHODS: ReadonlySet<string> = new Set(["set_identity_contract", "set_relationships_contract", "set_token_contract", "set_dependencies", "init", "set_reward_policy", "activate_recharge", "consume"]);
+export const ADMIN_METHODS: ReadonlySet<string> = new Set(["set_identity_contract", "set_relationships_contract", "set_token_contract", "set_dependencies", "init", "set_reward_policy", "activate_recharge", "activate_economy", "grant_test_tokens", "consume"]);
 
 /**
  * Argument field naming the acting account per method. `null` marks methods anyone may
@@ -23,7 +23,7 @@ export const ADMIN_METHODS: ReadonlySet<string> = new Set(["set_identity_contrac
  */
 export const ACTOR_FIELDS: Readonly<Partial<Record<ContractName, Readonly<Record<string, string | null>>>>> = {
   messaging: { request_conversation: "actor", accept_conversation: "actor", close_conversation: "actor", send_message: "sender" },
-  token: { support: "actor", transfer: "from", burn: "from" },
+  token: { support: "actor", vote: "actor", settle_reward: "actor", promote: "actor", cancel_promotion: "actor", transfer: "from", burn: "from" },
   identity: {
     register: "account",
     update_profile: "account",
@@ -134,8 +134,9 @@ export function defaultAllowlist(deployment: Deployment): AllowedMethod[] {
       out.push({ contract, address: deployment.contracts[contract].address, method, entryPoint: def.entry_point });
     }
   }
-  const support = ABIS.token.methods.support!;
-  out.push({ contract: "token", address: deployment.contracts.token.address, method: "support", entryPoint: support.entry_point });
+  for (const method of ["support", "vote", "settle_reward", "promote", "cancel_promotion"]) {
+    out.push({ contract: "token", address: deployment.contracts.token.address, method, entryPoint: ABIS.token.methods[method]!.entry_point });
+  }
   return out;
 }
 

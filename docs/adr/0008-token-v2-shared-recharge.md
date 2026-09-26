@@ -2,9 +2,9 @@
 
 Date: 2026-09-26
 
-Status: direction accepted; resource reference model implemented and tested;
-contract integration and economic parameters pending. This ADR does not describe
-the currently deployed token contract.
+Status: direction accepted; five-day resource contract deployed on Harbinger.
+[ADR 0009](0009-token-economy-testnet-pilot.md) defines the bounded voting and
+promotion pilot implementation. Public activation is a separate readiness gate.
 
 ## Product decision
 

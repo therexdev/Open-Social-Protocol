@@ -120,7 +120,7 @@ describe("discovery", () => {
     expect(doc.sponsor).toBe(sponsor);
     expect(doc.network.chainId).toBe(HARBINGER_CHAIN_ID);
     expect(doc.network.rpc).toEqual(deployment.rpc);
-    expect(doc.policy.version).toBe(1);
+    expect(doc.policy.version).toBe(2);
     expect(doc.policy.maxBytesPerOp).toBe(6144);
     expect(doc.policy.maxRcPerOp).toBe("200000000");
     expect(doc.policy.perUser).toEqual({ dailyOps: 200, burstOps: 20, burstWindowSec: 60 });

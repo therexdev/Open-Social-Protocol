@@ -3,7 +3,7 @@
  * content scripts). Every message is `{ type, payload? }`; every response is a `Reply`.
  * Content scripts may send audience-selected `crosspost.publish`, legacy draft proposals and `feed.request`.
  */
-import type { CrossPostRecord } from "@osp/sdk";
+import type { CrossPostRecord, IndexedPostEconomy } from "@osp/sdk";
 
 export interface Message<T extends string = string, P = unknown> {
   type: T;
@@ -80,6 +80,9 @@ export type FeedScope = "public" | "friends";
 export type PostContentStatus = "plain" | "decrypted" | "tombstone" | "hidden" | "unavailable" | "no-key" | "locked" | "error";
 
 export interface FeedItem {
+  contentHash?: string;
+  economy?: IndexedPostEconomy;
+  promoted?: { nonce: string; opportunity: string };
   postId: string;
   author: string;
   authorName?: string;

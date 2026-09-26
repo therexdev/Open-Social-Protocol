@@ -795,9 +795,22 @@ export function applyEvent(db: IndexerDb, event: LogEvent): void {
       return;
     }
     case "token": {
-      const d=event.data;
-      if(event.name === "osp.token.account_updated") db.run("INSERT INTO token_accounts VALUES (?,?) ON CONFLICT(account) DO UPDATE SET data_json=excluded.data_json",str(d.account),JSON.stringify(toJsonValue(d.value)));
-      else db.run("INSERT INTO token_activity VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(height,tx_index,sequence) DO NOTHING",event.height,event.txIndex,event.sequence,str(d.actor||d.from),str(d.recipient||d.to),event.name,JSON.stringify(toJsonValue(d)),event.txId);
+      const d = event.data, v = d.value as Record<string, unknown> | undefined;
+      if (event.name === "osp.token.account_updated") {
+        db.run("INSERT INTO token_accounts VALUES (?,?) ON CONFLICT(account) DO UPDATE SET data_json=excluded.data_json", str(d.account), JSON.stringify(toJsonValue(d.value)));
+        return;
+      }
+      if (event.name === "osp.token.economy_activated") db.setMeta("projection.token.economy", JSON.stringify(toJsonValue(v)));
+      if ((event.name === "osp.token.voted" || event.name === "osp.token.reward_settled") && v) {
+        const epoch = d.epoch as Record<string, unknown>;
+        db.run("INSERT INTO token_rewards VALUES (?,?,?,?,?) ON CONFLICT(post_id) DO UPDATE SET settled=excluded.settled,data_json=excluded.data_json", b64(v.post_id), str(v.author), str(v.epoch), v.settled ? 1 : 0, JSON.stringify(toJsonValue(v)));
+        db.run("INSERT INTO token_epochs VALUES (?,?) ON CONFLICT(id) DO UPDATE SET data_json=excluded.data_json", str(epoch.id), JSON.stringify(toJsonValue(epoch)));
+        if (d.vote) db.run("INSERT INTO token_votes VALUES (?,?,?) ON CONFLICT(post_id,actor) DO NOTHING", b64(v.post_id), str(d.actor), JSON.stringify(toJsonValue(d.vote)));
+      }
+      if (event.name === "osp.token.promotion_changed" && v) db.run("INSERT INTO token_promotions VALUES (?,?,?,?,?) ON CONFLICT(post_id) DO UPDATE SET slot=excluded.slot,end_block=excluded.end_block,data_json=excluded.data_json", b64(v.post_id), str(v.author), num(v.slot), Number(v.end_block), JSON.stringify(toJsonValue(v)));
+      const recipient = str(d.recipient || d.to || d.account || v?.author);
+      const activity = { ...toJsonValue(d) as Record<string, unknown>, ...(recipient && { recipient }) };
+      db.run("INSERT INTO token_activity VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(height,tx_index,sequence) DO NOTHING", event.height, event.txIndex, event.sequence, str(d.actor || d.from), recipient, event.name, JSON.stringify(activity), event.txId);
       return;
     }
     case "identity":

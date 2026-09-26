@@ -17,7 +17,7 @@ function capabilities(bits: number): string {
   if (bits & CAPABILITY.COMMUNITY) names.push("communities");
   if (bits & CAPABILITY.PROFILE) names.push("profile");
   if (bits & CAPABILITY.MESSAGING) names.push("messages");
-  if (bits & CAPABILITY.SUPPORT) names.push("support posts");
+  if (bits & CAPABILITY.SUPPORT) names.push("reward votes");
   return names.join(", ") || "none";
 }
 
@@ -76,6 +76,20 @@ export function Devices({ account }: { account: string }) {
     }
   };
 
+  const enableVoting = async (device: string) => {
+    if (!ctx || !protocol) return;
+    setBusy(device); setError(undefined);
+    try {
+      const current = (await protocol.reads.identity.get_device({ account, device }))?.value;
+      const identity = (await protocol.reads.identity.get_identity({ account }))?.value;
+      if (!current || current.revoked || Number(current.expires_at) <= Date.now() || !identity || current.device_epoch !== identity.device_epoch) throw new Error("This device is no longer active. Authorize it again from the extension.");
+      const op = await ctx.client.ops.identity.authorize_device({ account, device, capabilities: current.capabilities | CAPABILITY.SUPPORT, expires_at: current.expires_at, label: current.label });
+      await submitAction(ctx, [op], { label: "Enabling browser reward voting", success: "This browser can now spend paid capacity on reward votes", waitForReceipt: true });
+      await refresh();
+    } catch (e) { setError(errorMessage(e)); }
+    finally { setBusy(undefined); }
+  };
+
   const now = Date.now();
   return (
     <div className="stack">
@@ -100,6 +114,7 @@ export function Devices({ account }: { account: string }) {
                     {active ? "Active" : d.revoked ? "Revoked" : expired ? "Expired" : "Void (account recovered)"} · can {capabilities(d.capabilities)} · until {formatDateTime(d.expiresAt)}
                   </p>
                 </div>
+                {active && !(d.capabilities & CAPABILITY.SUPPORT) && <Button onClick={() => void enableVoting(d.device)} busy={busy === d.device} disabled={!can.ok} title="Allow paid up/down votes. This does not allow transferring or burning tokens.">Enable reward voting</Button>}
                 {active && (
                   <Button variant="danger" onClick={() => void revoke(d.device)} busy={busy === d.device} disabled={!can.ok} title={can.ok ? undefined : can.reason}>
                     Revoke

@@ -43,10 +43,10 @@ export function DeviceAuth() {
       <div className="card">
         <h1>Authorize this browser</h1>
         <p>
-          To publish, react, comment and manage friends from this browser, the extension uses a separate <strong>device key</strong> that your account authorizes on chain for <strong>30 days</strong>.
+          To publish, react, comment, cast paid reward votes and manage friends from this browser, the extension uses a separate <strong>device key</strong> that your account authorizes on chain for <strong>30 days</strong>.
         </p>
         <ul className="muted" style={{ paddingLeft: 18 }}>
-          <li>The device can never change your account keys, add other devices, block people or run a recovery.</li>
+          <li>The device cannot transfer or burn your tokens, change account keys, add devices, block people or run a recovery.</li>
           <li>After this step the identity seed is removed from this browser. Keep your identity file safe: it restores everything on any device.</li>
           <li>You can revoke this browser at any time from the web client.</li>
         </ul>

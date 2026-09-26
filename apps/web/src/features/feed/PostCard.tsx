@@ -1,3 +1,4 @@
+import { PostEconomyActions } from "../tokens/PostEconomyActions";
 /** One post in a list or on its page: author, audience, decrypted body, media, reactions. */
 import { useState } from "react";
 import { Link } from "react-router-dom";
@@ -161,13 +162,9 @@ export function PostCard({ post, onChanged, expanded = false }: PostCardProps) {
         </p>
       )}
       <PostBody content={content} />
+      {post.promoted && <p className="promotion-label"><Icon name="spark" size={14}/> Promoted · paid for by the author</p>}
+      <PostEconomyActions post={post} onChanged={onChanged}/>
       <footer className="post-footer">
-        {submit && post.author !== submit.signer.getAddress() && <Button variant="ghost" disabled={!can.ok || deleted || busy} onClick={async () => {
-          setBusy(true);
-          try { const op=await submit.client.ops.token.support({actor:submit.signer.getAddress(),post_id:bytesOf(post.postId)});await submitAction(submit,[op],{label:"Supporting this post",success:"Support recorded"}); }
-          catch { /* submitAction displays the reason */ }
-          finally { setBusy(false); }
-        }}><Icon name="spark" size={18}/>Support</Button>}
         <Button variant="ghost" onClick={react} disabled={!can.ok || deleted} busy={busy} aria-pressed={liked} title={can.ok ? undefined : can.reason}>
           <Icon name="heart" size={18} className={liked ? "is-liked" : ""}/> {likes > 0 ? likes : ""} {liked ? "Liked" : "Like"}
         </Button>

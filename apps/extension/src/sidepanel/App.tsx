@@ -1,3 +1,4 @@
+import { EconomyPanel } from "./Economy";
 import { useEffect } from "react";
 import { shortAddress } from "../shared/format";
 import { rpc } from "../shared/rpc";
@@ -50,10 +51,12 @@ export function App() {
     </div>
   );
 
+  const requestedPost = new URLSearchParams(location.hash.slice(1)).get("post");
   let body;
   if (status.status === "empty") body = <Onboarding />;
   else if (status.status === "locked") body = <Unlock />;
   else if (!status.deviceAuthorized && !skippedDeviceStep) body = <DeviceAuth />;
+  else if (requestedPost && /^[A-Za-z0-9_-]{43}=?$/.test(requestedPost)) body = <EconomyPanel postId={requestedPost} initialDirection={Number(new URLSearchParams(location.hash.slice(1)).get("direction")) === 2 ? 2 : 1}/>;
   else {
     body = (
       <>
