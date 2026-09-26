@@ -14,6 +14,7 @@ export default defineConfig({
     emptyOutDir: true,
     sourcemap: false,
     target: "es2022",
+    rollupOptions: { input: { embeddedPost: "src/embed/index.html" } },
   },
   server: {
     port: 5174,

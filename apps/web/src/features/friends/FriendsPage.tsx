@@ -1,9 +1,8 @@
 import { useState } from "react";
-import { isAddress } from "@osp/sdk";
-import type { ProfileSummary } from "../../api/indexer";
-import { useServices } from "../../api/services";
-import { AccountLink, Button, Card, Empty, Field, Notice, Spinner } from "../../components/ui";
-import { errorMessage, timeAgo } from "../../util/format";
+import { PeopleSearch } from "../people/PeopleSearch";
+import { Avatar } from "../../components/Icon";
+import { AccountLink, Button, Card, Empty, Notice, Spinner } from "../../components/ui";
+import { timeAgo } from "../../util/format";
 import { useVault } from "../../vault/context";
 import { useProfileName } from "../profile/useProfileName";
 import { RelationshipActions, useGraph } from "./RelationshipActions";
@@ -13,40 +12,16 @@ function Person({ account, children }: { account: string; children?: React.React
   const name = useProfileName(account);
   return (
     <li className="list-item">
-      <AccountLink account={account} name={name} />
+      <span className="person-identity"><Avatar account={account} name={name} /><AccountLink account={account} name={name} /></span>
       {children}
     </li>
   );
 }
 
 export function FriendsPage() {
-  const { indexer } = useServices();
   const me = useVault((s) => s.account);
   const { graph, error, loading, refresh } = useGraph(me);
-  const [query, setQuery] = useState("");
-  const [results, setResults] = useState<ProfileSummary[] | undefined>();
-  const [searching, setSearching] = useState(false);
-  const [searchError, setSearchError] = useState<string | undefined>();
   const [ignored, setIgnored] = useState<string[]>(() => (me ? ignoredRequests(me) : []));
-
-  const search = async () => {
-    const q = query.trim();
-    setSearchError(undefined);
-    if (q.length === 0) return;
-    setSearching(true);
-    try {
-      if (isAddress(q)) {
-        const exact = await indexer.searchProfiles(q, 5);
-        setResults(exact.length > 0 ? exact : [{ account: q, owner: q, encryptionKey: "", keyVersion: 0, profileHash: "", profileUri: "", registeredAt: "0", updatedAt: "0" }]);
-      } else {
-        setResults(await indexer.searchProfiles(q, 20));
-      }
-    } catch (e) {
-      setSearchError(errorMessage(e));
-    } finally {
-      setSearching(false);
-    }
-  };
 
   const incoming = (graph?.pendingIncoming ?? []).filter((r) => !ignored.includes(r.account));
   const hidden = (graph?.pendingIncoming ?? []).filter((r) => ignored.includes(r.account));
@@ -54,36 +29,9 @@ export function FriendsPage() {
   return (
     <div className="page">
       <h1>Friends</h1>
-      <Card title="Find people">
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            void search();
-          }}
-        >
-          <Field label="Address or the start of one" hint="Profiles are looked up through the indexer. Names are stored in profiles and shown once found.">
-            {(id) => (
-              <div className="row">
-                <input id={id} value={query} onChange={(e) => setQuery(e.target.value)} placeholder="1…" autoComplete="off" />
-                <Button type="submit" variant="primary" busy={searching}>
-                  Search
-                </Button>
-              </div>
-            )}
-          </Field>
-        </form>
-        {searchError && <Notice kind="error">{searchError}</Notice>}
-        {results && results.length === 0 && <Empty>No accounts match.</Empty>}
-        {results && results.length > 0 && (
-          <ul className="list">
-            {results.map((r) => (
-              <Person key={r.account} account={r.account}>
-                <RelationshipActions target={r.account} graph={graph} onChanged={() => void refresh()} compact />
-              </Person>
-            ))}
-          </ul>
-        )}
-      </Card>
+      <p className="muted">Friends can read each other's past and future friends-only posts. Each author shares access automatically while their account is unlocked.</p>
+      <Button onClick={() => { window.dispatchEvent(new CustomEvent("osp:sync-friend-keys", { detail: { repair: true } })); void refresh(); }}>Sync private-post access</Button>
+      <Card title="Find people"><PeopleSearch /></Card>
       {error && <Notice kind="error">{error}</Notice>}
       {loading && !graph && <Spinner />}
       <Card title={`Requests (${incoming.length})`}>

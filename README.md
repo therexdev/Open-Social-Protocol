@@ -14,15 +14,21 @@ project proposal, roadmap, technical plan and whitepaper (`docs/`):
 
 Core proposition: *your identity, relationships and content should outlive any one application.*
 
-## V1 update - September 22
+## V1 audit — September 26, 2026
 
-Encrypted direct messages (recipient consent, verified ciphertext, refresh-safe retries),
-action tokens, capped Support rewards and regenerative usage limits are implemented.
-Friendship removal rotates both users' future audience keys. Messages and Tokens are in
-the web app; the extension continues to provide the feed and Facebook cross-posting.
+The eight Harbinger contracts and their dependencies have been verified live. A complete
+25-step testnet journey passed with two disposable accounts: public/private publishing,
+both friendship directions, removal, re-acceptance with all historical private posts,
+encrypted messaging, Support rewards, conversation closure and blocking.
 
-Read [the testing handoff](docs/v1-testing.md) for deployment prerequisites, test steps and
-explicit pilot economics. Live Harbinger deployment is **not confirmed** by this source update.
+Friendship acceptance restores all available friends-only history once both authors
+unlock the web app to share their keys. The clients now verify post content against the
+chain, and ambiguous transaction outcomes cannot silently replay through another payer.
+
+See [the product audit](docs/v1-product-audit.md) for fixes, reproducible checks and
+remaining release gates; [the testing handoff](docs/v1-testing.md) for test procedures;
+and [deployment instructions](docs/opensocial-online.md) for the updated website package.
+The latest source build still needs to be uploaded to Hostinger before it changes the live site.
 
 ## Status
 

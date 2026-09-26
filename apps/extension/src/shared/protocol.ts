@@ -1,7 +1,7 @@
 /**
  * The message contract between the service worker and its clients (side panel, options page,
  * content scripts). Every message is `{ type, payload? }`; every response is a `Reply`.
- * Content scripts may only send `crosspost.propose` and `feed.request`.
+ * Content scripts may send audience-selected `crosspost.publish`, legacy draft proposals and `feed.request`.
  */
 import type { CrossPostRecord } from "@osp/sdk";
 
@@ -12,7 +12,7 @@ export interface Message<T extends string = string, P = unknown> {
 
 export type Reply<T = unknown> = { ok: true; result: T } | { ok: false; error: { code: string; message: string } };
 
-export const CONTENT_SCRIPT_TYPES = ["crosspost.propose", "feed.request"] as const;
+export const CONTENT_SCRIPT_TYPES = ["crosspost.propose", "crosspost.publish", "feed.request", "adapter.preferences"] as const;
 export type ContentScriptType = (typeof CONTENT_SCRIPT_TYPES)[number];
 
 /** Payload size ceiling (bytes of the JSON encoding of the whole message). */
@@ -82,12 +82,16 @@ export type PostContentStatus = "plain" | "decrypted" | "tombstone" | "hidden" |
 export interface FeedItem {
   postId: string;
   author: string;
+  authorName?: string;
+  viewer?: string;
   audience: number;
   epoch: number;
   createdAt: string;
   versionNumber: number;
   status: PostContentStatus;
   text?: string;
+  media?: Array<{ mime?: string; locations?: string[]; alt_text?: string; size?: string }>;
+  liked?: boolean;
   externalRef?: string;
   message?: string;
   reactions: number;
@@ -152,6 +156,16 @@ export interface ProposePayload {
   userGesture: boolean;
 }
 
+export interface HostPublishPayload extends ProposePayload {
+  audience: number;
+}
+
+export interface PublishReply {
+  attemptId: string;
+  status: "published" | "pending" | "failed";
+  message: string;
+}
+
 export interface CreatePayload {
   text: string;
   audience: number;
@@ -162,7 +176,10 @@ export interface CreatePayload {
 
 export interface FeedRequestReply {
   enabled: boolean;
-  items: Array<{ postId: string; author: string; text: string; createdAt: string }>;
+  /** Only public identifiers cross into the host page. Content stays inside extension frames. */
+  items: Array<{ postId: string }>;
+  nextCursor: string | null;
+  notice?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -170,7 +187,7 @@ export interface FeedRequestReply {
 // ---------------------------------------------------------------------------
 
 export interface AdapterStatusView {
-  facebook: { wanted: boolean; granted: boolean; registered: boolean };
+  facebook: { wanted: boolean; granted: boolean; registered: boolean; attachmentWarning?: string };
   feedInsertion: boolean;
 }
 

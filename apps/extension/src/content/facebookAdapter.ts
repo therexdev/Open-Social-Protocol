@@ -2,28 +2,31 @@
  * Facebook composer adapter (isolated world). Detects composer dialogs by ARIA roles, injects the
  * labeled "Also publish to Open Social Protocol" control, and when the user activates the
  * dialog's submit control with the checkbox on, sends ONLY the composer text to the service worker
- * as a draft proposal. Nothing is published without the side panel's explicit confirmation.
+ * with the selected Open Social audience. That Post action publishes immediately.
  * If the selectors fail nothing breaks: the side panel composer keeps working (sidebar fallback).
  */
-import { createBoundedObserver, scanAndInject, showToast, type BoundedObserver, type ComposerAdapter } from "./adapter";
-import { maybeInsertFeedCards, type FeedCardsRuntime } from "./feedCards";
+import { CONTROL_ATTR, TOAST_ATTR, createBoundedObserver, scanAndInject, showToast, type BoundedObserver, type ComposerAdapter } from "./adapter";
+import { FEED_ATTR, feedCardNeedsRepair, maybeInsertFeedCards, resetFeedCards, type FeedCardsRuntime } from "./feedCards";
+import type { PublishReply } from "../shared/protocol";
+import { ComposerAttribution } from "./attribution";
 
 const SUBMIT_LABEL = /^(post|publish)$/i;
+const TEXTBOX = '[contenteditable="true"][role="textbox"], [contenteditable="true"][data-lexical-editor="true"]';
 
 export const facebookAdapter: ComposerAdapter = {
   name: "facebook",
   findComposers(root) {
-    return [...root.querySelectorAll<HTMLElement>('div[role="dialog"]')].filter((dialog) => dialog.querySelector('[contenteditable="true"][role="textbox"]') !== null);
+    return [...root.querySelectorAll<HTMLElement>('[role="dialog"], dialog')].filter((dialog) => dialog.querySelector(TEXTBOX) !== null);
   },
   findTextbox(dialog) {
-    return dialog.querySelector<HTMLElement>('[contenteditable="true"][role="textbox"]');
+    return dialog.querySelector<HTMLElement>(TEXTBOX);
   },
   findSubmitButton(dialog) {
     const buttons = [...dialog.querySelectorAll<HTMLElement>('button, [role="button"]')];
-    const labeled = buttons.find((b) => SUBMIT_LABEL.test((b.getAttribute("aria-label") ?? "").trim()));
+    const labeled = buttons.find((b) => !b.closest(`[${CONTROL_ATTR}]`) && SUBMIT_LABEL.test((b.getAttribute("aria-label") ?? b.textContent ?? "").trim()));
     if (labeled) return labeled;
-    const enabled = buttons.filter((b) => !(b as HTMLButtonElement).disabled && b.getAttribute("aria-disabled") !== "true");
-    return enabled.length > 0 ? (enabled[enabled.length - 1] ?? null) : null;
+    // Never guess that the last action is Post (it can be Photo, Close, or a privacy control).
+    return dialog.querySelector<HTMLButtonElement>('button[type="submit"], input[type="submit"]');
   },
   findFooter(dialog) {
     const button = this.findSubmitButton(dialog);
@@ -34,10 +37,10 @@ export const facebookAdapter: ComposerAdapter = {
     let footer: HTMLElement | null = element;
     while (element && element !== dialog) {
       footer = element;
-      if (element.parentElement === dialog || element.parentElement?.querySelector('[contenteditable="true"][role="textbox"]')) break;
+      if (element.parentElement === dialog || element.parentElement?.querySelector(TEXTBOX)) break;
       element = element.parentElement;
     }
-    return footer && footer !== dialog ? footer : button.parentElement;
+    return footer && footer !== dialog ? footer : button;
   },
 };
 
@@ -48,11 +51,34 @@ export interface AdapterRuntime extends FeedCardsRuntime {
   /** 16 random bytes as hex. */
   randomAttemptId: () => string;
   userGesture?: () => boolean;
+  /** Testable browser event boundary. Production accepts only real user events. */
+  trustedEvent?: (event: Event) => boolean;
   now?: () => number;
 }
 
 export const ADAPTER_ATTR = "data-osp-facebook";
-export const TOAST_SENT = "Sent to Open Social - confirm in the side panel";
+export const STATUS_ATTR = "data-osp-facebook-status";
+export const TOAST_SENT = "Published to Open Social";
+
+/** Ignore typing, counters, sidebars and our own insertions. Only a changed post/composer
+ * structure needs discovery. Removing our cards externally still triggers restoration. */
+export function relevantFacebookMutation(mutation: MutationRecord): boolean {
+  const target = mutation.target.nodeType === 1 ? mutation.target as Element : mutation.target.parentElement;
+  const owned = `[${CONTROL_ATTR}], [${FEED_ATTR}], [${STATUS_ATTR}], [${TOAST_ATTR}]`;
+  if (target?.closest(`${owned}, ${TEXTBOX}, aside, [role="complementary"]`)) return false;
+  const structural = '[role="main"], main, [role="feed"], [role="article"], [data-pagelet^="FeedUnit_"], [role="dialog"], dialog';
+  if (mutation.type === "attributes") return !!target?.matches(structural);
+  for (const node of mutation.removedNodes) {
+    if (node.nodeType === 1 && (node as Element).hasAttribute(FEED_ATTR) && feedCardNeedsRepair(node as Element)) return true;
+    if (node.nodeType === 1 && !node.isConnected && (node as Element).matches(`[${FEED_ATTR}], [${CONTROL_ATTR}]`)) return true;
+  }
+  for (const node of [...mutation.addedNodes, ...mutation.removedNodes]) {
+    if (node.nodeType !== 1) continue;
+    const el = node as Element;
+    if (!el.matches(owned) && (el.matches(structural) || el.querySelector(`${structural}, ${TEXTBOX}`))) return true;
+  }
+  return false;
+}
 
 function defaultRuntime(): AdapterRuntime {
   return {
@@ -66,6 +92,7 @@ function defaultRuntime(): AdapterRuntime {
 
 export interface RunningAdapter {
   stop(): void;
+  refresh(): void;
   observer: BoundedObserver;
   scan(): number;
 }
@@ -76,32 +103,91 @@ export function startFacebookAdapter(runtime: AdapterRuntime = defaultRuntime())
   if (!root || root.hasAttribute(ADAPTER_ATTR)) return null;
   root.setAttribute(ADAPTER_ATTR, "1");
   const now = runtime.now ?? (() => Date.now());
-  let lastSent: { text: string; at: number } | undefined;
+  const hooks = new Map<HTMLElement, () => void>();
+  const attributions = new Map<HTMLElement, { editor: ComposerAttribution; unhook: () => void }>();
+  let attributionEnabled = false; // Wait for the stored preference before changing a draft.
+  let preferenceGeneration = 0;
+  let stopped = false;
+  let lastSent: { text: string; audience: number; at: number } | undefined;
+  let publishing = false;
 
-  const onSubmit = (text: string) => {
+  const onSubmit = (text: string, audience: number, event: Event) => {
+    if (stopped || publishing || !(runtime.trustedEvent?.(event) ?? event.isTrusted)) return;
+    const dialog = (event.target as Element | null)?.closest<HTMLElement>('[role="dialog"], dialog');
+    const attribution = dialog ? attributions.get(dialog)?.editor : undefined;
+    if (attribution) {
+      // Usually already visible since opt-in; repair its position if the author edited below it.
+      attribution.sync(attributionEnabled);
+      text = attribution.text();
+    }
+    if (!text) return;
     // A double activation (click + keyboard) must not create two proposals.
-    if (lastSent && lastSent.text === text && now() - lastSent.at < 2000) return;
-    lastSent = { text, at: now() };
+    if (lastSent && lastSent.text === text && lastSent.audience === audience && now() - lastSent.at < 2000) return;
+    lastSent = { text, audience, at: now() };
     const payload = {
       hostSite: "facebook" as const,
       text,
+      audience,
       attemptId: runtime.randomAttemptId(),
       url: runtime.location(),
       submitted: true,
       userGesture: runtime.userGesture?.() ?? true,
     };
-    Promise.resolve(runtime.sendMessage({ type: "crosspost.propose", payload }))
+    publishing = true;
+    showToast(doc, `Publishing to Open Social · ${audience === 1 ? "Friends" : "Public"}…`, 60_000);
+    Promise.resolve(runtime.sendMessage({ type: "crosspost.publish", payload }))
       .then((reply) => {
-        const r = reply as { ok?: boolean; error?: { message?: string } } | undefined;
-        if (r?.ok) showToast(doc, TOAST_SENT);
-        else showToast(doc, `Not sent to Open Social: ${r?.error?.message ?? "the extension did not answer"}`);
+        if (stopped) return;
+        const r = reply as { ok?: boolean; result?: PublishReply; error?: { message?: string } } | undefined;
+        if (r?.ok && r.result) showToast(doc, r.result.message, r.result.status === "published" ? 5000 : 15000);
+        else showToast(doc, `Open Social did not publish: ${r?.error?.message ?? "the extension did not answer"}. Open the extension to unlock or check Compose.`, 15000);
       })
-      .catch(() => showToast(doc, "Not sent to Open Social: the extension is unavailable"));
+      .catch(() => { if (!stopped) showToast(doc, "Open Social could not confirm publication. Open Compose to check the saved post before retrying.", 15000); })
+      .finally(() => { publishing = false; });
   };
 
-  const scan = () => {
+  const optedIn = (dialog: HTMLElement) => dialog.querySelector<HTMLInputElement>(`[${CONTROL_ATTR}] input`)?.checked === true;
+  async function loadPreferences() {
+    const generation = ++preferenceGeneration;
     try {
-      const injected = scanAndInject(doc, facebookAdapter, doc, onSubmit);
+      const reply = await runtime.sendMessage({ type: "adapter.preferences" }) as { ok?: boolean; result?: { facebookAttribution?: boolean } };
+      if (stopped || generation !== preferenceGeneration || !reply?.ok || typeof reply.result?.facebookAttribution !== "boolean") return;
+      attributionEnabled = reply.result.facebookAttribution;
+      for (const [dialog, { editor }] of attributions) editor.sync(attributionEnabled && optedIn(dialog));
+    } catch { /* Keep publishing available; do not override a preference we could not read. */ }
+  }
+
+  function showStatus() {
+    if (doc.querySelector(`[${STATUS_ATTR}]`)) return;
+    const status = doc.createElement("details");
+    status.setAttribute(STATUS_ATTR, "1");
+    Object.assign(status.style, { position: "fixed", left: "12px", bottom: "12px", zIndex: "2147483646", maxWidth: "260px", padding: "8px 10px", border: "1px solid #5e84ff", borderRadius: "8px", background: "#f3f6ff", color: "#1b2340", font: "13px/1.4 system-ui, sans-serif" });
+    const summary = doc.createElement("summary");
+    summary.textContent = "Open Social enabled";
+    const hint = doc.createElement("p");
+    hint.textContent = 'In Facebook’s Create post box, enable “Also publish to Open Social Protocol” and choose Public or Friends. Clicking Post publishes the Open Social copy immediately while the extension is unlocked. The audience selection applies to Open Social; Facebook uses its own audience setting.';
+    status.append(summary, hint);
+    (doc.body ?? root).append(status);
+  }
+
+  const scan = () => {
+    if (stopped) return 0;
+    try {
+      for (const [dialog, unhook] of hooks) {
+        if (!dialog.isConnected) { unhook(); hooks.delete(dialog); attributions.get(dialog)?.unhook(); attributions.delete(dialog); }
+      }
+      showStatus();
+      const injected = scanAndInject(doc, facebookAdapter, doc, onSubmit, hooks);
+      for (const dialog of hooks.keys()) {
+        if (attributions.has(dialog)) continue;
+        const editor = new ComposerAttribution(dialog, facebookAdapter);
+        const changed = (event: Event) => {
+          if (!(runtime.trustedEvent?.(event) ?? event.isTrusted)) return;
+          if ((event.target as Element | null)?.matches(`[${CONTROL_ATTR}] input`)) editor.sync(attributionEnabled && optedIn(dialog));
+        };
+        dialog.addEventListener("change", changed);
+        attributions.set(dialog, { editor, unhook: () => dialog.removeEventListener("change", changed) });
+      }
       void maybeInsertFeedCards(runtime);
       return injected;
     } catch {
@@ -109,26 +195,60 @@ export function startFacebookAdapter(runtime: AdapterRuntime = defaultRuntime())
     }
   };
 
-  const observer = createBoundedObserver({ target: doc.body ?? root, onBatch: () => scan(), idleMs: 60_000, now });
+  const observer = createBoundedObserver({
+    target: doc.body ?? root, onBatch: () => scan(), idleMs: 60_000, now,
+    filter: relevantFacebookMutation, schedule: callback => setTimeout(callback, 120),
+    observe: { childList: true, subtree: true, attributes: true, attributeFilter: ["role", "data-pagelet", "aria-hidden", "hidden", "style"] },
+  });
   const resume = () => {
+    if (stopped) return;
     observer.start();
     scan();
   };
   const onVisibility = () => {
     if (doc.visibilityState === "visible") resume();
+    else observer.stop();
+  };
+  const wake = () => {
+    if (stopped || doc.visibilityState === "hidden") return;
+    const inactive = !observer.active;
+    observer.start();
+    if (inactive) scan();
   };
   doc.defaultView?.addEventListener("focus", resume);
   doc.addEventListener("visibilitychange", onVisibility);
+  // Opening a composer after the observer went idle need not focus the window again.
+  doc.addEventListener("pointerdown", wake, true);
+  doc.addEventListener("keydown", wake, true);
+  doc.defaultView?.addEventListener("scroll", wake, { passive: true });
   observer.start();
   scan();
+  void loadPreferences();
 
   return {
     observer,
     scan,
+    refresh() {
+      if (stopped) return;
+      void loadPreferences();
+      resetFeedCards(doc);
+      doc.querySelectorAll(`[${FEED_ATTR}]`).forEach((el) => el.remove());
+      resume();
+    },
     stop() {
+      stopped = true;
       observer.stop();
       doc.defaultView?.removeEventListener("focus", resume);
       doc.removeEventListener("visibilitychange", onVisibility);
+      doc.removeEventListener("pointerdown", wake, true);
+      doc.removeEventListener("keydown", wake, true);
+      doc.defaultView?.removeEventListener("scroll", wake);
+      for (const unhook of hooks.values()) unhook();
+      hooks.clear();
+      for (const { editor, unhook } of attributions.values()) { editor.sync(false); unhook(); }
+      attributions.clear();
+      resetFeedCards(doc);
+      doc.querySelectorAll(`[${CONTROL_ATTR}], [${FEED_ATTR}], [${TOAST_ATTR}], [${STATUS_ATTR}]`).forEach((el) => el.remove());
       root.removeAttribute(ADAPTER_ATTR);
     },
   };

@@ -3,7 +3,7 @@
  * chrome.storage.local and drives it with the SDK's pure `transition` / `retryPlan` and the
  * `Reconciler` lookup. Rules it enforces:
  *
- *  - a draft is published only through `confirm` (the side panel's explicit confirmation);
+ *  - publishing starts from an explicit Post action with its selected audience;
  *  - the idempotency key is derived from the author and the persisted attempt id, so a retry can
  *    never create a second Koinos post;
  *  - an unknown outcome is looked up on chain (then the indexer) before anything is re-sent; the
@@ -179,6 +179,25 @@ export class CrossPostOrchestrator {
     });
   }
 
+  /** One-click publication. Persist the attempt before sending so retries/restarts retain the
+   * same idempotency key. Facebook handles its own post; this tracks the Open Social copy only. */
+  publishDirect(payload: Omit<CreatePayload, "adapter"> & { adapter: Adapter; hostSubmitted?: boolean }, attemptId: string): Promise<StoredCrossPost> {
+    return this.run(async () => {
+      const account = await this.deps.account();
+      if (!account) throw new CrossPostError("Unlock Open Social before publishing.");
+      const file = await this.load();
+      let record = file.records.find(r => r.attemptId === attemptId);
+      if (record) {
+        if (record.author !== account || record.audience !== payload.audience || record.adapter !== payload.adapter || (record.text !== undefined && record.text !== payload.text)) throw new CrossPostError("This publishing attempt belongs to a different draft.");
+        if (record.koinosStatus === "ok" || record.state === "submitting" || record.state === "reconcile_required") return record;
+        if (record.state !== "draft") return this.retryRecord(file, record);
+      } else {
+        record = await this.update(file, await this.fresh({ ...payload, attemptId }));
+      }
+      return this.publish(file, await this.update(file, merge(record, transition(baseRecord(record), { type: "retry", at: this.now() }))));
+    });
+  }
+
   /**
    * The explicit confirmation: the only path that publishes a draft. The host side of a Facebook
    * proposal stays pending: pressing Post on Facebook does not prove Facebook published it, so
@@ -272,29 +291,33 @@ export class CrossPostOrchestrator {
       const file = await this.load();
       const record = file.records.find((r) => r.attemptId === attemptId);
       if (!record) throw new CrossPostError("Unknown attempt.");
-      if (!explain(record, this.now()).actions.includes("retry") && record.state !== "unknown") {
-        throw new CrossPostError(`Retry is not available while the attempt is ${record.state}.`);
-      }
-      const account = await this.deps.account();
-      if (!account) throw new CrossPostError("Unlock your account first.");
-      if (record.author && record.author !== account) throw new CrossPostError("This attempt belongs to another account.");
-      let current = baseRecord(record);
-      if (current.koinosStatus === "unknown") {
-        current = adoptPendingTx(record, await this.reconciler(record).lookup(current, account));
-        if (current.koinosStatus === "ok" || current.state === "reconcile_required") {
-          return this.maybeProof(file, await this.update(file, this.settle(record, current)));
-        }
-      }
-      const plan = retryPlan(current);
-      current = transition(current, { type: "retry", at: this.now() });
-      const prepared = await this.update(file, merge(record, current));
-      if (plan.koinos) {
-        if (!prepared.text) throw new CrossPostError("The draft text is gone; discard this attempt and post again.");
-        return this.publish(file, prepared);
-      }
-      // Host side is manual (mark it from the queue); nothing else to do.
-      return prepared;
+      return this.retryRecord(file, record);
     });
+  }
+
+  private async retryRecord(file: CrossPostFile, record: StoredCrossPost): Promise<StoredCrossPost> {
+    if (!explain(record, this.now()).actions.includes("retry") && record.state !== "unknown") {
+      throw new CrossPostError(`Retry is not available while the attempt is ${record.state}.`);
+    }
+    const account = await this.deps.account();
+    if (!account) throw new CrossPostError("Unlock your account first.");
+    if (record.author && record.author !== account) throw new CrossPostError("This attempt belongs to another account.");
+    let current = baseRecord(record);
+    if (current.koinosStatus === "unknown") {
+      current = adoptPendingTx(record, await this.reconciler(record).lookup(current, account));
+      if (current.koinosStatus === "ok" || current.state === "reconcile_required") {
+        return this.maybeProof(file, await this.update(file, this.settle(record, current)));
+      }
+    }
+    const plan = retryPlan(current);
+    current = transition(current, { type: "retry", at: this.now() });
+    const prepared = await this.update(file, merge(record, current));
+    if (plan.koinos) {
+      if (!prepared.text) throw new CrossPostError("The draft text is gone; discard this attempt and post again.");
+      return this.publish(file, prepared);
+    }
+    // Legacy host reporting is separate; nothing else to submit.
+    return prepared;
   }
 
   /** Merges a lookup result; a confirmed Koinos side drops the draft text and the pending transaction id. */

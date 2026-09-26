@@ -15,20 +15,29 @@ export function usePostContent(post: PostView): PostContent | undefined {
   const verify = useMemo(() => (protocol ? chainKeyVerifier(protocol) : undefined), [protocol]);
   useEffect(() => {
     let cancelled = false;
+    let timer: number | undefined;
     setContent(undefined);
     const me = session ? { account: session.identity.account, seed: session.identity.seed, encryption: session.identity.encryption } : undefined;
-    void openPost(post, {
-      chainId,
-      ...(session && { keys: session.keys }),
-      ...(me && { me }),
-      ...(indexer.configured && { keySource: indexer }),
-      ...(verify && { verify }),
-    }).then((result) => {
-      if (!cancelled) setContent(result);
-    });
+    const open = async () => {
+      const result = await openPost(post, {
+        chainId,
+        ...(session && { keys: session.keys }),
+        ...(me && { me }),
+        ...(indexer.configured && { keySource: indexer }),
+        ...(verify && { verify }),
+        ...(protocol && { chain: protocol }),
+      });
+      if (cancelled) return;
+      setContent(result);
+      // A friend's signed key distribution can arrive after the post itself. Retry without
+      // requiring navigation or a reload, and respect the key store's 30-second miss cache.
+      if (result.status === "no-key" || result.status === "error") timer = window.setTimeout(() => void open(), 30_000);
+    };
+    void open();
     return () => {
       cancelled = true;
+      window.clearTimeout(timer);
     };
-  }, [post.postId, post.contentHash, post.state, chainId, session, indexer, verify]);
+  }, [post.postId, post.contentHash, post.state, chainId, session, indexer, verify, protocol]);
   return content;
 }

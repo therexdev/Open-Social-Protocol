@@ -1,13 +1,17 @@
 /** Relationship actions (spec section 4) and the local ignore list for incoming requests. */
-import { LIMITS, buildKeyPackageSets, type OperationJson } from "@osp/sdk";
-import type { EpochKeyRef, KeyStore } from "../../api/keystore";
+import { LIMITS, RELATIONSHIP_STATUS, buildKeyPackageSets, type OperationJson } from "@osp/sdk";
+import type { EpochKeyRef, KeyResolverIdentity, KeySource, KeyStore } from "../../api/keystore";
+import { chainKeyVerifier } from "../../api/keyProvenance";
 import type { SubmitContext } from "../../tx/submit";
-import { submitAction } from "../../tx/submit";
+import { humanizeError, submitAction } from "../../tx/submit";
 import { safeLocalStorage } from "../../util/webStorage";
+import { toast } from "../../stores/toasts";
 
-/** What accepting a request needs to hand the new friend the current reading key (spec 5.4, future-only). */
+/** What accepting a request needs to hand the new friend the current reading key; background synchronization shares historical keys too. */
 export interface KeyShare {
   keys: KeyStore;
+  me?: KeyResolverIdentity;
+  source?: KeySource;
 }
 
 export interface KeyShareOps {
@@ -26,7 +30,10 @@ export async function currentKeyShare(ctx: SubmitContext, share: KeyShare, frien
   try {
     const epoch = (await ctx.client.reads.relationships.get_audience({ account: author }))?.value?.epoch ?? 0;
     const ref: EpochKeyRef = { author, audienceId: new Uint8Array(0), epoch };
-    const entry = share.keys.trusted(ref);
+    await share.keys.init();
+    const entry = share.me?.account === author && share.source
+      ? (await share.keys.resolveTrusted(ref, share.me, share.source, chainKeyVerifier(ctx.client))).entry
+      : share.keys.trusted(ref);
     if (!entry || entry.recipients.includes(friend)) return undefined;
     const record = (await ctx.client.reads.identity.get_identity({ account: friend }))?.value;
     if (!record || record.encryption_key.length !== LIMITS.keyBytes) return undefined;
@@ -55,6 +62,14 @@ export async function acceptFriend(ctx: SubmitContext, requester: string, share?
 }
 
 export async function removeFriend(ctx: SubmitContext, peer: string) {
+  const relationship = await ctx.client.reads.relationships.get_relationship({ a: ctx.signer.getAddress(), b: peer }).catch((error: unknown) => {
+    toast("error", "Could not check the friendship", humanizeError(error));
+    throw error;
+  });
+  if (relationship?.value && relationship.value.status !== RELATIONSHIP_STATUS.ACTIVE) {
+    toast("info", "No active friendship", "The network already shows that you are not friends. No removal was sent.");
+    return;
+  }
   const op = await ctx.client.ops.relationships.remove_friend({ actor: ctx.signer.getAddress(), peer });
   return submitAction(ctx, [op], { label: "Removing the friend", success: "Friend removed" });
 }
@@ -107,7 +122,7 @@ export function unignoreRequest(account: string, requester: string): void {
 }
 
 export const REMOVE_FRIEND_WARNING =
-  "Removing a friend stops them from receiving the key to your future friends-only posts. It cannot take back posts they could already read: copies may already exist on their devices.";
+  "Removing a friend starts a new private-post period for both accounts. Accepting a friendship again shares access to older friends-only posts as well. Keys already received still work. Copies already saved cannot be taken back.";
 
 export const BLOCK_WARNING =
   "Blocking ends the friendship, removes follows in both directions, prevents new requests and stops future friends-only keys. Like removing a friend, it cannot erase what they already received. Blocks are visible on the network.";

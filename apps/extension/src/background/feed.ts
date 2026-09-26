@@ -1,16 +1,15 @@
 /**
  * Feed reads: indexer pages opened with the key store (friends-only posts decrypted here, in the
- * service worker). Cached briefly in memory; a content script only ever receives the plaintext
- * of everyone-audience posts.
+ * service worker). Content scripts only receive post identifiers. Decrypted card content goes
+ * directly to read-only extension frames, never into the host page's DOM or messages.
  */
-import { SUITE, decodeEnvelope, decryptContent } from "@osp/sdk";
-import { bytesOf } from "../shared/bytes";
-import type { PostView } from "../shared/indexer";
 import type { FeedItem, FeedPage, FeedRequestReply, FeedScope } from "../shared/protocol";
 import type { Clients } from "./clients";
 import { openPost, toFeedItem } from "./decrypt";
 import type { KeyStore } from "./keystore";
 import type { UnlockedSession, VaultManager } from "./vault";
+import { decodeProfile } from "@osp/sdk";
+import { bytesOf } from "../shared/bytes";
 
 export interface FeedDeps {
   clients: () => Promise<Clients>;
@@ -48,7 +47,7 @@ export class FeedService {
     const me = session ? { account: session.account, encryption: this.deps.vault.encryption(session) } : undefined;
     const items: FeedItem[] = [];
     for (const post of raw.items ?? []) {
-      const opened = await openPost(post, { chainId, keys, me, keySource: clients.indexer });
+      const opened = await openPost(post, { chainId, chain: clients.protocol, keys, me, keySource: clients.indexer });
       items.push(toFeedItem(post, opened));
     }
     const page: FeedPage = { items, nextCursor: raw.nextCursor ?? null };
@@ -56,26 +55,34 @@ export class FeedService {
     return page;
   }
 
-  /** Up to `limit` public posts with plaintext, for the labeled host-feed cards. */
-  async publicPreview(limit = 5): Promise<FeedRequestReply["items"]> {
+  /** Host scripts receive identifiers, never decrypted content or profile/account details. */
+  async references(scope: "public" | "friends" | "all", cursor?: string, limit = 5): Promise<Omit<FeedRequestReply, "enabled">> {
+    const session = await this.deps.session();
+    if (scope === "friends" && !session) return { items: [], nextCursor: null, notice: "Unlock Open Social to see your friends’ posts." };
     const clients = await this.deps.clients();
-    const raw = await clients.indexer.feed({ scope: "public", limit: Math.min(Math.max(limit, 1), 5) });
-    const items: FeedRequestReply["items"] = [];
-    for (const post of raw.items ?? []) {
-      const text = plaintextOf(post);
-      if (text !== undefined) items.push({ postId: post.postId, author: post.author, text, createdAt: post.createdAt });
-    }
-    return items;
+    const raw = await clients.indexer.feed({ scope: session ? scope : "public", ...(session && { viewer: session.account }), cursor, limit });
+    return { items: raw.items.map(({ postId }) => ({ postId })), nextCursor: raw.nextCursor ?? null };
   }
-}
 
-function plaintextOf(post: PostView): string | undefined {
-  if (post.state !== 0) return undefined;
-  try {
-    const envelope = decodeEnvelope(bytesOf(post.envelope));
-    if (envelope.suite !== SUITE.PLAINTEXT) return undefined;
-    return decryptContent({ envelope }).text ?? "";
-  } catch {
-    return undefined;
+  /** Read-only embedded extension page: same verification/decryption as the side-panel feed. */
+  async card(postId: string): Promise<FeedItem | undefined> {
+    const clients = await this.deps.clients();
+    const session = await this.deps.session();
+    const post = await clients.indexer.post(postId, session?.account);
+    if (!post) return undefined;
+    const keys = session ? await this.deps.keys(session) : undefined;
+    const opened = await openPost(post, { chainId: clients.resolved.chainId ?? "", chain: clients.protocol, keys,
+      me: session ? { account: session.account, encryption: this.deps.vault.encryption(session) } : undefined, keySource: clients.indexer });
+    const item = toFeedItem(post, opened);
+    item.viewer = session?.account;
+    try {
+      const profile = await clients.indexer.profile(post.author);
+      const prefix = "data:application/x-osp-profile;base64,";
+      if (profile?.profileUri.startsWith(prefix)) item.authorName = decodeProfile(bytesOf(profile.profileUri.slice(prefix.length))).display_name;
+    } catch { /* Keep the post readable if only its profile is unavailable. */ }
+    // A lock while the network request was running must not restore decrypted content.
+    const current = await this.deps.session();
+    if (opened.status === "decrypted" && current?.account !== session?.account) return { ...item, text: undefined, media: undefined, externalRef: undefined, status: "locked", message: "Unlock Open Social to read this post." };
+    return item;
   }
 }

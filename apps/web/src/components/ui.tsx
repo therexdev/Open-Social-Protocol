@@ -1,5 +1,5 @@
 /** Small accessible building blocks shared by every page. */
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode, type CSSProperties } from "react";
 import { Link } from "react-router-dom";
 import { shortAddress } from "../util/format";
 
@@ -118,7 +118,8 @@ export function ConfirmDialog({ open, title, children, confirmLabel = "Confirm",
       if (typeof dialog.showModal === "function") dialog.showModal();
       else dialog.setAttribute("open", "");
     } else if (!open && dialog.open) {
-      dialog.close();
+      if (typeof dialog.close === "function") dialog.close();
+      else dialog.removeAttribute("open");
     }
   }, [open]);
   // This dialog can live inside another form. Its actions must never submit that
@@ -152,13 +153,23 @@ export function Details({ summary, children, open }: { summary: ReactNode; child
 
 export function Tabs<T extends string>({ value, options, onChange, label }: { value: T; options: Array<{ value: T; label: ReactNode }>; onChange: (v: T) => void; label: string }) {
   return (
-    <div className="tabs" role="tablist" aria-label={label}>
+    <div className="tabs" role="tablist" aria-label={label} style={{ "--tab-count": options.length, "--tab-index": options.findIndex(option => option.value === value) } as CSSProperties}>
+      <span className="tab-indicator" aria-hidden="true" />
       {options.map((option) => (
         <button
           key={option.value}
           type="button"
           role="tab"
           aria-selected={option.value === value}
+          tabIndex={option.value === value ? 0 : -1}
+          onKeyDown={event => {
+            const index = options.findIndex(option => option.value === value);
+            const next = event.key === "ArrowRight" ? (index + 1) % options.length : event.key === "ArrowLeft" ? (index - 1 + options.length) % options.length : event.key === "Home" ? 0 : event.key === "End" ? options.length - 1 : -1;
+            if (next < 0) return;
+            event.preventDefault();
+            onChange(options[next]!.value);
+            (event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>("button")[next])?.focus();
+          }}
           className={`tab ${option.value === value ? "active" : ""}`.trim()}
           onClick={() => onChange(option.value)}
         >

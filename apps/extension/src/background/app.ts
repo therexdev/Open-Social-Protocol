@@ -16,6 +16,7 @@ import {
   type FeedRequestReply,
   type PageInfo,
   type ProposePayload,
+  type PublishReply,
   type SettingsView,
   type StoredCrossPost,
   type VaultStatusView,
@@ -208,7 +209,7 @@ export function createBackground(options: BackgroundOptions): Background {
     return {
       ...status,
       network: { name: resolved.network, deployed: resolved.deployed, ...(resolved.deploymentMessage && { message: resolved.deploymentMessage }), indexerUrl: resolved.indexerUrl },
-      pending: records.filter((r) => needsAttention(r, now())).length,
+      pending: records.filter((r) => r.koinosStatus !== "ok" && needsAttention(r, now())).length,
       autoLockMinutes: settings.autoLockMinutes,
     };
   }
@@ -246,7 +247,9 @@ export function createBackground(options: BackgroundOptions): Background {
     payment: optional(oneOf(["sponsor-then-self", "self-only", "sponsor-only"] as const)),
     autoLockMinutes: optional(num({ min: 0, max: 24 * 60 })),
     facebookAdapter: optional(bool()),
+    facebookAttribution: optional(bool()),
     feedInsertion: optional(bool()),
+    feedScope: optional(oneOf(["public", "friends", "all"] as const)),
   });
 
   const handlers: Handlers = {
@@ -322,6 +325,11 @@ export function createBackground(options: BackgroundOptions): Background {
       },
     }),
     "adapter.status": defineHandler({ source: "extension", validate: empty, handle: async () => adapters.status(await loadSettings()) }),
+    "adapter.preferences": defineHandler({ source: "content", validate: empty, handle: async () => {
+      const settings = await loadSettings();
+      // This is the only preference exposed to the host script; no account, endpoints or keys.
+      return { facebookAttribution: settings.facebookAdapter && settings.facebookAttribution };
+    } }),
     "adapter.enable": defineHandler({
       source: "extension",
       validate: obj({ adapter: oneOf(["facebook"] as const) }),
@@ -345,6 +353,15 @@ export function createBackground(options: BackgroundOptions): Background {
       validate: obj({ scope: oneOf(["public", "friends"] as const), cursor: optional(str({ max: 512 })), limit: optional(num({ min: 1, max: 50, int: true })), refresh: optional(bool()) }),
       handle: async (p): Promise<FeedPage> => feed.page(p.scope, p.cursor, { limit: p.limit, refresh: p.refresh }),
     }),
+    "embed.post": defineHandler({
+      source: "embed",
+      validate: obj({ postId: str({ min: 43, max: 44, pattern: /^[A-Za-z0-9_-]{43}=?$/ }) }),
+      handle: async (p) => {
+        const settings = await loadSettings();
+        if (!settings.facebookAdapter || !settings.feedInsertion) return { enabled: false };
+        return { enabled: true, item: await feed.card(p.postId) };
+      },
+    }),
     "crosspost.list": defineHandler({
       source: "extension",
       validate: empty,
@@ -363,6 +380,16 @@ export function createBackground(options: BackgroundOptions): Background {
         const oversize = draftSizeError(p.text, p.adapter === "generic" ? p.url : undefined);
         if (oversize) throw new Error(oversize);
         return queueItem(await crossposts.create(p, attemptId()));
+      },
+    }),
+    "post.publish": defineHandler({
+      source: "extension",
+      validate: obj({ attemptId: attemptIdSchema, text: str({ min: 1, max: MAX_POST_CHARS }), audience: oneOf(AUDIENCE_VALUES), adapter: oneOf(["sidepanel", "generic"] as const), url: optional(httpUrl()), title: optional(str({ max: 512 })) }),
+      handle: async (p) => {
+        await requireDevice(await requireSession());
+        const oversize = draftSizeError(p.text, p.adapter === "generic" ? p.url : undefined);
+        if (oversize) throw new Error(oversize);
+        return queueItem(await crossposts.publishDirect(p, p.attemptId));
       },
     }),
     "crosspost.confirm": defineHandler({
@@ -396,6 +423,22 @@ export function createBackground(options: BackgroundOptions): Background {
     }),
 
     // ------------------------------------------------------------ content scripts
+    "crosspost.publish": defineHandler({
+      source: "content",
+      requireGesture: true,
+      validate: obj({ hostSite: oneOf(["facebook"] as const), text: str({ min: 1, max: MAX_POST_CHARS }), audience: oneOf(AUDIENCE_VALUES), attemptId: attemptIdSchema, url: httpUrl(), submitted: bool(), userGesture: bool() }),
+      handle: async (p, ctx): Promise<PublishReply> => {
+        if (!ctx.origin || new URL(p.url).origin !== ctx.origin || !p.submitted) throw new Error("Publishing requires the Facebook Post action.");
+        if (!(await loadSettings()).facebookAdapter) throw new Error("The Facebook adapter is disabled.");
+        await requireDevice(await requireSession());
+        const oversize = draftSizeError(p.text);
+        if (oversize) throw new Error(oversize);
+        await vault.touch();
+        const record = await crossposts.publishDirect({ text: p.text, audience: p.audience, adapter: "facebook", url: p.url, hostSubmitted: true }, p.attemptId);
+        const status = record.koinosStatus === "ok" ? "published" : ["pending", "unknown"].includes(record.koinosStatus) || record.state === "reconcile_required" ? "pending" : "failed";
+        return { attemptId: record.attemptId, status, message: status === "published" ? `Published to Open Social · ${record.audience === AUDIENCE.FRIENDS ? "Friends" : "Public"}` : status === "pending" ? "Open Social is confirming your post. Check its status in Compose." : `Open Social could not publish: ${record.lastError || "Try again."}` };
+      },
+    }),
     "crosspost.propose": defineHandler({
       source: "content",
       requireGesture: true,
@@ -419,15 +462,11 @@ export function createBackground(options: BackgroundOptions): Background {
     }),
     "feed.request": defineHandler({
       source: "content",
-      validate: obj({ limit: optional(num({ min: 1, max: 5, int: true })) }),
+      validate: obj({ limit: optional(num({ min: 1, max: 20, int: true })), cursor: optional(str({ max: 512 })) }),
       handle: async (p): Promise<FeedRequestReply> => {
         const settings = await loadSettings();
-        if (!settings.feedInsertion || !settings.facebookAdapter) return { enabled: false, items: [] };
-        try {
-          return { enabled: true, items: await feed.publicPreview(p.limit ?? 5) };
-        } catch {
-          return { enabled: true, items: [] };
-        }
+        if (!settings.feedInsertion || !settings.facebookAdapter) return { enabled: false, items: [], nextCursor: null };
+        return { enabled: true, ...await feed.references(settings.feedScope, p.cursor, p.limit ?? 5) };
       },
     }),
   };
@@ -451,7 +490,7 @@ export function createBackground(options: BackgroundOptions): Background {
     handle: async (message, sender) => {
       const reply = await baseHandle(message, sender);
       const type = (message as { type?: string } | null)?.type;
-      if (reply.ok && typeof type === "string" && type.startsWith("vault.") === false && sender.id === options.runtimeId) void vault.touch();
+      if (reply.ok && typeof type === "string" && !type.startsWith("vault.") && !type.startsWith("embed.") && sender.origin === `chrome-extension://${options.runtimeId}`) void vault.touch();
       return reply;
     },
     listener(message, sender, sendResponse) {

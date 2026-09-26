@@ -1,3 +1,4 @@
+import { searchPeople as matchPeople } from "@osp/sdk";
 /**
  * Read models behind the INDEXER API v1 (README.md, "API reference").
  * Every function is a pure read of the projections; the JSON shapes are the API contract.
@@ -409,6 +410,11 @@ export function searchProfiles(db: IndexerDb, query: string, limit: number): Pro
       limit,
     )
     .map(profileSummary);
+}
+
+/** Nicknames are derived from the current public document, so edits/replay need no migration. */
+export function searchPeople(db: IndexerDb, query: string, limit: number): ProfileSummary[] {
+  return matchPeople(db.all<Row>("SELECT * FROM identities ORDER BY account ASC").map(profileSummary), query, limit);
 }
 
 export interface GraphView {

@@ -3,6 +3,7 @@
  * (deployments/<network>.json, produced by the deploy-testnet workflow) and VITE_OSP_* defaults.
  * Runtime overrides live in the settings (src/shared/settings.ts).
  */
+import { version } from "../../package.json";
 import { NETWORKS, loadDeployment, type Deployment } from "@osp/sdk";
 
 const manifests = import.meta.glob("../../../../deployments/*.json", { eager: true, import: "default" }) as Record<string, unknown>;
@@ -73,7 +74,7 @@ export function presetRpc(network: string, deployments: Record<string, Deploymen
 }
 
 export const APP_NAME = "Open Social Protocol";
-export const APP_VERSION = "0.1.0";
+export const APP_VERSION = version;
 export const DEVICE_LABEL = "Chrome extension";
 /** Device authorizations last 30 days (spec section 3.1: devices carry an expiry). */
 export const DEVICE_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000;

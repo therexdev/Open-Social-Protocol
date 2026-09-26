@@ -1,8 +1,9 @@
 # V1 testing handoff
 
-The September 22 source update adds encrypted direct messaging, the action token,
-regenerative usage limits and bidirectional friendship-key rotation. It builds eight
-contracts. A successful build is not evidence of a live deployment.
+The V1 implementation includes encrypted direct messaging, the action token,
+regenerative usage limits and bidirectional friendship-key rotation. The September 26
+product audit verified all eight live contracts and completed the automated product journey.
+See [the audit evidence](v1-product-audit.md); the setup below also applies to fresh deployments.
 
 ## Before testing on Harbinger
 
@@ -31,7 +32,8 @@ recovery files before proceeding. Test accounts and tokens have no monetary valu
 | --- | --- |
 | Create/register both accounts | Each reports registered; refresh preserves the account. |
 | Post publicly | Both accounts see the post. |
-| Request/accept friendship | Both can publish and read friends-only posts. |
+| Request/accept friendship | Both can read private posts created before acceptance once each author unlocks. |
+| Remove, reverse the request direction, and re-accept | Old posts and posts from disconnected periods become readable in both directions after sharing. No reposting required. |
 | Remove the friendship | New private posts from **either** side cannot be read by the former friend. Earlier content may remain readable. |
 | Messages: enter the other address | A message request appears. Sending stays disabled until the recipient accepts. |
 | Accept, send, and refresh | Both can read the encrypted message history. |
@@ -83,3 +85,21 @@ private key, recovery file, passphrase, decrypted private post or private messag
 
 Independent security review, live resource measurements, sustained pilot testing,
 and decisions on mainnet economics remain release gates for a production launch.
+
+## Automated live product journey
+
+Run `node --import tsx scripts/test-product-testnet.ts --execute /absolute/private-checkpoint.json`.
+This is explicitly testnet-only and creates two disposable identities. The checkpoint
+contains their seeds and must remain private, outside the repository and website.
+The runner records completed steps and uses actual frontend publication, decryption,
+and history-sharing code. It checks registration, public/private posts, non-friend
+exclusion, both friendship directions, removal, re-acceptance with historical recovery,
+encrypted messages, Support rewards, closure and blocking. An incomplete run is not a pass.
+
+Typecheck it with `npx tsc -p scripts/tsconfig.product.json --noEmit`. Full offline gate:
+`npm run build:all && npm test`. Contract generation pins protoc 36.2 so a build does
+not depend on a changing latest-version lookup.
+
+Attachments by URL are supported for Everyone posts. Such files remain public at
+their original host; the reference client prevents them from being mistaken for
+encrypted friends-only attachments. Private media hosting/uploads are not implemented.

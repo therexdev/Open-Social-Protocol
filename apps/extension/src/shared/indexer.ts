@@ -157,8 +157,8 @@ export class IndexerClient {
     return this.get<Page<PostView>>(`/v1/accounts/${encodeURIComponent(account)}/posts${qs({ cursor: query.cursor, limit: query.limit })}`);
   }
 
-  post(postId: string): Promise<PostView | undefined> {
-    return this.optional(this.get<PostView>(`/v1/posts/${encodeURIComponent(postId)}`));
+  post(postId: string, viewer?: string): Promise<PostView | undefined> {
+    return this.optional(this.get<PostView>(`/v1/posts/${encodeURIComponent(postId)}${qs({ viewer })}`));
   }
 
   async keys(account: string, filter: { author?: string; audienceId?: string; epoch?: number } = {}): Promise<SealedKeyView[]> {

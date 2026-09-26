@@ -181,7 +181,7 @@ describe("App", () => {
     const { container } = await render("/compose", vault);
     expect(container.textContent).toContain("Who can read it");
     expect(container.textContent).toContain("not deployed");
-    const submit = container.querySelector("button[type='submit']") as HTMLButtonElement | null;
+    const submit = container.querySelector("main button[type='submit']") as HTMLButtonElement | null;
     expect(submit?.disabled).toBe(true);
   });
 
@@ -201,7 +201,7 @@ describe("App", () => {
     expect(container.textContent).toContain("not registered on the network yet");
     expect(container.querySelector("a[href='/welcome']")).not.toBeNull();
     expect(container.textContent).toContain("Register your account on the network first.");
-    const submit = container.querySelector("button[type='submit']") as HTMLButtonElement | null;
+    const submit = container.querySelector("main button[type='submit']") as HTMLButtonElement | null;
     expect(submit?.disabled).toBe(true);
   });
 
@@ -213,7 +213,7 @@ describe("App", () => {
     const calls: string[] = [];
     const { container } = await render("/", vault, deployedServices(calls));
     expect(calls.some((c) => c.includes("scope=public"))).toBe(true);
-    const friendsTab = [...container.querySelectorAll("button[role='tab']")].find((b) => b.textContent === "Friends") as HTMLButtonElement;
+    const friendsTab = [...container.querySelectorAll("button[role='tab']")].find((b) => b.textContent?.trim() === "Friends") as HTMLButtonElement;
     await act(async () => {
       friendsTab.click();
       await new Promise((r) => setTimeout(r, 20));
@@ -222,4 +222,45 @@ describe("App", () => {
     expect(calls.some((c) => c.includes("scope=friends"))).toBe(false);
     expect(container.querySelector(".notice-error")).toBeNull();
   });
+});
+
+it("explains the protocol on a public About page without requiring an account", async () => {
+  const { container } = await render("/about");
+  const main = container.querySelector("main")!;
+  expect(main.textContent).toContain("The website and plugin are your tools");
+  expect(main.textContent).toContain("Removing a friend stops sharing access to future");
+  expect(main.textContent).not.toContain("Welcome to Open Social");
+  expect(container.querySelector("nav[aria-label='Primary'] a[href='/compose']")).toBeNull();
+  expect(container.querySelector("nav[aria-label='Primary'] a[href='/me']")).not.toBeNull();
+});
+it("takes an unlocked account to its own profile from /me", async () => {
+  const vault = createVaultStore({ storage: memoryStorage(), kdf, passkey: unsupportedPasskey });
+  await vault.getState().init();
+  const identity = await vault.getState().create("correct horse battery");
+  const { container } = await render("/me", vault, deployedServices([]));
+  expect(container.querySelector("main")!.textContent).toContain("YOUR PROFILE");
+  expect(container.querySelector("main")!.textContent).toContain(identity.account);
+  expect(container.querySelector("main a[href='/compose']")).not.toBeNull();
+});
+it("offers nickname search without making visitors create an account first", async () => {
+  const { container } = await render("/people");
+  expect(container.querySelector("main input[type='search']")).not.toBeNull();
+  expect(container.querySelector("main")!.textContent).toContain("Names aren’t unique");
+});
+it("keeps loaded feed panels mounted during repeated scope changes", async () => {
+  const vault = createVaultStore({ storage: memoryStorage(), kdf, passkey: unsupportedPasskey });
+  await vault.getState().init();
+  await vault.getState().create("correct horse battery");
+  const calls: string[] = [];
+  const { container } = await render("/", vault, deployedServices(calls));
+  const publicPanel = container.querySelector("#feed-public");
+  const friendsPanel = container.querySelector("#feed-friends");
+  for (let i = 0; i < 10; i++) await act(async () => { (container.querySelectorAll("button[role='tab']")[i % 2 ? 0 : 1] as HTMLButtonElement).click(); });
+  expect(container.querySelector("#feed-public")).toBe(publicPanel);
+  expect(container.querySelector("#feed-friends")).toBe(friendsPanel);
+  expect(calls.filter(call => call.includes("/v1/feed") && call.includes("scope=public"))).toHaveLength(1);
+  expect(calls.filter(call => call.includes("/v1/feed") && call.includes("scope=friends"))).toHaveLength(1);
+  await act(async () => vault.getState().lock());
+  expect(container.querySelector("#feed-friends")).not.toBe(friendsPanel);
+  expect(calls.filter(call => call.includes("/v1/feed") && call.includes("scope=friends"))).toHaveLength(1);
 });

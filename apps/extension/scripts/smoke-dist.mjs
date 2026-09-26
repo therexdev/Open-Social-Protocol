@@ -5,6 +5,7 @@
 // (side panel bound to the action, alarms, badge) and the message router through the real bundle.
 // Runs as the last step of `npm run build`; it needs dist/manifest.json.
 import { existsSync, readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -108,6 +109,14 @@ if (listeners.length === 1) {
   const status = await send({ type: "vault.status" }, page);
   check(status?.ok === true && status.result?.status === "empty", `vault.status: ${JSON.stringify(status)}`);
   check(status?.ok === true && typeof status.result?.network?.deployed === "boolean", "vault.status must report the deployment state");
+  const settings = await send({ type: "settings.get" }, page);
+  check(settings?.ok === true && Boolean(settings.result?.resolved?.indexerUrl), "release has no default indexer");
+  check(settings?.ok === true && settings.result?.resolved?.sponsorUrls?.length > 0, "release has no default sponsor for browser authorization");
+  // Upgrades preserve empty saved overrides; these must also inherit the release defaults.
+  await chrome.storage.local.set({ "osp.settings": { ...settings.result?.settings, indexerUrl: "", sponsorUrls: [] } });
+  const restored = await send({ type: "settings.get" }, page);
+  check(restored?.result?.resolved?.indexerUrl === settings.result?.resolved?.indexerUrl, "saved empty indexer override lost its default");
+  check(JSON.stringify(restored?.result?.resolved?.sponsorUrls) === JSON.stringify(settings.result?.resolved?.sponsorUrls), "saved empty sponsor override lost its defaults");
   const wrongSender = await send({ type: "vault.status" }, { ...page, id: "someone-else" });
   check(wrongSender?.ok === false && wrongSender.error?.code === "forbidden", `wrong sender must be refused: ${JSON.stringify(wrongSender)}`);
   const unknown = await send({ type: "nope" }, page);
@@ -136,4 +145,9 @@ if (failures.length > 0) {
   process.exit(1);
 }
 console.log(`dist smoke test passed (${manifest.name} ${manifest.version}: worker booted with eval disabled, side panel bound to the action, router enforces sender/origin/type/size)`);
+// A separate process prevents the worker's initialized protobuf runtime from masking page bugs.
+const pages = spawnSync(process.execPath, ["--experimental-vm-modules", path.join(root, "scripts/smoke-pages.mjs")], { stdio: "inherit" });
+if (pages.status !== 0) process.exit(pages.status ?? 1);
+const facebook = spawnSync(process.execPath, [path.join(root, "scripts/smoke-facebook.mjs")], { stdio: "inherit" });
+if (facebook.status !== 0) process.exit(facebook.status ?? 1);
 process.exit(0);

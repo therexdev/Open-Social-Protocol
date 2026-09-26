@@ -18,3 +18,5 @@ export type { Abi, OperationJson, CallContractOperationJson, TransactionJson, Tr
 export { Signer, Provider, Contract, Transaction, Serializer, utils as koilibUtils } from "koilib";
 
 export * from "./crypto/messaging.js";
+
+export * from "./crypto/keyProvenance.js";

@@ -4,7 +4,7 @@
  * X25519 secret. Cached in memory and encrypted at rest (AES-GCM under a key derived from the
  * encryption secret) in chrome.storage.local.
  */
-import { decode, openEpochKey, toBase64url, utf8, utf8Decode, type SealedKey } from "@osp/sdk";
+import { decode, openEpochKey, toBase64url, utf8, utf8Decode, type SealedKey, type KeyVerifier } from "@osp/sdk";
 import { bytesOf, fromHex, toArrayBuffer, toHex } from "../shared/bytes";
 import type { KeyValueArea } from "../shared/storage";
 import type { SealedKeyView } from "../shared/indexer";
@@ -84,6 +84,7 @@ export class KeyStore {
   private readonly cache = new Map<string, Uint8Array>();
   private readonly misses = new Map<string, number>();
   private loaded = false;
+  private readonly trusted = new Set<string>();
 
   constructor(private readonly persist?: EncryptedStore<KeyCache>) {}
 
@@ -106,7 +107,9 @@ export class KeyStore {
     return this.cache.get(epochKeyId(ref));
   }
 
-  async put(ref: EpochKeyRef, key: Uint8Array): Promise<void> {
+  async put(ref: EpochKeyRef, key: Uint8Array, trusted = true): Promise<void> {
+    if (trusted) this.trusted.add(epochKeyId(ref));
+    else this.trusted.delete(epochKeyId(ref));
     this.cache.set(epochKeyId(ref), key);
     this.misses.delete(epochKeyId(ref));
     await this.flush();
@@ -122,10 +125,10 @@ export class KeyStore {
    * which matters when the caller would otherwise mint a key (spec 5.2: one key per epoch).
    * `missCache: false` bypasses the negative cache and always asks the indexer.
    */
-  async lookup(ref: EpochKeyRef, me: KeyResolverIdentity, source: KeySource, options: { retryAfterMs?: number; now?: number; missCache?: boolean } = {}): Promise<KeyLookup> {
+  async lookup(ref: EpochKeyRef, me: KeyResolverIdentity, source: KeySource, options: { retryAfterMs?: number; now?: number; missCache?: boolean; verify?: KeyVerifier } = {}): Promise<KeyLookup> {
     await this.init();
     const cached = this.get(ref);
-    if (cached) return { status: "found", key: cached };
+    if (cached && (!options.verify || this.trusted.has(epochKeyId(ref)))) return { status: "found", key: cached };
     const id = epochKeyId(ref);
     const now = options.now ?? Date.now();
     if (options.missCache !== false) {
@@ -138,13 +141,22 @@ export class KeyStore {
     } catch (error) {
       return { status: "unavailable", error: error instanceof Error ? error : new Error(String(error)) };
     }
+    let unverifiable = false;
     for (const item of items) {
       const key = openSealedView(item, ref, me);
       if (key) {
-        await this.put(ref, key);
+        if (options.verify) {
+          let proof;
+          try { proof = await options.verify(item, ref); }
+          catch { unverifiable = true; continue; }
+          if (proof.status === "unavailable") unverifiable = true;
+          if (proof.status !== "verified") continue;
+        }
+        await this.put(ref, key, !!options.verify);
         return { status: "found", key };
       }
     }
+    if (unverifiable) return { status: "unavailable", error: new Error("The network could not verify your existing encryption key.") };
     this.misses.set(id, now);
     return { status: "missing" };
   }

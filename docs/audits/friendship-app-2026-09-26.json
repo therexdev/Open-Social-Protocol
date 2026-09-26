@@ -1,0 +1,249 @@
+{
+  "network": "harbinger",
+  "chainId": "EiAIKVvm6-V2qmsmUvPJy09vCCLbtn9lHFpwrJbcTIEWRQ==",
+  "harness": "Rendered full React App in jsdom, with actual chain, sponsor and indexer services",
+  "accounts": [
+    "1NWrw6b7dCcNStF297r4d45ynizcaCka41",
+    "15kMS97vrGe3bURjGW7UmWw2HgQGFHniVr"
+  ],
+  "completedAssertions": 27,
+  "initialJourney": {
+    "status": "23 checks completed; interrupted by failed initial profile fetch during final cold restore",
+    "checks": [
+      {
+        "name": "UI published: UI audit A original",
+        "at": "2026-09-26T03:44:37.724Z"
+      },
+      {
+        "name": "UI published: UI audit B original",
+        "at": "2026-09-26T03:44:54.063Z"
+      },
+      {
+        "name": "UI 0 cannot read: UI audit B original",
+        "at": "2026-09-26T03:44:54.838Z"
+      },
+      {
+        "name": "UI 1 cannot read: UI audit A original",
+        "at": "2026-09-26T03:45:09.412Z"
+      },
+      {
+        "name": "UI request 0 to 1",
+        "at": "2026-09-26T03:45:25.274Z"
+      },
+      {
+        "name": "UI accept 1 from 0",
+        "at": "2026-09-26T03:45:45.493Z"
+      },
+      {
+        "name": "UI 0 reads: UI audit B original",
+        "at": "2026-09-26T03:45:51.541Z"
+      },
+      {
+        "name": "UI 1 reads: UI audit A original",
+        "at": "2026-09-26T03:46:06.616Z"
+      },
+      {
+        "name": "UI removed by original acceptor",
+        "at": "2026-09-26T03:46:32.529Z"
+      },
+      {
+        "name": "UI 0 reads: UI audit B original",
+        "at": "2026-09-26T03:46:37.314Z"
+      },
+      {
+        "name": "UI 1 reads: UI audit A original",
+        "at": "2026-09-26T03:46:46.878Z"
+      },
+      {
+        "name": "UI published: UI audit A while removed",
+        "at": "2026-09-26T03:47:18.009Z"
+      },
+      {
+        "name": "UI published: UI audit B while removed",
+        "at": "2026-09-26T03:47:44.608Z"
+      },
+      {
+        "name": "UI 0 cannot read: UI audit B while removed",
+        "at": "2026-09-26T03:47:50.394Z"
+      },
+      {
+        "name": "UI 1 cannot read: UI audit A while removed",
+        "at": "2026-09-26T03:47:51.170Z"
+      },
+      {
+        "name": "UI request 1 to 0",
+        "at": "2026-09-26T03:48:06.756Z"
+      },
+      {
+        "name": "UI accept 0 from 1",
+        "at": "2026-09-26T03:48:23.647Z"
+      },
+      {
+        "name": "UI 1 reads: UI audit A while removed",
+        "at": "2026-09-26T03:48:33.191Z"
+      },
+      {
+        "name": "UI 0 reads: UI audit B while removed",
+        "at": "2026-09-26T03:49:00.788Z"
+      },
+      {
+        "name": "UI 0 reads: UI audit B original",
+        "at": "2026-09-26T03:49:02.821Z"
+      },
+      {
+        "name": "UI 1 reads: UI audit A original",
+        "at": "2026-09-26T03:49:22.650Z"
+      },
+      {
+        "name": "UI 0 reads: UI audit B original",
+        "at": "2026-09-26T03:49:35.469Z"
+      },
+      {
+        "name": "UI 0 reads: UI audit B while removed",
+        "at": "2026-09-26T03:49:40.762Z"
+      }
+    ]
+  },
+  "recoveryContinuation": {
+    "status": "passed after profile retry repair; both initial profile requests deliberately failed",
+    "checks": [
+      {
+        "name": "Cold restored 0 reads after profile outage: UI audit B original",
+        "at": "2026-09-26T03:54:20.578Z"
+      },
+      {
+        "name": "Cold restored 0 reads after profile outage: UI audit B while removed",
+        "at": "2026-09-26T03:54:20.578Z"
+      },
+      {
+        "name": "Cold restored 1 reads after profile outage: UI audit A original",
+        "at": "2026-09-26T03:54:55.967Z"
+      },
+      {
+        "name": "Cold restored 1 reads after profile outage: UI audit A while removed",
+        "at": "2026-09-26T03:54:55.967Z"
+      }
+    ]
+  },
+  "publicReferences": {
+    "1NWrw6b7dCcNStF297r4d45ynizcaCka41": {
+      "posts": [
+        {
+          "postId": "-AR66mx-ksZljmgFkMyYwA7P1XT2iMDSnuk1DXOgmsU=",
+          "author": "1NWrw6b7dCcNStF297r4d45ynizcaCka41",
+          "epoch": 1,
+          "audience": 1,
+          "contentHash": "QhA5sMr-A5CyHOu6L8rzGES5CiBNlhd27cqKav_PTjA=",
+          "txId": "0x122079713415262d7d6462bc082fb04caca3d59d484051947e709910218b505af682",
+          "blockHeight": "8693952"
+        },
+        {
+          "postId": "KuIo3Q73fLoUbCmRsL65T8sobRBSyfvb0ffl0gSDI0E=",
+          "author": "1NWrw6b7dCcNStF297r4d45ynizcaCka41",
+          "epoch": 0,
+          "audience": 1,
+          "contentHash": "8O8BLaOEPGSwzaxqIliyceWu7y4dzFipEwaMVR1elQ8=",
+          "txId": "0x1220f5501d3356202c3fe74c96d7f6eb41c97532f3ff33db7fa00eab3ba38a155432",
+          "blockHeight": "8693905"
+        }
+      ],
+      "keys": [
+        {
+          "author": "1NWrw6b7dCcNStF297r4d45ynizcaCka41",
+          "epoch": 0,
+          "recipient": "1NWrw6b7dCcNStF297r4d45ynizcaCka41",
+          "txId": "0x1220f5501d3356202c3fe74c96d7f6eb41c97532f3ff33db7fa00eab3ba38a155432",
+          "blockHeight": "8693905"
+        },
+        {
+          "author": "15kMS97vrGe3bURjGW7UmWw2HgQGFHniVr",
+          "epoch": 0,
+          "recipient": "1NWrw6b7dCcNStF297r4d45ynizcaCka41",
+          "txId": "0x122052e71763bd6c64c89b1a48c12cfcfc73570128ede11aa35a208944d0d751e304",
+          "blockHeight": "8693927"
+        },
+        {
+          "author": "1NWrw6b7dCcNStF297r4d45ynizcaCka41",
+          "epoch": 1,
+          "recipient": "1NWrw6b7dCcNStF297r4d45ynizcaCka41",
+          "txId": "0x122079713415262d7d6462bc082fb04caca3d59d484051947e709910218b505af682",
+          "blockHeight": "8693952"
+        },
+        {
+          "author": "15kMS97vrGe3bURjGW7UmWw2HgQGFHniVr",
+          "epoch": 1,
+          "recipient": "1NWrw6b7dCcNStF297r4d45ynizcaCka41",
+          "txId": "0x1220042780d866ce1b613f9a557da8378054e520b1a0fe95a93034119a72e074a4a0",
+          "blockHeight": "8693982"
+        },
+        {
+          "author": "15kMS97vrGe3bURjGW7UmWw2HgQGFHniVr",
+          "epoch": 0,
+          "recipient": "1NWrw6b7dCcNStF297r4d45ynizcaCka41",
+          "txId": "0x1220414a7042500fef376ea05c0f2045454e06ffb1076a59cc666aca8d7d200aad3c",
+          "blockHeight": "8693996"
+        },
+        {
+          "author": "15kMS97vrGe3bURjGW7UmWw2HgQGFHniVr",
+          "epoch": 1,
+          "recipient": "1NWrw6b7dCcNStF297r4d45ynizcaCka41",
+          "txId": "0x122046a7cff19d6af600f7888786fdfe56bf9c7377ba6ada9849f6c55a17478ca466",
+          "blockHeight": "8694004"
+        }
+      ]
+    },
+    "15kMS97vrGe3bURjGW7UmWw2HgQGFHniVr": {
+      "posts": [
+        {
+          "postId": "DnCW4GAZzxIwLRaNAFTWr10q0Gzx4NeSY14dRQeNhks=",
+          "author": "15kMS97vrGe3bURjGW7UmWw2HgQGFHniVr",
+          "epoch": 1,
+          "audience": 1,
+          "contentHash": "1GfOqD27yjerPRNKJev1MsTMrLe7ApScM3CH5tzaKYU=",
+          "txId": "0x12207eb4107b44c873745eba70a89667fb807497f6a56135aeee0c9034c1570dbd0f",
+          "blockHeight": "8693958"
+        },
+        {
+          "postId": "RKDykE--pN6L_-DIYL3Q-_2ESKFU9jB4DF1tCOETMek=",
+          "author": "15kMS97vrGe3bURjGW7UmWw2HgQGFHniVr",
+          "epoch": 0,
+          "audience": 1,
+          "contentHash": "mfabueYilLGvVSC31Ea2OBzdy1OdiEMpHgT6OEQNl-o=",
+          "txId": "0x12208dc2a2c6abe26e084b924b30586a5ac9dc37f45bc7555ac8e6901acd24d78d5b",
+          "blockHeight": "8693911"
+        }
+      ],
+      "keys": [
+        {
+          "author": "15kMS97vrGe3bURjGW7UmWw2HgQGFHniVr",
+          "epoch": 0,
+          "recipient": "15kMS97vrGe3bURjGW7UmWw2HgQGFHniVr",
+          "txId": "0x12208dc2a2c6abe26e084b924b30586a5ac9dc37f45bc7555ac8e6901acd24d78d5b",
+          "blockHeight": "8693911"
+        },
+        {
+          "author": "1NWrw6b7dCcNStF297r4d45ynizcaCka41",
+          "epoch": 0,
+          "recipient": "15kMS97vrGe3bURjGW7UmWw2HgQGFHniVr",
+          "txId": "0x1220ff33c15f54237b6b87ef37b16c5ef5e4e83e200ee25577041aafce07755f981f",
+          "blockHeight": "8693936"
+        },
+        {
+          "author": "15kMS97vrGe3bURjGW7UmWw2HgQGFHniVr",
+          "epoch": 1,
+          "recipient": "15kMS97vrGe3bURjGW7UmWw2HgQGFHniVr",
+          "txId": "0x12207eb4107b44c873745eba70a89667fb807497f6a56135aeee0c9034c1570dbd0f",
+          "blockHeight": "8693958"
+        },
+        {
+          "author": "1NWrw6b7dCcNStF297r4d45ynizcaCka41",
+          "epoch": 1,
+          "recipient": "15kMS97vrGe3bURjGW7UmWw2HgQGFHniVr",
+          "txId": "0x122007f23a37c8a76d3e71543e563b23339534949dc594c3a7985eb02f7d428bd880",
+          "blockHeight": "8693973"
+        }
+      ]
+    }
+  },
+  "scope": "Disposable test identities only. No user identities, seeds, private exports or account changes are included."
+}

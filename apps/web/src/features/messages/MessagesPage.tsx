@@ -38,6 +38,8 @@ export function MessagesPage() {
     [busy, setBusy] = useState(false),
     [pending, setPending] = useState<Pending>();
   const working = useRef(false),
+    reading = useRef(false),
+    historyLoaded = useRef(false),
     version = useRef(0),
     peerRef = useRef(peer);
   peerRef.current = peer;
@@ -49,6 +51,7 @@ export function MessagesPage() {
     async (older?: string) => {
       if (!me || !protocol) return;
       const current = ++version.current;
+      reading.current = true;
       try {
         if (peer) {
           const c = (await protocol.reads.messaging.get_conversation({ a: me.account, b: peer }))?.value;
@@ -68,18 +71,24 @@ export function MessagesPage() {
           if (settled.some((r) => r.status === "rejected"))
             setError("Some messages could not be verified or decrypted. Their contents are hidden; refresh to try again.");
           setMessages((prev) => {
-            const items = older ? [...prev, ...verified] : verified;
+            const items = [...prev, ...verified];
             return [...new Map(items.map((x) => [x.id, x])).values()].sort((a, b) => (BigInt(a.sequence) < BigInt(b.sequence) ? -1 : 1));
           });
-          setBefore(page.nextBefore);
+          if (older || !historyLoaded.current) setBefore(page.nextBefore);
+          historyLoaded.current = true;
         }
       } catch (e) {
         if (current === version.current) setError(humanizeError(e));
+      } finally {
+        if (current === version.current) reading.current = false;
       }
     },
     [me, protocol, indexer, peer]
   );
   useEffect(() => {
+    historyLoaded.current = false;
+    reading.current = false;
+    setList([]);
     setMessages([]);
     setConversation(undefined);
     setBefore(null);
@@ -107,6 +116,12 @@ export function MessagesPage() {
       version.current++;
     };
   }, [refresh, storageKey]);
+  useEffect(() => {
+    const poll = () => { if (!working.current && !reading.current && document.visibilityState !== "hidden") void refresh(); };
+    const timer = window.setInterval(poll, 15_000);
+    window.addEventListener("focus", poll);
+    return () => { window.clearInterval(timer); window.removeEventListener("focus", poll); };
+  }, [refresh]);
   const act = async (fn: () => Promise<void>) => {
     if (working.current) return;
     working.current = true;

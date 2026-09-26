@@ -62,6 +62,22 @@ function deps(overrides: Partial<CrossPostDeps> = {}) {
 const proposal = { hostSite: "facebook" as const, text: "from facebook", attemptId: ATTEMPT, url: "https://www.facebook.com/", submitted: true, userGesture: true };
 
 describe("cross-post orchestrator", () => {
+  it("reconciles an uncertain direct publication with the same key instead of publishing twice", async () => {
+    let calls = 0;
+    const txId = "0x1220" + "33".repeat(32);
+    const d = deps({ publishKoinos: async record => {
+      calls++;
+      d.chain.set(record.idempotencyKey, fromHex("ee".repeat(32)));
+      throw new PublishAttemptError(new TransactionOutcomeUnknownError({ id: txId } as TransactionJson, timeoutReceipt(txId)), attemptOf("ee".repeat(32), "e1".repeat(32), txId));
+    } });
+    const draft = { adapter: "facebook" as const, text: "Direct post", audience: 0 };
+    const unknown = await d.orchestrator.publishDirect(draft, ATTEMPT);
+    expect(unknown.koinosStatus).toBe("unknown");
+    const done = await new CrossPostOrchestrator(d.deps).publishDirect(draft, ATTEMPT);
+    expect(done.koinosStatus).toBe("ok");
+    expect(done.koinosTxId).toBe(txId);
+    expect(calls).toBe(1);
+  });
   it("persists proposals as drafts and never publishes them without confirmation", async () => {
     const { orchestrator, storage, publishCalls } = deps();
     const record = await orchestrator.propose(proposal);

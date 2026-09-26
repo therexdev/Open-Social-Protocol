@@ -1,12 +1,12 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import type { NotificationView } from "../../api/indexer";
 import { useServices } from "../../api/services";
-import { AccountLink, Button, Empty, Notice, Spinner } from "../../components/ui";
+import { AccountLink, Empty, Notice, Spinner } from "../../components/ui";
 import { errorMessage, timeAgo } from "../../util/format";
 import { useVault } from "../../vault/context";
 import { useProfileName } from "../profile/useProfileName";
-import { getSeenCursor, setSeenCursor } from "./badge";
+import { getSeenCursor, isNewerCursor, setSeenCursor } from "./badge";
 
 function wording(n: NotificationView): string {
   switch (n.kind) {
@@ -63,47 +63,52 @@ export function NotificationsPage() {
   const [items, setItems] = useState<NotificationView[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | undefined>();
-  const [seen, setSeen] = useState<string | undefined>(() => (account ? getSeenCursor(account) : undefined));
-
-  const load = useCallback(async () => {
-    if (!account) return;
-    setLoading(true);
-    setError(undefined);
-    try {
-      const page = await indexer.notifications(account, { limit: 50 });
-      setItems([...page.items].reverse());
-    } catch (e) {
-      setError(errorMessage(e));
-    } finally {
-      setLoading(false);
-    }
-  }, [account, indexer]);
+  const [seen, setSeen] = useState<string | undefined>();
 
   useEffect(() => {
+    let cancelled = false;
+    let busy = false;
+    const visible = () => document.visibilityState !== "hidden";
+    setItems([]);
+    setSeen(account ? getSeenCursor(account) : undefined);
+    setError(undefined);
+    const load = async () => {
+      if (!account || busy || !visible()) return;
+      busy = true;
+      try {
+        const page = await indexer.notifications(account, { limit: 50 });
+        if (cancelled) return;
+        const notifications = [...page.items].reverse();
+        setItems(notifications);
+        setError(undefined);
+        // A background tab or a response arriving after navigation has not been viewed.
+        if (notifications[0] && visible()) setSeenCursor(account, notifications[0].id);
+      } catch (e) {
+        if (!cancelled) setError(errorMessage(e));
+      } finally {
+        busy = false;
+        if (!cancelled) setLoading(false);
+      }
+    };
+    setLoading(true);
     void load();
-  }, [load]);
-
-  const newest = items[0]?.id;
-  const markSeen = () => {
-    if (!account || !newest) return;
-    setSeenCursor(account, newest);
-    setSeen(newest);
-  };
+    const refresh = () => void load();
+    const timer = window.setInterval(refresh, 30_000);
+    document.addEventListener("visibilitychange", refresh);
+    return () => { cancelled = true; window.clearInterval(timer); document.removeEventListener("visibilitychange", refresh); };
+  }, [account, indexer]);
 
   return (
     <div className="page">
       <div className="page-header">
         <h1>Activity</h1>
-        <Button variant="ghost" onClick={markSeen} disabled={!newest || newest === seen}>
-          Mark all as seen
-        </Button>
       </div>
       {error && <Notice kind="error">{error}</Notice>}
       {loading && <Spinner />}
       {!loading && items.length === 0 && <Empty>Nothing yet. Friend requests, likes and replies show up here.</Empty>}
       <ul className="list">
         {items.map((n) => (
-          <Item key={n.id} n={n} fresh={seen === undefined || Number(n.id) > Number(seen)} />
+          <Item key={n.id} n={n} fresh={isNewerCursor(n.id, seen)} />
         ))}
       </ul>
     </div>

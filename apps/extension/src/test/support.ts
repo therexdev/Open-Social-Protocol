@@ -12,6 +12,7 @@ import {
   Signer,
   addressToString,
   encode,
+  fromBase64url,
   parseKeyPackageSet,
   signSponsorDiscovery,
   toBase64url,
@@ -126,6 +127,13 @@ export function fakeChain(deployment: Deployment, state: ChainState): FakeProvid
       }
       case "get_author_state":
         return encode("publications.get_author_state_result", { value: { next_sequence: state.nextSequence[args.author as string] ?? "1", last_publish_at: "0", post_count: "0" } });
+      case "get_post": {
+        const post = state.posts.find(p => p.postId === toBase64url(args.post_id as Uint8Array));
+        return encode("publications.get_post_result", post ? { value: {
+          author: post.author, audience: post.audience, state: post.state,
+          version_count: post.versionNumber, latest_version: fromBase64url(post.contentHash),
+        } } : {});
+      }
       case "get_post_by_idempotency_key": {
         const post = state.postsByKey.get(`${args.author}|${toHex(args.idempotency_key as Uint8Array)}`);
         return post ? encode("publications.get_post_by_idempotency_key_result", { value: { post_id: post } }) : encode("publications.get_post_by_idempotency_key_result", {});
@@ -385,6 +393,7 @@ export interface TestBackground {
 }
 
 export interface TestBackgroundOptions extends Partial<BackgroundOptions> {
+  deploymentDefaultsOnly?: boolean;
   origins?: string[];
   deployed?: boolean;
   /** Configure the fake sponsor (default true: a device-only vault publishes through a sponsor). */
@@ -413,7 +422,11 @@ export function createTestBackground(options: TestBackgroundOptions = {}): TestB
       if (url.startsWith(INDEXER_URL)) return indexer.handle(url, init);
       return jsonResponse(404, { error: { code: "not_found", message: "no such service in tests" } });
     });
-  const { origins: _origins, deployed: _deployed, sponsor: _sponsor, indexer: _indexer, ...rest } = options;
+  if (options.deploymentDefaultsOnly) {
+    deployment.indexers = withIndexer ? [INDEXER_URL] : [];
+    deployment.sponsors = withSponsor ? [SPONSOR_URL] : [];
+  }
+  const { deploymentDefaultsOnly: _defaults, origins: _origins, deployed: _deployed, sponsor: _sponsor, indexer: _indexer, ...rest } = options;
   const background = createBackground({
     local,
     session,
@@ -424,7 +437,7 @@ export function createTestBackground(options: TestBackgroundOptions = {}): TestB
     now: () => now.value,
     deployments: options.deployed === false ? {} : { fixture: deployment },
     deploymentErrors: {},
-    env: { network: "fixture", rpcUrls: [], indexerUrl: withIndexer ? INDEXER_URL : "", sponsorUrls: withSponsor ? [SPONSOR_URL] : [] },
+    env: { network: "fixture", rpcUrls: [], indexerUrl: withIndexer && !options.deploymentDefaultsOnly ? INDEXER_URL : "", sponsorUrls: withSponsor && !options.deploymentDefaultsOnly ? [SPONSOR_URL] : [] },
     attemptId: () => toHex(attemptRng(16)),
     ...rest,
     fetch,

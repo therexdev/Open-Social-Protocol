@@ -8,6 +8,7 @@ import { useSettings } from "../../stores/settings";
 import { submitAction } from "../../tx/submit";
 import { bytesOf } from "../../util/bytes";
 import { formatDateTime, timeAgo } from "../../util/format";
+import { Avatar, Icon } from "../../components/Icon";
 import { AccountLink, Button, Details } from "../../components/ui";
 import { useProfileName } from "../profile/useProfileName";
 import { useCanAct, useSubmitContext } from "../session";
@@ -55,7 +56,7 @@ function MediaList({ content }: { content: OpenedContent }) {
 }
 
 export function PostBody({ content }: { content: PostContent | undefined }) {
-  if (!content) return <p className="muted">Opening…</p>;
+  if (!content) return <div className="post-opening" role="status" aria-label="Opening post"><span className="skeleton skeleton-line"/><span className="skeleton skeleton-line short"/></div>;
   switch (content.status) {
     case "plain":
     case "decrypted":
@@ -79,9 +80,7 @@ export function PostBody({ content }: { content: PostContent | undefined }) {
     case "no-key":
       return (
         <p className="post-state">
-          <span className="lock" aria-hidden="true">
-            🔒
-          </span>{" "}
+          <Icon name="lock" size={18}/>{" "}
           {content.message}
         </p>
       );
@@ -143,12 +142,9 @@ export function PostCard({ post, onChanged, expanded = false }: PostCardProps) {
   return (
     <article className="post" aria-label={`Post by ${name}`}>
       <header className="post-header">
-        <AccountLink account={post.author} name={name} className="post-author" />
-        <span className={`chip chip-${audience === AUDIENCE.EVERYONE ? "public" : "friends"}`}>{audienceLabel(audience)}</span>
-        <time dateTime={new Date(Number(post.createdAt) || 0).toISOString()} title={formatDateTime(post.createdAt)} className="muted">
-          {timeAgo(post.createdAt)}
-        </time>
-        {post.versionNumber > 1 && !deleted && <span className="muted">edited</span>}
+        <Link to={`/u/${post.author}`} tabIndex={-1} aria-hidden="true"><Avatar account={post.author} name={name}/></Link>
+        <div className="post-heading"><AccountLink account={post.author} name={name} className="post-author"/><span className="post-meta"><time dateTime={new Date(Number(post.createdAt) || 0).toISOString()} title={formatDateTime(post.createdAt)}>{timeAgo(post.createdAt)}</time>{post.versionNumber > 1 && !deleted && <span> · edited</span>}</span></div>
+        <span className={`chip chip-${audience === AUDIENCE.EVERYONE ? "public" : "friends"}`}><Icon name={audience === AUDIENCE.EVERYONE ? "globe" : "lock"} size={13}/>{audienceLabel(audience)}</span>
       </header>
       {post.labels.length > 0 && (
         <div className="labels" aria-label="Community labels">
@@ -171,15 +167,15 @@ export function PostCard({ post, onChanged, expanded = false }: PostCardProps) {
           try { const op=await submit.client.ops.token.support({actor:submit.signer.getAddress(),post_id:bytesOf(post.postId)});await submitAction(submit,[op],{label:"Supporting this post",success:"Support recorded"}); }
           catch { /* submitAction displays the reason */ }
           finally { setBusy(false); }
-        }}>Support</Button>}
+        }}><Icon name="spark" size={18}/>Support</Button>}
         <Button variant="ghost" onClick={react} disabled={!can.ok || deleted} busy={busy} aria-pressed={liked} title={can.ok ? undefined : can.reason}>
-          {liked ? "♥" : "♡"} {likes > 0 ? likes : ""} {liked ? "Liked" : "Like"}
+          <Icon name="heart" size={18} className={liked ? "is-liked" : ""}/> {likes > 0 ? likes : ""} {liked ? "Liked" : "Like"}
         </Button>
         {expanded ? (
           <span className="muted">{post.replyCount} replies</span>
         ) : (
           <Link className="btn btn-ghost" to={`/post/${post.postId}`}>
-            {post.replyCount > 0 ? `${post.replyCount} replies` : "Reply"}
+            <Icon name="message" size={18}/> {post.replyCount > 0 ? `${post.replyCount} replies` : "Reply"}
           </Link>
         )}
         {expanded && (

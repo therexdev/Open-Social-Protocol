@@ -19,8 +19,11 @@ export interface Settings {
   autoLockMinutes: number;
   /** Facebook adapter wanted by the user (the host permission must also be granted). */
   facebookAdapter: boolean;
+  /** Add the visible About link to opted-in Facebook posts. */
+  facebookAttribution: boolean;
   /** Labeled protocol posts inserted into the host feed (off by default). */
   feedInsertion: boolean;
+  feedScope: "public" | "friends" | "all";
 }
 
 export const SETTINGS_KEY = "osp.settings";
@@ -34,7 +37,9 @@ export function defaultSettings(env: EnvDefaults = ENV): Settings {
     payment: "sponsor-then-self",
     autoLockMinutes: 15,
     facebookAdapter: false,
+    facebookAttribution: true,
     feedInsertion: false,
+    feedScope: "all",
   };
 }
 
@@ -58,7 +63,9 @@ export function sanitizeSettings(raw: unknown, defaults: Settings = defaultSetti
     payment: validPayment,
     autoLockMinutes: autoLock,
     facebookAdapter: r.facebookAdapter === true,
+    facebookAttribution: r.facebookAttribution !== false,
     feedInsertion: r.feedInsertion === true,
+    feedScope: r.feedScope === "public" || r.feedScope === "friends" ? r.feedScope : "all",
   };
 }
 

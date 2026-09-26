@@ -58,7 +58,7 @@ export function OptionsApp() {
   }
 
   async function enableFacebook() {
-    await act("Facebook adapter enabled.", async () => {
+    await act("Facebook enabled. Look for “Open Social enabled” at the bottom left of Facebook, then open Create post for the cross-post checkbox.", async () => {
       // The permission prompt must be triggered from this page (user gesture); the service worker registers the script.
       const granted = await chrome.permissions.request({ origins: FACEBOOK_ORIGINS });
       if (!granted) throw new Error("Permission was not granted.");
@@ -101,11 +101,12 @@ export function OptionsApp() {
       <section className="card">
         <h2>Facebook adapter</h2>
         <p className="muted">
-          Adds a clearly labeled "Also publish to Open Social Protocol" control to the Facebook composer. It only reads the text you typed in the composer, only when you tick the box and press Post, and nothing is published until you confirm in the side panel. Requires access to {FACEBOOK_ORIGINS.join(" and ")}.
+          Adds a clearly labeled "Also publish to Open Social Protocol" control to the Facebook composer. It only reads the text you typed in the composer, only when you tick the box, select Public or Friends, and press Post. The Open Social copy publishes immediately while the extension is unlocked; Facebook keeps its own audience setting. Requires access to {FACEBOOK_ORIGINS.join(" and ")}.
         </p>
         <p>
-          Status: {adapters.facebook.registered ? <span className="pill good">active</span> : adapters.facebook.granted ? <span className="pill warn">permission granted, not active</span> : <span className="pill">off</span>}
+          Status: {adapters.facebook.registered ? <span className="pill good">enabled</span> : adapters.facebook.granted ? <span className="pill warn">permission granted, not active</span> : <span className="pill">off</span>}
         </p>
+        {adapters.facebook.attachmentWarning && <p className="notice">{adapters.facebook.attachmentWarning}</p>}
         <div className="row">
           {adapters.facebook.registered ? (
             <button className="danger" onClick={disableFacebook}>
@@ -118,6 +119,11 @@ export function OptionsApp() {
           )}
         </div>
         <label className="row" style={{ marginTop: 12 }}>
+          <input type="checkbox" style={{ width: "auto" }} checked={form.facebookAttribution !== false}
+            onChange={e => act(e.target.checked ? "Open Social link enabled." : "Open Social link disabled.", () => rpc("settings.update", { patch: { facebookAttribution: e.target.checked } }))} />
+          <span>Add “Posted on Open Social” and the About-page link at the bottom of Facebook posts shared to Open Social</span>
+        </label>
+        <label className="row" style={{ marginTop: 12 }}>
           <input
             type="checkbox"
             style={{ width: "auto" }}
@@ -125,8 +131,17 @@ export function OptionsApp() {
             checked={adapters.feedInsertion}
             onChange={(e) => act(e.target.checked ? "Labeled feed cards enabled." : "Labeled feed cards disabled.", () => rpc("settings.update", { patch: { feedInsertion: e.target.checked } }))}
           />
-          <span>Show a labeled "Open Social Protocol posts" box (up to 5 public posts) at the top of the Facebook feed (off by default)</span>
+          <span>Show Open Social post cards in the Facebook feed: latest five first, then more as you scroll</span>
         </label>
+        <label style={{ marginTop: 12 }}>
+          <span className="lbl">Posts to include in Facebook</span>
+          <select disabled={!adapters.feedInsertion} value={form.feedScope ?? "all"} onChange={(e) => act("Facebook feed updated.", () => rpc("settings.update", { patch: { feedScope: e.target.value } }))}>
+            <option value="all">Everyone and friends</option>
+            <option value="public">Everyone</option>
+            <option value="friends">Friends</option>
+          </select>
+        </label>
+        <p className="muted">Friends-only posts require the extension to be unlocked. Post actions open the original post on Open Social.</p>
       </section>
 
       <section className="card">
@@ -166,7 +181,7 @@ export function OptionsApp() {
         {deviceOnly && (
           <p className="muted">
             This browser holds only a device key, which cannot pay for transactions itself: publications go through a sponsor.
-            {view.resolved.sponsorUrls.length === 0 && <strong> No sponsor is configured; add one above or the queue will report every publication as failed.</strong>}
+            {view.resolved.sponsorUrls.length === 0 && <strong> No sponsor is configured; add one above to publish without paying from your own account.</strong>}
           </p>
         )}
         <label>
@@ -228,10 +243,10 @@ export function OptionsApp() {
       <section className="card">
         <h2>About and security model</h2>
         <ul className="muted">
-          <li>Keys never enter a web page. The Facebook adapter runs in the isolated world and can only send the composer text and a feed request to the service worker.</li>
+          <li>Keys stay in the extension. Facebook receives only post identifiers; friends-only text is displayed in protected extension frames. The adapter can only propose a composer draft or request feed identifiers.</li>
           <li>Signing and encryption happen in the service worker. Pages (side panel, this page) and content scripts talk to it through validated messages only.</li>
           <li>By default this browser holds a 30-day device key with publish / react / comment / relationships capabilities, plus the reading key. The identity seed is not kept unless you chose so.</li>
-          <li>Every publication needs an explicit confirmation in the side panel showing the audience and the permanence notice.</li>
+          <li>Choose Public or Friends in the composer, then click Post to publish. Public posts can be read by anyone; copies already received cannot be taken back.</li>
           <li>Retries reuse the same idempotency key; unknown outcomes are looked up on chain before anything is re-sent.</li>
           <li>No telemetry.</li>
         </ul>

@@ -211,6 +211,12 @@ export function buildApi(options: ApiOptions): FastifyInstance {
     sendError(reply, new ApiError(503, "not_deployed", config.deploymentError ?? `no deployment manifest for network ${config.network}`));
   });
 
+  app.get("/v1/people", async (request) => {
+    const search = (query(request, "query") ?? "").trim();
+    if (search.length > 64) throw new ApiError(400, "invalid_request", "query must be at most 64 characters");
+    return { items: q.searchPeople(db, search, parseLimit(query(request, "limit"), 20, 100)) };
+  });
+
   app.get("/v1/profiles", async (request) => {
     const search = query(request, "query") ?? "";
     if (search.length > 64 || !/^[1-9A-HJ-NP-Za-km-z]*$/.test(search)) {

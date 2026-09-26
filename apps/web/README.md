@@ -118,3 +118,34 @@ src/testing/           offline fixtures: synthetic Deployment, fake koilib provi
 * `src/features/friends/actions.test.ts` - accepting a request hands over the current reading key in the same transaction
 * `src/tx/submit.test.ts` - "sponsors only" never falls back to self-pay
 * `src/App.test.tsx` - routing smoke render (onboarding, settings, unlock, composer, deep links, registration banner, locked friends feed)
+
+## Navigation, people search, and installation
+
+The desktop sidebar and mobile tab bar include the current account's profile. `/me`
+resolves to that account; `/people` searches nicknames and addresses; `/about` explains
+the protocol without requiring a vault. Posting remains available from the feed and
+profile. Mobile horizontal gestures switch Everyone/Friends in the feed and the main
+navigation tabs elsewhere. Vertical scrolling, controls, forms, browser-edge gestures,
+and reduced-motion preferences are respected. Loaded feed panels stay mounted between
+scope changes and are discarded when the viewer changes or locks.
+
+People search uses `/v1/people`. On older servers that return 404, it decodes the public
+inline documents returned by `/v1/profiles`, caches the directory for 30 seconds, and
+partitions full pages by valid address prefixes. It never silently searches only the
+first 100 accounts. The bounded fallback asks for a server upgrade if it cannot finish;
+exact account-address lookup still works. Deploy the indexer update for scalable native
+search. Nicknames are display names, not unique identifiers.
+
+Production builds include `manifest.webmanifest`, install icons and a versioned `sw.js`.
+The worker precaches only the static shell and exact build assets. It does not cache API
+responses, posts, external media, messages, keys, or writes. Existing encrypted vault
+storage is unchanged. An offline launch opens the shell; network actions need a connection.
+A waiting update is applied only after the user chooses Update and reload. Other open
+tabs are not reloaded. Install app is available from the desktop sidebar or mobile More
+menu, with native installation when supported and browser-specific instructions otherwise.
+Service workers require HTTPS (or localhost) and are disabled in Vite development mode.
+Serve `sw.js` and the manifest with revalidation, and retain existing hashed assets during
+rollovers so already-open tabs can finish. `.htaccess` includes the relevant headers.
+
+Icons are committed; optionally regenerate them with `python apps/web/scripts/icons.py`
+(Pillow). No icon generator is required for ordinary builds.

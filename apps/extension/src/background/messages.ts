@@ -8,7 +8,7 @@
 import { CONTENT_SCRIPT_TYPES, MAX_MESSAGE_BYTES, type Reply } from "../shared/protocol";
 import { ValidationError, type Validator } from "../shared/validate";
 
-export type Source = "extension" | "content";
+export type Source = "extension" | "content" | "embed";
 
 export interface HandlerContext {
   sender: chrome.runtime.MessageSender;
@@ -137,6 +137,14 @@ export function createRouter(options: RouterOptions): Router {
     let tabId: number | undefined;
     if (origin === extensionOrigin) {
       source = "extension";
+      // Web-accessible cards are a separate, read-only surface. They cannot reach vault/signing APIs.
+      const path = sender.url ? new URL(sender.url).pathname : "";
+      if (path === "/src/embed/index.html") {
+        source = "embed";
+        const host = sender.tab?.url ? new URL(sender.tab.url).origin : "";
+        const granted = originsFromPatterns(await options.grantedOrigins());
+        if (!sender.frameId || !granted.includes(host)) return reject("forbidden", "Cards require a granted Facebook page.");
+      }
     } else {
       source = "content";
       tabId = sender.tab?.id;

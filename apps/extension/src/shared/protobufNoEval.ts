@@ -9,8 +9,8 @@
  * implementations that follow the generated code line by line, so bytes are identical
  * (src/shared/protobufNoEval.test.ts proves byte parity against the generated code).
  *
- * Install it before anything encodes: `installNoEvalProtobuf()` is the first statement of the
- * service worker. It is safe to call in Node too (tests) and is idempotent.
+ * Install it before anything encodes: shared/bootstrap is the first import of the worker,
+ * side panel and options entry points. It is safe in Node too (tests) and is idempotent.
  */
 import protobuf from "protobufjs";
 

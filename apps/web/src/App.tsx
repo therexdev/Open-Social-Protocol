@@ -2,6 +2,8 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { ServicesProvider, useServices, type ServicesProviderProps } from "./api/services";
+import { AboutPage } from "./features/about/AboutPage";
+import { PeoplePage } from "./features/people/PeopleSearch";
 import { Layout } from "./components/Layout";
 import { Spinner } from "./components/ui";
 import { ComposerPage } from "./features/composer/ComposerPage";
@@ -59,15 +61,33 @@ function AccountEffects() {
     // A network / endpoint change may point at a chain where the account is not registered: re-check.
     const force = lastServices.current !== services;
     lastServices.current = services;
-    if (status === "unlocked" && account) void check(services, account, force);
     if (status === "empty") reset();
+    if (status !== "unlocked" || !account) return;
+    void check(services, account, force);
+    const retry = () => { if (document.visibilityState !== "hidden") void check(services, account); };
+    const timer = window.setInterval(retry, 30_000);
+    window.addEventListener("focus", retry);
+    window.addEventListener("online", retry);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", retry);
+      window.removeEventListener("online", retry);
+    };
   }, [status, account, services, check, reset]);
   return null;
+}
+
+function OwnProfile() {
+  const account = useVault(s => s.account);
+  return account ? <Navigate to={`/u/${account}`} replace /> : <Navigate to="/welcome" replace state={{ from: "/me" }} />;
 }
 
 export function AppRoutes() {
   return (
     <Routes>
+      <Route path="/about" element={<AboutPage />} />
+      <Route path="/people" element={<PeoplePage />} />
+      <Route path="/me" element={<RequireAccount><OwnProfile /></RequireAccount>} />
       <Route path="/welcome" element={<OnboardingPage />} />
       <Route path="/recover" element={<RecoveryPage />} />
       <Route path="/settings" element={<SettingsPage />} />

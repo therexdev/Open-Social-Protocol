@@ -1,6 +1,6 @@
 {
   "name": "@osp/extension",
-  "version": "0.1.0",
+  "version": "0.1.6",
   "private": true,
   "description": "Open Social Protocol browser extension (Chrome Manifest V3): key-isolated service worker, side panel, generic sidebar and Facebook cross-post adapter",
   "license": "MIT",

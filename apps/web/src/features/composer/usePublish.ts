@@ -14,7 +14,7 @@ import { toBase64url } from "../../util/bytes";
 import type { DraftRecord, Session } from "../../vault/store";
 import { useSession } from "../session";
 import { removeDraft, saveDraft } from "./drafts";
-import { PublishError, buildPublishPlan, findExistingPost, type MediaAttachment, type PublishIndexer, type PublishPlan } from "./publish";
+import { PublishError, buildPublishPlan, currentEpoch, findExistingPost, type MediaAttachment, type PublishIndexer, type PublishPlan } from "./publish";
 
 export interface PublishOutcome {
   /** base64url post id. */
@@ -81,6 +81,11 @@ export async function publishDraft(deps: PublishDeps, request: PublishRequest, p
     const result = await submit({ client: protocol, signer: me.signer, payment: deps.payment }, built.operations, {
       label,
       success: request.draft.edit ? "Edit saved" : request.draft.replyTo ? "Reply posted" : "Post published",
+      beforeSubmit: async () => {
+        if (built.audience === AUDIENCE.FRIENDS && await currentEpoch(protocol, me.account) !== built.epoch) {
+          throw new PublishError("Your private-post audience changed after this preview. Review the post again so removed friends do not receive it.");
+        }
+      },
     });
     if (built.audience === AUDIENCE.FRIENDS) {
       const ref = { author: me.account, audienceId: new Uint8Array(0), epoch: built.epoch };

@@ -20,6 +20,24 @@ export interface SubmitOptions {
   /** Wording when confirmed. */
   success?: string;
   waitForReceipt?: boolean;
+  /** Revalidate a prepared action after earlier submissions for this account finish. */
+  beforeSubmit?: () => Promise<void>;
+}
+
+// Background key sharing and user actions use the same account nonce. Serialize submissions
+// across ProtocolClient instances (including an endpoint change) to avoid nonce collisions.
+const submissions = new Map<string, Promise<unknown>>();
+
+export async function withAccountSubmission<T>(ctx: SubmitContext, action: () => Promise<T>): Promise<T> {
+  const key = `${ctx.client.chainId}:${ctx.signer.getAddress()}`;
+  const previous = submissions.get(key) ?? Promise.resolve();
+  const next = previous.catch(() => undefined).then(action);
+  submissions.set(key, next);
+  try {
+    return await next;
+  } finally {
+    if (submissions.get(key) === next) submissions.delete(key);
+  }
 }
 
 export class ActionError extends Error {
@@ -32,6 +50,9 @@ export class ActionError extends Error {
 }
 
 export function sponsorWording(error: SponsorError): string {
+  if (error.category === "invalid_transaction" && /\bnot friends\b/i.test(error.message)) {
+    return "The network says these accounts are no longer friends. Refresh the profile before trying another action.";
+  }
   switch (error.category) {
     case "quota_exceeded":
       return "The free allowance from the sponsor is used up for now. Try again later, add another sponsor in Settings, or pay from your own account.";
@@ -91,12 +112,15 @@ export async function submitAction(ctx: SubmitContext, operations: OperationJson
   }
   const id = toasts.push({ kind: "pending", title: options.label, message: "Waiting for the network…", sticky: true });
   try {
-    const result = await ctx.client.submit({
-      operations,
-      signer: ctx.signer,
-      ...(ctx.payment === "self-only" && { sponsor: null }),
-      selfPayFallback: ctx.payment !== "sponsor-only",
-      ...(options.waitForReceipt !== undefined && { waitForReceipt: options.waitForReceipt }),
+    const result = await withAccountSubmission(ctx, async () => {
+      await options.beforeSubmit?.();
+      return ctx.client.submit({
+        operations,
+        signer: ctx.signer,
+        ...(ctx.payment === "self-only" && { sponsor: null }),
+        selfPayFallback: ctx.payment !== "sponsor-only",
+        waitForReceipt: options.waitForReceipt ?? true,
+      });
     });
     const details = [
       `Transaction ${result.transaction.id ?? "(unknown id)"}`,
@@ -117,7 +141,7 @@ export async function submitAction(ctx: SubmitContext, operations: OperationJson
   } catch (error) {
     if (error instanceof ActionError) throw error;
     if (error instanceof Error && error.name === "TransactionOutcomeUnknownError") {
-      const message = "The network did not answer in time. The action may still go through; it will be checked before any retry.";
+      const message = "The action was submitted, but confirmation is still pending. Refresh its status before retrying; it may already have succeeded.";
       toasts.update(id, { kind: "error", title: `${options.label}: outcome unknown`, message, sticky: true, details: [errorMessage(error)] });
       throw new ActionError(message, error);
     }

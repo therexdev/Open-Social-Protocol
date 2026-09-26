@@ -3,11 +3,48 @@ import { describe, expect, it } from "vitest";
 import { InsufficientManaError, ProtocolClient, SponsorError, identityFromSeed } from "@osp/sdk";
 import { fakeProvider, fixtureDeployment } from "../testing/fixtures";
 import { useToasts } from "../stores/toasts";
-import { ActionError, NO_SPONSOR_MESSAGE, humanizeError, paymentBlocker, submitAction } from "./submit";
+import { ActionError, NO_SPONSOR_MESSAGE, humanizeError, paymentBlocker, submitAction, withAccountSubmission, type SubmitContext } from "./submit";
 
 const me = identityFromSeed(new Uint8Array(32).fill(7));
 
+describe("background sharing and user transaction ordering", () => {
+  it("queues a user action behind key sharing for the same account, even after an endpoint change", async () => {
+    const provider = fakeProvider();
+    const client = new ProtocolClient({ rpc: provider, deployment: fixtureDeployment() });
+    const ctx: SubmitContext = { client, signer: me.signer, payment: "self-only" };
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => { release = resolve; });
+    let started!: () => void;
+    const ready = new Promise<void>((resolve) => { started = resolve; });
+    const background = withAccountSubmission(ctx, async () => { started(); await blocked; });
+    await ready;
+    const operation = await client.ops.relationships.follow({ follower: me.account, target: me.account });
+    const nextClient = new ProtocolClient({ rpc: provider, deployment: fixtureDeployment() });
+    const userAction = submitAction({ ...ctx, client: nextClient }, [operation], { label: "Following" });
+    await Promise.resolve();
+    expect(provider.sent).toHaveLength(0);
+    release();
+    await Promise.all([background, userAction]);
+    expect(provider.sent).toHaveLength(1);
+  });
+
+  it("does not leave user actions blocked when background sharing fails", async () => {
+    const provider = fakeProvider();
+    const client = new ProtocolClient({ rpc: provider, deployment: fixtureDeployment() });
+    const ctx: SubmitContext = { client, signer: me.signer, payment: "self-only" };
+    await expect(withAccountSubmission(ctx, async () => { throw new Error("offline"); })).rejects.toThrow("offline");
+    const operation = await client.ops.relationships.follow({ follower: me.account, target: me.account });
+    await submitAction(ctx, [operation], { label: "Following" });
+    expect(provider.sent).toHaveLength(1);
+  });
+});
+
 describe("submitAction payment preference", () => {
+  it("explains a stale friend removal instead of suggesting a network change", () => {
+    const error = new SponsorError("invalid_transaction", "transaction reverted: not friends");
+    expect(humanizeError(error)).toContain("no longer friends");
+    expect(humanizeError(error)).not.toContain("Check the network");
+  });
   it("explains a sponsor refusal instead of hiding it behind a zero-Mana RPC error", () => {
     const error = new InsufficientManaError(me.account, [{
       endpoint: "https://sponsor.test", error: new SponsorError("quota_exceeded", "daily allowance exhausted"),
