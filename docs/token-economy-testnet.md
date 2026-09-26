@@ -134,4 +134,16 @@ Public reads afterward returned `resource_version: 2`, `economy_version: 0`.
 That rollout's subsequent product smoke run stopped on an unknown confirmation
 outcome at koilib's 15-second default. The SDK now waits up to 120 seconds by
 default, while preserving explicit overrides and never resubmitting on timeout.
-The product journey must pass on the resumed release before it is marked ready.
+The resumed [rollout](https://github.com/therexdev/Open-Social-Protocol/actions/runs/36270944959)
+then passed another independent 33-check token rehearsal and all 25 real product
+checks. [Repeated token receipts](../deployments/evidence/token-economy-repeat-2026-09-26.json)
+and [public product results](../deployments/evidence/token-economy-product-2026-09-26.json)
+are retained in the repository. CI passed 924 tests, with two existing web tests
+skipped; builds, type checks and browser/WASM smoke checks also passed.
+
+As of that successful rollout, public activation remains deliberately blocked by
+the old live indexer, sponsor policy and Hostinger site. The updated website is
+published on `hostinger-static`; no FTP deployment credentials were configured.
+Deploy the backend services and website as described above, then rerun the gated
+activation. Passing the rollout while `ready: false` means **verified and staged**,
+not active voting for ordinary testers.
