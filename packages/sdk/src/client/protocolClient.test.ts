@@ -20,6 +20,16 @@ const user = Signer.fromSeed("user");
 const sponsorSigner = Signer.fromSeed("sponsor");
 const attacker = Signer.fromSeed("attacker");
 
+it("keeps a submitted sponsor transaction as outcome unknown when confirmation times out", async () => {
+  const provider = fakeProvider();
+  provider.wait = async () => { throw new Error("confirmation timeout"); };
+  const sponsor = await fakeSponsor();
+  const client = new ProtocolClient({ rpc: provider, deployment });
+  const op = await client.ops.relationships.follow({ follower: user.getAddress(), target: attacker.getAddress() });
+  await expect(client.submit({ operations: [op], signer: user, sponsor: sponsor.client, waitForReceipt: true })).rejects.toBeInstanceOf(TransactionOutcomeUnknownError);
+  expect(provider.sent).toHaveLength(0); // no self-pay replay of an already accepted transaction
+});
+
 interface FakeSponsorOptions {
   refuse?: { status: number; category?: string; message?: string };
   chainId?: string;
@@ -295,24 +305,18 @@ describe("ProtocolClient", () => {
       const client = new ProtocolClient({ rpc: provider, deployment });
       const op = await reactOp(client);
       await expect(client.submit({ operations: [op], signer: user, sponsor: sponsor.client, selfPayFallback: false }), c.label).rejects.toMatchObject({
-        name: "SponsorError",
-        category: "invalid_transaction",
-        message: c.expect,
+        name: "TransactionOutcomeUnknownError",
+        rpcError: c.expect,
       });
       expect(provider.sent.length, c.label).toBe(0);
     }
 
-    // with the default fallback the substitution is recorded as a refusal and the client self-pays
+    // An unverifiable success may already have broadcast the signed operation.
     const provider = fakeProvider();
     const sponsor = await fakeSponsor({ respond: cases[0]?.respond });
     const client = new ProtocolClient({ rpc: provider, deployment });
-    const result = await client.submit({ operations: [await reactOp(client)], signer: user, sponsor: sponsor.client });
-    expect(result.sponsored).toBe(false);
-    expect(result.refusals.map((r) => r.error.category)).toEqual(["invalid_transaction"]);
-    expect(result.transaction.id).not.toBe(forgedId);
-    expect(result.transaction.operations?.length).toBe(1);
-    expect(result.events).toEqual([]);
-    expect(provider.sent.length).toBe(1);
+    await expect(client.submit({ operations: [await reactOp(client)], signer: user, sponsor: sponsor.client })).rejects.toBeInstanceOf(TransactionOutcomeUnknownError);
+    expect(provider.sent.length).toBe(0);
   });
 
   it("verifySponsorResult accepts the honest case", async () => {
@@ -365,15 +369,26 @@ describe("ProtocolClient", () => {
 
   it("tries sponsors in order and reports every refusal", async () => {
     const provider = fakeProvider();
-    const first = await fakeSponsor({ refuse: { status: 503, category: "temporarily_unavailable" }, endpoint: "https://a.test" });
+    const first = await fakeSponsor({ refuse: { status: 429, category: "quota_exceeded" }, endpoint: "https://a.test" });
     const wrongChain = await fakeSponsor({ chainId: "EiB" + "A".repeat(43) + "=", endpoint: "https://b.test" });
     const third = await fakeSponsor({ endpoint: "https://c.test" });
     const client = new ProtocolClient({ rpc: provider, deployment, sponsors: new SponsorPool([first.client, wrongChain.client, third.client]) });
     const op = await reactOp(client);
     const result = await client.submit({ operations: [op], signer: user });
     expect(result.sponsored).toBe(true);
-    expect(result.refusals.map((r) => r.error.category)).toEqual(["temporarily_unavailable", "chain_mismatch"]);
+    expect(result.refusals.map((r) => r.error.category)).toEqual(["quota_exceeded", "chain_mismatch"]);
     expect(result.transaction.header?.payer).toBe(sponsorSigner.getAddress());
+  });
+
+  it("does not try another sponsor after an ambiguous server failure", async () => {
+    const provider = fakeProvider();
+    const first = await fakeSponsor({ refuse: { status: 503, category: "temporarily_unavailable" } });
+    const second = await fakeSponsor({ endpoint: "https://second.test" });
+    const submitSecond = vi.spyOn(second.client, "sponsor");
+    const client = new ProtocolClient({ rpc: provider, deployment, sponsors: [first.client, second.client] });
+    await expect(client.submit({ operations: [await reactOp(client)], signer: user })).rejects.toBeInstanceOf(TransactionOutcomeUnknownError);
+    expect(submitSecond).not.toHaveBeenCalled();
+    expect(provider.sent).toHaveLength(0);
   });
 
   it("throws the last refusal when self-pay fallback is disabled", async () => {

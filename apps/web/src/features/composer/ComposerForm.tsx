@@ -121,7 +121,7 @@ export function ComposerForm({ draft, replyTo, edit, defaultAudience = AUDIENCE.
   };
 
   const friendsExplanation =
-    "Only your friends can read this. It is encrypted on your device with a key shared with your friends; people you add as friends later also receive that key, so they can read your friends-only posts from the current period. Removing or blocking a friend switches to a new key for your later posts but cannot take back copies they already have.";
+    "Only your friends can read this. It is encrypted on your device with a key shared with your friends; people you add as friends later also receive that key, so they can read all your earlier friends-only posts. Removing or blocking a friend switches to a new key for your later posts but cannot take back copies they already have.";
   const everyoneExplanation = "Anyone on the network, including people without an account, can read this. It is stored in the clear.";
 
   return (
@@ -165,11 +165,12 @@ export function ComposerForm({ draft, replyTo, edit, defaultAudience = AUDIENCE.
       </fieldset>
       {!compact && (
         <div className="media-attach">
+          {encrypted && <Notice>Friends-only posts support text and links. Media attachments by URL remain public at their original host, so attachments are available for Everyone posts.</Notice>}
           <Field label="Attach media by URL (optional)" hint="The file is fetched by your browser to record its fingerprint; the host must allow cross-origin reads. Media itself is not stored on the network.">
             {(id) => (
               <div className="row">
-                <input id={id} type="url" value={mediaUrl} onChange={(e) => setMediaUrl(e.target.value)} placeholder="https://…" maxLength={LIMITS.maxLocationChars} />
-                <Button onClick={() => void attach()} busy={attaching} disabled={mediaUrl.trim().length === 0 || media.length >= LIMITS.maxMediaRefs}>
+                <input id={id} type="url" value={mediaUrl} onChange={(e) => setMediaUrl(e.target.value)} placeholder="https://…" maxLength={LIMITS.maxLocationChars} disabled={encrypted} />
+                <Button onClick={() => void attach()} busy={attaching} disabled={encrypted || mediaUrl.trim().length === 0 || media.length >= LIMITS.maxMediaRefs}>
                   Attach
                 </Button>
               </div>

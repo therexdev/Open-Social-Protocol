@@ -54,6 +54,8 @@ export function FriendsPage() {
   return (
     <div className="page">
       <h1>Friends</h1>
+      <p className="muted">Friends can read each other's past and future friends-only posts. Each author shares access automatically while their account is unlocked.</p>
+      <Button onClick={() => { window.dispatchEvent(new Event("osp:sync-friend-keys")); void refresh(); }}>Sync private-post access</Button>
       <Card title="Find people">
         <form
           onSubmit={(e) => {

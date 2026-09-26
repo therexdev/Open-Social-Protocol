@@ -1,5 +1,5 @@
 /** Friend / follow / block buttons for another account, driven by /v1/graph of the viewer. */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { GraphView } from "../../api/indexer";
 import { useServices } from "../../api/services";
 import { Button, ConfirmDialog } from "../../components/ui";
@@ -13,20 +13,29 @@ export function useGraph(account: string | undefined) {
   const [graph, setGraph] = useState<GraphView | undefined>();
   const [error, setError] = useState<string | undefined>();
   const [loading, setLoading] = useState(false);
+  const version = useRef(0);
   const refresh = useCallback(async () => {
     if (!account || !indexer.configured) return;
+    const request = ++version.current;
     setLoading(true);
     try {
-      setGraph(await indexer.graph(account));
+      const next = await indexer.graph(account);
+      if (request !== version.current) return;
+      setGraph(next);
       setError(undefined);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      if (request === version.current) setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setLoading(false);
+      if (request === version.current) setLoading(false);
     }
   }, [account, indexer]);
   useEffect(() => {
+    setGraph(undefined);
     void refresh();
+    const tick = () => { if (document.visibilityState !== "hidden") void refresh(); };
+    const timer = window.setInterval(tick, 15_000);
+    window.addEventListener("focus", tick);
+    return () => { version.current++; window.clearInterval(timer); window.removeEventListener("focus", tick); };
   }, [refresh]);
   return { graph, error, loading, refresh };
 }
@@ -43,9 +52,11 @@ export function RelationshipActions({ target, graph, onChanged, compact }: Relat
   const can = useCanAct();
   const ctx = useSubmitContext();
   const session = useSession();
+  const { indexer } = useServices();
   const muted = useSettings((s) => s.muted);
   const update = useSettings((s) => s.update);
   const [busy, setBusy] = useState(false);
+  const running = useRef(false);
   const [confirm, setConfirm] = useState<"remove" | "block" | undefined>();
   if (!me || me === target) return null;
   const isFriend = graph?.friends.some((f) => f.account === target) ?? false;
@@ -57,14 +68,19 @@ export function RelationshipActions({ target, graph, onChanged, compact }: Relat
   const disabled = !can.ok || !ctx || busy;
 
   const run = async (fn: () => Promise<unknown>) => {
+    if (running.current) return;
+    running.current = true;
     setBusy(true);
     try {
       await fn();
       setConfirm(undefined);
-      onChanged?.();
+      window.dispatchEvent(new Event("osp:sync-friend-keys"));
     } catch {
       // toast explains
     } finally {
+      // A rejection can follow an earlier successful removal. Refresh even on failure.
+      onChanged?.();
+      running.current = false;
       setBusy(false);
     }
   };
@@ -83,7 +99,7 @@ export function RelationshipActions({ target, graph, onChanged, compact }: Relat
             </Button>
           )}
           {incoming && (
-            <Button variant="primary" onClick={() => ctx && void run(() => acceptFriend(ctx, target, session && { keys: session.keys }))} disabled={disabled}>
+            <Button variant="primary" onClick={() => ctx && void run(() => acceptFriend(ctx, target, session && { keys: session.keys, me: session.identity, source: indexer }))} disabled={disabled}>
               Accept request
             </Button>
           )}

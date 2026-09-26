@@ -3,9 +3,6 @@
  * service worker). Cached briefly in memory; a content script only ever receives the plaintext
  * of everyone-audience posts.
  */
-import { SUITE, decodeEnvelope, decryptContent } from "@osp/sdk";
-import { bytesOf } from "../shared/bytes";
-import type { PostView } from "../shared/indexer";
 import type { FeedItem, FeedPage, FeedRequestReply, FeedScope } from "../shared/protocol";
 import type { Clients } from "./clients";
 import { openPost, toFeedItem } from "./decrypt";
@@ -48,7 +45,7 @@ export class FeedService {
     const me = session ? { account: session.account, encryption: this.deps.vault.encryption(session) } : undefined;
     const items: FeedItem[] = [];
     for (const post of raw.items ?? []) {
-      const opened = await openPost(post, { chainId, keys, me, keySource: clients.indexer });
+      const opened = await openPost(post, { chainId, chain: clients.protocol, keys, me, keySource: clients.indexer });
       items.push(toFeedItem(post, opened));
     }
     const page: FeedPage = { items, nextCursor: raw.nextCursor ?? null };
@@ -62,20 +59,10 @@ export class FeedService {
     const raw = await clients.indexer.feed({ scope: "public", limit: Math.min(Math.max(limit, 1), 5) });
     const items: FeedRequestReply["items"] = [];
     for (const post of raw.items ?? []) {
-      const text = plaintextOf(post);
+      const opened = await openPost(post, { chainId: clients.resolved.chainId ?? "", chain: clients.protocol });
+      const text = opened.status === "plain" ? (opened.content?.text ?? "") : undefined;
       if (text !== undefined) items.push({ postId: post.postId, author: post.author, text, createdAt: post.createdAt });
     }
     return items;
-  }
-}
-
-function plaintextOf(post: PostView): string | undefined {
-  if (post.state !== 0) return undefined;
-  try {
-    const envelope = decodeEnvelope(bytesOf(post.envelope));
-    if (envelope.suite !== SUITE.PLAINTEXT) return undefined;
-    return decryptContent({ envelope }).text ?? "";
-  } catch {
-    return undefined;
   }
 }

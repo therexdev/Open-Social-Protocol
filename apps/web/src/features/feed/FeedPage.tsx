@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import type { FeedScope, PostView } from "../../api/indexer";
 import { useServices } from "../../api/services";
@@ -10,38 +10,49 @@ import { PostCard } from "./PostCard";
 type Tab = "public" | "friends";
 
 export function usePagedPosts(load: (cursor?: string) => Promise<{ items: PostView[]; nextCursor: string | null }>, deps: unknown[]) {
+  const version = useRef(0);
+  const paging = useRef(false);
   const [items, setItems] = useState<PostView[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | undefined>();
   const refresh = useCallback(async () => {
+    const request = ++version.current;
     setLoading(true);
     setError(undefined);
     try {
       const page = await load();
+      if (request !== version.current) return;
       setItems(page.items);
       setCursor(page.nextCursor);
     } catch (e) {
-      setError(errorMessage(e));
+      if (request === version.current) setError(errorMessage(e));
     } finally {
-      setLoading(false);
+      if (request === version.current) setLoading(false);
     }
   }, deps); // eslint-disable-line react-hooks/exhaustive-deps
   const more = useCallback(async () => {
-    if (!cursor) return;
+    if (!cursor || paging.current) return;
+    paging.current = true;
+    const request = version.current;
     setLoading(true);
     try {
       const page = await load(cursor);
+      if (request !== version.current) return;
       setItems((prev) => [...prev, ...page.items.filter((p) => !prev.some((q) => q.postId === p.postId))]);
       setCursor(page.nextCursor);
     } catch (e) {
-      setError(errorMessage(e));
+      if (request === version.current) setError(errorMessage(e));
     } finally {
-      setLoading(false);
+      paging.current = false;
+      if (request === version.current) setLoading(false);
     }
   }, [cursor, ...deps]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
+    setItems([]);
+    setCursor(null);
     void refresh();
+    return () => { version.current++; };
   }, [refresh]);
   return { items, loading, error, refresh, more, hasMore: cursor !== null };
 }

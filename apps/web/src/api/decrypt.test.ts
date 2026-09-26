@@ -100,6 +100,22 @@ describe("post decryption pipeline", () => {
     expect(opened.status).toBe("decrypted");
   });
 
+  it("rejects modified envelope bytes before decrypting", async () => {
+    const { post } = friendsPost(2);
+    post.envelope = toBase64url(new Uint8Array([1, 2, 3]));
+    const opened = await openPost(post, { chainId });
+    expect(opened.status).toBe("error");
+    if (opened.status === "error") expect(opened.message).toContain("fingerprint");
+  });
+
+  it("rejects an indexer impersonating another author even with self-consistent plaintext", async () => {
+    const { post } = friendsPost(2);
+    const chain = { reads: { publications: { get_post: async () => ({ value: { author: stranger.account, audience: post.audience, version_count: 1, latest_version: new Uint8Array(32), state: 0 } }) } } } as unknown as NonNullable<Parameters<typeof openPost>[1]["chain"]>;
+    const opened = await openPost(post, { chainId, chain });
+    expect(opened.status).toBe("error");
+    if (opened.status === "error") expect(opened.message).toContain("verified version");
+  });
+
   it("reports a no-key state for accounts without a sealed key and locked without a session", async () => {
     const { post, items } = friendsPost(2);
     const keys = new KeyStore();

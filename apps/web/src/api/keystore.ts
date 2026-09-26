@@ -246,7 +246,7 @@ export class KeyStore {
     try {
       candidates = await this.candidates(ref, me, source);
     } catch {
-      return { unverifiable: false };
+      return { unverifiable: true };
     }
     let unverifiable = false;
     for (const candidate of candidates) {

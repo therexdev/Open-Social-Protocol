@@ -6,6 +6,7 @@ import { useServices } from "../api/services";
 import { useAccount } from "../stores/account";
 import { useVault } from "../vault/context";
 import { useNotificationsBadge } from "../features/notifications/badge";
+import { FriendKeySync } from "../features/friends/FriendKeySync";
 import { Toasts } from "./Toasts";
 
 function DeploymentBanner() {
@@ -93,6 +94,7 @@ export function Layout({ children }: { children: ReactNode }) {
       <IndexerBanner />
       <RegistrationBanner />
       <main id="main" className="main" tabIndex={-1}>
+        <FriendKeySync />
         {children}
       </main>
       <Toasts />

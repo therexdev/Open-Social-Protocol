@@ -13,6 +13,22 @@ function sealedFor(epochKey: Uint8Array): SealedKeyView[] {
 }
 
 describe("key store lookup", () => {
+  it("does not reuse an unverified read cache to encrypt a new post", async () => {
+    const store = new KeyStore();
+    const forged = newEpochKey();
+    const source = { keys: async () => sealedFor(forged) };
+    expect((await store.lookup(ref, identity, source)).status).toBe("found");
+    expect(await store.lookup(ref, identity, source, {
+      missCache: false, verify: async () => ({ status: "rejected", reason: "No author distribution" }),
+    })).toEqual({ status: "missing" });
+    expect((await store.lookup(ref, identity, source, {
+      missCache: false, verify: async () => ({ status: "unavailable", reason: "RPC offline" }),
+    })).status).toBe("unavailable");
+    expect(await store.lookup(ref, identity, source, {
+      missCache: false, verify: async () => ({ status: "verified", recipients: [me.account] }),
+    })).toEqual({ status: "found", key: forged });
+  });
+
   it("distinguishes a missing key from an unreachable indexer, and bypasses the negative cache on demand", async () => {
     const store = new KeyStore();
     let calls = 0;

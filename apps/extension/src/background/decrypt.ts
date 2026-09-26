@@ -2,7 +2,7 @@
  * Opening PostViews: plaintext (everyone) directly, friends-only through the key store.
  * Decryption happens in the service worker; a missing key is a normal state, not an error.
  */
-import { AUDIENCE, LIFECYCLE, SUITE, decodeEnvelope, decryptContent, type Content } from "@osp/sdk";
+import { AUDIENCE, LIFECYCLE, SUITE, bytesEqual, contentHash, decodeEnvelope, decryptContent, type Content, type ProtocolClient } from "@osp/sdk";
 import { bytesOf } from "../shared/bytes";
 import type { PostView } from "../shared/indexer";
 import type { FeedItem, PostContentStatus } from "../shared/protocol";
@@ -10,6 +10,7 @@ import type { KeyResolverIdentity, KeySource, KeyStore } from "./keystore";
 
 export interface OpenContext {
   chainId: string;
+  chain?: Pick<ProtocolClient, "reads">;
   keys?: KeyStore;
   me?: KeyResolverIdentity;
   keySource?: KeySource;
@@ -23,11 +24,26 @@ export interface OpenedPost {
 
 /** Decrypts or decodes a post for display. Never throws. */
 export async function openPost(post: PostView, ctx: OpenContext): Promise<OpenedPost> {
+  if (ctx.chain) {
+    try {
+      const record = (await ctx.chain.reads.publications.get_post({ post_id: bytesOf(post.postId) }))?.value;
+      if (!record) return { status: "error", message: "This post is awaiting network confirmation. Refresh to check again." };
+      if (record.state === LIFECYCLE.DELETED) return { status: "tombstone" };
+      if (record.state === LIFECYCLE.AUTHOR_HIDDEN) return { status: "hidden" };
+      if (record.state === LIFECYCLE.UNAVAILABLE) return { status: "unavailable" };
+      if (record.author !== post.author || record.audience !== post.audience || record.version_count !== post.versionNumber || !bytesEqual(record.latest_version, bytesOf(post.contentHash))) {
+        return { status: "error", message: "The feed has not supplied the current verified version of this post. Refresh the feed to check again." };
+      }
+    } catch {
+      return { status: "error", message: "This post could not be verified while the network is unavailable. Refresh to check again." };
+    }
+  }
   if (post.state === LIFECYCLE.DELETED) return { status: "tombstone", message: post.stateReason || "This post was deleted by its author." };
   if (post.state === LIFECYCLE.AUTHOR_HIDDEN) return { status: "hidden", message: post.stateReason || "The author hid this post." };
   if (post.state === LIFECYCLE.UNAVAILABLE) return { status: "unavailable", message: post.stateReason || "This post is unavailable." };
   const bytes = bytesOf(post.envelope);
   if (bytes.length === 0) return { status: "error", message: "The indexer did not provide this post's content." };
+  if (!bytesEqual(contentHash(bytes), bytesOf(post.contentHash))) return { status: "error", message: "This post does not match its published fingerprint." };
   let envelope;
   try {
     envelope = decodeEnvelope(bytes);

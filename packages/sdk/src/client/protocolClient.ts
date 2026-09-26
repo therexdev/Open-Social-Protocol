@@ -305,9 +305,20 @@ export class ProtocolClient {
         ...(rcLimit !== undefined && { rcLimit }),
       });
       const signed = await this.sign(prepared, options.signer);
-      const result = await sponsor.sponsor(signed);
-      // Never trust the sponsor's copy: it must be the transaction the user signed (spec 1, 10.3).
-      await verifySponsorResult(signed, result, sponsor.endpoint);
+      let result;
+      try {
+        result = await sponsor.sponsor(signed);
+        // The sponsor may already have broadcast even if its response is lost or corrupt.
+        await verifySponsorResult(signed, result, sponsor.endpoint);
+      } catch (error) {
+        // Only an explicit client-error refusal proves this attempt was rejected.
+        // Transport errors, 5xx responses and unverifiable success responses are ambiguous.
+        if (error instanceof SponsorError && (
+          ["quota_exceeded", "method_not_allowed", "too_large", "chain_mismatch", "invalid_signature"].includes(error.category) ||
+          (error.status !== undefined && error.status >= 400 && error.status < 500 && error.status !== 408)
+        )) throw error;
+        throw new TransactionOutcomeUnknownError(signed, { id: signed.id ?? "", rpc_error: error instanceof Error ? error.message : String(error) } as TransactionReceipt);
+      }
       return { transaction: result.transaction, receipt: result.receipt, sponsorAddress: discovery.sponsor };
     });
 
@@ -355,10 +366,14 @@ export class ProtocolClient {
     };
     if (options.waitForReceipt && transaction.id) {
       const waitFn = (transaction as { wait?: (type?: "byBlock" | "byTransactionId", timeout?: number) => Promise<{ blockId: string; blockNumber?: number }> }).wait;
-      const block = waitFn
-        ? await waitFn("byTransactionId", options.waitTimeoutMs)
-        : await this.provider.wait(transaction.id, "byTransactionId", options.waitTimeoutMs);
-      result.block = block;
+      try {
+        result.block = waitFn
+          ? await waitFn("byTransactionId", options.waitTimeoutMs)
+          : await this.provider.wait(transaction.id, "byTransactionId", options.waitTimeoutMs);
+      } catch (error) {
+        // Submission already succeeded. A confirmation timeout is not a rejection.
+        throw new TransactionOutcomeUnknownError(transaction, { ...receipt, rpc_error: error instanceof Error ? error.message : String(error) });
+      }
     }
     return result;
   }

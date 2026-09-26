@@ -188,10 +188,20 @@ recall keys or plaintext already delivered. Clients must display this honestly.
 
 ### 5.4 History access for new friends
 
-When a friendship is accepted the author's client chooses a policy: `future-only`
-(default; nothing extra), `recent-window`, `all-history` or `manual`. Historical access
-is granted by sealing the selected historical epoch keys to the new friend in an
-additional `distribute_keys` call for each past epoch.
+Open Social V1 uses `all-history`: accepting or re-accepting a friendship grants
+access to the author's past and future friends-only posts, including periods before
+the friendship or while the pair was disconnected. The accepter can share its
+current key in the acceptance transaction. Each unlocked author then seals every
+available historical friends-audience key to chain-confirmed current friends.
+Historical keys recovered from the indexer must be verified against author-signed
+on-chain distributions. Other authors' keys and custom-audience keys are excluded.
+
+Removal or blocking stops new key delivery and rotates both friends' current
+periods. Clients recheck current membership and audience rotation before signing a
+history share. No client can erase keys or plaintext already delivered. Completing
+both directions requires both authors to unlock a client that performs history
+sharing; no server receives plaintext keys. The web client performs this automatically,
+with a visible retry action and bounded, resumable batches.
 
 ### 5.5 Key storage
 

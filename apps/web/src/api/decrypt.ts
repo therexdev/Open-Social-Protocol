@@ -2,7 +2,7 @@
  * Opening PostViews: plaintext (everyone) directly, friends-only through the key store.
  * Decryption happens on the device; a missing key is a normal state, not an error.
  */
-import { LIFECYCLE, SUITE, bytesEqual, decodeEnvelope, decryptContent, type AadInput, type Envelope, type MediaItem } from "@osp/sdk";
+import { LIFECYCLE, SUITE, bytesEqual, contentHash, decodeEnvelope, decryptContent, type AadInput, type Envelope, type MediaItem, type ProtocolClient } from "@osp/sdk";
 import { bytesOf } from "../util/bytes";
 import type { KeyResolverIdentity, KeySource, KeyStore, KeyVerifier } from "./keystore";
 import type { PostView } from "./indexer";
@@ -29,6 +29,7 @@ export interface OpenContext {
   keySource?: KeySource;
   /** Checks on chain where a sealed key served by the indexer came from (keyProvenance.ts). */
   verify?: KeyVerifier;
+  chain?: Pick<ProtocolClient, "reads">;
 }
 
 function tryDecrypt(envelope: Envelope, epochKey: Uint8Array, aad: AadInput): OpenedContent | undefined {
@@ -41,11 +42,26 @@ function tryDecrypt(envelope: Envelope, epochKey: Uint8Array, aad: AadInput): Op
 
 /** Decrypts or decodes a post for display. Never throws. */
 export async function openPost(post: PostView, ctx: OpenContext): Promise<PostContent> {
+  if (ctx.chain) {
+    try {
+      const record = (await ctx.chain.reads.publications.get_post({ post_id: bytesOf(post.postId) }))?.value;
+      if (!record) return { status: "error", message: "This post is awaiting network confirmation. Checking again automatically." };
+      if (record.state === LIFECYCLE.DELETED) return { status: "tombstone" };
+      if (record.state === LIFECYCLE.AUTHOR_HIDDEN) return { status: "hidden" };
+      if (record.state === LIFECYCLE.UNAVAILABLE) return { status: "unavailable" };
+      if (record.author !== post.author || record.audience !== post.audience || record.version_count !== post.versionNumber || !bytesEqual(record.latest_version, bytesOf(post.contentHash))) {
+        return { status: "error", message: "The feed has not supplied the current verified version of this post. Refresh the feed to check again." };
+      }
+    } catch {
+      return { status: "error", message: "This post could not be verified while the network is unavailable. Checking again automatically." };
+    }
+  }
   if (post.state === LIFECYCLE.DELETED) return { status: "tombstone", ...(post.stateReason && { reason: post.stateReason }) };
   if (post.state === LIFECYCLE.AUTHOR_HIDDEN) return { status: "hidden", ...(post.stateReason && { reason: post.stateReason }) };
   if (post.state === LIFECYCLE.UNAVAILABLE) return { status: "unavailable", ...(post.stateReason && { reason: post.stateReason }) };
   const bytes = bytesOf(post.envelope);
   if (bytes.length === 0) return { status: "error", message: "The indexer did not provide this post's content." };
+  if (!bytesEqual(contentHash(bytes), bytesOf(post.contentHash))) return { status: "error", message: "This post's content does not match its published fingerprint." };
   let envelope;
   try {
     envelope = decodeEnvelope(bytes);
@@ -68,7 +84,7 @@ export async function openPost(post: PostView, ctx: OpenContext): Promise<PostCo
   const entry = ctx.keySource ? await ctx.keys.resolve(ref, ctx.me, ctx.keySource, { ...(ctx.verify && { verify: ctx.verify }) }) : ctx.keys.entry(ref);
   if (!entry) {
     const who = post.author === ctx.me.account ? "this device has not received the key for this post yet" : "you do not have the key for this post yet";
-    return { status: "no-key", message: `Friends-only post: ${who}.` };
+    return { status: "no-key", message: `Friends-only post: ${who}. Friends receive access to older posts too when the author opens the app to finish sharing. This post will check again automatically.` };
   }
   const aad: AadInput = {
     chainId: ctx.chainId,

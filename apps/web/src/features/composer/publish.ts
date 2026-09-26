@@ -197,6 +197,7 @@ export async function buildPublishPlan(input: PublishInput): Promise<PublishPlan
   const key = idempotencyKey(input.me.account, attemptId);
   const content = buildContent(input);
   if (!content.text || content.text.trim().length === 0) throw new PublishError("Write something first.");
+  if (input.audience === AUDIENCE.FRIENDS && input.media?.length) throw new PublishError("Linked media files are public at their original host. Remove the attachment or choose Everyone. Private media uploads are not supported yet.");
   if ((input.media?.length ?? 0) > LIMITS.maxMediaRefs) throw new PublishError(`At most ${LIMITS.maxMediaRefs} media attachments per post.`);
   const operations: OperationJson[] = [];
   const isEdit = input.edit !== undefined;
@@ -216,7 +217,7 @@ export async function buildPublishPlan(input: PublishInput): Promise<PublishPlan
     // chain history (through the indexer) and verified on chain. Never an unverified copy.
     const existing = await input.keys.resolveTrusted(ref, input.me, input.indexer, input.verify);
     if (!existing.entry && existing.unverifiable) {
-      throw new PublishError("This account already has a reading key for the current period, but it could not be verified on the network. Try again when the network is reachable.");
+      throw new PublishError("Your existing reading keys could not be verified on the network. Try again when the network is reachable.");
     }
     const collected = await collectRecipients(input);
     skipped = collected.skipped;

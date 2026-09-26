@@ -79,6 +79,30 @@ npm run build:web
 Upload only `apps/web/dist` contents. Do not upload account exports, seeds, server
 environment files or the source repository to the public website directory.
 
+## Friends-only history and account synchronization
+
+Accepting or re-accepting a friendship shares all available previous friends-only
+periods, as well as the current period. Both authors complete their side while their
+accounts are unlocked. Existing friendships are repaired automatically; no new post,
+removal, or new request is required. The Friends page also has **Sync private-post
+access**. A success message appears after sharing; network problems show a retry.
+
+The author verifies recovered historical keys against the chain, confirms recipients
+are still friends, and sends bounded batches. Removed, pending, or blocked accounts
+receive no new keys. Removal rotates both parties' future keys, but cannot erase keys
+or copies previously received. Re-accepting restores history access.
+
+Post pages automatically check while indexing catches up. The client verifies post
+content and author/version against the chain. Friendship and message views refresh,
+and late responses cannot replace a different account's feed or friendship state.
+Ambiguous sponsor responses or confirmation timeouts preserve an unknown outcome
+instead of silently replaying a submitted action through another payer.
+
+Upload this package over the existing files, refresh, and unlock each account once.
+No contract redeployment or account recreation is required. The actual deployments,
+test evidence, and remaining release limits are recorded in `docs/v1-product-audit.md`.
+
+
 Hostinger references:
 - [File Manager](https://www.hostinger.com/support/4548688-basic-actions-in-the-file-manager-in-hostinger/)
 - [Force HTTPS](https://www.hostinger.com/support/1583201-how-to-enable-or-disable-https-for-your-website-at-hostinger/)

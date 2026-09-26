@@ -1,22 +1,23 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { ProtocolClient, decode, identityFromSeed, openEpochKeyFromSet, parseKeyPackageSet, toHex } from "@osp/sdk";
+import { ProtocolClient, RELATIONSHIP_STATUS, decode, identityFromSeed, openEpochKeyFromSet, parseKeyPackageSet, toHex } from "@osp/sdk";
 import { KeyStore } from "../../api/keystore";
 import { fakeProvider, fixtureDeployment, readResult } from "../../testing/fixtures";
 import { bytesOf } from "../../util/bytes";
 import type { SubmitContext } from "../../tx/submit";
-import { acceptFriend } from "./actions";
+import { acceptFriend, removeFriend } from "./actions";
 
 const seed = (label: string) => new Uint8Array(32).map((_, i) => (label.charCodeAt(i % label.length) * 5 + i) & 0xff);
 const me = identityFromSeed(seed("approver"));
 const requester = identityFromSeed(seed("requester"));
 const deployment = fixtureDeployment();
 
-function setup(options: { epoch?: number; requesterRegistered?: boolean } = {}) {
+function setup(options: { epoch?: number; requesterRegistered?: boolean; status?: number } = {}) {
   const probe = new ProtocolClient({ rpc: fakeProvider(), deployment });
   const entry = (contract: "relationships" | "identity", method: string) => probe.contracts.method(contract, method).entry_point;
   const provider = fakeProvider({
     onRead: (op) => {
+      if (op.entry_point === entry("relationships", "get_relationship")) return readResult("relationships.get_relationship_result", { value: { a: me.account, b: requester.account, status: options.status ?? RELATIONSHIP_STATUS.ACTIVE } });
       if (op.entry_point === entry("relationships", "get_audience")) return readResult("relationships.get_audience_result", { value: { epoch: options.epoch ?? 2, updated_at: "1" } });
       if (op.entry_point === entry("identity", "get_identity")) {
         const { account } = decode<{ account: string }>("identity.get_identity_arguments", bytesOf(op.args));
@@ -32,6 +33,23 @@ function setup(options: { epoch?: number; requesterRegistered?: boolean } = {}) 
 }
 
 const ref = { author: me.account, audienceId: new Uint8Array(0), epoch: 2 };
+
+describe("removeFriend", () => {
+  it("does not resubmit a stale removal or cancel a new pending request", async () => {
+    for (const status of [RELATIONSHIP_STATUS.INACTIVE, RELATIONSHIP_STATUS.PENDING]) {
+      const { ctx, provider } = setup({ status });
+      await removeFriend(ctx, requester.account);
+      expect(provider.sent).toHaveLength(0);
+    }
+  });
+
+  it("submits a removal when the chain confirms an active friendship", async () => {
+    const { ctx, client, provider } = setup();
+    await removeFriend(ctx, requester.account);
+    expect(provider.sent).toHaveLength(1);
+    expect(client.contracts.decodeOperation(provider.sent[0]!.transaction.operations![0]!)?.method).toBe("remove_friend");
+  });
+});
 
 describe("acceptFriend", () => {
   it("accepts and hands the new friend the current reading key in one transaction", async () => {

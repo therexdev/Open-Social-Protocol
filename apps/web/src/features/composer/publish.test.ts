@@ -96,6 +96,7 @@ function setup(options: SetupOptions = {}) {
           blocked: [],
           audienceEpoch: options.epoch ?? 0,
         },
+        [`/v1/keys/${me.account}`]: { items: [] },
         ...options.routes,
       },
       calls,
@@ -113,6 +114,17 @@ function sealedItem(epochKey: Uint8Array, epoch: number, txId: string): SealedKe
 }
 
 describe("buildPublishPlan", () => {
+  it("does not expose public attachment references in a friends-only post", async () => {
+    const { chain, indexer } = setup();
+    await expect(buildPublishPlan({ chain, indexer, me, keys: new KeyStore(), text: "private", audience: AUDIENCE.FRIENDS, attemptId: new Uint8Array(16).fill(8), media: [{ url: "https://example.com/photo.jpg", mime: "image/jpeg", size: 10, contentHash: new Uint8Array(32) }] })).rejects.toThrow(/public at their original host/);
+  });
+
+  it("refuses to generate a competing key when historical key lookup is unavailable", async () => {
+    const { chain, indexer } = setup();
+    indexer.keys = async () => { throw new Error("indexer offline"); };
+    await expect(buildPublishPlan({ chain, indexer, me, keys: new KeyStore(), text: "private", audience: AUDIENCE.FRIENDS, attemptId: new Uint8Array(16).fill(7) })).rejects.toThrow(/could not be verified/);
+  });
+
   it("builds [distribute_keys, publish] for a friends-only post with the current epoch", async () => {
     const { chain, indexer } = setup({ epoch: 3, nextSequence: "5" });
     const keys = new KeyStore();

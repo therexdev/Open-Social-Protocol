@@ -21,6 +21,7 @@ import {
   buildKeyPackageSets,
   buildProofManifest,
   contentHash as hashOf,
+  chainKeyVerifier,
   decodeReceiptEvents,
   encryptContent,
   idempotencyKey,
@@ -254,7 +255,7 @@ async function friendsEpochKey(ctx: PublishContext): Promise<EpochKeyPlan> {
   const audience = await ctx.client.reads.relationships.get_audience({ account: author });
   const epoch = audience?.value?.epoch ?? 0;
   const me = { account: author, encryption: ctx.vault.encryption(ctx.session) };
-  const lookup = await ctx.keys.lookup({ author, audienceId: FRIENDS_AUDIENCE_ID, epoch }, me, ctx.indexer, { missCache: false });
+  const lookup = await ctx.keys.lookup({ author, audienceId: FRIENDS_AUDIENCE_ID, epoch }, me, ctx.indexer, { missCache: false, verify: chainKeyVerifier(ctx.client) });
   if (lookup.status === "found") return { epoch, epochKey: lookup.key, operations: [], created: false };
   if (lookup.status === "unavailable") {
     throw new Error(`Friends-only posts need the indexer to find your current friends key: ${lookup.error.message}`);

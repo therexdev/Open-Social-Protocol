@@ -24,5 +24,8 @@
     "assemblyscript": "^0.28.0",
     "micromatch": "^4.0.8",
     "yaml": "^2.8.0"
+  },
+  "config": {
+    "protocVersion": "36.2"
   }
 }

@@ -42,6 +42,7 @@ function chainFor(me: string) {
   const indexer = new IndexerClient({
     baseUrl: "https://indexer.test",
     fetch: fakeIndexerFetch({
+      [`/v1/keys/${me}`]: { items: [] },
       [`/v1/graph/${me}`]: { account: me, friends: [{ account: friend.account, since: "1", nonce: "1" }], pendingIncoming: [], pendingOutgoing: [], followers: [], following: [], blocked: [], audienceEpoch: 1 },
     }),
   });

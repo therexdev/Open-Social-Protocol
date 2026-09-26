@@ -1,5 +1,5 @@
 /** A post with its versions, replies, reactions; edit (new version) and delete (tombstone) for the author. */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { AUDIENCE, LIFECYCLE } from "@osp/sdk";
 import type { PostView } from "../../api/indexer";
@@ -41,6 +41,8 @@ export function PostPage() {
   const viewer = status === "unlocked" ? account : undefined;
   const can = useCanAct();
   const submit = useSubmitContext();
+  const requestVersion = useRef(0);
+  const [waiting, setWaiting] = useState(false);
   const [post, setPost] = useState<PostView | undefined>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | undefined>();
@@ -50,22 +52,32 @@ export function PostPage() {
   const [replying, setReplying] = useState(false);
 
   const load = useCallback(async () => {
+    const request = ++requestVersion.current;
     setLoading(true);
     setError(undefined);
     try {
       const found = await indexer.post(postId, viewer);
+      if (request !== requestVersion.current) return;
       setPost(found);
-      if (!found) setError("This post is not known to the indexer (yet).");
+      setWaiting(!found);
     } catch (e) {
-      setError(errorMessage(e));
+      if (request === requestVersion.current) setError(errorMessage(e));
     } finally {
-      setLoading(false);
+      if (request === requestVersion.current) setLoading(false);
     }
   }, [indexer, postId, viewer]);
 
   useEffect(() => {
+    setPost(undefined);
+    setWaiting(false);
     void load();
+    return () => { requestVersion.current++; };
   }, [load]);
+  useEffect(() => {
+    if (!waiting) return;
+    const timer = window.setInterval(() => { if (document.visibilityState !== "hidden") void load(); }, 3_000);
+    return () => window.clearInterval(timer);
+  }, [waiting, load]);
 
   const replies = usePagedPosts((cursor) => indexer.replies(postId, { ...(cursor && { cursor }), ...(viewer && { viewer }), limit: 20 }), [indexer, postId, viewer]);
 
@@ -98,7 +110,8 @@ export function PostPage() {
         <Link to="/">← Feed</Link>
       </p>
       {loading && <Spinner />}
-      {error && <Notice kind="error">{error}</Notice>}
+      {waiting && <Notice>This post has not appeared in the feed service yet. Checking automatically… <Button onClick={() => void load()} disabled={loading}>Check now</Button></Notice>}
+      {error && <Notice kind="error">{error} <Button onClick={() => void load()} disabled={loading}>Retry</Button></Notice>}
       {post && (
         <>
           <PostCard post={post} expanded onChanged={() => void load()} />
