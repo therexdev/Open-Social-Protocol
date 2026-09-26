@@ -1,8 +1,9 @@
 /** Primary journey step 1-2: create or import an account, protect it, register on chain. */
 import { useState } from "react";
-import { Navigate, useLocation, useNavigate } from "react-router-dom";
+import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { useServices } from "../../api/services";
 import { buildProfileDocument } from "../../api/profiles";
+import { BrandMark, Icon } from "../../components/Icon";
 import { Button, Card, Field, Notice, Spinner } from "../../components/ui";
 import { useAccount } from "../../stores/account";
 import { useSettings } from "../../stores/settings";
@@ -134,20 +135,20 @@ export function OnboardingPage() {
   }
 
   return (
-    <div className="page narrow">
+    <div className="page narrow onboarding-page">
+      {mode === "choose" && <div className="welcome-intro"><BrandMark/><p className="eyebrow">YOUR PEOPLE. YOUR POSTS. YOURS.</p></div>}
       <h1>Welcome to Open Social</h1>
       {from !== "/" && <p className="muted">After setting up your account you will return to the page you opened.</p>}
       {mode === "choose" && (
-        <Card>
-          <p>
-            A social network where your posts belong to you: friends-only posts are encrypted on your device, your account works in any compatible app, and no
-            company sits in between.
-          </p>
+        <Card className="welcome-card">
+          <h2>A fresh start. A lasting connection.</h2>
+          <p>Make yourself at home. Share with everyone or just your friends, and keep the same account and connections across compatible apps.</p>
           <div className="row">
             <Button variant="primary" onClick={() => setMode("create")}>
-              Create an account
+              <Icon name="plus"/> Create an account
             </Button>
             <Button onClick={() => setMode("import")}>I have an identity file</Button>
+            <Link className="btn btn-ghost" to="/about">How Open Social works <Icon name="arrow" size={17}/></Link>
           </div>
         </Card>
       )}

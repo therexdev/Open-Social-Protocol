@@ -1,8 +1,9 @@
 /** Own or others' profile: name and bio from the profile document, posts, relationship actions. */
 import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { useServices } from "../../api/services";
 import { buildProfileDocument, PROFILE_URI_MAX_CHARS } from "../../api/profiles";
+import { Avatar, Icon } from "../../components/Icon";
 import { Button, Card, CopyButton, Empty, Field, Notice, Spinner } from "../../components/ui";
 import { useProfiles } from "../../stores/profiles";
 import { submitAction } from "../../tx/submit";
@@ -48,7 +49,7 @@ function ProfileEditor({ account, name, bio, onDone }: { account: string; name: 
         void save();
       }}
     >
-      <Field label="Display name">{(id) => <input id={id} value={displayName} onChange={(e) => setDisplayName(e.target.value)} maxLength={64} />}</Field>
+      <Field label="Display name" hint="Your nickname. People can search for this name; it doesn’t have to be unique.">{(id) => <input id={id} value={displayName} onChange={(e) => setDisplayName(e.target.value)} maxLength={64} />}</Field>
       <Field label="About you" hint={`${PROFILE_URI_MAX_CHARS - document.uri.length} characters left in the on-chain profile reference. Profiles are public.`}>
         {(id) => <textarea id={id} value={about} onChange={(e) => setAbout(e.target.value)} rows={3} maxLength={300} aria-invalid={tooLong || undefined} />}
       </Field>
@@ -85,9 +86,12 @@ export function ProfilePage() {
 
   return (
     <div className="page">
-      <Card>
+      <Card className="profile-card">
+        <div className="profile-cover"><span>YOUR PEOPLE. YOUR POSTS. YOURS.</span></div>
         <div className="profile-header">
-          <div>
+          <div className="profile-identity">
+            <Avatar account={account} name={info?.displayName} large/>
+            {mine && <span className="eyebrow">YOUR PROFILE</span>}
             <h1>{info?.displayName || shortAddress(account)}</h1>
             <p className="mono muted address">
               {account} <CopyButton text={account} label="Copy address" />
@@ -95,15 +99,13 @@ export function ProfilePage() {
             {info?.bio && <p className="bio">{info.bio}</p>}
             {info && !info.registered && indexer.configured && <p className="muted">This account is not registered on the network (or the indexer has not seen it yet).</p>}
             {view && (
-              <p className="muted">
-                {view.counts.posts} posts · {view.counts.friends} friends · {view.counts.followers} followers · {view.counts.following} following
-              </p>
+              <div className="profile-stats">{Object.entries(view.counts).map(([label, count]) => <div key={label}><strong>{count}</strong><span>{label}</span></div>)}</div>
             )}
           </div>
           <div>
             {mine ? (
               <Button onClick={() => setEditing((v) => !v)} disabled={!can.ok} title={can.ok ? undefined : can.reason}>
-                {editing ? "Close" : "Edit profile"}
+                <Icon name={editing ? "close" : "edit"} size={17}/>{editing ? "Close" : "Edit profile"}
               </Button>
             ) : (
               <RelationshipActions target={account} graph={graph} onChanged={() => void refresh()} />
@@ -112,7 +114,7 @@ export function ProfilePage() {
         </div>
         {editing && mine && <ProfileEditor account={account} name={info?.displayName ?? ""} bio={info?.bio ?? ""} onDone={() => setEditing(false)} />}
       </Card>
-      <h2>Posts</h2>
+      <div className="page-header"><h2>{mine ? "Your posts" : "Posts"}</h2>{mine && <Link to="/compose" className="btn btn-ghost"><Icon name="plus" size={18}/>New post</Link>}</div>
       {posts.error && <Notice kind="error">{posts.error} <Button onClick={() => void posts.refresh()}>Retry loading posts</Button></Notice>}
       {!posts.loading && !posts.error && posts.items.length === 0 && <Empty>No posts yet.</Empty>}
       <div className="post-list">

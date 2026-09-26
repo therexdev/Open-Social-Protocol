@@ -2,6 +2,8 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { ServicesProvider, useServices, type ServicesProviderProps } from "./api/services";
+import { AboutPage } from "./features/about/AboutPage";
+import { PeoplePage } from "./features/people/PeopleSearch";
 import { Layout } from "./components/Layout";
 import { Spinner } from "./components/ui";
 import { ComposerPage } from "./features/composer/ComposerPage";
@@ -75,9 +77,17 @@ function AccountEffects() {
   return null;
 }
 
+function OwnProfile() {
+  const account = useVault(s => s.account);
+  return account ? <Navigate to={`/u/${account}`} replace /> : <Navigate to="/welcome" replace state={{ from: "/me" }} />;
+}
+
 export function AppRoutes() {
   return (
     <Routes>
+      <Route path="/about" element={<AboutPage />} />
+      <Route path="/people" element={<PeoplePage />} />
+      <Route path="/me" element={<RequireAccount><OwnProfile /></RequireAccount>} />
       <Route path="/welcome" element={<OnboardingPage />} />
       <Route path="/recover" element={<RecoveryPage />} />
       <Route path="/settings" element={<SettingsPage />} />

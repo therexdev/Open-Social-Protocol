@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { Link } from "react-router-dom";
-import type { FeedScope, PostView } from "../../api/indexer";
+import type { PostView } from "../../api/indexer";
 import { useServices } from "../../api/services";
-import { Button, Empty, Notice, Spinner, Tabs } from "../../components/ui";
+import { Button, Empty, Notice, Tabs } from "../../components/ui";
 import { errorMessage } from "../../util/format";
 import { useVault } from "../../vault/context";
+import { Icon } from "../../components/Icon";
+import { useSwipeTabs } from "../../components/useSwipeTabs";
 import { PostCard } from "./PostCard";
 
 type Tab = "public" | "friends";
@@ -69,61 +71,41 @@ export function usePagedPosts(load: (cursor?: string) => Promise<{ items: PostVi
   return { items, loading, error, refresh, more, hasMore: cursor !== null };
 }
 
-export function FeedPage() {
-  const { indexer } = useServices();
-  const account = useVault((s) => s.account);
-  const status = useVault((s) => s.status);
-  const [tab, setTab] = useState<Tab>("public");
-  const scope: FeedScope = tab === "friends" ? "friends" : "public";
-  const viewer = status === "unlocked" ? account : undefined;
-  const feed = usePagedPosts(
-    async (cursor) => {
-      // The friends scope needs a viewer; without one there is nothing to ask the indexer for.
-      if (scope === "friends" && !viewer) return { items: [], nextCursor: null };
-      return indexer.feed({ scope, ...(viewer && { viewer }), ...(cursor && { cursor }), limit: 20 });
-    },
-    [indexer, scope, viewer],
-  );
+export function FeedSkeleton() {
+  return <div className="feed-skeleton" role="status" aria-label="Loading posts">{[0, 1, 2].map(i => <div className="post skeleton-card" key={i} aria-hidden="true"><div className="row"><span className="skeleton skeleton-avatar"/><div className="skeleton skeleton-name"/></div><div className="skeleton skeleton-line"/><div className="skeleton skeleton-line short"/><div className="skeleton skeleton-line"/></div>)}</div>;
+}
 
-  return (
-    <div className="page">
-      <div className="page-header">
-        <h1>Feed</h1>
-        <Link to="/compose" className="btn btn-primary">
-          New post
-        </Link>
-      </div>
-      <Tabs<Tab>
-        value={tab}
-        label="Feed scope"
-        onChange={setTab}
-        options={[
-          { value: "public", label: "Everyone" },
-          { value: "friends", label: "Friends" },
-        ]}
-      />
-      {tab === "friends" && !viewer && <Notice kind="info">Unlock your account to see posts from your friends.</Notice>}
-      {feed.error && <Notice kind="error">{feed.error}</Notice>}
-      {!indexer.configured && <Empty>Configure an indexer in Settings to load posts.</Empty>}
-      {indexer.configured && !feed.loading && feed.items.length === 0 && !feed.error && !(tab === "friends" && !viewer) && (
-        <Empty>{tab === "friends" ? "Nothing from your friends yet. Posts you and your friends publish appear here." : "No posts yet. Be the first to say hello."}</Empty>
-      )}
-      <div className="post-list">
-        {feed.items.map((post) => (
-          <PostCard key={`${post.postId}:${post.contentHash}`} post={post} onChanged={() => void feed.refresh()} />
-        ))}
-      </div>
-      {feed.loading && <Spinner />}
-      <div className="row">
-        <Button variant="ghost" onClick={() => void feed.refresh()} disabled={feed.loading}>
-          Refresh
-        </Button>
-        {feed.hasMore && (
-          <Button onClick={() => void feed.more()} disabled={feed.loading}>
-            Load more
-          </Button>
-        )}
-      </div>
+function FeedPanel({ scope, viewer, active }: { scope: Tab; viewer: string | undefined; active: boolean }) {
+  const { indexer } = useServices();
+  const feed = usePagedPosts(async cursor => {
+    if (scope === "friends" && !viewer) return { items: [], nextCursor: null };
+    return indexer.feed({ scope, ...(viewer && { viewer }), ...(cursor && { cursor }), limit: 20 });
+  }, [indexer, scope, viewer]);
+  return <section hidden={!active} role="tabpanel" id={`feed-${scope}`} aria-label={scope === "public" ? "Everyone" : "Friends"} className="feed-panel">
+    {scope === "friends" && !viewer && <Notice kind="info">Unlock your account to see posts from your friends.</Notice>}
+    {feed.error && <Notice kind="error">{feed.error}</Notice>}
+    {!indexer.configured && <Empty>Configure an indexer in Settings to load posts.</Empty>}
+    {indexer.configured && !feed.loading && feed.items.length === 0 && !feed.error && !(scope === "friends" && !viewer) && <Empty>{scope === "friends" ? "Nothing from your friends yet. Posts you and your friends publish appear here." : "No posts yet. Be the first to say hello."}</Empty>}
+    <div className="post-list">{feed.items.map(post => <PostCard key={`${post.postId}:${post.contentHash}`} post={post} onChanged={() => void feed.refresh()} />)}</div>
+    {feed.loading && feed.items.length === 0 && <FeedSkeleton/>}
+    <div className="row feed-pagination"><Button variant="ghost" onClick={() => void feed.refresh()} disabled={feed.loading}><Icon name="refresh"/> {feed.loading && feed.items.length > 0 ? "Refreshing…" : "Refresh"}</Button>{feed.hasMore && <Button onClick={() => void feed.more()} busy={feed.loading}>Load more</Button>}</div>
+  </section>;
+}
+
+export function FeedPage() {
+  const account = useVault(s => s.account);
+  const status = useVault(s => s.status);
+  const viewer = status === "unlocked" ? account : undefined;
+  const [tab, setTab] = useState<Tab>("public");
+  const [direction, setDirection] = useState(1);
+  const changeTab = (next: Tab) => { setDirection(next === "friends" ? 1 : -1); setTab(next); };
+  const swipe = useSwipeTabs(direction => changeTab(direction === 1 ? "friends" : "public"));
+  return <div className="page feed-page">
+    <div className="page-header"><div><p className="eyebrow">YOUR DAILY CONNECTION</p><h1>Feed</h1><p className="page-subtitle">A little closer to your people.</p></div><Link to="/compose" className="btn btn-primary"><Icon name="plus"/> New post</Link></div>
+    <div className="feed-tabs"><Tabs<Tab> value={tab} label="Feed scope" onChange={changeTab} options={[{ value: "public", label: <><Icon name="globe" size={18}/> Everyone</> }, { value: "friends", label: <><Icon name="people" size={18}/> Friends</> }]} /><span className="feed-sort">Latest posts</span></div>
+    <div className="feed-panels" style={{ "--feed-enter": `${direction * 12}px` } as CSSProperties} {...swipe} key={viewer ?? "locked"}>
+      <FeedPanel scope="public" viewer={viewer} active={tab === "public"}/>
+      <FeedPanel scope="friends" viewer={viewer} active={tab === "friends"}/>
     </div>
-  );
+  </div>;
 }

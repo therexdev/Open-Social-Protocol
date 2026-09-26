@@ -1,3 +1,4 @@
+import { searchPeople as matchPeople } from "@osp/sdk";
 /**
  * Typed client for the INDEXER API v1 (see apps/indexer/README.md). Every read the web client
  * performs goes through here; the indexer is a replaceable convenience, never a source of truth.
@@ -290,6 +291,52 @@ export class IndexerClient {
   async searchProfiles(query: string, limit = 20): Promise<ProfileSummary[]> {
     const body = await this.get<{ items: ProfileSummary[] }>(`/v1/profiles${qs({ query, limit })}`);
     return body.items ?? [];
+  }
+
+  private directory?: { expires: number; promise: Promise<ProfileSummary[]> };
+  private peopleUnavailableUntil = 0;
+
+  /** Native name search, with a public-directory fallback for older servers. */
+  async searchPeople(query: string, limit = 20): Promise<ProfileSummary[]> {
+    const text = query.trim();
+    if (text.length > 64) throw new Error("Use a nickname or address of up to 64 characters.");
+    if (Date.now() >= this.peopleUnavailableUntil) {
+      try {
+        return (await this.get<{ items: ProfileSummary[] }>(`/v1/people${qs({ query: text, limit })}`)).items;
+      } catch (error) {
+        if (!(error instanceof IndexerError) || !error.notFound) throw error;
+        this.peopleUnavailableUntil = Date.now() + 60_000;
+      }
+    }
+    if (!this.directory || this.directory.expires < Date.now()) {
+      const promise = this.readPublicDirectory();
+      this.directory = { expires: Date.now() + 30_000, promise };
+      void promise.catch(() => { if (this.directory?.promise === promise) this.directory = undefined; });
+    }
+    return matchPeople(await this.directory.promise, text, limit);
+  }
+
+  private async readPublicDirectory(): Promise<ProfileSummary[]> {
+    // The legacy endpoint has no cursor. Split full buckets by address prefix instead of
+    // silently searching just the first 100 accounts. SQLite LIKE folds ASCII case.
+    const alphabet = [..."123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"].filter((char, i, all) => all.findIndex(other => other.toLowerCase() === char.toLowerCase()) === i);
+    const queue = [""];
+    const people = new Map<string, ProfileSummary>();
+    let requests = 0;
+    while (queue.length) {
+      const prefixes = queue.splice(0, 4);
+      if ((requests += prefixes.length) > 512) throw new Error("This server needs its people-search update to search the full directory. Try an exact account address.");
+      const pages = await Promise.all(prefixes.map(prefix => this.searchProfiles(prefix, 100)));
+      pages.forEach((page, index) => {
+        page.forEach(person => people.set(person.account, person));
+        const prefix = prefixes[index]!;
+        if (page.length === 100) {
+          if (prefix.length >= 64) throw new Error("The people directory could not be read completely. Please try again.");
+          queue.push(...alphabet.map(char => prefix + char));
+        }
+      });
+    }
+    return [...people.values()];
   }
 
   graph(account: string): Promise<GraphView> {

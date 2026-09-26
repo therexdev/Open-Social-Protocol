@@ -1,0 +1,31 @@
+import { afterAll, beforeAll, expect, it } from "vitest";
+import { encodeProfile, PROFILE_URI_PREFIX, toBase64url } from "@osp/sdk";
+import { IndexerDb, KoinosChain, createIndexer, loadConfig, type Indexer } from "./index.js";
+import { FakeProvider } from "./testing/fake-chain.js";
+import { buildHistory, type History } from "./testing/history.js";
+let app: Indexer;
+let history: History;
+const uri = (name: string) => PROFILE_URI_PREFIX + toBase64url(encodeProfile({ display_name: name }));
+beforeAll(async () => {
+  history = buildHistory();
+  app = createIndexer({ config: loadConfig({ OSP_NETWORK: "test", OSP_INDEXER_DB: ":memory:" }, { deployment: history.deployment }), db: IndexerDb.memory(), chain: new KoinosChain(new FakeProvider(history.builder), history.deployment) });
+  await app.syncer!.syncToHead();
+});
+afterAll(async () => app.close());
+it("finds current nicknames, duplicate names and subsequent renames without changing the address API", async () => {
+  const a = history.actors.alice.account;
+  const b = history.actors.bob.account;
+  app.db.run("UPDATE identities SET profile_uri = ? WHERE account IN (?, ?)", uri("Café Friends"), a, b);
+  let response = await app.api.inject({ method: "GET", url: "/v1/people?query=CAFE" });
+  expect(response.statusCode).toBe(200);
+  expect(response.json().items.map((x: { account: string }) => x.account).sort()).toEqual([a, b].sort());
+  app.db.run("UPDATE identities SET profile_uri = ? WHERE account = ?", uri("New Name"), a);
+  response = await app.api.inject({ method: "GET", url: "/v1/people?query=cafe" });
+  expect(response.json().items.map((x: { account: string }) => x.account)).toEqual([b]);
+  response = await app.api.inject({ method: "GET", url: "/v1/people?query=new%20name" });
+  expect(response.json().items[0].account).toBe(a);
+  expect((await app.api.inject({ method: "GET", url: "/v1/profiles?query=0OIl" })).statusCode).toBe(400);
+  expect((await app.api.inject({ method: "GET", url: `/v1/people?query=${"a".repeat(65)}` })).statusCode).toBe(400);
+  expect((await app.api.inject({ method: "GET", url: "/v1/people?limit=0" })).statusCode).toBe(400);
+  expect((await app.api.inject({ method: "GET", url: "/v1/people?query=%25_%27" })).json().items).toEqual([]);
+});

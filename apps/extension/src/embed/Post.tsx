@@ -1,3 +1,4 @@
+import { Avatar, Icon } from "../../../web/src/components/Icon";
 import { useEffect, useState } from "react";
 import type { FeedItem } from "../shared/protocol";
 import { audienceName, formatTime, safeHttpUrl, shortAddress } from "../shared/format";
@@ -13,11 +14,9 @@ export function PostCard({ item }: { item: FeedItem }) {
   const readable = item.status === "plain" || item.status === "decrypted";
   return <article className="post" aria-label={`Post by ${name}`}>
     <header className="post-header">
-      <a className="post-author" href={`${SITE}/u/${encodeURIComponent(item.author)}`} target="_blank" rel="noopener noreferrer">{name}</a>
-      <span className={`chip chip-${item.audience === 0 ? "public" : "friends"}`}>{audienceName(item.audience)}</span>
-      <time className="muted" title={new Date(Number(item.createdAt)).toLocaleString()}>{formatTime(item.createdAt)}</time>
-      {item.versionNumber > 1 && <span className="muted">edited</span>}
-      <a className="osp-source" href={postUrl} target="_blank" rel="noopener noreferrer">Open Social ↗</a>
+      <a href={`${SITE}/u/${encodeURIComponent(item.author)}`} target="_blank" rel="noopener noreferrer" tabIndex={-1} aria-hidden="true"><Avatar account={item.author} name={name}/></a>
+      <div className="post-heading"><a className="post-author" href={`${SITE}/u/${encodeURIComponent(item.author)}`} target="_blank" rel="noopener noreferrer">{name}</a><span className="post-meta"><time title={new Date(Number(item.createdAt)).toLocaleString()}>{formatTime(item.createdAt)}</time>{item.versionNumber > 1 && " · edited"}<a className="osp-source" href={postUrl} target="_blank" rel="noopener noreferrer"> · Open Social ↗</a></span></div>
+      <span className={`chip chip-${item.audience === 0 ? "public" : "friends"}`}><Icon name={item.audience === 0 ? "globe" : "lock"} size={13}/>{audienceName(item.audience)}</span>
     </header>
     {item.labels.length > 0 && <div className="labels">{item.labels.map((label) => <span key={`${label.communityId}-${label.label}`} className="chip chip-label" title={label.reason}>{label.label}</span>)}</div>}
     {readable ? <div className="post-body">
@@ -29,11 +28,11 @@ export function PostCard({ item }: { item: FeedItem }) {
         </li>;
       })}</ul>}
       {safeHttpUrl(item.externalRef) && <a href={item.externalRef} target="_blank" rel="noopener noreferrer">{item.externalRef}</a>}
-    </div> : <p className="post-state">{["locked", "no-key"].includes(item.status) && "🔒 "}{item.message || ({ tombstone: "This post was deleted by its author.", hidden: "The author hid this post.", unavailable: "This post is unavailable." } as Record<string, string>)[item.status] || "Open the extension to unlock or refresh this post."}</p>}
+    </div> : <p className="post-state">{["locked", "no-key"].includes(item.status) && <Icon name="lock" size={18}/>}{item.message || ({ tombstone: "This post was deleted by its author.", hidden: "The author hid this post.", unavailable: "This post is unavailable." } as Record<string, string>)[item.status] || "Open the extension to unlock or refresh this post."}</p>}
     <footer className="post-footer">
-      {item.author !== item.viewer && <a className="btn btn-ghost" href={postUrl} target="_blank" rel="noopener noreferrer" title="Support this post on Open Social">Support</a>}
-      <a className="btn btn-ghost" href={postUrl} target="_blank" rel="noopener noreferrer" title="Like this post on Open Social">{item.liked ? "♥" : "♡"} {item.reactions > 0 ? item.reactions : ""} {item.liked ? "Liked" : "Like"}</a>
-      <a className="btn btn-ghost" href={postUrl} target="_blank" rel="noopener noreferrer" title="Reply on Open Social">{item.replyCount > 0 ? `${item.replyCount} replies` : "Reply"}</a>
+      {item.author !== item.viewer && <a className="btn btn-ghost" href={postUrl} target="_blank" rel="noopener noreferrer" title="Support this post on Open Social"><Icon name="spark" size={18}/>Support</a>}
+      <a className="btn btn-ghost" href={postUrl} target="_blank" rel="noopener noreferrer" title="Like this post on Open Social"><Icon name="heart" size={18} className={item.liked ? "is-liked" : ""}/> {item.reactions > 0 ? item.reactions : ""} {item.liked ? "Liked" : "Like"}</a>
+      <a className="btn btn-ghost" href={postUrl} target="_blank" rel="noopener noreferrer" title="Reply on Open Social"><Icon name="message" size={18}/>{item.replyCount > 0 ? `${item.replyCount} replies` : "Reply"}</a>
     </footer>
   </article>;
 }

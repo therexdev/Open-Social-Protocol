@@ -1,3 +1,4 @@
+import { startPwa } from "./pwa/state";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
@@ -16,3 +17,5 @@ createRoot(root).render(
     </BrowserRouter>
   </StrictMode>,
 );
+
+startPwa();

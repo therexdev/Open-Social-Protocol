@@ -5,3 +5,6 @@ body { overflow: hidden; min-height: 0; }
 .post { margin: 0; }
 .osp-source { margin-left: auto; font-size: 11px; color: var(--muted); text-decoration: none; }
 .post-footer a { color: var(--text); }
+
+html { scrollbar-gutter: auto; }
+.post-meta .osp-source { font-size: inherit; }

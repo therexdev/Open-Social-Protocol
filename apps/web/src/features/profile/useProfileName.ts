@@ -18,7 +18,7 @@ export function useProfileName(account: string): string {
   const view = useProfiles((s) => s.profiles[account]);
   const load = useProfiles((s) => s.load);
   useEffect(() => {
-    if (indexer.configured) void load(indexer, account);
+    if (account && indexer.configured) void load(indexer, account);
   }, [account, indexer, load]);
   return displayNameOf(account, view);
 }

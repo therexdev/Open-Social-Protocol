@@ -25,3 +25,11 @@ RewriteRule . /index.html [L]
     Header set Cache-Control "no-cache"
   </FilesMatch>
 </IfModule>
+
+# Always check for app updates; hashed assets retain their immutable cache policy.
+<IfModule mod_headers.c>
+  <FilesMatch "^(sw\.js|manifest\.webmanifest|favicon\.svg|.*\.png)$">
+    Header set Cache-Control "no-cache"
+  </FilesMatch>
+</IfModule>
+AddType application/manifest+json .webmanifest
