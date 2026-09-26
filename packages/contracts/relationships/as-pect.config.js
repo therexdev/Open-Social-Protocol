@@ -11,6 +11,7 @@ module.exports = {
   disclude: [/node_modules/],
   async instantiate(memory, createImports, instantiate, binary) {
     const mockVM = new MockVM();
+    require("../scripts/mock-vm-storage.cjs").fixMockStorageOrdering(mockVM);
     // The mock DB retains protobuf byte views into WASM memory. Real chain storage copies
     // writes; copy here too, or GC overwrites stored records during long lifecycle tests.
     const putObject = mockVM.db.putObject.bind(mockVM.db);

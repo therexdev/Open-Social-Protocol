@@ -1,0 +1,91 @@
+name: token-v2-testnet
+
+# The dedicated rollout branch is an explicit release action. Ordinary model/PR
+# pushes run CI only. Upgrade just the token account, preserving identities/posts.
+on:
+  push:
+    branches: [codex/token-v2-testnet-rollout]
+    paths-ignore:
+      - 'deployments/**'
+      - 'deployment-progress/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+concurrency:
+  group: deploy-harbinger
+  cancel-in-progress: false
+
+jobs:
+  validate-and-upgrade:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Build all clients and contracts
+        run: npm run build:all
+      - name: Verify accounting, authorization, clients and release execution
+        run: |
+          npm run test:token-v2
+          npm test
+          node --import tsx scripts/deployment-runtime-smoke.ts
+      - name: Upgrade token contract and activate recharge atomically
+        env:
+          KOINOS_HARBINGER_DEPLOYER_WIF: ${{ secrets.KOINOS_HARBINGER_DEPLOYER_WIF }}
+          OSP_CONTRACT_SEED: ${{ secrets.OSP_CONTRACT_SEED }}
+          KOINOS_RPC: ${{ vars.KOINOS_RPC }}
+        run: node --import tsx scripts/deploy-contracts.ts --network harbinger --only token
+      - name: Verify deployed code, dependencies and resource policy
+        run: node --import tsx scripts/verify-deployment.ts --network harbinger
+      - name: Exercise real accounts, private posts, friendship, messages and Support
+        run: node --import tsx scripts/test-product-testnet.ts --execute "$RUNNER_TEMP/osp-token-v2-journey.json"
+      - name: Publish verified website build
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: apps/web/dist
+          publish_branch: hostinger-static
+          force_orphan: true
+          commit_message: "Publish token v2 recharge client from ${{ github.sha }}"
+      - name: FTP deploy when configured
+        if: ${{ env.FTP_SERVER != '' }}
+        env:
+          FTP_SERVER: ${{ secrets.HOSTINGER_FTP_SERVER }}
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.HOSTINGER_FTP_SERVER }}
+          username: ${{ secrets.HOSTINGER_FTP_USERNAME }}
+          password: ${{ secrets.HOSTINGER_FTP_PASSWORD }}
+          local-dir: apps/web/dist/
+          server-dir: ${{ secrets.HOSTINGER_FTP_DIR || 'public_html/' }}
+      - name: Preserve deployment record
+        if: ${{ always() }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add deployments/harbinger.json deployment-progress/harbinger.json
+          if ! git diff --cached --quiet; then
+            git commit -m "Record token v2 testnet upgrade (${{ github.run_id }})"
+            git push origin HEAD:${{ github.ref_name }}
+          fi
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: token-v2-testnet-evidence
+          path: |
+            deployments/harbinger.json
+            deployment-progress/harbinger.json
+            packages/contracts/build/release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: token-v2-web
+          path: apps/web/dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: token-v2-extension
+          path: apps/extension/dist

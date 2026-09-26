@@ -1,0 +1,21 @@
+import { createRequire } from "node:module";
+import assert from "node:assert/strict";
+import test from "node:test";
+const require = createRequire(import.meta.url);
+const { MockVM } = require("@koinos/mock-vm");
+const { fixMockStorageOrdering } = require("../packages/contracts/scripts/mock-vm-storage.cjs");
+test("mock VM preserves distinct binary keys before and after rollback", () => {
+  const vm = new MockVM(true);
+  fixMockStorageOrdering(vm);
+  const space = { id: 7, system: false, zone: Buffer.from([1, 2, 3]) };
+  const a = Buffer.from([0, 0, 0, 198]), b = Buffer.from([0, 0, 0, 199]);
+  const transientValue = Buffer.from([10]);
+  vm.db.putObject(space, a, transientValue);
+  transientValue[0] = 99;
+  vm.db.putObject(space, b, Buffer.from([20]));
+  vm.db.commitTransaction();
+  vm.db.putObject(space, a, Buffer.from([30]));
+  vm.db.rollbackTransaction();
+  assert.deepEqual(vm.db.getObject(space, a).value, Buffer.from([10]));
+  assert.deepEqual(vm.db.getObject(space, b).value, Buffer.from([20]));
+});

@@ -143,4 +143,14 @@ export class Token {
 
     return res;
   }
+
+  activate_recharge(
+    args: token.activate_recharge_arguments
+  ): token.activate_recharge_result {
+    // YOUR CODE HERE
+
+    const res = new token.activate_recharge_result();
+
+    return res;
+  }
 }

@@ -33,6 +33,8 @@
     "sponsor": "npm run start -w apps/sponsor",
     "web": "npm run dev -w apps/web",
     "test:scripts": "node --import tsx --test scripts/*.test.ts",
+    "test:token-v2": "tsc -p research/token-v2/tsconfig.json && node --import tsx --test scripts/token-v2-model.test.ts",
+    "simulate:token-v2": "node --import tsx scripts/simulate-token-v2.ts",
     "verify:testnet": "node --import tsx scripts/verify-deployment.ts --network harbinger"
   },
   "devDependencies": {

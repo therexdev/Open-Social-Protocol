@@ -43,12 +43,12 @@ function support(id: u8): u64 {
 }
 describe("token capacity and authorization", (): void => {
   beforeEach(setup);
-  it("grants a free allowance that regenerates with block time", (): void => {
+  it("grants a free allowance that regenerates over 144,000 blocks", (): void => {
     c.spend(ALICE, 100);
     expect(c.load(ALICE).free_credits).toBe(0);
-    Testing.setTime(Testing.DEFAULT_TIME + 43200000);
+    Testing.setTime(Testing.DEFAULT_TIME + 216000000, 72001);
     expect(c.load(ALICE).free_credits).toBe(50000);
-    Testing.setTime(Testing.DEFAULT_TIME + 86400000);
+    Testing.setTime(Testing.DEFAULT_TIME + 432000000, 144001);
     expect(c.load(ALICE).free_credits).toBe(100000);
   });
   it("rejects direct consumption by a wallet", (): void => {
@@ -64,16 +64,49 @@ describe("token capacity and authorization", (): void => {
   it("cannot refill credits by moving used tokens back and forth", (): void => {
     c.accounts.put(ALICE, new token.account_state(10, 0, 2000, Testing.DEFAULT_TIME));
     asAlice();
-    c.transfer(new token.transfer_arguments(ALICE, BOB, 5));
-    expect(c.load(ALICE).token_credits).toBe(1000);
-    expect(c.load(BOB).token_credits).toBe(1000);
+    c.transfer(new token.transfer_arguments(ALICE, BOB, 2));
+    expect(c.load(ALICE).token_credits).toBe(0);
+    expect(c.load(BOB).token_credits).toBe(2000);
     MockVM.commitTransaction();
     Testing.authorize([BOB]);
     Testing.mockResolveActor(true, BOB, "", 2);
-    c.transfer(new token.transfer_arguments(BOB, ALICE, 5));
+    c.transfer(new token.transfer_arguments(BOB, ALICE, 2));
     expect(c.load(ALICE).token_credits).toBe(2000);
     expect(c.load(BOB).token_credits).toBe(0);
     expect(c.load(ALICE).free_credits).toBe(0);
+  });
+  it("locks partially charged tokens for both transfer and burn", (): void => {
+    c.accounts.put(ALICE, new token.account_state(100, 0, 0, Testing.DEFAULT_TIME));
+    const cfg = c.cfg(); cfg.supply = 100; c.config.put(cfg);
+    MockVM.commitTransaction();
+    Testing.setTime(Testing.DEFAULT_TIME + 86400000, 28801);
+    expect(c.load(ALICE).token_ticks).toBe(20 * 144000);
+    expect(c.load(ALICE).transferable).toBe(0);
+    asAlice();
+    expect((): void => { c.transfer(new token.transfer_arguments(ALICE, BOB, 1)); }).toThrow();
+    asAlice();
+    expect((): void => { c.burn(new token.burn_arguments(ALICE, 1)); }).toThrow();
+    Testing.setTime(Testing.DEFAULT_TIME + 432000000, 144001);
+    asAlice();
+    c.burn(new token.burn_arguments(ALICE, 1));
+    expect(c.load(ALICE).balance).toBe(99);
+    expect(c.load(ALICE).transferable).toBe(99);
+    expect(c.cfg().supply).toBe(99);
+  });
+  it("migrates an existing deployment only with owner authority and only once", (): void => {
+    const cfg = c.cfg(); cfg.resource_version = 0; cfg.activation_block = 0; cfg.activation_time = 0;
+    c.config.put(cfg);
+    c.accounts.put(ALICE, new token.account_state(10, 1000, 2345, Testing.DEFAULT_TIME));
+    MockVM.commitTransaction();
+    Testing.authorize([]);
+    expect((): void => { c.activate_recharge(new token.activate_recharge_arguments()); }).toThrow();
+    Testing.authorize([ID]);
+    c.activate_recharge(new token.activate_recharge_arguments());
+    MockVM.commitTransaction();
+    expect(c.load(ALICE).balance).toBe(10);
+    expect(c.load(ALICE).token_ticks).toBe(2345 * 144);
+    expect(c.load(ALICE).transferable).toBe(2);
+    expect((): void => { c.activate_recharge(new token.activate_recharge_arguments()); }).toThrow();
   });
   it("rejects token transfer without owner authority", (): void => {
     c.accounts.put(ALICE, new token.account_state(10, 0, 10000, Testing.DEFAULT_TIME));

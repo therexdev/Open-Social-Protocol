@@ -14,7 +14,7 @@ import { CONTRACT_NAMES, type ContractName, type Deployment, type SponsorPolicy 
 export const SPONSORED_CONTRACTS: readonly ContractName[] = ["identity", "relationships", "publications", "communities", "messaging"];
 
 /** Methods that are never sponsored by default (contract-account administration). */
-export const ADMIN_METHODS: ReadonlySet<string> = new Set(["set_identity_contract", "set_relationships_contract", "set_token_contract", "set_dependencies", "init", "set_reward_policy", "consume"]);
+export const ADMIN_METHODS: ReadonlySet<string> = new Set(["set_identity_contract", "set_relationships_contract", "set_token_contract", "set_dependencies", "init", "set_reward_policy", "activate_recharge", "consume"]);
 
 /**
  * Argument field naming the acting account per method. `null` marks methods anyone may

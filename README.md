@@ -36,6 +36,14 @@ Testnet pilot implementation (protocol v1, Koinos Harbinger). Cryptography, cont
 and resource figures require independent review before any mainnet use. See
 `docs/protocol-spec.md` for the normative rules and `docs/adr/` for design decisions.
 
+Token v2 now has an [accepted design direction](docs/adr/0008-token-v2-shared-recharge.md)
+and a deployable five-day resource ledger, atomic migration, and wallet balance
+and lock display. The [testnet release guide](docs/token-v2-testnet.md) describes
+rollout and tester expectations. [Implementation status](docs/token-v2-implementation.md)
+separates resource accounting from pending reward voting and promotion. Verify the
+connected contract's resource version on the Tokens page. Run `npm run test:token-v2`
+and `npm run simulate:token-v2` for the reference model.
+
 ## Quick start
 
 ```sh

@@ -58,6 +58,10 @@ async function main(): Promise<void> {
   check(messages?.identity === identity && messages?.relationships === relationships && messages?.token === token, "messaging dependencies wired");
   const economy = (await read("token", "get_config"))?.value as Record<string,unknown> | undefined;
   check(economy?.identity === identity && economy?.relationships === relationships && economy?.publications === deployment.contracts.publications?.address && economy?.messaging === deployment.contracts.messaging?.address, "token dependencies wired");
+  check(Number(economy?.resource_version) === 2, "token resource policy v2 active");
+  const resource = (await read("token", "get_account", { account: deployment.deployer }))?.value as Record<string, unknown> | undefined;
+  check(Number(resource?.resource_version) === 2 && resource?.recharge_blocks === "144000" && resource?.ticks_per_unit === "144000", "five-day block recharge and exact precision");
+  check(BigInt(String(resource?.transferable ?? 0)) + BigInt(String(resource?.locked ?? 0)) === BigInt(String(resource?.balance ?? 0)), "token transfer locks reconcile with balance");
   const cfg = await read("registry", "get_config");
   check(Boolean((cfg?.value as Record<string, unknown> | undefined)?.admin), `registry initialised (admin ${(cfg?.value as Record<string, unknown> | undefined)?.admin})`);
   const list = await read("registry", "list_contracts");

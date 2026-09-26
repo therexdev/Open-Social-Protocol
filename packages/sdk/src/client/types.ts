@@ -611,8 +611,12 @@ export interface RegistryReadMethods {
 export interface ConversationRecord { a: string; b: string; requester: string; status: number; generation: string; sequence: string; updated_at: string; }
 export interface DirectMessageRecord { sender: string; recipient: string; message_id: Uint8Array; content_hash: Uint8Array; generation: string; sequence: string; timestamp: string; }
 export interface ConversationArgs { actor: Address; peer: Address; device?: Address; generation: U64; }
-export interface TokenAccount { balance: string; free_credits: string; token_credits: string; updated_at: string; }
-export interface TokenConfig { identity: string; relationships: string; publications: string; messaging: string; reward_amount: string; daily_reward_cap: string; recipient_daily_cap: string; supply: string; }
+export interface TokenAccount {
+  balance: string; free_credits: string; token_credits: string; updated_at: string;
+  resource_version?: number; block?: string; free_ticks?: string; token_ticks?: string;
+  transferable?: string; locked?: string; recharge_blocks?: string; ticks_per_unit?: string;
+}
+export interface TokenConfig { identity: string; relationships: string; publications: string; messaging: string; reward_amount: string; daily_reward_cap: string; recipient_daily_cap: string; supply: string; resource_version?: number; activation_block?: string; activation_time?: string; }
 export interface MessagingWriteMethods {
   set_dependencies: { identity: Address; relationships: Address; token: Address };
   request_conversation: ConversationArgs;
@@ -626,6 +630,7 @@ export interface MessagingReadMethods {
   get_message: [{ sender: Address; message_id: Bytes }, ValueResult<DirectMessageRecord>];
 }
 export interface TokenWriteMethods {
+  activate_recharge: Record<string, never>;
   init: { identity: Address; relationships: Address; publications: Address; messaging: Address };
   set_reward_policy: { reward_amount: U64; daily_reward_cap: U64; recipient_daily_cap: U64 };
   support: { actor: Address; post_id: Bytes; device?: Address };
@@ -934,6 +939,7 @@ export interface AdminChangedEvent {
 export interface EventPayloads {
   "osp.messaging.conversation_changed": { value: ConversationRecord; timestamp: string };
   "osp.messaging.message_sent": { value: DirectMessageRecord; envelope: Bytes; timestamp: string };
+  "osp.token.recharge_activated": { resource_version: number; activation_block: string; activation_time: string; recharge_blocks: string; free_units: string };
   "osp.token.account_updated": { account: string; value: TokenAccount; timestamp: string };
   "osp.token.supported": { actor: string; recipient: string; post_id: Bytes; reward: string; timestamp: string };
   "osp.token.transfer": { from: string; to: string; value: string; timestamp: string };

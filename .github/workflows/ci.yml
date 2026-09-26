@@ -18,6 +18,8 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - name: Build all workspaces
         run: npm run build:all
+      - name: Typecheck token v2 reference model
+        run: npx tsc -p research/token-v2/tsconfig.json
       - name: Test
         run: npm test
       - name: Upload contract artifacts

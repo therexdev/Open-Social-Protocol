@@ -6,7 +6,7 @@
 //
 // as-pect 8 cannot reflect on generated protobuf classes: assert on primitive
 // fields (numbers, strings, bools) and compare bytes with Arrays.equal.
-import { MockVM, authority, chain, Protobuf, system_calls } from "@koinos/sdk-as";
+import { MockVM, authority, chain, common, Protobuf, system_calls } from "@koinos/sdk-as";
 import { identity } from "../proto/identity";
 
 export namespace Testing {
@@ -24,9 +24,11 @@ export namespace Testing {
     MockVM.setAuthorities([]);
   }
 
-  export function setTime(headTime: u64): void {
+  export function setTime(headTime: u64, block: u64 = 1): void {
     const head = new chain.head_info();
     head.head_block_time = headTime;
+    head.head_topology = new common.block_topology();
+    head.head_topology!.height = block;
     head.last_irreversible_block = 1;
     MockVM.setHeadInfo(head);
   }
