@@ -34,6 +34,7 @@ import {
 import { submitMeasured } from "./deployment-transactions.ts";
 import { verifyUpload } from "./verify-upload.ts";
 import { deploymentProbe } from "./deployment-probes.ts";
+import { deploymentServiceEndpoints } from "./deployment-services.ts";
 
 const args = parseArgs(process.argv.slice(2));
 const { name: network, preset } = networkFromArgs(args);
@@ -57,7 +58,8 @@ async function main(): Promise<void> {
   log(`deployer: ${deployerAddress} (rc: ${formatMana(await provider.getAccountRc(deployerAddress))})`);
   if (dryRun) log("mode:     DRY RUN (transactions are simulated with broadcast=false; nothing is committed)");
 
-  const previous = readDeployment(network, true) ?? readDeployment(network);
+  const published = readDeployment(network);
+  const previous = readDeployment(network, true) ?? published;
   const deployment: Deployment = {
     network,
     chainId,
@@ -69,8 +71,7 @@ async function main(): Promise<void> {
     startHeight: previous?.startHeight,
     registryAdmin: previous?.registryAdmin,
     upgradeDelayMs: previous?.upgradeDelayMs,
-    indexers: previous?.indexers ?? [],
-    sponsors: previous?.sponsors ?? [],
+    ...deploymentServiceEndpoints(published, previous),
   };
   if (previous && previous.chainId !== chainId && !force) {
     throw new Error(`deployments/${network}.json was written for chain ${previous.chainId}; pass --force to overwrite`);

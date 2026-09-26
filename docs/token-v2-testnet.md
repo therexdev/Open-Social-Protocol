@@ -102,6 +102,19 @@ All workspaces built successfully. Local validation passed 894 tests, with two
 existing skipped web tests. The token contract passed all 19 focused tests;
 the release runtime completed 45 successful bootstrap calls.
 
-These are pre-deployment results. The rollout workflow must separately verify
-the deployed code, resource version and live two-account journey before testers
-are told the upgrade is active.
+The [rollout](https://github.com/therexdev/Open-Social-Protocol/actions/runs/36265668329)
+completed successfully. Token v2 activated at block **8,711,966**, now finalized,
+with transaction `0x122099e1f54dc9956d0b7acc894931c638a036cb9a521afeb6b279084dd86679c83a`.
+The upload consumed 174,281,779 RC. Supply was unchanged at the upgrade.
+The live two-account journey passed all 25 checks, including reverse friendship,
+private history access, messages, blocking and Support. The token address is
+unchanged: `1GxCaDA9kq6kKHtUxUEBs6boF1s5gX76fS`.
+
+The website build is published to `hostinger-static` and supplied as the upload
+ZIP. FTP deployment is not configured, and `opensocial.online` was still serving
+the older build at release verification. Upload the ZIP before asking testers to
+use the new Tokens screen. Existing extension installs use the upgraded contract
+without requiring a new installation.
+
+The deployment script now preserves published indexer/sponsor URLs over stale
+resume checkpoints; both manifests retain the configured live service endpoints.
