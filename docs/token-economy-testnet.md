@@ -171,3 +171,14 @@ After a successful upgrade, restart the existing `osp-sponsor` process so its
 own retained key can register the policy. The contract deployer cannot register
 on the real sponsor's behalf. This workflow does not activate the economy;
 complete sponsor registration and website deployment before gated activation.
+
+The [repair rollout](https://github.com/therexdev/Open-Social-Protocol/actions/runs/36274012319)
+passed the full test suite, 60 successful release-WASM calls and all 14 isolated
+live registration checks. The public sponsorship upgrade was confirmed at block
+**8714836**, transaction
+`0x122002477dba961cec2fb1ef117a939984ffc1e668cd79772765af50586f78949a12`.
+[Public receipts](../deployments/evidence/sponsor-registry-2026-09-26.json) retain
+the tested bytecode hash, isolated registrations and public upgrade. The other
+seven deployment entries were unchanged. The live sponsor still needs a restart
+to register with its own key; the website upload and economy activation remain
+pending.
