@@ -5,7 +5,7 @@
     "https://testnet.koinosfoundation.org/jsonrpc"
   ],
   "protocolVersion": 1,
-  "deployedAt": "2026-09-26T20:58:15.627Z",
+  "deployedAt": "2026-09-26T21:49:55.678Z",
   "deployer": "19C9kF7uBC2a3kWY5iXF4zpWhzahGCmeJd",
   "contracts": {
     "identity": {
@@ -42,11 +42,11 @@
     },
     "sponsorship": {
       "address": "17aX6cmC3J1YtcM1DJXwD3e98PvhRhavjU",
-      "txId": "0x12206f1bf31c51fc16bf8597f54861e97a245b30378239874e3b4551e6555088a602",
-      "block": "8683370",
-      "wasmSha256": "9fadcf2647ef902c28d7a67dafd214debc51f8b7b12403bd0a5d9c9e39cf8ec7",
+      "txId": "0x122002477dba961cec2fb1ef117a939984ffc1e668cd79772765af50586f78949a12",
+      "block": "8714836",
+      "wasmSha256": "fbcdb71be82bd095bdb6a5bcbf1ef0e29c9c369e837046f756b9bac4f9a35511",
       "abiSha256": "095cad71f8c2483b5978823d40793849da69dd21324f9b628d63788a332d0725",
-      "rcUsed": "70091034"
+      "rcUsed": "71411871"
     },
     "registry": {
       "address": "1ALYxykwWdueLqSgU78PaZvhTH18z2BnTF",
