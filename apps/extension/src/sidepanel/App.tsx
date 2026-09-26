@@ -5,7 +5,7 @@ import { Composer } from "./Composer";
 import { DeviceAuth } from "./DeviceAuth";
 import { Feed } from "./Feed";
 import { Onboarding, Unlock } from "./Onboarding";
-import { Queue } from "./Queue";
+import { UnfinishedPosts } from "./UnfinishedPosts";
 import { usePanel } from "./store";
 
 function openOptions() {
@@ -13,7 +13,7 @@ function openOptions() {
 }
 
 export function App() {
-  const { status, loading, error, tab, setTab, refreshStatus, loadQueue, queue, run, clearError, skippedDeviceStep } = usePanel();
+  const { status, loading, error, tab, setTab, refreshStatus, loadQueue, run, clearError, skippedDeviceStep } = usePanel();
 
   useEffect(() => {
     void refreshStatus();
@@ -21,7 +21,9 @@ export function App() {
     const timer = setInterval(() => {
       void refreshStatus();
     }, 30_000);
-    return () => clearInterval(timer);
+    const changed = (changes: Record<string, unknown>, area: string) => { if (area === "local" && "osp.crossposts" in changes) void loadQueue(); };
+    chrome.storage.onChanged.addListener(changed);
+    return () => { clearInterval(timer); chrome.storage.onChanged.removeListener(changed); };
   }, [refreshStatus, loadQueue]);
 
   if (loading || !status) return <div className="content">Loading…</div>;
@@ -53,7 +55,6 @@ export function App() {
   else if (status.status === "locked") body = <Unlock />;
   else if (!status.deviceAuthorized && !skippedDeviceStep) body = <DeviceAuth />;
   else {
-    const pending = queue.filter((q) => q.explanation.attention).length;
     body = (
       <>
         <div className="tabs">
@@ -62,9 +63,6 @@ export function App() {
           </button>
           <button className={tab === "compose" ? "active" : ""} onClick={() => setTab("compose")}>
             Compose
-          </button>
-          <button className={tab === "queue" ? "active" : ""} onClick={() => setTab("queue")}>
-            Queue{pending > 0 ? ` (${pending})` : ""}
           </button>
         </div>
         <div className="content">
@@ -75,8 +73,7 @@ export function App() {
             </div>
           )}
           {tab === "feed" && <Feed />}
-          {tab === "compose" && <Composer />}
-          {tab === "queue" && <Queue />}
+          {tab === "compose" && <><Composer /><UnfinishedPosts /></>}
         </div>
       </>
     );

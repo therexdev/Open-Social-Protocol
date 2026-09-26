@@ -8,7 +8,7 @@ Both the reference web client and the browser extension must satisfy these.
 | Principle | Requirement |
 | --- | --- |
 | Invisible infrastructure | No seed phrase or Mana terminology in the default social journey. "Account", "friends", "post", "recovery contacts" instead of keys, nonces, RC. |
-| Explicit consent | Never cross-publish or grant a site permission silently. Every publication needs a deliberate confirm action showing the audience. |
+| Explicit consent | Never cross-publish or grant a site permission silently. Every publication needs a deliberate Post action with a visible audience choice. |
 | Local privacy | Encryption, decryption and signing happen on the user's device; plaintext and secrets never leave it. |
 | Portability | Exportable identity file, compatible recovery paths, replaceable RPC / indexer / sponsor endpoints in Settings. |
 | Honest revocation | Removing a friend blocks future keys; it cannot erase prior copies. The UI says so when removing a friend. |
@@ -34,9 +34,10 @@ Both the reference web client and the browser extension must satisfy these.
 1. Install the extension. Unlock or import the same identity (or create one).
 2. The side panel shows the protocol feed and composer everywhere (generic sidebar).
 3. The user optionally grants the Facebook host permission from the extension options page.
-4. On facebook.com the extension adds a clearly labeled "Also publish to Open Social" control to
-   the composer. Publishing requires an explicit confirmation surface (audience + permanence
-   notice) rendered by the extension, not by the page.
+4. On facebook.com the extension adds a clearly labeled "Also publish to Open Social" control and
+   Public/Friends choice to the composer. As requested for 0.1.3, that opt-in and a real user Post
+   action publish immediately while unlocked. Side-panel Compose also publishes in one step;
+   there is no Queue tab or second confirmation screen. Synthetic page clicks cannot publish.
 5. Signing and encryption happen in the service worker; no private key material enters the page.
 6. Every content-script message is validated (type, origin, tab, size, user gesture) before any
    privileged work.

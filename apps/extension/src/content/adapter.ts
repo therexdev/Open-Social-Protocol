@@ -23,6 +23,7 @@ export interface InjectedControl {
   dialog: HTMLElement;
   host: HTMLElement;
   checkbox: HTMLInputElement;
+  audience: HTMLSelectElement;
 }
 
 function style(el: HTMLElement, css: Partial<CSSStyleDeclaration>): void {
@@ -30,7 +31,7 @@ function style(el: HTMLElement, css: Partial<CSSStyleDeclaration>): void {
 }
 
 /** Builds the control (checkbox + label + badge). Styled by the extension, never like host UI. */
-export function buildControl(doc: Document): { host: HTMLElement; checkbox: HTMLInputElement } {
+export function buildControl(doc: Document): { host: HTMLElement; checkbox: HTMLInputElement; audience: HTMLSelectElement } {
   const host = doc.createElement("div");
   host.setAttribute(CONTROL_ATTR, "1");
   host.setAttribute("role", "group");
@@ -39,6 +40,7 @@ export function buildControl(doc: Document): { host: HTMLElement; checkbox: HTML
     display: "flex",
     alignItems: "center",
     gap: "8px",
+    flexWrap: "wrap",
     margin: "6px 12px",
     padding: "8px 10px",
     border: "1px dashed #5e84ff",
@@ -55,12 +57,20 @@ export function buildControl(doc: Document): { host: HTMLElement; checkbox: HTML
   const text = doc.createElement("span");
   text.textContent = LABEL_TEXT;
   label.append(checkbox, text);
+  const audience = doc.createElement("select");
+  audience.setAttribute("aria-label", "Open Social audience");
+  for (const [value, name] of [["0", "Public"], ["1", "Friends"]]) {
+    const option = doc.createElement("option"); option.value = value!; option.textContent = name!; audience.append(option);
+  }
+  audience.disabled = true;
+  style(audience, { color: "#1b2340", background: "#fff", border: "1px solid #5e84ff", borderRadius: "6px", padding: "6px", font: "inherit" });
+  checkbox.addEventListener("change", () => { audience.disabled = !checkbox.checked; });
   const badge = doc.createElement("span");
   badge.textContent = BADGE_TEXT;
   badge.setAttribute("title", "Added by the Open Social Protocol extension");
   style(badge, { padding: "2px 6px", borderRadius: "999px", background: "#5e84ff", color: "#fff", fontSize: "11px", fontWeight: "600", letterSpacing: "0.04em" });
-  host.append(label, badge);
-  return { host, checkbox };
+  host.append(label, audience, badge);
+  return { host, checkbox, audience };
 }
 
 /** Injects the control next to the dialog footer; returns null when already present or no anchor exists. */
@@ -68,9 +78,9 @@ export function injectControl(dialog: HTMLElement, adapter: ComposerAdapter, doc
   if (dialog.querySelector(`[${CONTROL_ATTR}]`)) return null;
   const footer = adapter.findFooter(dialog);
   if (!footer || !footer.parentElement) return null;
-  const { host, checkbox } = buildControl(doc);
+  const { host, checkbox, audience } = buildControl(doc);
   footer.insertAdjacentElement("beforebegin", host);
-  return { dialog, host, checkbox };
+  return { dialog, host, checkbox, audience };
 }
 
 /** Only the composer text (textContent of the textbox); never other page content. */
@@ -88,26 +98,28 @@ function isEnabled(button: HTMLElement): boolean {
  * Calls `onSubmit(text)` when the user activates the submit control while the checkbox is on.
  * Uses a capture-phase listener on the dialog so the host's own handler still runs.
  */
-export function hookSubmit(dialog: HTMLElement, adapter: ComposerAdapter, control: () => InjectedControl | null, onSubmit: (text: string) => void): () => void {
+export type ComposerSubmit = (text: string, audience: number, event: Event) => void;
+export function hookSubmit(dialog: HTMLElement, adapter: ComposerAdapter, control: () => InjectedControl | null, onSubmit: ComposerSubmit): () => void {
   if (dialog.hasAttribute(HOOK_ATTR)) return () => undefined;
   dialog.setAttribute(HOOK_ATTR, "1");
-  const fire = () => {
+  const fire = (event: Event) => {
     const current = control();
     if (!current || !current.checkbox.checked) return;
     const text = readComposerText(dialog, adapter);
     if (text.length === 0) return;
-    onSubmit(text);
+    onSubmit(text, current.audience.value === "1" ? 1 : 0, event);
   };
   const onClick = (event: Event) => {
     const target = event.target as Element | null;
     const button = adapter.findSubmitButton(dialog);
     if (!target || !button || !button.contains(target) || !isEnabled(button)) return;
-    fire();
+    fire(event);
   };
   const onKey = (event: KeyboardEvent) => {
     if (event.key !== "Enter" || !(event.ctrlKey || event.metaKey)) return;
     const textbox = adapter.findTextbox(dialog);
-    if (textbox && textbox.contains(event.target as Node)) fire();
+    const button = adapter.findSubmitButton(dialog);
+    if (button && isEnabled(button) && textbox && textbox.contains(event.target as Node)) fire(event);
   };
   dialog.addEventListener("click", onClick, true);
   dialog.addEventListener("keydown", onKey, true);
@@ -119,7 +131,7 @@ export function hookSubmit(dialog: HTMLElement, adapter: ComposerAdapter, contro
 }
 
 /** Injects controls and hooks into every composer found under `root`; returns how many were injected now. */
-export function scanAndInject(root: ParentNode, adapter: ComposerAdapter, doc: Document, onSubmit: (text: string) => void, hooks?: Map<HTMLElement, () => void>): number {
+export function scanAndInject(root: ParentNode, adapter: ComposerAdapter, doc: Document, onSubmit: ComposerSubmit, hooks?: Map<HTMLElement, () => void>): number {
   let injected = 0;
   for (const dialog of adapter.findComposers(root)) {
     const control = injectControl(dialog, adapter, doc);
@@ -128,7 +140,8 @@ export function scanAndInject(root: ParentNode, adapter: ComposerAdapter, doc: D
     const unhook = hookSubmit(dialog, adapter, () => {
       const host = dialog.querySelector(`[${CONTROL_ATTR}]`) as HTMLElement | null;
       const checkbox = host?.querySelector('input[type="checkbox"]') as HTMLInputElement | null;
-      return host && checkbox ? { dialog, host, checkbox } : null;
+      const audience = host?.querySelector("select") as HTMLSelectElement | null;
+      return host && checkbox && audience ? { dialog, host, checkbox, audience } : null;
     }, onSubmit);
     hooks?.set(dialog, unhook);
   }

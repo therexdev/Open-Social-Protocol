@@ -8,7 +8,7 @@ import type { FeedItem, FeedScope, VaultStatusView } from "../shared/protocol";
 import { rpc } from "../shared/rpc";
 import { errorMessage } from "../shared/format";
 
-export type Tab = "feed" | "compose" | "queue";
+export type Tab = "feed" | "compose";
 
 interface FeedState {
   items: FeedItem[];
@@ -22,6 +22,8 @@ export interface ComposerPrefill {
   url?: string;
   title?: string;
   adapter: "sidepanel" | "generic";
+  audience?: number;
+  attemptId?: string;
 }
 
 export interface PanelState {

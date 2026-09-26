@@ -32,23 +32,30 @@ export function FriendKeySync() {
         return;
       }
       running = true;
-      setBusy(true);
-      setVerified(false);
       do {
         const force = repairPending;
         repairPending = false;
         let progress: FriendKeySyncProgress | undefined;
         try {
-          setError(undefined);
-          setMessage("Checking private-post access…");
+          // Routine polling must not move the page or announce success every 30 seconds.
+          // Only an explicit repair owns the progress/result notice.
+          if (force) {
+            setError(undefined);
+            setBusy(true);
+            setVerified(false);
+            setMessage("Checking private-post access…");
+          }
           await syncFriendKeys({ ctx, me: session.identity, keys: session.keys, indexer,
             repair: force, fullHistory: true, isCurrent: () => !cancelled,
             onProgress: (next) => {
               progress = next;
-              if (!cancelled) setMessage(`Sharing private-post access: checked ${next.checked} of ${next.total} periods; ${next.transactions} deliveries confirmed.`);
+              if (!cancelled && force) setMessage(`Sharing private-post access: checked ${next.checked} of ${next.total} periods; ${next.transactions} deliveries confirmed.`);
             },
           });
           if (!cancelled) {
+            setError(undefined);
+          }
+          if (!cancelled && force) {
             if (!progress?.complete) setMessage("The friendship changed while sharing. Access will be checked again automatically.");
             else if (!progress.friends) setMessage(force ? "No active friends were found. Sharing will run again after a friendship is accepted." : undefined);
             else if (!progress.keys) setMessage(force ? "No recoverable private-post keys were found for this account. No access was sent." : undefined);
@@ -81,5 +88,5 @@ export function FriendKeySync() {
     };
   }, [session, ctx, indexer]);
   if (error) return <Notice kind="warning">Private-post access could not be shared. {error}{" "}<Button onClick={() => window.dispatchEvent(new CustomEvent("osp:sync-friend-keys", { detail: { repair: true } }))}>Retry sharing</Button></Notice>;
-  return message ? <div role="status" aria-live="polite" aria-busy={busy}><Notice kind={!busy && verified ? "success" : "info"}>{message}</Notice></div> : null;
+  return message ? <div role="status" aria-live="polite" aria-busy={busy}><Notice kind={!busy && verified ? "success" : "info"}>{message}{!busy && <> <Button onClick={() => setMessage(undefined)}>Dismiss</Button></>}</Notice></div> : null;
 }

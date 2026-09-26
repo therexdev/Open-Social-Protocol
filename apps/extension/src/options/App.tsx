@@ -101,7 +101,7 @@ export function OptionsApp() {
       <section className="card">
         <h2>Facebook adapter</h2>
         <p className="muted">
-          Adds a clearly labeled "Also publish to Open Social Protocol" control to the Facebook composer. It only reads the text you typed in the composer, only when you tick the box and press Post, and nothing is published until you confirm in the side panel. Requires access to {FACEBOOK_ORIGINS.join(" and ")}.
+          Adds a clearly labeled "Also publish to Open Social Protocol" control to the Facebook composer. It only reads the text you typed in the composer, only when you tick the box, select Public or Friends, and press Post. The Open Social copy publishes immediately while the extension is unlocked; Facebook keeps its own audience setting. Requires access to {FACEBOOK_ORIGINS.join(" and ")}.
         </p>
         <p>
           Status: {adapters.facebook.registered ? <span className="pill good">enabled</span> : adapters.facebook.granted ? <span className="pill warn">permission granted, not active</span> : <span className="pill">off</span>}
@@ -176,7 +176,7 @@ export function OptionsApp() {
         {deviceOnly && (
           <p className="muted">
             This browser holds only a device key, which cannot pay for transactions itself: publications go through a sponsor.
-            {view.resolved.sponsorUrls.length === 0 && <strong> No sponsor is configured; add one above or the queue will report every publication as failed.</strong>}
+            {view.resolved.sponsorUrls.length === 0 && <strong> No sponsor is configured; add one above to publish without paying from your own account.</strong>}
           </p>
         )}
         <label>
@@ -241,7 +241,7 @@ export function OptionsApp() {
           <li>Keys stay in the extension. Facebook receives only post identifiers; friends-only text is displayed in protected extension frames. The adapter can only propose a composer draft or request feed identifiers.</li>
           <li>Signing and encryption happen in the service worker. Pages (side panel, this page) and content scripts talk to it through validated messages only.</li>
           <li>By default this browser holds a 30-day device key with publish / react / comment / relationships capabilities, plus the reading key. The identity seed is not kept unless you chose so.</li>
-          <li>Every publication needs an explicit confirmation in the side panel showing the audience and the permanence notice.</li>
+          <li>Choose Public or Friends in the composer, then click Post to publish. Public posts can be read by anyone; copies already received cannot be taken back.</li>
           <li>Retries reuse the same idempotency key; unknown outcomes are looked up on chain before anything is re-sent.</li>
           <li>No telemetry.</li>
         </ul>

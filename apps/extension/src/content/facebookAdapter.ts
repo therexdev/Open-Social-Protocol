@@ -2,11 +2,12 @@
  * Facebook composer adapter (isolated world). Detects composer dialogs by ARIA roles, injects the
  * labeled "Also publish to Open Social Protocol" control, and when the user activates the
  * dialog's submit control with the checkbox on, sends ONLY the composer text to the service worker
- * as a draft proposal. Nothing is published without the side panel's explicit confirmation.
+ * with the selected Open Social audience. That Post action publishes immediately.
  * If the selectors fail nothing breaks: the side panel composer keeps working (sidebar fallback).
  */
 import { CONTROL_ATTR, TOAST_ATTR, createBoundedObserver, scanAndInject, showToast, type BoundedObserver, type ComposerAdapter } from "./adapter";
 import { FEED_ATTR, maybeInsertFeedCards, resetFeedCards, type FeedCardsRuntime } from "./feedCards";
+import type { PublishReply } from "../shared/protocol";
 
 const SUBMIT_LABEL = /^(post|publish)$/i;
 const TEXTBOX = '[contenteditable="true"][role="textbox"], [contenteditable="true"][data-lexical-editor="true"]';
@@ -49,12 +50,14 @@ export interface AdapterRuntime extends FeedCardsRuntime {
   /** 16 random bytes as hex. */
   randomAttemptId: () => string;
   userGesture?: () => boolean;
+  /** Testable browser event boundary. Production accepts only real user events. */
+  trustedEvent?: (event: Event) => boolean;
   now?: () => number;
 }
 
 export const ADAPTER_ATTR = "data-osp-facebook";
 export const STATUS_ATTR = "data-osp-facebook-status";
-export const TOAST_SENT = "Sent to Open Social - confirm in the side panel";
+export const TOAST_SENT = "Published to Open Social";
 
 function defaultRuntime(): AdapterRuntime {
   return {
@@ -81,29 +84,34 @@ export function startFacebookAdapter(runtime: AdapterRuntime = defaultRuntime())
   const now = runtime.now ?? (() => Date.now());
   const hooks = new Map<HTMLElement, () => void>();
   let stopped = false;
-  let lastSent: { text: string; at: number } | undefined;
+  let lastSent: { text: string; audience: number; at: number } | undefined;
+  let publishing = false;
 
-  const onSubmit = (text: string) => {
-    if (stopped) return;
+  const onSubmit = (text: string, audience: number, event: Event) => {
+    if (stopped || publishing || !(runtime.trustedEvent?.(event) ?? event.isTrusted)) return;
     // A double activation (click + keyboard) must not create two proposals.
-    if (lastSent && lastSent.text === text && now() - lastSent.at < 2000) return;
-    lastSent = { text, at: now() };
+    if (lastSent && lastSent.text === text && lastSent.audience === audience && now() - lastSent.at < 2000) return;
+    lastSent = { text, audience, at: now() };
     const payload = {
       hostSite: "facebook" as const,
       text,
+      audience,
       attemptId: runtime.randomAttemptId(),
       url: runtime.location(),
       submitted: true,
       userGesture: runtime.userGesture?.() ?? true,
     };
-    Promise.resolve(runtime.sendMessage({ type: "crosspost.propose", payload }))
+    publishing = true;
+    showToast(doc, `Publishing to Open Social · ${audience === 1 ? "Friends" : "Public"}…`, 60_000);
+    Promise.resolve(runtime.sendMessage({ type: "crosspost.publish", payload }))
       .then((reply) => {
         if (stopped) return;
-        const r = reply as { ok?: boolean; error?: { message?: string } } | undefined;
-        if (r?.ok) showToast(doc, TOAST_SENT);
-        else showToast(doc, `Not sent to Open Social: ${r?.error?.message ?? "the extension did not answer"}`);
+        const r = reply as { ok?: boolean; result?: PublishReply; error?: { message?: string } } | undefined;
+        if (r?.ok && r.result) showToast(doc, r.result.message, r.result.status === "published" ? 5000 : 15000);
+        else showToast(doc, `Open Social did not publish: ${r?.error?.message ?? "the extension did not answer"}. Open the extension to unlock or check Compose.`, 15000);
       })
-      .catch(() => { if (!stopped) showToast(doc, "Not sent to Open Social: the extension is unavailable"); });
+      .catch(() => { if (!stopped) showToast(doc, "Open Social could not confirm publication. Open Compose to check the saved post before retrying.", 15000); })
+      .finally(() => { publishing = false; });
   };
 
   function showStatus() {
@@ -114,7 +122,7 @@ export function startFacebookAdapter(runtime: AdapterRuntime = defaultRuntime())
     const summary = doc.createElement("summary");
     summary.textContent = "Open Social enabled";
     const hint = doc.createElement("p");
-    hint.textContent = 'Open Facebook’s Create post dialog for the “Also publish to Open Social Protocol” checkbox. Confirm the draft in the extension’s Queue tab. Enable Open Social post cards in Settings to see posts throughout your Facebook feed.';
+    hint.textContent = 'In Facebook’s Create post box, enable “Also publish to Open Social Protocol” and choose Public or Friends. Clicking Post publishes the Open Social copy immediately while the extension is unlocked. The audience selection applies to Open Social; Facebook uses its own audience setting.';
     status.append(summary, hint);
     (doc.body ?? root).append(status);
   }

@@ -13,6 +13,36 @@ function start(sendMessage: (m: unknown) => Promise<unknown>, now = () => 100000
   return running = new FeedController({ document, sendMessage, now });
 }
 describe("continuous Facebook feed placement", () => {
+  it("prefers the home post lane over a secondary role=feed at the bottom", async () => {
+    const column = layout(3);
+    document.querySelector("main")!.insertAdjacentHTML("beforeend", '<section role="feed" id="suggested"><div role="article">Suggested bottom post</div><div role="article">More suggestions</div></section>');
+    expect(findFeedLocation(document)?.column).toBe(column);
+    await start(async () => ({ ok: true, result: { enabled: true, items: items(3, 2, 1), nextCursor: null } })).scan();
+    expect(column.children[1]!.getAttribute(FEED_ATTR)).toBe(id(3));
+    expect(document.querySelector("#suggested iframe")).toBeNull();
+  });
+  it("keeps cards before the first native post through repeated host insertions, reorder and partial removal", async () => {
+    const column = layout(3);
+    column.style.display = "flex"; column.style.flexDirection = "column";
+    const first = column.querySelector<HTMLElement>('[data-pagelet="FeedUnit_0"]')!;
+    first.style.order = "-10";
+    const send = vi.fn(async () => ({ ok: true, result: { enabled: true, items: items(3, 2, 1), nextCursor: null } }));
+    const feed = start(send); await feed.scan();
+    const cards = [...column.querySelectorAll<HTMLElement>(`[${FEED_ATTR}]`)];
+    for (let n = 0; n < 20; n++) {
+      // React treats inserted cards as unmanaged DOM and can append/reorder native siblings.
+      for (const card of cards) column.append(card);
+      first.style.order = String(-20 - n);
+      await feed.scan();
+      expect(first.previousElementSibling).toBe(cards[2]);
+      expect(cards[0]!.nextElementSibling).toBe(cards[1]);
+      expect(cards.every(card => card.style.order === first.style.order)).toBe(true);
+    }
+    cards[1]!.remove(); await feed.scan();
+    expect(cards[1]!.nextElementSibling).toBe(cards[2]);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(column.querySelectorAll("iframe")).toHaveLength(3);
+  });
   it("targets the center post column, keeps stories above it, and starts with the newest five", async () => {
     const column = layout(2);
     expect(findFeedLocation(document)?.column).toBe(column);

@@ -29,7 +29,7 @@ runtime), `public/icons/*`. Everything is bundled; nothing is loaded from the ne
 To update an unpacked installation, replace the files in the **same folder** you originally loaded,
 then click **Reload** on its card in `chrome://extensions` (or `brave://extensions`). Keep the
 existing installation to preserve its local account/settings. Refresh Facebook after an extension
-upgrade so the page uses the new content script. Check version **0.1.2** in extension Settings.
+upgrade so the page uses the new content script. Check version **0.1.3** in extension Settings.
 
 When Facebook is enabled, existing granted Facebook tabs are attached immediately. Look for
 **Open Social enabled** at the bottom left; expand it for instructions. The cross-post checkbox
@@ -38,7 +38,11 @@ Everyone, Friends, or both. The latest five cards appear before the first Facebo
 interleaved after every three Facebook posts as you scroll. New posts are checked every 30 seconds
 while the tab is visible and inserted ahead of the reader, without prepending above their position.
 Friends-only content requires an unlocked extension. Support, Like, and Reply open the original
-post on Open Social. Cross-posting still requires confirmation in the extension’s Queue tab.
+post on Open Social. In Facebook's posting box, enable cross-posting and select **Public** or
+**Friends** for the Open Social copy. Clicking Facebook's Post publishes immediately while the
+extension is unlocked. Facebook retains its own audience setting. The side panel has Feed and Compose;
+Compose also publishes directly. There is no Queue tab or second confirmation screen. Saved drafts
+from older releases and failed/interrupted publications remain recoverable under Compose.
 
 Without `deployments/harbinger.json` (produced by the deploy-testnet workflow) the extension still
 builds, installs and starts: the side panel reports the network as **not deployed** and stays in
@@ -52,11 +56,11 @@ read-only mode (no chain writes); the indexer and endpoints can still be configu
 | Vault at rest | `chrome.storage.local["osp.vault"]` holds an SDK `VaultBlob` (scrypt + XChaCha20-Poly1305 under the passphrase). |
 | Unlocked secrets | Memory + `chrome.storage.session` (trusted contexts only, never written to disk, cleared when the browser closes). Auto-lock via `chrome.alarms` (default 15 min of inactivity, configurable). |
 | Device authority | By default this browser holds **only a device key** (`publish | react | comment | relationships`, 30-day expiry, authorized with `identity.authorize_device` signed by the owner key) plus the X25519 encryption secret needed to read friends-only posts. The identity seed is discarded after authorization unless the user opts to keep it. A device can never rotate keys, authorize devices, block or recover. Revocation happens from the web client. |
-| Payment | A device key holds no KOIN, so a device-only vault **publishes through a sponsor** (`ProtocolClient.submit` with `selfPayFallback: false`); without a configured sponsor the queue reports the attempt as failed before anything is sent, and the options page disables "Always pay myself". When the identity seed was kept, self-pay signs the transaction twice: the device as payee (its nonce, the protocol action) and the owner as payer (`src/background/publish.ts`, `submitOperations`). |
+| Payment | A device key holds no KOIN, so a device-only vault **publishes through a sponsor** (`ProtocolClient.submit` with `selfPayFallback: false`); without a configured sponsor Compose reports the attempt as failed before anything is sent, and the options page disables "Always pay myself". When the identity seed was kept, self-pay signs the transaction twice: the device as payee (its nonce, the protocol action) and the owner as payer (`src/background/publish.ts`, `submitOperations`). |
 | Indexer trust | The indexer is an untrusted convenience (spec section 1). Friends epoch keys are sealed only to accounts the **chain** confirms (`relationships.get_relationship` = ACTIVE) with the encryption key the chain publishes (`identity.get_identity`); the indexer's graph is a candidate list and its profile keys are never used for sealing. Feed content and `external_ref` links from other users are rendered as text unless they are http(s) URLs. |
-| Message validation | Every message is checked in order: object shape and 32 KiB size cap, `sender.id === chrome.runtime.id`, known type, source classification by origin (extension pages vs content scripts), then for content scripts: a real tab, top frame only, origin among the *granted* optional host permissions, only `crosspost.propose` and `feed.request`, per-tab rate limit, user gesture for proposals; finally a strict per-type payload schema that rejects unknown keys. Replies carry minimal data. |
+| Message validation | Every message is checked in order: object shape and 32 KiB size cap, `sender.id === chrome.runtime.id`, known type, source classification by origin (extension pages vs content scripts), then for content scripts: a real tab, top frame only, origin among the *granted* optional host permissions, only `crosspost.publish`, legacy `crosspost.propose` and `feed.request`, per-tab rate limit, user gesture for publication/proposals; finally a strict per-type payload schema that rejects unknown keys. Replies carry minimal data. |
 | Content scripts | No static `content_scripts` in the manifest and no remotely hosted code. The Facebook adapter is registered with `chrome.scripting.registerContentScripts` only after the user grants the optional host permission from the options page, runs in the **isolated world** with `matches` limited to the Facebook origins actually granted, and is unregistered (permission removed) when disabled. `permissions.onRemoved` / `onAdded` re-sync the registration when site access changes in `chrome://extensions`; every sync runs through one promise chain and re-reads the settings inside it, so a stale sync cannot undo a later enable. |
-| Publication consent | Nothing is published from a host page. A content-script proposal becomes a **draft**; publishing happens only from the side panel confirmation surface (audience + permanence notice, honest revocation notice for friends-only posts). |
+| Publication consent | A real user Post action with explicit opt-in and a visible Public/Friends choice authorizes the Open Social copy. Synthetic host-page clicks are rejected. The worker rechecks the granted origin, tab, gesture, audience, settings and unlocked device. Side-panel Compose publishes directly from its Post button. Legacy drafts never auto-publish on upgrade. |
 | CSP | `script-src 'self'; object-src 'self'`. protobufjs (used by the SDK and koilib) normally generates encoders with `Function()`, which this CSP forbids; `src/shared/protobufNoEval.ts` replaces `Type.prototype.setup` and `Type.generateConstructor` with interpreted equivalents (byte-for-byte parity tested against the generated code) and is the first import of the worker (`src/background/bootstrap.ts`). The whole test suite runs with code generation forbidden (`forbidProtobufCodegen` in `src/test/setup.ts`), and `scripts/smoke-dist.mjs` boots the built worker with `Function`/`eval` disabled. |
 | Telemetry | None. |
 
@@ -67,8 +71,8 @@ Every message is `{ type, payload? }` (no other keys); every reply is `{ ok: tru
 
 | Sender | Types |
 | --- | --- |
-| Side panel / options | `vault.status|touch|create|import|unlock|lock|export|destroy`, `device.authorize|status`, `settings.get|update`, `adapter.status|enable|disable`, `feed.get`, `crosspost.list|create|confirm|retry|reconcile|markHost|recordProof|discard`, `page.current` |
-| Facebook content script (granted origin, top frame, user gesture) | `crosspost.propose` `{ hostSite: "facebook", text, attemptId, url, submitted, userGesture }`, `feed.request` `{ limit?, cursor? }` (IDs only) |
+| Side panel / options | `vault.status|touch|create|import|unlock|lock|export|destroy`, `device.authorize|status`, `settings.get|update`, `adapter.status|enable|disable`, `feed.get`, `post.publish`, `crosspost.list|create|confirm|retry|reconcile|markHost|recordProof|discard`, `page.current` |
+| Facebook content script (granted origin, top frame, user gesture) | `crosspost.publish` `{ hostSite: "facebook", text, audience, attemptId, url, submitted, userGesture }` (legacy `crosspost.propose` remains draft-only), `feed.request` `{ limit?, cursor? }` (IDs only) |
 
 ### Storage layout
 
@@ -88,7 +92,7 @@ Every message is `{ type, payload? }` (no other keys); every reply is `{ ok: tru
 * the idempotency key is `idempotencyKey(author, attemptId)` with the attempt id persisted before anything is sent;
 * drafts are size-checked at creation (`src/shared/draft.ts`): the encoded suite-1 envelope must fit `LIMITS.maxEnvelopeBytes`
   (4096 bytes), so a CJK/emoji post or a long shared link is refused before a draft exists, and the composer counts bytes;
-* `confirm` (side panel only) publishes; only failures of the submission itself can be unknown: `TransactionOutcomeUnknownError`
+* `publishDirect` persists and publishes in one serialized operation; `confirm` remains available for old drafts; only failures of the submission itself can be unknown: `TransactionOutcomeUnknownError`
   and transport errors raised by `submit` map to `koinosUnknown`, while errors before anything was sent (reads, indexer, payment,
   encryption) are plain failures; reverts and RPC rejections map to `koinosFailed`; a duplicate-key revert resolves to the existing post;
 * an attempt keeps its `contentHash`, `expectedPostId` and (for unknown outcomes) `pendingTxId`, so `retry`/`reconcile` can
@@ -97,16 +101,8 @@ Every message is `{ type, payload? }` (no other keys); every reply is `{ ok: tru
 * friends-only posts use the cached epoch key or the one the indexer serves sealed to me; when neither exists the audience is
   **rotated** (`relationships.rotate_audience`) and the new epoch's key is minted, sealed to chain-verified friends and
   distributed in the same transaction as the post, so one epoch never gets two keys (spec 5.2); an unreachable indexer is a failure, not a reason to mint;
-* the Facebook side is published by the user in Facebook's own UI and stays **pending** after confirmation (pressing Post is
-  not proof): the queue asks for the link to the Facebook post to mark it posted (it becomes `hostRef` and the manifest's
-  `external_ref`), or lets the user mark it failed (a PARTIAL proof);
-* once both sides are known the signed proof manifest (`buildProofManifest` + `signProofManifest`, device key) is recorded with
-  `record_cross_post` (best effort, retryable from the queue); side-panel and "share current page" attempts have no host side and
-  never record a proof (the shared link lives in the envelope's `external_ref`);
-* a periodic alarm turns interrupted submissions into `unknown` and resolves unknown outcomes by lookup only.
-
-The queue explains every state (`src/shared/queue.ts`) and exposes deterministic actions: Confirm, Retry, Reconcile,
-Mark host posted/failed, Record proof, Discard. `reconcile_required` (conflicting facts) disables automatic retries.
+* Facebook publishes its own copy through its own UI. New direct attempts track the Open Social copy only; they do not assume a Facebook success or require manual host-link reporting. Existing cross-post proof records remain intact;
+* a periodic alarm turns interrupted submissions into `unknown` and resolves unknown outcomes by lookup only. Compose exposes unfinished drafts and failed/uncertain attempts with Continue draft, Retry publish or Check status. No confirmation queue is part of the posting flow.
 
 ## Adapter design and fixtures
 
@@ -120,9 +116,9 @@ or pointer/keyboard interaction before the host opens its next composer).
 (`dialog` or `[role="dialog"]` containing an editable ARIA textbox or Lexical editor; submit = aria-label
 or button text matching `/^(post|publish)$/i`, or an explicit submit button). It never guesses that an
 unrelated last button is Post. When the checkbox is on and the user activates the
-submit control it sends `{ type: "crosspost.propose", payload: { hostSite, text, attemptId, url, submitted, userGesture } }`
-(a fresh 16-byte attempt id per activation, de-duplicated for 2 s, `url` read at proposal time because Facebook navigates
-client-side) and shows "Sent to Open Social - confirm in the side panel"; the service worker stores a **draft** and sets the action badge. If composer detection fails, the page still shows the extension's enabled indicator and the side panel composer remains available. `src/content/feedCards.ts` (off by default) finds the vertical post lane from explicit feed roles or repeated post containers; it never prepends to the horizontal main layout. It renders the latest five cards first, paginates after groups of three host posts, and polls for new arrivals every 30 seconds while visible. Post IDs are deduplicated; route changes and recycled post lanes reset stale cursors. New cards are placed ahead of the reader, not above the current viewport. Network failures retry, and stop/refresh invalidate pending responses.
+submit control through a real trusted event it sends `{ type: "crosspost.publish", payload: { hostSite, text, audience, attemptId, url, submitted, userGesture } }`. A 16-byte attempt id is persisted before sending; concurrent activation and retries are deduplicated. The toast shows publishing, confirmed success, an uncertain result or failure honestly. The service worker signs/encrypts; keys never enter Facebook. If composer detection fails, the side-panel composer remains available.
+
+`src/content/feedCards.ts` prefers native FeedUnit containers over a secondary role=feed below the main lane. Cards retain a before/after anchor and the native post's CSS order. Every scan repairs host reordering or individual removal instead of leaving unmanaged cards at the infinite-scroll tail. It renders the latest five first, paginates after groups of three host posts and polls every 30 seconds. Route changes and replacement lanes reset stale cursors; new arrivals go ahead of the reader.
 
 Each card is a `src/embed/index.html` iframe using the website's actual stylesheet. Only this HTML entry is web-accessible, only to the granted Facebook origins. Its `embed.post` message is separately classified and read-only: the worker returns chain-verified/decrypted content directly to the extension frame. The Facebook document and content script receive only post IDs and sizing messages, never plaintext private content or keys. Embedded frames cannot call vault, settings, feed-page or signing APIs. Lock/session changes clear displayed content, and background feed polling does not keep the vault unlocked. Visible cards refresh metadata every 30 seconds; offscreen cards pause their refreshes. Media is opt-in, URLs are restricted to HTTP(S), and post actions open the original post with `noopener`.
 
@@ -134,10 +130,9 @@ exactly one composer control is injected, the submit hook reads the composer tex
 ## Tests
 
 The build also runs the **shipped bundles** in fresh realms. `scripts/smoke-pages.mjs` renders Feed,
-Compose, review/cancel, Queue, Compose again, options, and embedded cards with string code generation forbidden; the card check verifies name, audience, action links, unsafe media rejection, resize messages and plaintext removal on lock.
+Compose, direct Friends publication (including duplicate activation), repeat navigation, options, and embedded cards with string code generation forbidden; the card check verifies name, audience, action links, unsafe media rejection, resize messages and plaintext removal on lock.
 It deliberately does not borrow the worker/unit-test protobuf initialization. `scripts/smoke-facebook.mjs`
-executes the built classic script and tests repeated injection, late composer detection, opt-in draft
-capture, feed changes, and stop/re-enable. These are DOM simulations, not authenticated Facebook acceptance tests.
+executes the built classic script and tests repeated injection, late composer detection, audience selection, synthetic-click rejection, feed changes, and stop/re-enable. These are DOM simulations, not authenticated Facebook acceptance tests.
 
 `src/test/chromeMock.ts` provides an in-memory `chrome` (runtime messaging with sender simulation, storage areas, alarms,
 permissions, scripting registration, action badge, side panel, tabs); `src/test/support.ts` wires `createBackground` to it
@@ -181,16 +176,16 @@ vault create/lock round trip through the real bundle.
 | 1. Install; unlock/import/create the same identity | `src/sidepanel/Onboarding.tsx`, `src/background/vault.ts` (identity file = SDK `exportIdentity` format) |
 | 2. Feed and composer everywhere (generic sidebar) | side panel (`Feed.tsx`, `Composer.tsx`), "Share current page" via `activeTab` |
 | 3. Facebook permission granted from the options page | `src/options/App.tsx` (`chrome.permissions.request`) -> `adapter.enable` -> `registerContentScripts` for the granted origins |
-| 4. Labeled control + extension-rendered confirmation (audience + permanence) | `src/content/facebookAdapter.ts`, `ConfirmSheet` in `Composer.tsx` / `Queue.tsx` |
+| 4. Labeled opt-in, audience selection and explicit Post action | `src/content/facebookAdapter.ts`, `Composer.tsx` |
 | 5. Signing/encryption in the worker, no keys in pages | `src/background/*`; pages use `src/shared/rpc.ts` only |
 | 6. Every content-script message validated (type, origin, tab, size, gesture) | `src/background/messages.ts` + tests |
 | 7. Retries cannot duplicate posts | idempotency key from persisted attempt id; `retryPlan`; duplicate-key resolution |
-| 8. Partial/unknown outcomes have visible deterministic recovery | queue explanations/actions in `src/shared/queue.ts`, `Queue.tsx` |
+| 8. Partial/unknown outcomes have visible deterministic recovery | saved attempt state, `UnfinishedPosts.tsx` |
 | 9. Sidebar keeps working when insertion is off or the host DOM changes | adapter failures are contained; side panel independent |
 | 10. Inserted host-feed content is labeled | `src/content/feedCards.ts` ("Open Social Protocol posts", off by default) |
 
 Experience principles: no seed/Mana wording in the default journey ("account", "friends", "post"); explicit consent
 for every publication and every site permission; local privacy (all crypto in the worker); portability (identity
-file, endpoints in options); honest revocation text on friends-only confirmations; provenance labels on injected content.
+file, endpoints in options); honest revocation text in the Friends composer; provenance labels on injected content.
 
 Local visual fixture: after building, run `node apps/extension/scripts/preview-feed.mjs` from the repository root, then open `http://127.0.0.1:4188`. The fixture uses distinct host/card origins and simulated posts; it makes no real transactions. Authenticated Facebook layout acceptance remains a separate manual check.

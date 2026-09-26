@@ -1,7 +1,7 @@
 /**
  * The message contract between the service worker and its clients (side panel, options page,
  * content scripts). Every message is `{ type, payload? }`; every response is a `Reply`.
- * Content scripts may only send `crosspost.propose` and `feed.request`.
+ * Content scripts may send audience-selected `crosspost.publish`, legacy draft proposals and `feed.request`.
  */
 import type { CrossPostRecord } from "@osp/sdk";
 
@@ -12,7 +12,7 @@ export interface Message<T extends string = string, P = unknown> {
 
 export type Reply<T = unknown> = { ok: true; result: T } | { ok: false; error: { code: string; message: string } };
 
-export const CONTENT_SCRIPT_TYPES = ["crosspost.propose", "feed.request"] as const;
+export const CONTENT_SCRIPT_TYPES = ["crosspost.propose", "crosspost.publish", "feed.request"] as const;
 export type ContentScriptType = (typeof CONTENT_SCRIPT_TYPES)[number];
 
 /** Payload size ceiling (bytes of the JSON encoding of the whole message). */
@@ -154,6 +154,16 @@ export interface ProposePayload {
   submitted: boolean;
   /** navigator.userActivation.isActive at send time. */
   userGesture: boolean;
+}
+
+export interface HostPublishPayload extends ProposePayload {
+  audience: number;
+}
+
+export interface PublishReply {
+  attemptId: string;
+  status: "published" | "pending" | "failed";
+  message: string;
 }
 
 export interface CreatePayload {

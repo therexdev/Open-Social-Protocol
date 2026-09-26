@@ -14,6 +14,31 @@ beforeEach(() => {
 });
 
 describe("facebook composer adapter", () => {
+  it("ignores page-generated Post clicks even with opt-in and active userGesture", async () => {
+    document.body.innerHTML = fixture("composer.html");
+    const sendMessage = vi.fn(async () => ({ ok: true, result: { enabled: false } }));
+    const running = startFacebookAdapter({ document, location: () => "https://www.facebook.com/", sendMessage, randomAttemptId: () => "ab".repeat(16), userGesture: () => true })!;
+    (document.querySelector(`[${CONTROL_ATTR}] input`) as HTMLInputElement).checked = true;
+    document.querySelector<HTMLElement>('[aria-label="Post"]')!.click();
+    expect(sendMessage.mock.calls.some(call => (call as unknown as [{ type: string }])[0].type === "crosspost.publish")).toBe(false);
+    running.stop();
+  });
+  it("publishes the Friends selection immediately from a trusted Post action without changing Facebook's submit", async () => {
+    document.body.innerHTML = fixture("composer.html");
+    const sendMessage = vi.fn(async () => ({ ok: true, result: { status: "published", message: "Published to Open Social · Friends" } }));
+    const running = startFacebookAdapter({ document, location: () => "https://www.facebook.com/", sendMessage, randomAttemptId: () => "bc".repeat(16), trustedEvent: () => true })!;
+    const checkbox = document.querySelector<HTMLInputElement>(`[${CONTROL_ATTR}] input`)!;
+    const audience = document.querySelector<HTMLSelectElement>(`[${CONTROL_ATTR}] select`)!;
+    expect(audience.disabled).toBe(true);
+    checkbox.checked = true; checkbox.dispatchEvent(new Event("change"));
+    expect(audience.disabled).toBe(false); audience.value = "1";
+    const hostPost = vi.fn(); document.querySelector('[aria-label="Post"]')!.addEventListener("click", hostPost);
+    document.querySelector<HTMLElement>('[aria-label="Post"]')!.click();
+    expect(hostPost).toHaveBeenCalledTimes(1);
+    expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({ type: "crosspost.publish", payload: expect.objectContaining({ audience: 1, text: "Hello from the fixture composer" }) }));
+    await vi.waitFor(() => expect(document.querySelector(`[${TOAST_ATTR}]`)?.textContent).toContain("Published to Open Social · Friends"));
+    running.stop();
+  });
   it("detects non-div dialogs and text-labeled disabled Post controls without mistaking other actions for Post", () => {
     document.body.innerHTML = '<section role="dialog"><div contenteditable="true" data-lexical-editor="true">Draft</div><footer><div role="button" aria-disabled="true"><span>Post</span></div><button>Photo/video</button></footer></section>';
     const submit = vi.fn();
@@ -24,7 +49,7 @@ describe("facebook composer adapter", () => {
     expect(submit).not.toHaveBeenCalled();
     post.removeAttribute("aria-disabled");
     post.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    expect(submit).toHaveBeenCalledWith("Draft");
+    expect(submit).toHaveBeenCalledWith("Draft", 0, expect.any(Event));
     document.querySelector("button")!.click();
     expect(submit).toHaveBeenCalledTimes(1);
     post.remove();
@@ -33,7 +58,7 @@ describe("facebook composer adapter", () => {
 
   it("wakes after idle when the user opens a composer without refocusing Facebook", async () => {
     vi.useFakeTimers();
-    const running = startFacebookAdapter({ document, location: () => "https://www.facebook.com/", sendMessage: async () => ({ ok: true, result: { enabled: false } }), randomAttemptId: () => "ab".repeat(16) })!;
+    const running = startFacebookAdapter({ document, location: () => "https://www.facebook.com/", sendMessage: async () => ({ ok: true, result: { enabled: false } }), trustedEvent: () => true, randomAttemptId: () => "ab".repeat(16) })!;
     try {
       expect(document.querySelector(`[${STATUS_ATTR}]`)).not.toBeNull();
       await vi.advanceTimersByTimeAsync(60_100);
@@ -49,7 +74,7 @@ describe("facebook composer adapter", () => {
     document.body.innerHTML = fixture("composer.html");
     let enabled = false;
     const sendMessage = vi.fn(async () => ({ ok: true, result: { enabled, items: [] } }));
-    const runtime = { document, location: () => "https://www.facebook.com/", sendMessage, randomAttemptId: () => "ab".repeat(16) };
+    const runtime = { document, location: () => "https://www.facebook.com/", sendMessage, trustedEvent: () => true, randomAttemptId: () => "ab".repeat(16) };
     const first = startFacebookAdapter(runtime)!;
     await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(1));
     expect(document.querySelector(`[${FEED_ATTR}]`)).toBeNull();
@@ -65,7 +90,7 @@ describe("facebook composer adapter", () => {
     const second = startFacebookAdapter(runtime)!;
     (document.querySelector(`[${CONTROL_ATTR}] input`) as HTMLInputElement).checked = true;
     document.querySelector<HTMLElement>('[aria-label="Post"]')!.click();
-    expect(sendMessage.mock.calls.filter((call) => (call as unknown as [{ type: string }])[0].type === "crosspost.propose")).toHaveLength(1);
+    expect(sendMessage.mock.calls.filter((call) => (call as unknown as [{ type: string }])[0].type === "crosspost.publish")).toHaveLength(1);
     second.stop();
   });
 
@@ -87,7 +112,7 @@ describe("facebook composer adapter", () => {
     (controls[0]!.querySelector("input") as HTMLInputElement).checked = true;
     post.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(onSubmit).toHaveBeenCalledTimes(1);
-    expect(onSubmit).toHaveBeenCalledWith("Hello from the fixture composer");
+    expect(onSubmit).toHaveBeenCalledWith("Hello from the fixture composer", 0, expect.any(Event));
     // other buttons do not trigger it, and page content outside the textbox is never read
     document.querySelector('[aria-label="Photo/video"]')!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(onSubmit).toHaveBeenCalledTimes(1);
@@ -105,13 +130,13 @@ describe("facebook composer adapter", () => {
 
   it("sends only the composer text to the service worker and shows the toast", async () => {
     document.body.innerHTML = fixture("composer.html");
-    const sendMessage = vi.fn(async (_message: unknown) => ({ ok: true, result: { queued: true } }));
+    const sendMessage = vi.fn(async (_message: unknown) => ({ ok: true, result: { status: "published", message: TOAST_SENT } }));
     let href = "https://www.facebook.com/";
     const running = startFacebookAdapter({
       document,
       location: () => href,
       sendMessage,
-      randomAttemptId: () => "ab".repeat(16),
+      trustedEvent: () => true, randomAttemptId: () => "ab".repeat(16),
       userGesture: () => true,
     });
     expect(running).not.toBeNull();
@@ -122,16 +147,16 @@ describe("facebook composer adapter", () => {
     document.querySelector('[aria-label="Post"]')!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     const sent = sendMessage.mock.calls.map((call) => call[0] as { type: string });
     // besides the proposal, the adapter only ever asks whether labeled feed cards are enabled
-    expect(sent.filter((m) => m.type !== "crosspost.propose").every((m) => m.type === "feed.request")).toBe(true);
-    const proposals = sent.filter((m) => m.type === "crosspost.propose");
+    expect(sent.filter((m) => m.type !== "crosspost.publish").every((m) => m.type === "feed.request")).toBe(true);
+    const proposals = sent.filter((m) => m.type === "crosspost.publish");
     expect(proposals).toHaveLength(1);
     expect(proposals[0]).toEqual({
-      type: "crosspost.propose",
-      payload: { hostSite: "facebook", text: "Hello from the fixture composer", attemptId: "ab".repeat(16), url: "https://www.facebook.com/groups/42", submitted: true, userGesture: true },
+      type: "crosspost.publish",
+      payload: { hostSite: "facebook", text: "Hello from the fixture composer", audience: 0, attemptId: "ab".repeat(16), url: "https://www.facebook.com/groups/42", submitted: true, userGesture: true },
     });
     // a second activation of the same text within the debounce window does not propose twice
     document.querySelector('[aria-label="Post"]')!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    expect(sendMessage.mock.calls.map((call) => call[0] as { type: string }).filter((m) => m.type === "crosspost.propose")).toHaveLength(1);
+    expect(sendMessage.mock.calls.map((call) => call[0] as { type: string }).filter((m) => m.type === "crosspost.publish")).toHaveLength(1);
     await vi.waitFor(() => expect(document.querySelector(`[${TOAST_ATTR}]`)?.textContent).toContain(TOAST_SENT));
     running!.stop();
   });

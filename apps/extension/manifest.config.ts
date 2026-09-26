@@ -9,7 +9,7 @@ import { defineManifest } from "@crxjs/vite-plugin";
 export default defineManifest({
   manifest_version: 3,
   name: "Open Social Protocol",
-  version: "0.1.2",
+  version: "0.1.3",
   description: "Encrypted social protocol on Koinos: feed and composer in the side panel, optional labeled cross-posting from Facebook.",
   minimum_chrome_version: "116",
   icons: {

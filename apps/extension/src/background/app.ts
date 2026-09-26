@@ -16,6 +16,7 @@ import {
   type FeedRequestReply,
   type PageInfo,
   type ProposePayload,
+  type PublishReply,
   type SettingsView,
   type StoredCrossPost,
   type VaultStatusView,
@@ -208,7 +209,7 @@ export function createBackground(options: BackgroundOptions): Background {
     return {
       ...status,
       network: { name: resolved.network, deployed: resolved.deployed, ...(resolved.deploymentMessage && { message: resolved.deploymentMessage }), indexerUrl: resolved.indexerUrl },
-      pending: records.filter((r) => needsAttention(r, now())).length,
+      pending: records.filter((r) => r.koinosStatus !== "ok" && needsAttention(r, now())).length,
       autoLockMinutes: settings.autoLockMinutes,
     };
   }
@@ -375,6 +376,16 @@ export function createBackground(options: BackgroundOptions): Background {
         return queueItem(await crossposts.create(p, attemptId()));
       },
     }),
+    "post.publish": defineHandler({
+      source: "extension",
+      validate: obj({ attemptId: attemptIdSchema, text: str({ min: 1, max: MAX_POST_CHARS }), audience: oneOf(AUDIENCE_VALUES), adapter: oneOf(["sidepanel", "generic"] as const), url: optional(httpUrl()), title: optional(str({ max: 512 })) }),
+      handle: async (p) => {
+        await requireDevice(await requireSession());
+        const oversize = draftSizeError(p.text, p.adapter === "generic" ? p.url : undefined);
+        if (oversize) throw new Error(oversize);
+        return queueItem(await crossposts.publishDirect(p, p.attemptId));
+      },
+    }),
     "crosspost.confirm": defineHandler({
       source: "extension",
       validate: obj({ attemptId: attemptIdSchema, audience: optional(oneOf(AUDIENCE_VALUES)) }),
@@ -406,6 +417,22 @@ export function createBackground(options: BackgroundOptions): Background {
     }),
 
     // ------------------------------------------------------------ content scripts
+    "crosspost.publish": defineHandler({
+      source: "content",
+      requireGesture: true,
+      validate: obj({ hostSite: oneOf(["facebook"] as const), text: str({ min: 1, max: MAX_POST_CHARS }), audience: oneOf(AUDIENCE_VALUES), attemptId: attemptIdSchema, url: httpUrl(), submitted: bool(), userGesture: bool() }),
+      handle: async (p, ctx): Promise<PublishReply> => {
+        if (!ctx.origin || new URL(p.url).origin !== ctx.origin || !p.submitted) throw new Error("Publishing requires the Facebook Post action.");
+        if (!(await loadSettings()).facebookAdapter) throw new Error("The Facebook adapter is disabled.");
+        await requireDevice(await requireSession());
+        const oversize = draftSizeError(p.text);
+        if (oversize) throw new Error(oversize);
+        await vault.touch();
+        const record = await crossposts.publishDirect({ text: p.text, audience: p.audience, adapter: "facebook", url: p.url, hostSubmitted: true }, p.attemptId);
+        const status = record.koinosStatus === "ok" ? "published" : ["pending", "unknown"].includes(record.koinosStatus) || record.state === "reconcile_required" ? "pending" : "failed";
+        return { attemptId: record.attemptId, status, message: status === "published" ? `Published to Open Social · ${record.audience === AUDIENCE.FRIENDS ? "Friends" : "Public"}` : status === "pending" ? "Open Social is confirming your post. Check its status in Compose." : `Open Social could not publish: ${record.lastError || "Try again."}` };
+      },
+    }),
     "crosspost.propose": defineHandler({
       source: "content",
       requireGesture: true,

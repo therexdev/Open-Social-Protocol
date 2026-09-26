@@ -70,6 +70,19 @@ async function setup(registrationOffline: boolean, cachedRecipients: string[] = 
 }
 
 describe("friendship sharing through the real app", () => {
+  it("keeps automatic checks silent and does not reopen a dismissed manual result", async () => {
+    const s = await setup(false, [author.account, friend.account]);
+    expect(container.textContent).not.toContain("Private-post access checked");
+    expect(container.textContent).not.toContain("Checking private-post access");
+    await act(async () => { window.dispatchEvent(new Event("focus")); await new Promise(resolve => setTimeout(resolve, 250)); });
+    expect(container.textContent).not.toContain("Private-post access checked");
+    await s.clickSync();
+    expect(container.textContent).toContain("deliveries confirmed");
+    await act(async () => { [...container.querySelectorAll("button")].find(b => b.textContent === "Dismiss")!.click(); });
+    await act(async () => { window.dispatchEvent(new Event("focus")); await new Promise(resolve => setTimeout(resolve, 250)); });
+    expect(container.textContent).not.toContain("Private-post access checked");
+    expect(container.textContent).not.toContain("Checking private-post access");
+  });
   it("shares the requester's old posts automatically when the app is open", async () => {
     const s = await setup(false);
     expect(s.provider.sent.length, JSON.stringify({ registration: useAccount.getState().registration, visibility: document.visibilityState, ui: container.textContent, reads: s.provider.reads.map(op => s.client.contracts.decodeOperation(op)?.method) })).toBeGreaterThan(0);
