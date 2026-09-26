@@ -6,6 +6,13 @@ The new economy has a separate activation switch: uploading code does not retire
 Support or expose partially deployed features. See [ADR 0009](adr/0009-token-economy-testnet-pilot.md)
 for exact pilot parameters and [the implementation status](token-v2-implementation.md).
 
+**Live status, September 26:** the public Harbinger economy is active at block
+**8716430**. The website, healthy indexer and signed, registered sponsor policy
+passed readiness before activation and again during independent policy readback.
+See the [activation receipts](../deployments/evidence/token-economy-activation-2026-09-26.json).
+Next, collect registered testers' public account addresses and issue explicit
+test allocations; new accounts receive free activity capacity, not voting tokens.
+
 ## Tester behavior after activation
 
 - Accounts keep 100 free activity units. Free credits cannot vote. Ask the test
@@ -90,16 +97,22 @@ for exact pilot parameters and [the implementation status](token-v2-implementati
    `https://opensocial.online/release.json` must return JSON with `tokenEconomy: 1`.
    The rollout publishes the same build to `hostinger-static`; FTP is used only
    when repository FTP credentials have been configured. Reload extension 0.1.7.
-5. Rerun the dedicated rollout workflow, or invoke the readiness-gated activation
-   with existing deployment credentials in the operator's environment:
+5. Once upgrades and service deployment are complete, the dedicated
+   `activate-token-economy` workflow on `codex/token-economy-activation` verifies
+   the deployed contracts, invokes the readiness gate and activates the public
+   pilot. It never uploads contracts or issues tester grants. It independently
+   verifies the resulting public policy and retains activation receipts.
+   Alternatively, invoke activation with existing deployment credentials in the
+   operator's environment:
 
    ```sh
    node --import tsx scripts/activate-token-economy.ts --network harbinger
    node --import tsx scripts/activate-token-economy.ts --network harbinger --execute
    ```
 
-   A failed gate never activates the economy. The workflow's `--if-ready` stages
-   compatible code successfully and prints the outstanding service blockers.
+   A failed gate never activates the economy. The activation-only workflow fails
+   if readiness fails; the broader upgrade workflow's `--if-ready` can stage
+   compatible code successfully while printing outstanding service blockers.
    Activation is owner-only, Harbinger-only and one-time; it disables legacy
    fixed-mint Support. Do not downgrade to code that ignores this switch.
 6. Allocate test tokens to an explicit list of registered tester addresses:
@@ -179,6 +192,29 @@ live registration checks. The public sponsorship upgrade was confirmed at block
 `0x122002477dba961cec2fb1ef117a939984ffc1e668cd79772765af50586f78949a12`.
 [Public receipts](../deployments/evidence/sponsor-registry-2026-09-26.json) retain
 the tested bytecode hash, isolated registrations and public upgrade. The other
-seven deployment entries were unchanged. The live sponsor still needs a restart
-to register with its own key; the website upload and economy activation remain
-pending.
+seven deployment entries were unchanged. The sponsor subsequently registered
+with its own retained key after the VPS restart; its signed policy now matches
+the active on-chain record.
+
+## Public activation and tester onboarding
+
+The [activation workflow](https://github.com/therexdev/Open-Social-Protocol/actions/runs/36278809543)
+confirmed transaction
+`0x122033ee1803798423eb9799029f293969078151b1855a44ed13936c8f93df8ffbfc`
+at block **8716430**. Public readback returned `economy_version: 1` and
+`resource_version: 2`, a 144,000-block period and recharge, a shared 100 OSAT
+period budget, and promotion pricing of one OSAT per 1,200-block opportunity.
+All eight deployment records and dependency checks passed. No contracts were
+uploaded and no tester tokens were granted in this activation.
+
+The live website JavaScript matches the published ZIP byte for byte. Existing
+sessions refresh economy policy every 30 seconds while visible; reload the site
+if necessary. For extension 0.1.7, existing authorized devices need
+**Settings → Devices → Enable reward voting** before they can vote.
+
+For the first tester group, collect registered public account addresses and issue
+20 OSAT per tester using the explicit grant command above. Test public posting,
+one paid up/down vote per post, recharge and transfer locks, promotion purchase
+and cancellation, and reward settlement after the five-day period closes. Keep
+repeating private-post friendship and messaging journeys alongside token testing.
+Free activity capacity cannot fund votes or promotion burns.
