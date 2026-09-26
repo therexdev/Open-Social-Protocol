@@ -356,22 +356,26 @@ claimed. Seed/key compromise can expose earlier retained ciphertext. Metadata re
 
 ### Action token and capacity
 
-This section describes the deployed v1 pilot. The accepted v2 direction—shared
-five-day per-unit recharge, reward voting and promotion burns—is recorded in
-[ADR 0008](adr/0008-token-v2-shared-recharge.md). Its resource reference model is
-implemented; it does not change this deployment's contract behavior.
+Resource version 2 implements the five-day accounting described below and in
+[ADR 0008](adr/0008-token-v2-shared-recharge.md). Reward voting and promotional
+placement remain separate, unactivated features. See the [testnet release guide](token-v2-testnet.md)
+for upgrade and migration rules; query `get_config.resource_version` to identify
+what a particular deployment runs.
 
 `token.support` consumes one action credit and rewards the stored author of an active post,
 subject to anti-self-support, block, uniqueness, daily recipient/global and total-supply limits.
 SUPPORT is device capability bit 128. Token transfer and burn always resolve owner authority;
 a messaging or support device permission never confers token-transfer authority.
 
-See `v1-testing.md` for the complete numeric pilot defaults and hard limits in `Token.ts`.
-Account state separates token balance, free credits and token-backed credits. Regeneration
-uses block timestamps. A transfer moves proportional remaining token-backed credits along
-with the tokens. The sender and recipient are settled at the same timestamp before moving
-capacity, so repeated transfers cannot reset usage. Free credits remain with their account.
+Each account has 100 free units; each whole OSAT backs one additional paid unit.
+Every depleted unit recovers one internal tick per block, capped at 144,000 ticks.
+Fractional capacity combines; idle units do not accelerate depleted ones. Actions
+consume free capacity first, then paid capacity, draining least-charged units first.
+Transfer and burn require individually fully charged paid units; partial capacity
+never unlocks principal early. Recipients receive ready units and no free credits.
 Only configured protocol contracts may call `consume` for their authenticated actor.
+The existing Support pilot retains its fixed, capped rewards during resource testing.
+Legacy v1 policy and numeric reward bounds are documented in `v1-testing.md`.
 
 There is no dependency on ranking/moderation decisions and no promise of token value.
 Testnet parameters do not finalize a mainnet monetary or reward policy.

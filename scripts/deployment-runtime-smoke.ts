@@ -17,6 +17,7 @@ const { koinos } = require("@koinos/proto-js");
 
 export async function smokeDeploymentRuntime(log: (message: string) => void = console.log): Promise<void> {
   const vm = new MockVM(true);
+  require("../packages/contracts/scripts/mock-vm-storage.cjs").fixMockStorageOrdering(vm);
   const admin = Signer.fromSeed("osp-release-smoke-admin").getAddress();
   const addresses = Object.fromEntries(CONTRACT_ORDER.map(name => [name, Signer.fromSeed(`osp-release-smoke-${name}`).getAddress()])) as Record<ContractName, string>;
   const contracts = new Map(CONTRACT_ORDER.map(name => [name, new Contract({ id: addresses[name], abi: ABIS[name] as never })]));
@@ -30,7 +31,7 @@ export async function smokeDeploymentRuntime(log: (message: string) => void = co
     put(meta.CONTRACT_ID_KEY, utils.decodeBase58(addresses[name]));
     put(meta.ENTRY_POINT_KEY, koinos.chain.value_type.encode({ int32_value: operation.entry_point }).finish());
     put(meta.CONTRACT_ARGUMENTS_KEY, utils.decodeBase64url(operation.args));
-    put(meta.HEAD_INFO_KEY, koinos.chain.head_info.encode({ head_block_time: "1800000000000", last_irreversible_block: "1" }).finish());
+    put(meta.HEAD_INFO_KEY, koinos.chain.head_info.encode({ head_block_time: "1800000000000", last_irreversible_block: "1", head_topology: { height: "1" } }).finish());
     put(meta.CALLER_KEY, koinos.chain.caller_data.encode({ caller: new Uint8Array(), caller_privilege: 0 }).finish());
     put(meta.AUTHORITY_KEY, koinos.chain.list_type.encode({ values: authorized.map(account => ({ bytes_value: utils.decodeBase58(account), int32_value: 0, bool_value: true })) }).finish());
     vm.db.removeObject(meta.METADATA_SPACE, meta.CONTRACT_RESULT_KEY);
@@ -102,6 +103,13 @@ export async function smokeDeploymentRuntime(log: (message: string) => void = co
   assert.equal(messagingDependencies.token, addresses.token);
   const config = (await invoke("token", "get_config")).value;
   for (const [key, value] of Object.entries(tokenDependencies)) assert.equal(config[key], value);
+  assert.equal(config.resource_version, 2);
+  const resources = (await invoke("token", "get_account", { account: admin })).value;
+  assert.equal(resources.resource_version, 2);
+  assert.equal(resources.free_ticks, "14400000");
+  assert.equal(resources.recharge_blocks, "144000");
+  await assert.rejects(invoke("token", "activate_recharge", {}, []));
+  await assert.rejects(invoke("token", "activate_recharge"), /already activated/);
   const registryConfig = (await invoke("registry", "get_config")).value;
   assert.equal(registryConfig.admin, admin);
   assert.equal(registryConfig.upgrade_delay_ms, "86400000");

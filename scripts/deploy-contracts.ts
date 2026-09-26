@@ -92,6 +92,9 @@ async function main(): Promise<void> {
     const art = readContractArtifacts(name);
     const signer = signers.get(name)!;
     const existing = deployment.contracts[name];
+    if (existing && existing.address !== signer.getAddress()) {
+      throw new Error(`[${name}] derived address differs from the deployed contract; refusing to replace existing accounts`);
+    }
     if (existing && existing.wasmSha256 === art.wasmSha256 && existing.abiSha256 === art.abiSha256 &&
         existing.address === signer.getAddress() && !force && await verifyUpload(provider, existing)) {
       log(`\n[${name}] unchanged (wasm sha256 ${art.wasmSha256.slice(0, 12)}...), skipping upload`);
@@ -110,9 +113,18 @@ async function main(): Promise<void> {
     // catches startup failures before broadcast, and an upload cannot succeed alone.
     const probe = deploymentProbe(name, signer.getAddress());
     log(`[${name}] validating execution with ${probe.name} in the upload transaction`);
+    const nextOperations = [await contract.encodeOperation(probe)];
+    if (name === "token" && existing) {
+      const current = (await contract.functions.get_config!({})).result as { value?: { resource_version?: number } } | undefined;
+      if (current?.value && Number(current.value.resource_version ?? 0) === 0) {
+        // The upload and owner-authenticated cutoff commit or revert together.
+        // No external snapshot and no interval where v1 and v2 both spend credits.
+        nextOperations.push(await contract.encodeOperation({ name: "activate_recharge", args: {} }));
+        log("[token] activating five-day recharge atomically with the upgrade");
+      }
+    }
     const prepared = await contract.deploy({
-      abi: art.abi, sendTransaction: false, signTransaction: false,
-      nextOperations: [await contract.encodeOperation(probe)],
+      abi: art.abi, sendTransaction: false, signTransaction: false, nextOperations,
     });
     const { transaction, receipt } = await submitMeasured(prepared.transaction as TransactionJson, provider, [signer, deployer], {
       dryRun,

@@ -11,6 +11,7 @@ module.exports = {
   disclude: [/node_modules/],
   async instantiate(memory, createImports, instantiate, binary) {
     const mockVM = new MockVM();
+    require("../scripts/mock-vm-storage.cjs").fixMockStorageOrdering(mockVM);
     const myImports = {
       wasi_snapshot_preview1: { fd_write: () => {}, proc_exit: () => {} },
       env: { ...mockVM.getImports() },

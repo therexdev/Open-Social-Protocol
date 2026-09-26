@@ -1,9 +1,11 @@
 # Token v2 implementation status
 
 The accepted direction is specified in [ADR 0008](adr/0008-token-v2-shared-recharge.md).
-The current site and Harbinger contracts still run the v1 pilot. This work starts
-the redesign with a verified resource model; it is not a token deployment or a
-completed SWARM/ad product.
+The branch now includes the deployable resource contract, atomic in-place
+migration, SDK fields, wallet display, contract tests and testnet release workflow.
+See [the recharge release and tester guide](token-v2-testnet.md). Deployment status
+must be verified against `deployments/harbinger.json` and the live resource version;
+this is not a completed SWARM/ad product.
 
 ## Completed in this branch
 
@@ -22,7 +24,7 @@ Run `npm run test:token-v2` for strict TypeScript checking and the focused tests
 The standard `npm test` already discovers `scripts/token-v2-model.test.ts`.
 Run `npm run simulate:token-v2` to reproduce [the report](token-v2-simulation.md).
 
-## Next implementation packet: deployable resource accounting
+## Resource-accounting acceptance checklist
 
 | Area | Required behavior | Acceptance evidence |
 | --- | --- | --- |

@@ -46,10 +46,11 @@ recovery files before proceeding. Test accounts and tokens have no monetary valu
 | Lock/unlock and restore a recovery file | Account access returns; messages can be decrypted with the correct identity seed. |
 | Cross-post through the extension | One protocol publication appears; retrying the queued attempt does not duplicate it. |
 
-## Pilot token rules
+## Legacy v1 pilot token rules
 
-These are the current v1 rules. The [v2 design and reference model](adr/0008-token-v2-shared-recharge.md)
-introduce a different recharge/locking direction; no v2 contract is deployed yet.
+These rules apply to resource-version-0 deployments. For the five-day recharge
+upgrade, use the [v2 tester guide](token-v2-testnet.md). The Tokens page identifies
+the connected contract policy; do not assume a client update upgrades the contract.
 
 The test token is OSAT, with whole-token precision. These are explicit **pilot defaults**,
 not approved mainnet economics: 100 free actions per account, one extra action of capacity

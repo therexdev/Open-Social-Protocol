@@ -23,6 +23,46 @@ export namespace token {
         writer.uint32(32);
         writer.uint64(message.updated_at);
       }
+
+      if (message.resource_version != 0) {
+        writer.uint32(40);
+        writer.uint32(message.resource_version);
+      }
+
+      if (message.block != 0) {
+        writer.uint32(48);
+        writer.uint64(message.block);
+      }
+
+      if (message.free_ticks != 0) {
+        writer.uint32(56);
+        writer.uint64(message.free_ticks);
+      }
+
+      if (message.token_ticks != 0) {
+        writer.uint32(64);
+        writer.uint64(message.token_ticks);
+      }
+
+      if (message.transferable != 0) {
+        writer.uint32(72);
+        writer.uint64(message.transferable);
+      }
+
+      if (message.locked != 0) {
+        writer.uint32(80);
+        writer.uint64(message.locked);
+      }
+
+      if (message.recharge_blocks != 0) {
+        writer.uint32(88);
+        writer.uint64(message.recharge_blocks);
+      }
+
+      if (message.ticks_per_unit != 0) {
+        writer.uint32(96);
+        writer.uint64(message.ticks_per_unit);
+      }
     }
 
     static decode(reader: Reader, length: i32): account_state {
@@ -48,6 +88,38 @@ export namespace token {
             message.updated_at = reader.uint64();
             break;
 
+          case 5:
+            message.resource_version = reader.uint32();
+            break;
+
+          case 6:
+            message.block = reader.uint64();
+            break;
+
+          case 7:
+            message.free_ticks = reader.uint64();
+            break;
+
+          case 8:
+            message.token_ticks = reader.uint64();
+            break;
+
+          case 9:
+            message.transferable = reader.uint64();
+            break;
+
+          case 10:
+            message.locked = reader.uint64();
+            break;
+
+          case 11:
+            message.recharge_blocks = reader.uint64();
+            break;
+
+          case 12:
+            message.ticks_per_unit = reader.uint64();
+            break;
+
           default:
             reader.skipType(tag & 7);
             break;
@@ -61,17 +133,41 @@ export namespace token {
     free_credits: u64;
     token_credits: u64;
     updated_at: u64;
+    resource_version: u32;
+    block: u64;
+    free_ticks: u64;
+    token_ticks: u64;
+    transferable: u64;
+    locked: u64;
+    recharge_blocks: u64;
+    ticks_per_unit: u64;
 
     constructor(
       balance: u64 = 0,
       free_credits: u64 = 0,
       token_credits: u64 = 0,
-      updated_at: u64 = 0
+      updated_at: u64 = 0,
+      resource_version: u32 = 0,
+      block: u64 = 0,
+      free_ticks: u64 = 0,
+      token_ticks: u64 = 0,
+      transferable: u64 = 0,
+      locked: u64 = 0,
+      recharge_blocks: u64 = 0,
+      ticks_per_unit: u64 = 0
     ) {
       this.balance = balance;
       this.free_credits = free_credits;
       this.token_credits = token_credits;
       this.updated_at = updated_at;
+      this.resource_version = resource_version;
+      this.block = block;
+      this.free_ticks = free_ticks;
+      this.token_ticks = token_ticks;
+      this.transferable = transferable;
+      this.locked = locked;
+      this.recharge_blocks = recharge_blocks;
+      this.ticks_per_unit = ticks_per_unit;
     }
   }
 
@@ -167,6 +263,21 @@ export namespace token {
         writer.uint32(64);
         writer.uint64(message.supply);
       }
+
+      if (message.resource_version != 0) {
+        writer.uint32(72);
+        writer.uint32(message.resource_version);
+      }
+
+      if (message.activation_block != 0) {
+        writer.uint32(80);
+        writer.uint64(message.activation_block);
+      }
+
+      if (message.activation_time != 0) {
+        writer.uint32(88);
+        writer.uint64(message.activation_time);
+      }
     }
 
     static decode(reader: Reader, length: i32): config {
@@ -208,6 +319,18 @@ export namespace token {
             message.supply = reader.uint64();
             break;
 
+          case 9:
+            message.resource_version = reader.uint32();
+            break;
+
+          case 10:
+            message.activation_block = reader.uint64();
+            break;
+
+          case 11:
+            message.activation_time = reader.uint64();
+            break;
+
           default:
             reader.skipType(tag & 7);
             break;
@@ -225,6 +348,9 @@ export namespace token {
     daily_reward_cap: u64;
     recipient_daily_cap: u64;
     supply: u64;
+    resource_version: u32;
+    activation_block: u64;
+    activation_time: u64;
 
     constructor(
       identity: Uint8Array | null = null,
@@ -234,7 +360,10 @@ export namespace token {
       reward_amount: u64 = 0,
       daily_reward_cap: u64 = 0,
       recipient_daily_cap: u64 = 0,
-      supply: u64 = 0
+      supply: u64 = 0,
+      resource_version: u32 = 0,
+      activation_block: u64 = 0,
+      activation_time: u64 = 0
     ) {
       this.identity = identity;
       this.relationships = relationships;
@@ -244,6 +373,9 @@ export namespace token {
       this.daily_reward_cap = daily_reward_cap;
       this.recipient_daily_cap = recipient_daily_cap;
       this.supply = supply;
+      this.resource_version = resource_version;
+      this.activation_block = activation_block;
+      this.activation_time = activation_time;
     }
   }
 
@@ -1574,6 +1706,286 @@ export namespace token {
       this.daily_reward_cap = daily_reward_cap;
       this.recipient_daily_cap = recipient_daily_cap;
       this.timestamp = timestamp;
+    }
+  }
+
+  @unmanaged
+  export class recharge_state {
+    static encode(message: recharge_state, writer: Writer): void {
+      if (message.free_ready != 0) {
+        writer.uint32(8);
+        writer.uint64(message.free_ready);
+      }
+
+      if (message.paid_ready != 0) {
+        writer.uint32(16);
+        writer.uint64(message.paid_ready);
+      }
+
+      if (message.block != 0) {
+        writer.uint32(24);
+        writer.uint64(message.block);
+      }
+
+      if (message.revision != 0) {
+        writer.uint32(32);
+        writer.uint64(message.revision);
+      }
+    }
+
+    static decode(reader: Reader, length: i32): recharge_state {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new recharge_state();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1:
+            message.free_ready = reader.uint64();
+            break;
+
+          case 2:
+            message.paid_ready = reader.uint64();
+            break;
+
+          case 3:
+            message.block = reader.uint64();
+            break;
+
+          case 4:
+            message.revision = reader.uint64();
+            break;
+
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    free_ready: u64;
+    paid_ready: u64;
+    block: u64;
+    revision: u64;
+
+    constructor(
+      free_ready: u64 = 0,
+      paid_ready: u64 = 0,
+      block: u64 = 0,
+      revision: u64 = 0
+    ) {
+      this.free_ready = free_ready;
+      this.paid_ready = paid_ready;
+      this.block = block;
+      this.revision = revision;
+    }
+  }
+
+  @unmanaged
+  export class recharge_node {
+    static encode(message: recharge_node, writer: Writer): void {
+      if (message.count != 0) {
+        writer.uint32(8);
+        writer.uint64(message.count);
+      }
+
+      if (message.deadlines != 0) {
+        writer.uint32(16);
+        writer.uint64(message.deadlines);
+      }
+
+      if (message.revision != 0) {
+        writer.uint32(24);
+        writer.uint64(message.revision);
+      }
+
+      if (message.floor != 0) {
+        writer.uint32(32);
+        writer.uint64(message.floor);
+      }
+    }
+
+    static decode(reader: Reader, length: i32): recharge_node {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new recharge_node();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1:
+            message.count = reader.uint64();
+            break;
+
+          case 2:
+            message.deadlines = reader.uint64();
+            break;
+
+          case 3:
+            message.revision = reader.uint64();
+            break;
+
+          case 4:
+            message.floor = reader.uint64();
+            break;
+
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    count: u64;
+    deadlines: u64;
+    revision: u64;
+    floor: u64;
+
+    constructor(
+      count: u64 = 0,
+      deadlines: u64 = 0,
+      revision: u64 = 0,
+      floor: u64 = 0
+    ) {
+      this.count = count;
+      this.deadlines = deadlines;
+      this.revision = revision;
+      this.floor = floor;
+    }
+  }
+
+  @unmanaged
+  export class activate_recharge_arguments {
+    static encode(message: activate_recharge_arguments, writer: Writer): void {}
+
+    static decode(reader: Reader, length: i32): activate_recharge_arguments {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new activate_recharge_arguments();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    constructor() {}
+  }
+
+  @unmanaged
+  export class activate_recharge_result {
+    static encode(message: activate_recharge_result, writer: Writer): void {}
+
+    static decode(reader: Reader, length: i32): activate_recharge_result {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new activate_recharge_result();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    constructor() {}
+  }
+
+  @unmanaged
+  export class recharge_activated_event {
+    static encode(message: recharge_activated_event, writer: Writer): void {
+      if (message.resource_version != 0) {
+        writer.uint32(8);
+        writer.uint32(message.resource_version);
+      }
+
+      if (message.activation_block != 0) {
+        writer.uint32(16);
+        writer.uint64(message.activation_block);
+      }
+
+      if (message.activation_time != 0) {
+        writer.uint32(24);
+        writer.uint64(message.activation_time);
+      }
+
+      if (message.recharge_blocks != 0) {
+        writer.uint32(32);
+        writer.uint64(message.recharge_blocks);
+      }
+
+      if (message.free_units != 0) {
+        writer.uint32(40);
+        writer.uint64(message.free_units);
+      }
+    }
+
+    static decode(reader: Reader, length: i32): recharge_activated_event {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new recharge_activated_event();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1:
+            message.resource_version = reader.uint32();
+            break;
+
+          case 2:
+            message.activation_block = reader.uint64();
+            break;
+
+          case 3:
+            message.activation_time = reader.uint64();
+            break;
+
+          case 4:
+            message.recharge_blocks = reader.uint64();
+            break;
+
+          case 5:
+            message.free_units = reader.uint64();
+            break;
+
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    resource_version: u32;
+    activation_block: u64;
+    activation_time: u64;
+    recharge_blocks: u64;
+    free_units: u64;
+
+    constructor(
+      resource_version: u32 = 0,
+      activation_block: u64 = 0,
+      activation_time: u64 = 0,
+      recharge_blocks: u64 = 0,
+      free_units: u64 = 0
+    ) {
+      this.resource_version = resource_version;
+      this.activation_block = activation_block;
+      this.activation_time = activation_time;
+      this.recharge_blocks = recharge_blocks;
+      this.free_units = free_units;
     }
   }
 }
