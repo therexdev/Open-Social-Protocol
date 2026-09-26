@@ -1,0 +1,136 @@
+{
+  "network": "harbinger",
+  "token": "1GxCaDA9kq6kKHtUxUEBs6boF1s5gX76fS",
+  "runId": "36280995338",
+  "sourceCommit": "91903d00f48c6d65f3ceace9af8af84d064e6fd9",
+  "before": [
+    {
+      "account": "1WhPkYjyS1ChEKmbxNAyFUHLuRVQCjNMF",
+      "value": "20",
+      "state": {
+        "balance": "1",
+        "free_credits": "100000",
+        "token_credits": "1000",
+        "updated_at": "1790467046880",
+        "resource_version": 2,
+        "block": "8717292",
+        "free_ticks": "14400000",
+        "token_ticks": "144000",
+        "transferable": "1",
+        "locked": "0",
+        "recharge_blocks": "144000",
+        "ticks_per_unit": "144000"
+      }
+    },
+    {
+      "account": "1EiR6tc8jtVK6boR5w1chjq17XEXXHiNk4",
+      "value": "20",
+      "state": {
+        "balance": "0",
+        "free_credits": "99034",
+        "token_credits": "0",
+        "updated_at": "1790467047530",
+        "resource_version": 2,
+        "block": "8717293",
+        "free_ticks": "14261021",
+        "token_ticks": "0",
+        "transferable": "0",
+        "locked": "0",
+        "recharge_blocks": "144000",
+        "ticks_per_unit": "144000"
+      }
+    }
+  ],
+  "txId": "0x1220aa0acd625de83415886ff32d8f0f6975955aad8b427b8a7e62aabb2473bc5d77",
+  "receipt": {
+    "id": "0x1220aa0acd625de83415886ff32d8f0f6975955aad8b427b8a7e62aabb2473bc5d77",
+    "payer": "19C9kF7uBC2a3kWY5iXF4zpWhzahGCmeJd",
+    "max_payer_rc": "5370732138",
+    "rc_limit": "15457251",
+    "rc_used": "14041944",
+    "disk_storage_used": "174",
+    "network_bandwidth_used": "444",
+    "compute_bandwidth_used": "2487636",
+    "events": [
+      {
+        "source": "1GxCaDA9kq6kKHtUxUEBs6boF1s5gX76fS",
+        "name": "osp.token.account_updated",
+        "data": "ChkABZ3H2JfyJ06ToEGfoNmdD4q8_pl86mkqEiwIFRCgjQYYiKQBIOqAnIGONCgCMO2HlAQ4gPTuBkCAybgBSBVYgOUIYIDlCBjqgJyBjjQ=",
+        "impacted": [
+          "1WhPkYjyS1ChEKmbxNAyFUHLuRVQCjNMF"
+        ]
+      },
+      {
+        "sequence": 1,
+        "source": "1GxCaDA9kq6kKHtUxUEBs6boF1s5gX76fS",
+        "name": "osp.token.test_tokens_granted",
+        "data": "ChkABZ3H2JfyJ06ToEGfoNmdD4q8_pl86mkqEBQYFCDqgJyBjjQ=",
+        "impacted": [
+          "1WhPkYjyS1ChEKmbxNAyFUHLuRVQCjNMF"
+        ]
+      },
+      {
+        "sequence": 2,
+        "source": "1GxCaDA9kq6kKHtUxUEBs6boF1s5gX76fS",
+        "name": "osp.token.account_updated",
+        "data": "ChkAlm7O_yw9_UoLT8dKV_0uM3eEmGY6fwXdEiwIFBDahQYYoJwBIOqAnIGONCgCMO2HlAQ4nbbmBkCA5K8BSBRYgOUIYIDlCBjqgJyBjjQ=",
+        "impacted": [
+          "1EiR6tc8jtVK6boR5w1chjq17XEXXHiNk4"
+        ]
+      },
+      {
+        "sequence": 3,
+        "source": "1GxCaDA9kq6kKHtUxUEBs6boF1s5gX76fS",
+        "name": "osp.token.test_tokens_granted",
+        "data": "ChkAlm7O_yw9_UoLT8dKV_0uM3eEmGY6fwXdEBQYFCDqgJyBjjQ=",
+        "impacted": [
+          "1EiR6tc8jtVK6boR5w1chjq17XEXXHiNk4"
+        ]
+      }
+    ]
+  },
+  "block": {
+    "blockId": "0x1220d8fc552a1453846e1e5e7fb39ae76104c7d28702aafad09535c54a8aec0932db",
+    "blockNumber": 8717295
+  },
+  "after": [
+    {
+      "account": "1WhPkYjyS1ChEKmbxNAyFUHLuRVQCjNMF",
+      "granted": "20",
+      "state": {
+        "balance": "21",
+        "free_credits": "100000",
+        "token_credits": "21000",
+        "updated_at": "1790467051350",
+        "resource_version": 2,
+        "block": "8717296",
+        "free_ticks": "14400000",
+        "token_ticks": "3024000",
+        "transferable": "21",
+        "locked": "0",
+        "recharge_blocks": "144000",
+        "ticks_per_unit": "144000"
+      }
+    },
+    {
+      "account": "1EiR6tc8jtVK6boR5w1chjq17XEXXHiNk4",
+      "granted": "20",
+      "state": {
+        "balance": "20",
+        "free_credits": "99034",
+        "token_credits": "20000",
+        "updated_at": "1790467051350",
+        "resource_version": 2,
+        "block": "8717296",
+        "free_ticks": "14261024",
+        "token_ticks": "2880000",
+        "transferable": "20",
+        "locked": "0",
+        "recharge_blocks": "144000",
+        "ticks_per_unit": "144000"
+      }
+    }
+  ],
+  "verifiedAt": "2026-09-26T23:57:28.251Z",
+  "workflow": "https://github.com/therexdev/Open-Social-Protocol/actions/runs/36280995338"
+}
