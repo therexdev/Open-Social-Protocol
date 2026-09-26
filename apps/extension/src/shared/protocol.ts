@@ -82,12 +82,16 @@ export type PostContentStatus = "plain" | "decrypted" | "tombstone" | "hidden" |
 export interface FeedItem {
   postId: string;
   author: string;
+  authorName?: string;
+  viewer?: string;
   audience: number;
   epoch: number;
   createdAt: string;
   versionNumber: number;
   status: PostContentStatus;
   text?: string;
+  media?: Array<{ mime?: string; locations?: string[]; alt_text?: string; size?: string }>;
+  liked?: boolean;
   externalRef?: string;
   message?: string;
   reactions: number;
@@ -162,7 +166,10 @@ export interface CreatePayload {
 
 export interface FeedRequestReply {
   enabled: boolean;
-  items: Array<{ postId: string; author: string; text: string; createdAt: string }>;
+  /** Only public identifiers cross into the host page. Content stays inside extension frames. */
+  items: Array<{ postId: string }>;
+  nextCursor: string | null;
+  notice?: string;
 }
 
 // ---------------------------------------------------------------------------

@@ -126,8 +126,17 @@ export function OptionsApp() {
             checked={adapters.feedInsertion}
             onChange={(e) => act(e.target.checked ? "Labeled feed cards enabled." : "Labeled feed cards disabled.", () => rpc("settings.update", { patch: { feedInsertion: e.target.checked } }))}
           />
-          <span>Show a labeled "Open Social Protocol posts" box (up to 5 public posts) at the top of the Facebook feed (off by default)</span>
+          <span>Show Open Social post cards in the Facebook feed: latest five first, then more as you scroll</span>
         </label>
+        <label style={{ marginTop: 12 }}>
+          <span className="lbl">Posts to include in Facebook</span>
+          <select disabled={!adapters.feedInsertion} value={form.feedScope ?? "all"} onChange={(e) => act("Facebook feed updated.", () => rpc("settings.update", { patch: { feedScope: e.target.value } }))}>
+            <option value="all">Everyone and friends</option>
+            <option value="public">Everyone</option>
+            <option value="friends">Friends</option>
+          </select>
+        </label>
+        <p className="muted">Friends-only posts require the extension to be unlocked. Post actions open the original post on Open Social.</p>
       </section>
 
       <section className="card">
@@ -229,7 +238,7 @@ export function OptionsApp() {
       <section className="card">
         <h2>About and security model</h2>
         <ul className="muted">
-          <li>Keys never enter a web page. The Facebook adapter runs in the isolated world and can only send the composer text and a feed request to the service worker.</li>
+          <li>Keys stay in the extension. Facebook receives only post identifiers; friends-only text is displayed in protected extension frames. The adapter can only propose a composer draft or request feed identifiers.</li>
           <li>Signing and encryption happen in the service worker. Pages (side panel, this page) and content scripts talk to it through validated messages only.</li>
           <li>By default this browser holds a 30-day device key with publish / react / comment / relationships capabilities, plus the reading key. The identity seed is not kept unless you chose so.</li>
           <li>Every publication needs an explicit confirmation in the side panel showing the audience and the permanence notice.</li>

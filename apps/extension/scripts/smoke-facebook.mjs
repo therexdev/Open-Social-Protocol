@@ -4,20 +4,21 @@ import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import { JSDOM } from "jsdom";
 
-const dom = new JSDOM('<body><div role="main"></div></body>', { url: "https://www.facebook.com/", pretendToBeVisual: true });
+const dom = new JSDOM('<body><div role="main"><div role="feed"><div role="article">Facebook post</div></div></div></body>', { url: "https://www.facebook.com/", pretendToBeVisual: true });
 const listeners = new Set();
 const requests = [];
 const timers = new Set();
 let feedEnabled = false;
-const chrome = { runtime: { id: "smokeextensionid", onMessage: { addListener: (fn) => listeners.add(fn), removeListener: (fn) => listeners.delete(fn) },
+const chrome = { runtime: { id: "smokeextensionid", getURL: (path) => `chrome-extension://smokeextensionid/${path}`, onMessage: { addListener: (fn) => listeners.add(fn), removeListener: (fn) => listeners.delete(fn) },
   sendMessage: async (message) => {
     requests.push(message);
-    return { ok: true, result: message.type === "feed.request" ? { enabled: feedEnabled, items: [{ postId: "1", author: "publicauthor", text: "A public Open Social post" }] } : { queued: true } };
+    return { ok: true, result: message.type === "feed.request" ? { enabled: feedEnabled, items: [{ postId: "q".repeat(43) + "=" }], nextCursor: null } : { queued: true } };
   },
 } };
 const context = vm.createContext({ document: dom.window.document, location: dom.window.location, navigator: dom.window.navigator, chrome,
   crypto: globalThis.crypto, MutationObserver: dom.window.MutationObserver,
   requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
+  setInterval: (fn, ms) => { const id = setInterval(fn, ms); timers.add(id); return id; }, clearInterval, URL,
   setTimeout: (fn, ms) => { const id = setTimeout(fn, ms); timers.add(id); return id; }, clearTimeout,
 }, { codeGeneration: { strings: false, wasm: false } });
 const script = new vm.Script(readFileSync(new URL("../dist/content/facebook.js", import.meta.url), "utf8"));
@@ -67,6 +68,6 @@ try {
   console.log("dist Facebook smoke passed (repeat injection, late composer, explicit opt-in, live feed toggle, stop/re-enable; isolated realm)");
 } finally {
   stop();
-  for (const id of timers) clearTimeout(id);
+  for (const id of timers) { clearTimeout(id); clearInterval(id); }
   dom.window.close();
 }

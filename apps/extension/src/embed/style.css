@@ -1,0 +1,7 @@
+/* The website's actual card stylesheet is imported first; only the frame canvas is different. */
+html, body { margin: 0; padding: 0; min-width: 0; background: transparent; }
+body { overflow: hidden; min-height: 0; }
+#root { padding: 3px; }
+.post { margin: 0; }
+.osp-source { margin-left: auto; font-size: 11px; color: var(--muted); text-decoration: none; }
+.post-footer a { color: var(--text); }

@@ -247,6 +247,7 @@ export function createBackground(options: BackgroundOptions): Background {
     autoLockMinutes: optional(num({ min: 0, max: 24 * 60 })),
     facebookAdapter: optional(bool()),
     feedInsertion: optional(bool()),
+    feedScope: optional(oneOf(["public", "friends", "all"] as const)),
   });
 
   const handlers: Handlers = {
@@ -345,6 +346,15 @@ export function createBackground(options: BackgroundOptions): Background {
       validate: obj({ scope: oneOf(["public", "friends"] as const), cursor: optional(str({ max: 512 })), limit: optional(num({ min: 1, max: 50, int: true })), refresh: optional(bool()) }),
       handle: async (p): Promise<FeedPage> => feed.page(p.scope, p.cursor, { limit: p.limit, refresh: p.refresh }),
     }),
+    "embed.post": defineHandler({
+      source: "embed",
+      validate: obj({ postId: str({ min: 43, max: 44, pattern: /^[A-Za-z0-9_-]{43}=?$/ }) }),
+      handle: async (p) => {
+        const settings = await loadSettings();
+        if (!settings.facebookAdapter || !settings.feedInsertion) return { enabled: false };
+        return { enabled: true, item: await feed.card(p.postId) };
+      },
+    }),
     "crosspost.list": defineHandler({
       source: "extension",
       validate: empty,
@@ -419,15 +429,11 @@ export function createBackground(options: BackgroundOptions): Background {
     }),
     "feed.request": defineHandler({
       source: "content",
-      validate: obj({ limit: optional(num({ min: 1, max: 5, int: true })) }),
+      validate: obj({ limit: optional(num({ min: 1, max: 20, int: true })), cursor: optional(str({ max: 512 })) }),
       handle: async (p): Promise<FeedRequestReply> => {
         const settings = await loadSettings();
-        if (!settings.feedInsertion || !settings.facebookAdapter) return { enabled: false, items: [] };
-        try {
-          return { enabled: true, items: await feed.publicPreview(p.limit ?? 5) };
-        } catch {
-          return { enabled: true, items: [] };
-        }
+        if (!settings.feedInsertion || !settings.facebookAdapter) return { enabled: false, items: [], nextCursor: null };
+        return { enabled: true, ...await feed.references(settings.feedScope, p.cursor, p.limit ?? 5) };
       },
     }),
   };
@@ -451,7 +457,7 @@ export function createBackground(options: BackgroundOptions): Background {
     handle: async (message, sender) => {
       const reply = await baseHandle(message, sender);
       const type = (message as { type?: string } | null)?.type;
-      if (reply.ok && typeof type === "string" && type.startsWith("vault.") === false && sender.id === options.runtimeId) void vault.touch();
+      if (reply.ok && typeof type === "string" && !type.startsWith("vault.") && !type.startsWith("embed.") && sender.origin === `chrome-extension://${options.runtimeId}`) void vault.touch();
       return reply;
     },
     listener(message, sender, sendResponse) {

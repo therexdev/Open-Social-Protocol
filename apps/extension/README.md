@@ -29,13 +29,16 @@ runtime), `public/icons/*`. Everything is bundled; nothing is loaded from the ne
 To update an unpacked installation, replace the files in the **same folder** you originally loaded,
 then click **Reload** on its card in `chrome://extensions` (or `brave://extensions`). Keep the
 existing installation to preserve its local account/settings. Refresh Facebook after an extension
-upgrade so the page uses the new content script. Check version **0.1.1** in extension Settings.
+upgrade so the page uses the new content script. Check version **0.1.2** in extension Settings.
 
 When Facebook is enabled, existing granted Facebook tabs are attached immediately. Look for
 **Open Social enabled** at the bottom left; expand it for instructions. The cross-post checkbox
-appears in Facebook's **Create post** dialog. The separate **Show a labeled Open Social Protocol
-posts box** option controls feed insertion and is off by default. Enable it to see public posts in
-Facebook's feed. Neither action publishes without confirmation in the extension's Queue tab.
+appears in Facebook's **Create post** dialog. The separate **Show Open Social post cards in the Facebook feed** option is off by default. Choose
+Everyone, Friends, or both. The latest five cards appear before the first Facebook post, with more
+interleaved after every three Facebook posts as you scroll. New posts are checked every 30 seconds
+while the tab is visible and inserted ahead of the reader, without prepending above their position.
+Friends-only content requires an unlocked extension. Support, Like, and Reply open the original
+post on Open Social. Cross-posting still requires confirmation in the extension’s Queue tab.
 
 Without `deployments/harbinger.json` (produced by the deploy-testnet workflow) the extension still
 builds, installs and starts: the side panel reports the network as **not deployed** and stays in
@@ -65,7 +68,7 @@ Every message is `{ type, payload? }` (no other keys); every reply is `{ ok: tru
 | Sender | Types |
 | --- | --- |
 | Side panel / options | `vault.status|touch|create|import|unlock|lock|export|destroy`, `device.authorize|status`, `settings.get|update`, `adapter.status|enable|disable`, `feed.get`, `crosspost.list|create|confirm|retry|reconcile|markHost|recordProof|discard`, `page.current` |
-| Facebook content script (granted origin, top frame, user gesture) | `crosspost.propose` `{ hostSite: "facebook", text, attemptId, url, submitted, userGesture }`, `feed.request` `{ limit? }` |
+| Facebook content script (granted origin, top frame, user gesture) | `crosspost.propose` `{ hostSite: "facebook", text, attemptId, url, submitted, userGesture }`, `feed.request` `{ limit?, cursor? }` (IDs only) |
 
 ### Storage layout
 
@@ -119,10 +122,11 @@ or button text matching `/^(post|publish)$/i`, or an explicit submit button). It
 unrelated last button is Post. When the checkbox is on and the user activates the
 submit control it sends `{ type: "crosspost.propose", payload: { hostSite, text, attemptId, url, submitted, userGesture } }`
 (a fresh 16-byte attempt id per activation, de-duplicated for 2 s, `url` read at proposal time because Facebook navigates
-client-side) and shows "Sent to Open Social - confirm in the side panel"; the service worker stores a **draft** and sets the action badge. If composer detection fails, the page still shows the extension's enabled indicator and the side panel composer remains available. `src/content/feedCards.ts` (off by default) inserts one labeled
-container "Open Social Protocol posts" (text only, up to 5 public posts) at the top of `[role="feed"]`, `main`, or `[role="main"]`; it asks
-the worker (`feed.request`) once per page/settings refresh and only when such a feed root exists. Settings changes refresh existing tabs; disabling or revoking access stops the adapter and removes its UI/listeners. In-flight feed replies are invalidated on stop/refresh. The content script is built as a
-self-contained classic script (`scripts/build-content.mjs`, IIFE) because runtime-registered scripts cannot be modules.
+client-side) and shows "Sent to Open Social - confirm in the side panel"; the service worker stores a **draft** and sets the action badge. If composer detection fails, the page still shows the extension's enabled indicator and the side panel composer remains available. `src/content/feedCards.ts` (off by default) finds the vertical post lane from explicit feed roles or repeated post containers; it never prepends to the horizontal main layout. It renders the latest five cards first, paginates after groups of three host posts, and polls for new arrivals every 30 seconds while visible. Post IDs are deduplicated; route changes and recycled post lanes reset stale cursors. New cards are placed ahead of the reader, not above the current viewport. Network failures retry, and stop/refresh invalidate pending responses.
+
+Each card is a `src/embed/index.html` iframe using the website's actual stylesheet. Only this HTML entry is web-accessible, only to the granted Facebook origins. Its `embed.post` message is separately classified and read-only: the worker returns chain-verified/decrypted content directly to the extension frame. The Facebook document and content script receive only post IDs and sizing messages, never plaintext private content or keys. Embedded frames cannot call vault, settings, feed-page or signing APIs. Lock/session changes clear displayed content, and background feed polling does not keep the vault unlocked. Visible cards refresh metadata every 30 seconds; offscreen cards pause their refreshes. Media is opt-in, URLs are restricted to HTTP(S), and post actions open the original post with `noopener`.
+
+Settings changes refresh existing tabs; disabling or revoking access stops the adapter and removes its UI/listeners. The content script is built as a self-contained classic script (`scripts/build-content.mjs`, IIFE).
 
 Fixtures under `src/content/__fixtures__/` (`composer.html`, `no-composer.html`) drive `src/content/adapter.test.ts`:
 exactly one composer control is injected, the submit hook reads the composer text only, and a page without a composer gets only the enabled indicator (plus feed cards if requested).
@@ -130,7 +134,7 @@ exactly one composer control is injected, the submit hook reads the composer tex
 ## Tests
 
 The build also runs the **shipped bundles** in fresh realms. `scripts/smoke-pages.mjs` renders Feed,
-Compose, review/cancel, Queue, Compose again, and options with string code generation forbidden.
+Compose, review/cancel, Queue, Compose again, options, and embedded cards with string code generation forbidden; the card check verifies name, audience, action links, unsafe media rejection, resize messages and plaintext removal on lock.
 It deliberately does not borrow the worker/unit-test protobuf initialization. `scripts/smoke-facebook.mjs`
 executes the built classic script and tests repeated injection, late composer detection, opt-in draft
 capture, feed changes, and stop/re-enable. These are DOM simulations, not authenticated Facebook acceptance tests.
@@ -188,3 +192,5 @@ vault create/lock round trip through the real bundle.
 Experience principles: no seed/Mana wording in the default journey ("account", "friends", "post"); explicit consent
 for every publication and every site permission; local privacy (all crypto in the worker); portability (identity
 file, endpoints in options); honest revocation text on friends-only confirmations; provenance labels on injected content.
+
+Local visual fixture: after building, run `node apps/extension/scripts/preview-feed.mjs` from the repository root, then open `http://127.0.0.1:4188`. The fixture uses distinct host/card origins and simulated posts; it makes no real transactions. Authenticated Facebook layout acceptance remains a separate manual check.

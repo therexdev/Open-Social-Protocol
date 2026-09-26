@@ -88,9 +88,11 @@ export function toFeedItem(post: PostView, opened: OpenedPost): FeedItem {
     versionNumber: post.versionNumber,
     status: opened.status,
     ...(opened.content?.text !== undefined && { text: opened.content.text }),
+    ...(opened.content?.media && { media: opened.content.media.map((item) => ({ mime: item.mime, locations: item.locations, alt_text: item.alt_text, ...(item.size !== undefined && { size: String(item.size) }) })) }),
     ...(opened.content?.external_ref && { externalRef: opened.content.external_ref }),
     ...(opened.message && { message: opened.message }),
     reactions: post.reactions?.total ?? 0,
+    liked: (post.reactions?.viewer ?? []).includes(1),
     replyCount: post.replyCount ?? 0,
     labels: (post.labels ?? []).map((label) => ({ communityId: label.communityId, label: label.label, reason: label.reason })),
   };

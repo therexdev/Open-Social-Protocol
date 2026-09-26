@@ -21,6 +21,7 @@ export interface Settings {
   facebookAdapter: boolean;
   /** Labeled protocol posts inserted into the host feed (off by default). */
   feedInsertion: boolean;
+  feedScope: "public" | "friends" | "all";
 }
 
 export const SETTINGS_KEY = "osp.settings";
@@ -35,6 +36,7 @@ export function defaultSettings(env: EnvDefaults = ENV): Settings {
     autoLockMinutes: 15,
     facebookAdapter: false,
     feedInsertion: false,
+    feedScope: "all",
   };
 }
 
@@ -59,6 +61,7 @@ export function sanitizeSettings(raw: unknown, defaults: Settings = defaultSetti
     autoLockMinutes: autoLock,
     facebookAdapter: r.facebookAdapter === true,
     feedInsertion: r.feedInsertion === true,
+    feedScope: r.feedScope === "public" || r.feedScope === "friends" ? r.feedScope : "all",
   };
 }
 

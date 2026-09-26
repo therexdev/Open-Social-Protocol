@@ -73,7 +73,7 @@ export function presetRpc(network: string, deployments: Record<string, Deploymen
 }
 
 export const APP_NAME = "Open Social Protocol";
-export const APP_VERSION = "0.1.1";
+export const APP_VERSION = "0.1.2";
 export const DEVICE_LABEL = "Chrome extension";
 /** Device authorizations last 30 days (spec section 3.1: devices carry an expiry). */
 export const DEVICE_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000;

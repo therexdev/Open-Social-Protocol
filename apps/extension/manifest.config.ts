@@ -9,7 +9,7 @@ import { defineManifest } from "@crxjs/vite-plugin";
 export default defineManifest({
   manifest_version: 3,
   name: "Open Social Protocol",
-  version: "0.1.1",
+  version: "0.1.2",
   description: "Encrypted social protocol on Koinos: feed and composer in the side panel, optional labeled cross-posting from Facebook.",
   minimum_chrome_version: "116",
   icons: {
@@ -33,6 +33,7 @@ export default defineManifest({
     default_path: "src/sidepanel/index.html",
   },
   options_page: "src/options/index.html",
+  web_accessible_resources: [{ resources: ["src/embed/index.html"], matches: ["https://www.facebook.com/*", "https://web.facebook.com/*"] }],
   permissions: ["storage", "sidePanel", "scripting", "alarms", "activeTab"],
   optional_host_permissions: ["https://www.facebook.com/*", "https://web.facebook.com/*"],
   content_security_policy: {

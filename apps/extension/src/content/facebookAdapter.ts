@@ -114,7 +114,7 @@ export function startFacebookAdapter(runtime: AdapterRuntime = defaultRuntime())
     const summary = doc.createElement("summary");
     summary.textContent = "Open Social enabled";
     const hint = doc.createElement("p");
-    hint.textContent = 'Open Facebook’s Create post dialog for the “Also publish to Open Social Protocol” checkbox. Confirm the draft in the extension’s Queue tab. To see public Open Social posts here, enable the feed box in extension Settings.';
+    hint.textContent = 'Open Facebook’s Create post dialog for the “Also publish to Open Social Protocol” checkbox. Confirm the draft in the extension’s Queue tab. Enable Open Social post cards in Settings to see posts throughout your Facebook feed.';
     status.append(summary, hint);
     (doc.body ?? root).append(status);
   }

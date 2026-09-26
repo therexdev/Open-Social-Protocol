@@ -13,10 +13,14 @@ const status = { status: "unlocked", account: "1SmokeAccount", deviceAuthorized:
   network: { name: "harbinger", deployed: true, indexerUrl: "" }, pending: 0, autoLockMinutes: 15 };
 
 async function smoke(page, exercise) {
-  const dom = new JSDOM(readFileSync(path.join(dist, page), "utf8"), { url: `https://extension.test/${page}`, pretendToBeVisual: true });
+  const dom = new JSDOM(readFileSync(path.join(dist, page), "utf8"), { url: `https://extension.test/${page}#post=${"q".repeat(43)}%3D&host=https%3A%2F%2Fwww.facebook.com`, referrer: "https://www.facebook.com/", pretendToBeVisual: true });
   const calls = [];
   const errors = [];
   const timers = new Set();
+  const storageListeners = new Set();
+  const resizeMessages = [];
+  let item = { postId: "q".repeat(43) + "=", author: "1Author", authorName: "Jim Profits", viewer: "1Viewer", audience: 1,
+    epoch: 1, createdAt: String(Date.now() - 60000), versionNumber: 1, status: "decrypted", text: "Private friend text", reactions: 2, replyCount: 1, labels: [], media: [{ mime: "image/png", locations: ["javascript:alert(1)"], alt_text: "Unsafe link" }] };
   dom.window.addEventListener("error", (event) => { errors.push(event.error); event.preventDefault(); });
   const chrome = { runtime: { openOptionsPage: async () => {}, sendMessage: async ({ type, payload }) => {
     calls.push({ type, payload });
@@ -29,16 +33,19 @@ async function smoke(page, exercise) {
       case "crosspost.discard": result = {}; break;
       case "settings.get": result = { settings: { rpcUrls: [], sponsorUrls: [], network: "harbinger" }, resolved: { network: "harbinger", deployed: true, rpcUrls: [], sponsorUrls: [] }, networks: ["harbinger"] }; break;
       case "adapter.status": result = { facebook: { wanted: false, granted: false, registered: false }, feedInsertion: false }; break;
+      case "embed.post": result = { enabled: true, item }; break;
       default: throw new Error(`Unexpected page RPC: ${type}`);
     }
     return { ok: true, result };
-  } } };
+  } }, storage: { onChanged: { addListener: (fn) => storageListeners.add(fn), removeListener: (fn) => storageListeners.delete(fn) } } };
   const context = vm.createContext({
     window: dom.window, document: dom.window.document, navigator: dom.window.navigator,
     MutationObserver: dom.window.MutationObserver, HTMLElement: dom.window.HTMLElement,
     HTMLIFrameElement: dom.window.HTMLIFrameElement,
     Event: dom.window.Event, TextEncoder, TextDecoder, Uint8Array, ArrayBuffer,
-    URL, URLSearchParams, crypto: globalThis.crypto, chrome,
+    URL, URLSearchParams, crypto: globalThis.crypto, chrome, location: dom.window.location,
+    parent: { postMessage: (message, origin) => resizeMessages.push({ message, origin }) },
+    ResizeObserver: class { constructor(fn) { this.fn = fn; } observe() { this.fn(); } disconnect() {} },
     fetch: async (url) => { assert.ok(String(url).startsWith("https://extension.test/"), "Only module preloads may fetch in the page test"); return {}; },
     console: { ...console, error: (...args) => errors.push(args.map(String).join(" ")) },
     performance, queueMicrotask,
@@ -66,7 +73,10 @@ async function smoke(page, exercise) {
     const settle = () => new Promise((resolve) => setTimeout(resolve, 60));
     const button = (label) => [...dom.window.document.querySelectorAll("button")].find((b) => b.textContent.trim() === label);
     await settle();
-    await exercise({ dom, calls, button, settle, errors });
+    await exercise({ dom, calls, button, settle, errors, resizeMessages, lock: () => {
+      item = { ...item, status: "locked", text: undefined, media: undefined, message: "Unlock to read this post." };
+      for (const fn of storageListeners) fn({ "osp.session": { newValue: undefined } }, "session");
+    } });
     assert.deepEqual(errors, [], `${page}: render errors`);
   } finally {
     for (const id of timers) { clearTimeout(id); clearInterval(id); }
@@ -102,4 +112,21 @@ await smoke(manifest.side_panel.default_path, async ({ dom, calls, button, settl
 await smoke(manifest.options_page, async ({ dom }) => {
   assert.ok(dom.window.document.body.textContent.includes("Facebook adapter"), "Options page must render");
 });
-console.log(`dist page smoke passed (${manifest.version}: Feed → Compose → review/cancel → Queue → Compose, plus options; eval disabled in independent page realms)`);
+await smoke("src/embed/index.html", async ({ dom, calls, settle, lock, resizeMessages }) => {
+  const doc = dom.window.document;
+  assert.ok(doc.querySelector(".post-author")?.textContent.includes("Jim Profits"));
+  assert.ok(doc.querySelector(".chip-friends")?.textContent.includes("Friends"));
+  assert.ok(doc.querySelector(".post-text")?.textContent.includes("Private friend text"));
+  assert.equal(doc.querySelector('a[href^="javascript:"]'), null);
+  assert.equal(doc.querySelector("img"), null, "Media must not load without opting in");
+  assert.ok([...doc.querySelectorAll(".post-footer a")].every((a) => a.target === "_blank" && a.href.startsWith("https://opensocial.online/post/")));
+  assert.equal(calls.every((call) => call.type === "embed.post"), true, "Embedded cards only perform read-only calls");
+  assert.ok(resizeMessages.length > 0);
+  assert.equal(resizeMessages[0].origin, "https://www.facebook.com");
+  assert.equal(JSON.stringify(resizeMessages).includes("Private friend text"), false);
+  lock();
+  await settle();
+  assert.equal(doc.body.textContent.includes("Private friend text"), false, "Lock must remove decrypted text");
+  assert.ok(doc.body.textContent.includes("Unlock to read"));
+});
+console.log(`dist page smoke passed (${manifest.version}: panel navigation, options and embedded post/lock; eval disabled in independent realms)`);
