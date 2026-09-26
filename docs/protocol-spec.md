@@ -356,6 +356,11 @@ claimed. Seed/key compromise can expose earlier retained ciphertext. Metadata re
 
 ### Action token and capacity
 
+This section describes the deployed v1 pilot. The accepted v2 direction—shared
+five-day per-unit recharge, reward voting and promotion burns—is recorded in
+[ADR 0008](adr/0008-token-v2-shared-recharge.md). Its resource reference model is
+implemented; it does not change this deployment's contract behavior.
+
 `token.support` consumes one action credit and rewards the stored author of an active post,
 subject to anti-self-support, block, uniqueness, daily recipient/global and total-supply limits.
 SUPPORT is device capability bit 128. Token transfer and burn always resolve owner authority;

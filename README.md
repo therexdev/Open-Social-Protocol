@@ -36,6 +36,12 @@ Testnet pilot implementation (protocol v1, Koinos Harbinger). Cryptography, cont
 and resource figures require independent review before any mainnet use. See
 `docs/protocol-spec.md` for the normative rules and `docs/adr/` for design decisions.
 
+Token v2 now has an [accepted design direction](docs/adr/0008-token-v2-shared-recharge.md)
+and an executable reference model for shared five-day action/voting recharge and
+token locks. [Implementation status](docs/token-v2-implementation.md) separates the
+tested model from pending contract, reward and promotion integration. Run
+`npm run test:token-v2` and `npm run simulate:token-v2`; the live pilot still uses v1.
+
 ## Quick start
 
 ```sh

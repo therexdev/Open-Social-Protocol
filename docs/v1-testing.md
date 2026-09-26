@@ -48,6 +48,9 @@ recovery files before proceeding. Test accounts and tokens have no monetary valu
 
 ## Pilot token rules
 
+These are the current v1 rules. The [v2 design and reference model](adr/0008-token-v2-shared-recharge.md)
+introduce a different recharge/locking direction; no v2 contract is deployed yet.
+
 The test token is OSAT, with whole-token precision. These are explicit **pilot defaults**,
 not approved mainnet economics: 100 free actions per account, one extra action of capacity
 per token, 24-hour full regeneration, one token per eligible Support action, at most
