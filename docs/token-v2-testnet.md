@@ -92,3 +92,16 @@ bootstrap, upgrades only `token`, verifies deployed code and policy, and retains
 the deployment record and client artifacts. Normal development/PR pushes do not
 deploy. Local command: `node --import tsx scripts/deploy-contracts.ts --network
 harbinger --only token` with the existing repository deployment credentials.
+
+## Release validation record
+
+Source implementation: `ec0be63f0827cd466b3e521a0f826e92a7430839`.
+Local release token WASM SHA-256:
+`4dfc996cfc1f072017863eeb710d1812d6780689b882505cda8d7d3101ab2293`.
+All workspaces built successfully. Local validation passed 894 tests, with two
+existing skipped web tests. The token contract passed all 19 focused tests;
+the release runtime completed 45 successful bootstrap calls.
+
+These are pre-deployment results. The rollout workflow must separately verify
+the deployed code, resource version and live two-account journey before testers
+are told the upgrade is active.
