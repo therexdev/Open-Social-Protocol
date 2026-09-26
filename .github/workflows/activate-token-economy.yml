@@ -5,9 +5,6 @@ name: activate-token-economy
 on:
   push:
     branches: [codex/token-economy-activation]
-    paths-ignore:
-      - 'deployments/**'
-      - 'docs/**'
   workflow_dispatch:
 
 permissions:
