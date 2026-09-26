@@ -1,0 +1,35 @@
+# Open Social Protocol web client - single page application rewrite (Apache / LiteSpeed).
+# Every path that is not an existing file or directory is served by index.html so that
+# deep links such as /post/<id> or /u/<account> work after a reload.
+Options -MultiViews
+RewriteEngine On
+RewriteBase /
+
+# Use one browser origin on the opensocial.online deployment so the saved account
+# and passkeys are not split between the www and apex hostnames. Other hosts keep
+# working, including the old site while users export their identity files.
+RewriteCond %{HTTP_HOST} ^www\.opensocial\.online$ [NC]
+RewriteRule ^ https://opensocial.online%{REQUEST_URI} [R=301,L,NE]
+
+RewriteRule ^index\.html$ - [L]
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule . /index.html [L]
+
+# Hashed assets can be cached for a long time; index.html must not be.
+<IfModule mod_headers.c>
+  <FilesMatch "\.(js|css|svg|woff2?)$">
+    Header set Cache-Control "public, max-age=31536000, immutable"
+  </FilesMatch>
+  <FilesMatch "index\.html$">
+    Header set Cache-Control "no-cache"
+  </FilesMatch>
+</IfModule>
+
+# Always check for app updates; hashed assets retain their immutable cache policy.
+<IfModule mod_headers.c>
+  <FilesMatch "^(sw\.js|manifest\.webmanifest|favicon\.svg|.*\.png)$">
+    Header set Cache-Control "no-cache"
+  </FilesMatch>
+</IfModule>
+AddType application/manifest+json .webmanifest

@@ -1,0 +1,16 @@
+{
+  "id": "/", "name": "Open Social", "short_name": "Open Social",
+  "description": "Your people. Your posts. Yours. A social network built on an open protocol.",
+  "lang": "en", "start_url": "/", "scope": "/", "display": "standalone",
+  "background_color": "#f5f6fa", "theme_color": "#4f46e5",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Find people", "url": "/people" },
+    { "name": "Your profile", "url": "/me" },
+    { "name": "New post", "url": "/compose" }
+  ]
+}
