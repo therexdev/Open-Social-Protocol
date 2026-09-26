@@ -100,7 +100,7 @@ instead of silently replaying a submitted action through another payer.
 
 Upload this package over the existing files, refresh, and unlock each account once.
 No contract redeployment or account recreation is required. The actual deployments,
-test evidence, and remaining release limits are recorded in `docs/v1-product-audit.md`.
+test evidence, and remaining release limits are recorded in `docs/friendship-audit-followup-2026-09-26.md`.
 
 
 Hostinger references:

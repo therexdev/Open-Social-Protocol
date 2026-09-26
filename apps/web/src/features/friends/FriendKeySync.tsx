@@ -1,55 +1,85 @@
 import { useEffect, useState } from "react";
 import { useServices } from "../../api/services";
 import { Button, Notice } from "../../components/ui";
-import { useAccount } from "../../stores/account";
 import { humanizeError } from "../../tx/submit";
 import { useSession, useSubmitContext } from "../session";
-import { syncFriendKeys } from "./syncKeys";
+import { syncFriendKeys, type FriendKeySyncProgress } from "./syncKeys";
 
-/** Existing friendships are repaired too; no new post or second friend request is needed. */
+/** Sharing is independent of the registration banner's cached lookup result. */
 export function FriendKeySync() {
   const session = useSession();
   const ctx = useSubmitContext();
   const { indexer } = useServices();
-  const registration = useAccount((s) => s.registration);
-  const registeredAccount = useAccount((s) => s.account);
   const [error, setError] = useState<string>();
-  const [retry, setRetry] = useState(0);
-  const [shared, setShared] = useState(false);
+  const [message, setMessage] = useState<string>();
+  const [busy, setBusy] = useState(false);
+  const [verified, setVerified] = useState(false);
   useEffect(() => {
     setError(undefined);
-    setShared(false);
-    if (!session || !ctx || !indexer.configured || registration !== "registered" || registeredAccount !== session.identity.account) return;
+    setMessage(undefined);
+    setBusy(false);
+    setVerified(false);
     let cancelled = false;
-    let busy = false;
-    const refresh = async () => {
-      if (cancelled || busy || document.visibilityState === "hidden") return;
-      busy = true;
-      try {
-        const accounts = await syncFriendKeys({ ctx, me: session.identity, keys: session.keys, indexer, isCurrent: () => !cancelled });
-        if (!cancelled && accounts.length > 0) setShared(true);
-        if (!cancelled) setError(undefined);
-      } catch (e) {
-        if (!cancelled) setError(humanizeError(e));
-      } finally {
-        busy = false;
+    let running = false;
+    let repairPending = false;
+    const refresh = async (repair = false) => {
+      if (cancelled) return;
+      if (repair) repairPending = true;
+      if (running || (!repairPending && document.visibilityState === "hidden")) return;
+      if (!session || !ctx || !indexer.configured) {
+        if (repairPending) setError(!session ? "Unlock your account to share private-post access." : "Connect to the network and indexer in Settings to share private-post access.");
+        repairPending = false;
+        return;
       }
+      running = true;
+      setBusy(true);
+      setVerified(false);
+      do {
+        const force = repairPending;
+        repairPending = false;
+        let progress: FriendKeySyncProgress | undefined;
+        try {
+          setError(undefined);
+          setMessage("Checking private-post access…");
+          await syncFriendKeys({ ctx, me: session.identity, keys: session.keys, indexer,
+            repair: force, fullHistory: true, isCurrent: () => !cancelled,
+            onProgress: (next) => {
+              progress = next;
+              if (!cancelled) setMessage(`Sharing private-post access: checked ${next.checked} of ${next.total} periods; ${next.transactions} deliveries confirmed.`);
+            },
+          });
+          if (!cancelled) {
+            if (!progress?.complete) setMessage("The friendship changed while sharing. Access will be checked again automatically.");
+            else if (!progress.friends) setMessage(force ? "No active friends were found. Sharing will run again after a friendship is accepted." : undefined);
+            else if (!progress.keys) setMessage(force ? "No recoverable private-post keys were found for this account. No access was sent." : undefined);
+            else setMessage(`Private-post access checked for ${progress.friends} friend(s): ${progress.keys} reading key(s), ${progress.transactions} deliveries confirmed. Their app may take a moment to refresh.`);
+            setVerified(Boolean(progress?.complete && progress.keys > 0));
+          }
+        } catch (e) {
+          if (!cancelled) { setError(humanizeError(e)); setMessage(undefined); }
+        }
+        // A repair clicked during a background pass is queued, never silently dropped.
+      } while (!cancelled && repairPending);
+      running = false;
+      if (!cancelled) setBusy(false);
     };
+    const automatic = () => { void refresh(); };
+    const requested = (event: Event) => { void refresh((event as CustomEvent<{ repair?: boolean }>).detail?.repair === true); };
     void refresh();
-    const timer = window.setInterval(() => void refresh(), 30_000);
-    window.addEventListener("focus", refresh);
-    window.addEventListener("online", refresh);
-    window.addEventListener("osp:sync-friend-keys", refresh);
-    document.addEventListener("visibilitychange", refresh);
+    const timer = window.setInterval(automatic, 30_000);
+    window.addEventListener("focus", automatic);
+    window.addEventListener("online", automatic);
+    window.addEventListener("osp:sync-friend-keys", requested);
+    document.addEventListener("visibilitychange", automatic);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
-      window.removeEventListener("focus", refresh);
-      window.removeEventListener("online", refresh);
-      window.removeEventListener("osp:sync-friend-keys", refresh);
-      document.removeEventListener("visibilitychange", refresh);
+      window.removeEventListener("focus", automatic);
+      window.removeEventListener("online", automatic);
+      window.removeEventListener("osp:sync-friend-keys", requested);
+      document.removeEventListener("visibilitychange", automatic);
     };
-  }, [session, ctx, indexer, registration, registeredAccount, retry]);
-  if (!error) return shared ? <Notice kind="success">Access to your friends-only posts has been shared, including older posts.</Notice> : null;
-  return <Notice kind="warning">Some friends may still be waiting for access to your private posts. {error}{" "}<Button onClick={() => setRetry((n) => n + 1)}>Retry sharing</Button></Notice>;
+  }, [session, ctx, indexer]);
+  if (error) return <Notice kind="warning">Private-post access could not be shared. {error}{" "}<Button onClick={() => window.dispatchEvent(new CustomEvent("osp:sync-friend-keys", { detail: { repair: true } }))}>Retry sharing</Button></Notice>;
+  return message ? <div role="status" aria-live="polite" aria-busy={busy}><Notice kind={!busy && verified ? "success" : "info"}>{message}</Notice></div> : null;
 }

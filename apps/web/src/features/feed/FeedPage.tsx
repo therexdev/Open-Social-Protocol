@@ -54,6 +54,18 @@ export function usePagedPosts(load: (cursor?: string) => Promise<{ items: PostVi
     void refresh();
     return () => { version.current++; };
   }, [refresh]);
+  useEffect(() => {
+    if (!error) return;
+    const retry = () => { if (document.visibilityState !== "hidden" && !paging.current) void refresh(); };
+    const timer = window.setInterval(retry, 15_000);
+    window.addEventListener("focus", retry);
+    window.addEventListener("online", retry);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", retry);
+      window.removeEventListener("online", retry);
+    };
+  }, [error, refresh]);
   return { items, loading, error, refresh, more, hasMore: cursor !== null };
 }
 

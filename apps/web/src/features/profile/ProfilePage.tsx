@@ -113,8 +113,8 @@ export function ProfilePage() {
         {editing && mine && <ProfileEditor account={account} name={info?.displayName ?? ""} bio={info?.bio ?? ""} onDone={() => setEditing(false)} />}
       </Card>
       <h2>Posts</h2>
-      {posts.error && <Notice kind="error">{posts.error}</Notice>}
-      {!posts.loading && posts.items.length === 0 && <Empty>No posts yet.</Empty>}
+      {posts.error && <Notice kind="error">{posts.error} <Button onClick={() => void posts.refresh()}>Retry loading posts</Button></Notice>}
+      {!posts.loading && !posts.error && posts.items.length === 0 && <Empty>No posts yet.</Empty>}
       <div className="post-list">
         {posts.items.map((post) => (
           <PostCard key={`${post.postId}:${post.contentHash}`} post={post} onChanged={() => void posts.refresh()} />

@@ -8,7 +8,7 @@ import { unsupportedPasskey } from "../../vault/passkey";
 import { memoryStorage } from "../../vault/storage";
 import { createVaultStore, type Session } from "../../vault/store";
 import { listDrafts, newDraft } from "./drafts";
-import { publishDraft, type PublishDeps } from "./usePublish";
+import { planDraft, publishDraft, type PublishDeps } from "./usePublish";
 
 const deployment = fixtureDeployment();
 const friend = identityFromSeed(new Uint8Array(32).fill(9));
@@ -21,11 +21,12 @@ async function openSession(): Promise<Session> {
 }
 
 function chainFor(me: string) {
+  const state = { epoch: 1 };
   const probe = new ProtocolClient({ rpc: fakeProvider(), deployment });
   const entry = (contract: "relationships" | "publications" | "identity", method: string) => probe.contracts.method(contract, method).entry_point;
   const provider = fakeProvider({
     onRead: (op) => {
-      if (op.entry_point === entry("relationships", "get_audience")) return readResult("relationships.get_audience_result", { value: { epoch: 1, updated_at: "1" } });
+      if (op.entry_point === entry("relationships", "get_audience")) return readResult("relationships.get_audience_result", { value: { epoch: state.epoch, updated_at: "1" } });
       if (op.entry_point === entry("relationships", "get_relationship")) {
         const { a, b } = decode<{ a: string; b: string }>("relationships.get_relationship_arguments", bytesOf(op.args));
         return readResult("relationships.get_relationship_result", { value: { a, b, status: RELATIONSHIP_STATUS.ACTIVE, requester: b, nonce: "2", updated_at: "1" } });
@@ -46,10 +47,21 @@ function chainFor(me: string) {
       [`/v1/graph/${me}`]: { account: me, friends: [{ account: friend.account, since: "1", nonce: "1" }], pendingIncoming: [], pendingOutgoing: [], followers: [], following: [], blocked: [], audienceEpoch: 1 },
     }),
   });
-  return { protocol, indexer, provider };
+  return { protocol, indexer, provider, state };
 }
 
 describe("publishDraft", () => {
+  it("does not publish a preview encrypted before a friend removal", async () => {
+    const session = await openSession();
+    const { protocol, indexer, provider, state } = chainFor(session.identity.account);
+    const deps: PublishDeps = { session, protocol, indexer, payment: "self-only" };
+    const draft = newDraft(session.identity.account, { text: "after removal", audience: AUDIENCE.FRIENDS, mediaUrls: [] });
+    const preview = await planDraft(deps, { draft });
+    state.epoch++;
+    await expect(publishDraft(deps, { draft }, preview)).rejects.toThrow("audience changed");
+    expect(provider.sent).toHaveLength(0);
+    expect(await listDrafts(session)).toHaveLength(1);
+  });
   it("persists the attempt before anything is submitted, so a crash cannot lead to a duplicate", async () => {
     const session = await openSession();
     const { protocol, indexer } = chainFor(session.identity.account);

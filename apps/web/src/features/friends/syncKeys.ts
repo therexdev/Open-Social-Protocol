@@ -12,12 +12,26 @@ export interface FriendKeySyncInput {
   indexer: PublishIndexer;
   /** Rechecked before signing so locking or switching accounts cancels in-flight reads. */
   isCurrent?: () => boolean;
+  /** Explicit repair must not rely on historic recipient bookkeeping. */
+  repair?: boolean;
+  fullHistory?: boolean;
+  onProgress?: (progress: FriendKeySyncProgress) => void;
+}
+
+export interface FriendKeySyncProgress {
+  checked: number;
+  total: number;
+  keys: number;
+  transactions: number;
+  friends: number;
+  complete: boolean;
 }
 
 const running = new WeakSet<KeyStore>();
 // Bound each pass, retaining progress so a long history does not starve older keys.
 const cursors = new WeakMap<KeyStore, number>();
 const EPOCHS_PER_PASS = 16;
+const INVENTORY_LIMIT = 2000;
 
 export async function syncFriendKeys(input: FriendKeySyncInput): Promise<string[]> {
   const { ctx, me, keys, indexer } = input;
@@ -28,20 +42,41 @@ export async function syncFriendKeys(input: FriendKeySyncInput): Promise<string[
     const epoch = await currentEpoch(ctx.client, me.account);
     // The indexer supplies candidate friends; the chain decides membership and public keys.
     const collected = await collectRecipients({ chain: ctx.client, indexer, me });
-    if (collected.recipients.length === 0) return [];
+    if (collected.skipped.length) throw new Error("A friend's encryption key is unavailable. Sharing will retry when their account key is available.");
+    const progress: FriendKeySyncProgress = { checked: 0, total: epoch + 1, keys: 0, transactions: 0, friends: collected.recipients.length, complete: false };
+    input.onProgress?.({ ...progress });
+    if (collected.recipients.length === 0) {
+      input.onProgress?.({ ...progress, complete: true });
+      return [];
+    }
+    // A remove/re-add with no new post creates an empty period. Fetch the author's key
+    // inventory once instead of making one HTTP request per empty period forever.
+    await keys.init();
+    let inventory;
+    try { inventory = await indexer.keys(me.account, { author: me.account, audienceId: "", limit: INVENTORY_LIMIT }); }
+    catch { throw new Error("Your private-post keys could not be verified. Sharing will retry when the indexer is reachable."); }
+    const truncated = inventory.length >= INVENTORY_LIMIT;
+    const periods = truncated ? Array.from({ length: epoch + 1 }, (_, n) => n) : [...new Set([
+      ...keys.epochs(me.account, new Uint8Array()),
+      ...inventory.filter(item => item.author === me.account && item.recipient === me.account && !item.audienceId).map(item => item.epoch),
+    ])].filter(n => Number.isSafeInteger(n) && n >= 0 && n <= epoch).sort((a, b) => a - b);
+    progress.total = periods.length;
+    const source = truncated ? indexer : { keys: async (_account: string, filter: { epoch?: number }) => inventory.filter(item => item.epoch === filter.epoch) };
     const shared = new Set<string>();
-    const start = Math.min(cursors.get(keys) ?? 0, epoch);
-    const count = Math.min(epoch + 1, EPOCHS_PER_PASS);
+    const cursor = periods.findIndex(n => n >= (cursors.get(keys) ?? 0));
+    const start = input.fullHistory || cursor < 0 ? 0 : cursor;
+    const count = input.fullHistory ? periods.length : Math.min(periods.length, EPOCHS_PER_PASS);
     for (let offset = 0; offset < count; offset++) {
       if (input.isCurrent?.() === false) break;
-      const keyEpoch = (start + offset) % (epoch + 1);
+      const keyEpoch = periods[(start + offset) % periods.length]!;
       const ref = { author: me.account, audienceId: new Uint8Array(0), epoch: keyEpoch };
-      const recovered = await keys.resolveTrusted(ref, me, indexer, chainKeyVerifier(ctx.client));
+      const recovered = await keys.resolveTrusted(ref, me, source, chainKeyVerifier(ctx.client));
       if (recovered.unverifiable) throw new Error("Your private-post keys could not be verified. Sharing will retry when the network is reachable.");
       // Some periods contain no posts. Never manufacture keys to repair history access.
       if (recovered.entry) {
+        progress.keys++;
         const holders = new Set(recovered.entry.recipients);
-        const recipients = collected.recipients.filter((r) => !holders.has(r.address as string));
+        const recipients = collected.recipients.filter((r) => input.repair || !holders.has(r.address as string));
         if (recipients.length > 0) {
           const blocker = paymentBlocker(ctx.payment, ctx.client.sponsors.sponsors.length);
           if (blocker) throw new Error(blocker);
@@ -65,12 +100,17 @@ export async function syncFriendKeys(input: FriendKeySyncInput): Promise<string[
             if (!result) return [...shared];
             if (result.receipt.reverted) throw new Error("The network rejected private-post sharing. Please retry.");
             await keys.addRecipients(ref, accounts);
+            progress.transactions++;
             for (const account of accounts) shared.add(account);
           }
         }
       }
       cursors.set(keys, (keyEpoch + 1) % (epoch + 1));
+      progress.checked++;
+      input.onProgress?.({ ...progress });
     }
+    progress.complete = progress.checked === progress.total;
+    input.onProgress?.({ ...progress });
     return [...shared];
   } finally {
     running.delete(keys);

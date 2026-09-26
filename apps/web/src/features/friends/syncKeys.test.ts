@@ -126,6 +126,31 @@ describe("mutual friends-only access", () => {
     for (let epoch = 0; epoch <= 17; epoch++) expect(s.keys.recipients(ref(alice, epoch))).toContain(bob.account);
   });
 
+  it("repairs history after 1000 empty rotations without 1000 key lookups", async () => {
+    const s = setup(); s.state.epoch = 1000; s.state.status = RELATIONSHIP_STATUS.ACTIVE;
+    await s.keys.put(ref(alice, 0), new Uint8Array(32).fill(7));
+    await s.keys.put(ref(alice, 1000), new Uint8Array(32).fill(8));
+    const inventory = vi.spyOn(s.indexer, "keys");
+    expect(await syncFriendKeys({ ...s, fullHistory: true })).toEqual([bob.account]);
+    expect(s.provider.sent).toHaveLength(2);
+    expect(inventory).toHaveBeenCalledTimes(1);
+    expect(s.keys.recipients(ref(alice, 0))).toContain(bob.account);
+    expect(s.keys.recipients(ref(alice, 1000))).toContain(bob.account);
+  });
+
+  it("falls back to period lookups when the key inventory reaches the indexer's limit", async () => {
+    const s = setup(); s.state.epoch = 1; s.state.status = RELATIONSHIP_STATUS.ACTIVE;
+    const key = new Uint8Array(32).fill(9); coldKey(s, key);
+    const original = s.state.items;
+    s.indexer.keys = async (...args: unknown[]) => {
+      const filter = args[1] as { epoch?: number };
+      if (filter.epoch === undefined) return Array.from({ length: 2000 }, () => ({ ...original[0]!, epoch: 1 }));
+      return filter.epoch === 0 ? original : [];
+    };
+    expect(await syncFriendKeys({ ...s, fullHistory: true })).toEqual([bob.account]);
+    expect(openedKey(s, bob)).toEqual(key);
+  });
+
   it("reports an unavailable indexer instead of treating historical keys as absent", async () => {
     const s = setup(); s.state.status = RELATIONSHIP_STATUS.ACTIVE;
     vi.spyOn(s.indexer, "keys").mockRejectedValue(new Error("offline"));

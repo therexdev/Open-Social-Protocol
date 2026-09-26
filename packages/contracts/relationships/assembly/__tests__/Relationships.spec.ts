@@ -275,6 +275,33 @@ function isFollowing(follower: Uint8Array, target: Uint8Array): bool {
   return rec != null && rec.active;
 }
 
+describe("relationships: repeated friendship lifecycle", () => {
+  it("keeps both directions symmetric across 1000 alternating removals and re-acceptances", () => {
+    setupConfigured();
+    for (let cycle: u32 = 0; cycle < 1000; cycle++) {
+      const requester = cycle % 2 == 0 ? ALICE : BOB;
+      const approver = cycle % 2 == 0 ? BOB : ALICE;
+      clearEvents();
+      doRequest(requester, approver);
+      expect(relOrFail(ALICE, BOB).status).toBe(PENDING);
+      expect(relOrFail(BOB, ALICE).status).toBe(PENDING);
+      clearEvents();
+      doAccept(approver, requester);
+      expect(relOrFail(ALICE, BOB).status).toBe(ACTIVE);
+      expect(relOrFail(BOB, ALICE).status).toBe(ACTIVE);
+      expect(epochOf(ALICE)).toBe(cycle);
+      expect(epochOf(BOB)).toBe(cycle);
+      clearEvents();
+      doRemove(approver, requester);
+      expect(relOrFail(ALICE, BOB).status).toBe(INACTIVE);
+      expect(relOrFail(BOB, ALICE).status).toBe(INACTIVE);
+      expect(epochOf(ALICE)).toBe(cycle + 1);
+      expect(epochOf(BOB)).toBe(cycle + 1);
+      expect(relOrFail(ALICE, BOB).nonce).toBe(<u64>((cycle + 1) * 3));
+    }
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Admin: set_identity_contract / get_identity_contract
 // ---------------------------------------------------------------------------

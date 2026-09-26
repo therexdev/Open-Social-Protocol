@@ -31,7 +31,7 @@ export interface KeyResolverIdentity {
 }
 
 export interface KeySource {
-  keys(account: string, filter: { author?: string; audienceId?: string; epoch?: number }): Promise<SealedKeyView[]>;
+  keys(account: string, filter: { author?: string; audienceId?: string; epoch?: number; limit?: number }): Promise<SealedKeyView[]>;
 }
 
 /** Outcome of checking on chain where a sealed key served by the indexer came from. */
@@ -58,6 +58,8 @@ export interface KeyCandidate {
 export interface KeyCacheEntry {
   key: string;
   recipients: string[];
+  /** Earlier clients recorded delivery before chain confirmation. */
+  confirmedDelivery?: true;
 }
 
 /** Persisted shape: trusted entries only. Plain hex strings are the pre-provenance format. */
@@ -92,7 +94,7 @@ export class KeyStore {
           // Legacy entry without provenance: readable, but never reused for publishing.
           this.cache.set(id, { key: fromHex(raw), recipients: [], trusted: false });
         } else if (raw && typeof raw.key === "string") {
-          const recipients = Array.isArray(raw.recipients) ? raw.recipients.filter((r): r is string => typeof r === "string") : [];
+          const recipients = raw.confirmedDelivery && Array.isArray(raw.recipients) ? raw.recipients.filter((r): r is string => typeof r === "string") : [];
           this.cache.set(id, { key: fromHex(raw.key), recipients, trusted: true });
         }
       } catch {
@@ -123,6 +125,12 @@ export class KeyStore {
 
   recipients(ref: EpochKeyRef): string[] {
     return this.entry(ref)?.recipients ?? [];
+  }
+
+  /** Periods held locally; includes old keys even if the indexer has not caught up yet. */
+  epochs(author: string, audienceId: Uint8Array): number[] {
+    const prefix = `${author}|${toBase64url(audienceId)}|`;
+    return [...this.cache.keys()].filter(id => id.startsWith(prefix)).map(id => Number(id.slice(prefix.length))).filter(Number.isSafeInteger);
   }
 
   /** Stores a trusted key (generated on this device or verified on chain) and persists it. */
@@ -277,7 +285,7 @@ export class KeyStore {
     if (!this.persist) return;
     const data: KeyCache = {};
     for (const [id, entry] of this.cache) {
-      if (entry.trusted) data[id] = { key: toHex(entry.key), recipients: entry.recipients };
+      if (entry.trusted) data[id] = { key: toHex(entry.key), recipients: entry.recipients, confirmedDelivery: true };
     }
     try {
       await this.persist.save(data);

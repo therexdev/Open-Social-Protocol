@@ -20,6 +20,8 @@ export interface SubmitOptions {
   /** Wording when confirmed. */
   success?: string;
   waitForReceipt?: boolean;
+  /** Revalidate a prepared action after earlier submissions for this account finish. */
+  beforeSubmit?: () => Promise<void>;
 }
 
 // Background key sharing and user actions use the same account nonce. Serialize submissions
@@ -110,13 +112,16 @@ export async function submitAction(ctx: SubmitContext, operations: OperationJson
   }
   const id = toasts.push({ kind: "pending", title: options.label, message: "Waiting for the network…", sticky: true });
   try {
-    const result = await withAccountSubmission(ctx, () => ctx.client.submit({
-      operations,
-      signer: ctx.signer,
-      ...(ctx.payment === "self-only" && { sponsor: null }),
-      selfPayFallback: ctx.payment !== "sponsor-only",
-      waitForReceipt: options.waitForReceipt ?? true,
-    }));
+    const result = await withAccountSubmission(ctx, async () => {
+      await options.beforeSubmit?.();
+      return ctx.client.submit({
+        operations,
+        signer: ctx.signer,
+        ...(ctx.payment === "self-only" && { sponsor: null }),
+        selfPayFallback: ctx.payment !== "sponsor-only",
+        waitForReceipt: options.waitForReceipt ?? true,
+      });
+    });
     const details = [
       `Transaction ${result.transaction.id ?? "(unknown id)"}`,
       result.sponsored ? `Paid by sponsor ${result.sponsor ?? ""}`.trim() : "Paid from your own account",

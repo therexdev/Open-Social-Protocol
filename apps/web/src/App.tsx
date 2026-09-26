@@ -59,8 +59,18 @@ function AccountEffects() {
     // A network / endpoint change may point at a chain where the account is not registered: re-check.
     const force = lastServices.current !== services;
     lastServices.current = services;
-    if (status === "unlocked" && account) void check(services, account, force);
     if (status === "empty") reset();
+    if (status !== "unlocked" || !account) return;
+    void check(services, account, force);
+    const retry = () => { if (document.visibilityState !== "hidden") void check(services, account); };
+    const timer = window.setInterval(retry, 30_000);
+    window.addEventListener("focus", retry);
+    window.addEventListener("online", retry);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", retry);
+      window.removeEventListener("online", retry);
+    };
   }, [status, account, services, check, reset]);
   return null;
 }

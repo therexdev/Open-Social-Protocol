@@ -1,5 +1,10 @@
 # V1 product audit — September 26, 2026
 
+**Follow-up:** This initial audit missed failures in the full App sharing coordinator.
+See [the follow-up audit](friendship-audit-followup-2026-09-26.md) for the reproduced
+failures, corrected implementation and additional verification. The initial helper-only
+live journey below did not establish that the reported UI failure was resolved.
+
 The repaired testnet build passes the reported friendship lifecycle in both directions,
 including recovery of older friends-only posts from a fresh key cache. The broader V1
 audit covered the web client, extension, SDK, eight contracts, indexer, sponsor and

@@ -11,6 +11,10 @@ module.exports = {
   disclude: [/node_modules/],
   async instantiate(memory, createImports, instantiate, binary) {
     const mockVM = new MockVM();
+    // The mock DB retains protobuf byte views into WASM memory. Real chain storage copies
+    // writes; copy here too, or GC overwrites stored records during long lifecycle tests.
+    const putObject = mockVM.db.putObject.bind(mockVM.db);
+    mockVM.db.putObject = (space, key, value) => putObject(space, key, Uint8Array.from(value));
     const myImports = {
       wasi_snapshot_preview1: { fd_write: () => {}, proc_exit: () => {} },
       env: { ...mockVM.getImports() },
