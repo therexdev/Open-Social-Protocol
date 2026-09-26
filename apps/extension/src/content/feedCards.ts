@@ -3,6 +3,11 @@ import type { FeedRequestReply } from "../shared/protocol";
 export const FEED_ATTR = "data-osp-feed";
 export const FEED_TITLE = "Open Social posts";
 const controllers = new WeakMap<Document, FeedController>();
+const expectedPositions = new WeakMap<Element, { parent: Element; next: Node | null }>();
+export function feedCardNeedsRepair(element: Element): boolean {
+  const expected = expectedPositions.get(element);
+  return !element.isConnected || !!expected && (element.parentElement !== expected.parent || element.nextSibling !== expected.next);
+}
 export interface FeedCardsRuntime {
   document: Document;
   sendMessage: (message: unknown) => Promise<unknown> | unknown;
@@ -15,32 +20,42 @@ export interface FeedLocation { column: HTMLElement; posts: HTMLElement[] }
 export function findFeedLocation(doc: Document): FeedLocation | null {
   const main = doc.querySelector<HTMLElement>('[role="main"], main') ?? doc.body;
   if (!main) return null;
-  const eligible = (el: HTMLElement) => !el.closest(`[${FEED_ATTR}], [role="complementary"], aside, [role="dialog"]`) && doc.defaultView?.getComputedStyle(el).display !== "none";
-  // Facebook can render another role=feed (recommendations) below its primary home lane.
-  // Prefer real FeedUnit containers anywhere in main instead of picking that first role=feed.
-  const units = [...main.querySelectorAll<HTMLElement>('[data-pagelet^="FeedUnit_"]')].filter(eligible);
-  const candidates = units.length ? units.filter(el => !units.some(other => other !== el && other.contains(el))) :
-    [...main.querySelectorAll<HTMLElement>('[role="article"]')].filter(el => eligible(el) && !el.parentElement?.closest('[role="article"]'));
-  const locations: FeedLocation[] = [];
+  // Loaded articles and FeedUnit placeholders coexist. Never let a placeholder-only suffix
+  // hide the already-loaded posts above it. Collapse nested markers into one native post.
+  const marker = '[data-pagelet^="FeedUnit_"], [role="article"]';
+  const excluded = `[${FEED_ATTR}], [role="complementary"], aside, [role="dialog"], [hidden], [aria-hidden="true"]`;
+  const candidates = [...main.querySelectorAll<HTMLElement>(marker)].filter(el =>
+    !el.closest(excluded) && !el.parentElement?.closest(marker));
+  const styles = new Map<HTMLElement, CSSStyleDeclaration>();
+  const css = (el: HTMLElement) => {
+    if (!styles.has(el)) styles.set(el, doc.defaultView!.getComputedStyle(el));
+    return styles.get(el)!;
+  };
+  // Count immediate branches once per ancestor (linear in posts * bounded depth).
+  const lanes = new Map<HTMLElement, Set<HTMLElement>>();
   for (const post of candidates) {
+    if (css(post).display === "none") continue;
     let branch = post;
-    for (let depth = 0; depth < 12 && branch.parentElement && branch.parentElement !== main; depth++) {
+    for (let depth = 0; depth < 12 && branch.parentElement; depth++) {
       const parent = branch.parentElement;
-      const css = doc.defaultView?.getComputedStyle(parent);
-      if (css?.display === "flex" && !css.flexDirection.startsWith("column")) break;
-      const branches = [...parent.children].filter((child): child is HTMLElement =>
-        !child.hasAttribute(FEED_ATTR) && candidates.some((candidate) => child === candidate || child.contains(candidate))) as HTMLElement[];
-      if (branches.length > 1 || parent.getAttribute("role") === "feed") {
-        if (!locations.some(location => location.column === parent)) locations.push({ column: parent, posts: branches });
-        break;
-      }
+      const style = css(parent);
+      if (style.display === "none" || style.display === "flex" && !style.flexDirection.startsWith("column")) break;
+      if (parent === main && parent.getAttribute("role") !== "feed") break;
+      let branches = lanes.get(parent);
+      if (!branches) { branches = new Set(); lanes.set(parent, branches); }
+      branches.add(branch);
       branch = parent;
     }
   }
-  if (locations.length) return locations.sort((a, b) => b.posts.length - a.posts.length)[0]!;
-  const single = candidates.find((el) => el.matches('[data-pagelet^="FeedUnit_"]'));
-  if (single?.parentElement && single.parentElement !== main) return { column: single.parentElement, posts: [single] };
-  return null;
+  let best: FeedLocation | null = null;
+  for (const [column, branches] of lanes) {
+    if (branches.size < 2 && column.getAttribute("role") !== "feed") continue;
+    if (!best || branches.size > best.posts.length) best = { column, posts: [...branches] };
+  }
+  const single = candidates.find(el => el.matches('[data-pagelet^="FeedUnit_"]'));
+  if (!best && single?.parentElement && single.parentElement !== main) best = { column: single.parentElement, posts: [single] };
+  if (best) best.posts.sort((a, b) => (Number(css(a).order) || 0) - (Number(css(b).order) || 0));
+  return best;
 }
 export function findFeedRoot(doc: Document): HTMLElement | null { return findFeedLocation(doc)?.column ?? null; }
 
@@ -59,6 +74,10 @@ export class FeedController {
   private placements = new Map<string, { anchor: HTMLElement; side: "before" | "after"; index: number }>();
   private timer: ReturnType<typeof setInterval>;
   private scheduled = false;
+  private location: FeedLocation | null = null;
+  private locationDirty = true;
+  private reanchor = true;
+  private scrollTimer?: ReturnType<typeof setTimeout>;
   private notice?: HTMLElement;
   private now: () => number;
   private href: string;
@@ -67,7 +86,7 @@ export class FeedController {
   constructor(private runtime: FeedCardsRuntime) {
     this.now = runtime.now ?? Date.now;
     this.href = runtime.document.location?.href ?? "";
-    this.timer = setInterval(() => { if (runtime.document.visibilityState !== "hidden") void this.poll(); }, 30_000);
+    this.timer = setInterval(() => { if (runtime.document.visibilityState !== "hidden") void this.scan(true); }, 30_000);
     runtime.document.defaultView?.addEventListener("scroll", this.onScroll, { passive: true });
     runtime.document.defaultView?.addEventListener("message", this.onMessage);
     runtime.document.defaultView?.addEventListener("online", this.onScroll);
@@ -76,15 +95,16 @@ export class FeedController {
   private onScroll = () => {
     if (this.scheduled || !this.alive) return;
     this.scheduled = true;
-    const run = () => { this.scheduled = false; void this.scan(); };
-    this.runtime.document.defaultView?.requestAnimationFrame ? this.runtime.document.defaultView.requestAnimationFrame(run) : setTimeout(run, 16);
+    // Scroll uses the cached lane. No full-document selectors or style reads per animation frame.
+    this.scrollTimer = setTimeout(() => { this.scheduled = false; void this.scan(false); }, 120);
   };
   private onMessage = (event: MessageEvent) => {
     if (event.data?.type !== "osp.card.height" || !Number.isFinite(event.data.height)) return;
     for (const frame of this.frames.values()) {
       const url = new URL(frame.src);
       if (event.source !== frame.contentWindow || event.origin !== `${url.protocol}//${url.host}`) continue;
-      frame.style.height = `${Math.min(100000, Math.max(90, Math.ceil(event.data.height)))}px`;
+      const height = `${Math.min(100000, Math.max(90, Math.ceil(event.data.height)))}px`;
+      if (frame.style.height !== height) frame.style.height = height;
       break;
     }
   };
@@ -104,7 +124,15 @@ export class FeedController {
     location.column.insertBefore(host, side === "before" ? anchor : anchor.nextSibling);
     this.frames.set(postId, frame);
     this.placements.set(postId, { anchor, side, index: location.posts.indexOf(anchor) });
-    this.anchorCards(location);
+    this.reanchor = true;
+  }
+  private getLocation(): FeedLocation | null {
+    if (this.locationDirty || !this.location?.column.isConnected) {
+      this.location = findFeedLocation(this.runtime.document);
+      this.locationDirty = false;
+      this.reanchor = true;
+    }
+    return this.location;
   }
   /** React may insert/reorder native children around our unmanaged siblings. Keep every card
    * attached to its native post, including its CSS order, rather than letting it drift to the tail. */
@@ -113,9 +141,13 @@ export class FeedController {
     for (const [id, placement] of this.placements) {
       const host = this.frames.get(id)?.parentElement;
       if (!host) continue;
-      if (!location.posts.includes(placement.anchor)) placement.anchor = location.posts[Math.min(placement.index, location.posts.length - 1)]!;
+      // The initial five belong before the first real post, even when a loading placeholder
+      // was the only marker when we started. Other cards retain their native-post position.
+      if (placement.side === "before") placement.anchor = location.posts[0]!;
+      else if (!location.posts.includes(placement.anchor)) placement.anchor = location.posts[Math.min(placement.index, location.posts.length - 1)]!;
       const anchor = placement.anchor;
       if (!anchor) continue;
+      if (placement.side === "after") this.placedAfter.add(anchor);
       const order = this.runtime.document.defaultView?.getComputedStyle(anchor).order || "0";
       if (host.style.order !== order) host.style.order = order;
       let group = groups.get(anchor);
@@ -135,6 +167,10 @@ export class FeedController {
       let previous: Node = anchor;
       for (const host of group.after) { if (previous.nextSibling !== host) move(host, previous.nextSibling); previous = host; }
     }
+    for (const frame of this.frames.values()) {
+      const host = frame.parentElement;
+      if (host?.parentElement) expectedPositions.set(host, { parent: host.parentElement, next: host.nextSibling });
+    }
   }
   private showNotice(message: string, location: FeedLocation): void {
     if (!this.notice?.isConnected) {
@@ -144,7 +180,7 @@ export class FeedController {
       Object.assign(this.notice.style, { padding: "12px 16px", marginBottom: "12px", borderRadius: "12px", background: "#f6f7fb", color: "#5f6672", font: "14px/1.5 system-ui" });
       location.column.insertBefore(this.notice, location.posts[0] ?? null);
     }
-    this.notice.textContent = message;
+    if (this.notice.textContent !== message) this.notice.textContent = message;
   }
   private async request(cursor?: string, limit = 5): Promise<FeedRequestReply> {
     const reply = await this.runtime.sendMessage({ type: "feed.request", payload: { limit, ...(cursor && { cursor }) } }) as { ok?: boolean; result?: FeedRequestReply };
@@ -157,7 +193,7 @@ export class FeedController {
     this.queued = first ? [...ids, ...this.queued] : [...this.queued, ...ids];
   }
   async poll(): Promise<void> {
-    const location = findFeedLocation(this.runtime.document);
+    const location = this.getLocation();
     if (!this.alive || this.busy || !location || this.runtime.document.visibilityState === "hidden" || this.now() < this.retryAt) return;
     this.busy = true;
     const generation = this.generation;
@@ -184,7 +220,7 @@ export class FeedController {
       if (!this.initialized) {
         this.cursor = page.nextCursor;
         this.initialized = true;
-        const lane = findFeedLocation(this.runtime.document);
+        const lane = this.getLocation();
         if (lane?.posts[0]) for (const id of this.queued.splice(0, 5)) this.insert(id, lane.posts[0], lane, "before");
       }
       if (!this.frames.size && !this.queued.length) this.showNotice(page.notice || "No Open Social posts yet. New posts will appear here.", location);
@@ -196,9 +232,9 @@ export class FeedController {
   }
   private place(): void {
     if (!this.enabled) return;
-    const location = findFeedLocation(this.runtime.document);
+    const location = this.getLocation();
     if (!location) return;
-    this.anchorCards(location);
+    if (this.reanchor) { this.anchorCards(location); this.reanchor = false; }
     const height = this.runtime.document.defaultView?.innerHeight ?? 800;
     for (let i = 2; i < location.posts.length && this.queued.length; i += 3) {
       const anchor = location.posts[i]!;
@@ -207,16 +243,17 @@ export class FeedController {
       this.insert(this.queued.shift()!, anchor, location, "after");
       this.placedAfter.add(anchor);
     }
+    if (this.reanchor) { this.anchorCards(location); this.reanchor = false; }
   }
-  async scan(): Promise<HTMLElement | null> {
+  async scan(rediscover = true): Promise<HTMLElement | null> {
+    if (rediscover) this.locationDirty = true;
     if (!this.alive || this.runtime.document.visibilityState === "hidden") return null;
     const href = this.runtime.document.location?.href ?? "";
-    if (href !== this.href) { this.href = href; this.removeCards(); this.enabled = undefined; this.lastPoll = -Infinity; }
-    if (this.frames.size && [...this.frames.values()].every((frame) => !frame.isConnected)) this.removeCards();
+    if (href !== this.href) { this.href = href; this.locationDirty = true; this.removeCards(); this.enabled = undefined; this.lastPoll = -Infinity; }
     // A removed individual card can be restored at its saved anchor without losing its place.
     if (!this.initialized && this.enabled !== false || this.now() - this.lastPoll >= 30_000) await this.poll();
     this.place();
-    const location = findFeedLocation(this.runtime.document);
+    const location = this.getLocation();
     if (location && this.enabled && this.initialized && !this.busy && !this.queued.length && this.cursor && this.now() >= this.retryAt) {
       const ahead = location.posts.some((post, i) => i % 3 === 2 && !this.placedAfter.has(post) && post.getBoundingClientRect().bottom >= 0 && post.getBoundingClientRect().top < (this.runtime.document.defaultView?.innerHeight ?? 800) * 2);
       if (ahead) {
@@ -245,6 +282,7 @@ export class FeedController {
   stop(): void {
     this.alive = false;
     clearInterval(this.timer);
+    clearTimeout(this.scrollTimer);
     this.runtime.document.defaultView?.removeEventListener("scroll", this.onScroll);
     this.runtime.document.defaultView?.removeEventListener("message", this.onMessage);
     this.runtime.document.defaultView?.removeEventListener("online", this.onScroll);

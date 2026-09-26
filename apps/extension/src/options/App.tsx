@@ -119,6 +119,11 @@ export function OptionsApp() {
           )}
         </div>
         <label className="row" style={{ marginTop: 12 }}>
+          <input type="checkbox" style={{ width: "auto" }} checked={form.facebookAttribution !== false}
+            onChange={e => act(e.target.checked ? "Open Social link enabled." : "Open Social link disabled.", () => rpc("settings.update", { patch: { facebookAttribution: e.target.checked } }))} />
+          <span>Add “Posted on Open Social” and the About-page link at the bottom of Facebook posts shared to Open Social</span>
+        </label>
+        <label className="row" style={{ marginTop: 12 }}>
           <input
             type="checkbox"
             style={{ width: "auto" }}

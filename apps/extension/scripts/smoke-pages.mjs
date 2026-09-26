@@ -15,6 +15,7 @@ const status = { status: "unlocked", account: "1SmokeAccount", deviceAuthorized:
 async function smoke(page, exercise) {
   const dom = new JSDOM(readFileSync(path.join(dist, page), "utf8"), { url: `https://extension.test/${page}#post=${"q".repeat(43)}%3D&host=https%3A%2F%2Fwww.facebook.com`, referrer: "https://www.facebook.com/", pretendToBeVisual: true });
   const calls = [];
+  let facebookAttribution = true;
   const errors = [];
   const timers = new Set();
   const storageListeners = new Set();
@@ -31,7 +32,8 @@ async function smoke(page, exercise) {
       case "crosspost.list": result = { items: [] }; break;
       case "post.publish": result = { record: { ...payload, state: "succeeded", koinosStatus: "ok" }, explanation: {} }; break;
       case "crosspost.discard": result = {}; break;
-      case "settings.get": result = { settings: { rpcUrls: [], sponsorUrls: [], network: "harbinger" }, resolved: { network: "harbinger", deployed: true, rpcUrls: [], sponsorUrls: [] }, networks: ["harbinger"] }; break;
+      case "settings.get": result = { settings: { rpcUrls: [], sponsorUrls: [], network: "harbinger", facebookAttribution }, resolved: { network: "harbinger", deployed: true, rpcUrls: [], sponsorUrls: [] }, networks: ["harbinger"] }; break;
+      case "settings.update": facebookAttribution = payload.patch.facebookAttribution; result = {}; break;
       case "adapter.status": result = { facebook: { wanted: false, granted: false, registered: false }, feedInsertion: false }; break;
       case "embed.post": result = { enabled: true, item }; break;
       default: throw new Error(`Unexpected page RPC: ${type}`);
@@ -114,8 +116,15 @@ await smoke(manifest.side_panel.default_path, async ({ dom, calls, button, settl
   await settle();
   assert.ok(dom.window.document.querySelector("textarea"), "Compose must survive repeat navigation");
 });
-await smoke(manifest.options_page, async ({ dom }) => {
-  assert.ok(dom.window.document.body.textContent.includes("Facebook adapter"), "Options page must render");
+await smoke(manifest.options_page, async ({ dom, calls, settle }) => {
+  const doc = dom.window.document;
+  assert.ok(doc.body.textContent.includes("Facebook adapter"), "Options page must render");
+  const label = [...doc.querySelectorAll("label")].find(label => label.textContent.includes("Posted on Open Social"));
+  const toggle = label?.querySelector("input");
+  assert.equal(toggle?.checked, true, "Attribution defaults on in the shipped Options page");
+  toggle.click(); await settle();
+  assert.ok(calls.some(call => call.type === "settings.update" && call.payload.patch.facebookAttribution === false));
+  assert.equal(toggle.checked, false, "Reloaded preferences retain the opt-out");
 });
 await smoke("src/embed/index.html", async ({ dom, calls, settle, lock, resizeMessages }) => {
   const doc = dom.window.document;

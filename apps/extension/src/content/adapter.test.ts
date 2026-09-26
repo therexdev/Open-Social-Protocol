@@ -14,6 +14,24 @@ beforeEach(() => {
 });
 
 describe("facebook composer adapter", () => {
+  it("does not rescan the whole page for typing, unrelated counters, or extension-owned insertions", async () => {
+    vi.useFakeTimers();
+    document.body.innerHTML = fixture("composer.html");
+    const running = startFacebookAdapter({ document, location: () => "https://www.facebook.com/", sendMessage: async () => ({ ok: true, result: { enabled: false } }), randomAttemptId: () => "ab".repeat(16) })!;
+    try {
+      await vi.advanceTimersByTimeAsync(200);
+      const queries = vi.spyOn(document, "querySelectorAll");
+      const editor = document.querySelector<HTMLElement>('[contenteditable]')!;
+      for (let n = 0; n < 100; n++) {
+        editor.dispatchEvent(new KeyboardEvent("keydown", { key: "a", bubbles: true }));
+        editor.append(document.createTextNode("a"));
+        const counter = document.createElement("span"); counter.textContent = String(n); document.body.append(counter);
+      }
+      await vi.advanceTimersByTimeAsync(500);
+      expect(queries).not.toHaveBeenCalled();
+      queries.mockRestore();
+    } finally { running.stop(); vi.useRealTimers(); }
+  });
   it("ignores page-generated Post clicks even with opt-in and active userGesture", async () => {
     document.body.innerHTML = fixture("composer.html");
     const sendMessage = vi.fn(async () => ({ ok: true, result: { enabled: false } }));
@@ -65,7 +83,7 @@ describe("facebook composer adapter", () => {
       expect(running.observer.active).toBe(false);
       document.body.dispatchEvent(new Event("pointerdown", { bubbles: true }));
       document.body.insertAdjacentHTML("beforeend", fixture("composer.html"));
-      await vi.advanceTimersByTimeAsync(40);
+      await vi.advanceTimersByTimeAsync(150);
       expect(document.querySelectorAll(`[${CONTROL_ATTR}]`)).toHaveLength(1);
     } finally { running.stop(); vi.useRealTimers(); }
   });
@@ -76,7 +94,7 @@ describe("facebook composer adapter", () => {
     const sendMessage = vi.fn(async () => ({ ok: true, result: { enabled, items: [] } }));
     const runtime = { document, location: () => "https://www.facebook.com/", sendMessage, trustedEvent: () => true, randomAttemptId: () => "ab".repeat(16) };
     const first = startFacebookAdapter(runtime)!;
-    await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(sendMessage.mock.calls.filter(call => (call as unknown as [{ type: string }])[0].type === "feed.request")).toHaveLength(1));
     expect(document.querySelector(`[${FEED_ATTR}]`)).toBeNull();
     enabled = true;
     first.refresh();
@@ -147,7 +165,7 @@ describe("facebook composer adapter", () => {
     document.querySelector('[aria-label="Post"]')!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     const sent = sendMessage.mock.calls.map((call) => call[0] as { type: string });
     // besides the proposal, the adapter only ever asks whether labeled feed cards are enabled
-    expect(sent.filter((m) => m.type !== "crosspost.publish").every((m) => m.type === "feed.request")).toBe(true);
+    expect(sent.filter((m) => m.type !== "crosspost.publish").every((m) => ["feed.request", "adapter.preferences"].includes(m.type))).toBe(true);
     const proposals = sent.filter((m) => m.type === "crosspost.publish");
     expect(proposals).toHaveLength(1);
     expect(proposals[0]).toEqual({

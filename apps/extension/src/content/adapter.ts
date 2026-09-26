@@ -86,7 +86,8 @@ export function injectControl(dialog: HTMLElement, adapter: ComposerAdapter, doc
 /** Only the composer text (textContent of the textbox); never other page content. */
 export function readComposerText(dialog: HTMLElement, adapter: ComposerAdapter): string {
   const textbox = adapter.findTextbox(dialog);
-  return (textbox?.textContent ?? "").replace(/​/g, "").trim();
+  // innerText preserves paragraphs/line breaks in real contenteditable editors.
+  return (textbox?.innerText ?? textbox?.textContent ?? "").replace(/​/g, "").trim();
 }
 
 function isEnabled(button: HTMLElement): boolean {
@@ -185,6 +186,8 @@ export interface BoundedObserverOptions {
   idleMs?: number;
   schedule?: (callback: () => void) => void;
   now?: () => number;
+  filter?: (mutation: MutationRecord) => boolean;
+  observe?: MutationObserverInit;
 }
 
 export interface BoundedObserver {
@@ -231,14 +234,16 @@ export function createBoundedObserver(options: BoundedObserverOptions): BoundedO
     }
     if (typeof MutationObserver !== "function") return;
     observer = new MutationObserver((mutations) => {
+      const relevant = options.filter ? mutations.filter(options.filter) : mutations;
+      if (!relevant.length) return;
       lastActivity = now();
-      pending.push(...mutations);
+      pending.push(...relevant.slice(0, Math.max(0, 40 - pending.length)));
       if (!scheduled) {
         scheduled = true;
         schedule(flush);
       }
     });
-    observer.observe(options.target, { childList: true, subtree: true });
+    observer.observe(options.target, options.observe ?? { childList: true, subtree: true });
     lastActivity = now();
     armIdle();
   };

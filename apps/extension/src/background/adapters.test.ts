@@ -1,9 +1,22 @@
 import { describe, expect, it, vi } from "vitest";
 import { createChromeMock } from "../test/chromeMock";
 import { FACEBOOK_SCRIPT_FILE, FACEBOOK_SCRIPT_ID, adapterApi } from "./adapters";
+import { createTestBackground } from "../test/support";
 
 const settings = (facebookAdapter: boolean) => ({ facebookAdapter, feedInsertion: false });
 const later = <T>(value: T, ms = 20) => new Promise<T>((resolve) => setTimeout(() => resolve(value), ms));
+
+it("exposes only the attribution preference to granted host scripts and persists changes through settings", async () => {
+  const t = createTestBackground({ origins: ["https://www.facebook.com/*"] });
+  await t.call("settings.update", { patch: { facebookAdapter: true } });
+  const sender = t.chrome._contentSender("https://www.facebook.com/");
+  const message = { type: "adapter.preferences" };
+  expect(await t.background.router.handle(message, sender)).toEqual({ ok: true, result: { facebookAttribution: true } });
+  await t.call("settings.update", { patch: { facebookAttribution: false } });
+  expect(await t.background.router.handle(message, sender)).toEqual({ ok: true, result: { facebookAttribution: false } });
+  expect(await t.background.router.handle(message, t.chrome._contentSender("https://evil.test/"))).toMatchObject({ ok: false, error: { code: "forbidden" } });
+  expect(await t.background.router.handle({ type: "settings.get" }, sender)).toMatchObject({ ok: false, error: { code: "forbidden" } });
+});
 
 describe("adapter registration is serialized", () => {
   it("attaches to existing active and inactive granted tabs, tolerates closed tabs and refreshes on feed changes", async () => {

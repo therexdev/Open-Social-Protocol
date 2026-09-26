@@ -247,6 +247,7 @@ export function createBackground(options: BackgroundOptions): Background {
     payment: optional(oneOf(["sponsor-then-self", "self-only", "sponsor-only"] as const)),
     autoLockMinutes: optional(num({ min: 0, max: 24 * 60 })),
     facebookAdapter: optional(bool()),
+    facebookAttribution: optional(bool()),
     feedInsertion: optional(bool()),
     feedScope: optional(oneOf(["public", "friends", "all"] as const)),
   });
@@ -324,6 +325,11 @@ export function createBackground(options: BackgroundOptions): Background {
       },
     }),
     "adapter.status": defineHandler({ source: "extension", validate: empty, handle: async () => adapters.status(await loadSettings()) }),
+    "adapter.preferences": defineHandler({ source: "content", validate: empty, handle: async () => {
+      const settings = await loadSettings();
+      // This is the only preference exposed to the host script; no account, endpoints or keys.
+      return { facebookAttribution: settings.facebookAdapter && settings.facebookAttribution };
+    } }),
     "adapter.enable": defineHandler({
       source: "extension",
       validate: obj({ adapter: oneOf(["facebook"] as const) }),

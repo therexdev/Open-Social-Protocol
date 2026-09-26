@@ -12,7 +12,7 @@ export interface Message<T extends string = string, P = unknown> {
 
 export type Reply<T = unknown> = { ok: true; result: T } | { ok: false; error: { code: string; message: string } };
 
-export const CONTENT_SCRIPT_TYPES = ["crosspost.propose", "crosspost.publish", "feed.request"] as const;
+export const CONTENT_SCRIPT_TYPES = ["crosspost.propose", "crosspost.publish", "feed.request", "adapter.preferences"] as const;
 export type ContentScriptType = (typeof CONTENT_SCRIPT_TYPES)[number];
 
 /** Payload size ceiling (bytes of the JSON encoding of the whole message). */

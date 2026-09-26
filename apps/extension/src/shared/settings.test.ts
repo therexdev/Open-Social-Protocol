@@ -1,6 +1,11 @@
 import { expect, it } from "vitest";
 import { defaultSettings, resolveSettings, sanitizeSettings } from "./settings";
 const env = { network: "harbinger", rpcUrls: [], indexerUrl: "", sponsorUrls: [] };
+it("defaults attribution on for fresh and upgraded installs and persists an explicit opt-out", () => {
+  expect(defaultSettings().facebookAttribution).toBe(true);
+  expect(sanitizeSettings({ facebookAdapter: true }).facebookAttribution).toBe(true);
+  expect(sanitizeSettings({ facebookAttribution: false }).facebookAttribution).toBe(false);
+});
 it("ships service defaults for fresh installs and existing saved empty overrides without environment variables", () => {
   for (const settings of [defaultSettings(env), sanitizeSettings({ network: "harbinger", indexerUrl: "", sponsorUrls: [] }, defaultSettings(env))]) {
     const resolved = resolveSettings(settings, { env });

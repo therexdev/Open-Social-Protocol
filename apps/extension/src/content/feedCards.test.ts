@@ -13,6 +13,42 @@ function start(sendMessage: (m: unknown) => Promise<unknown>, now = () => 100000
   return running = new FeedController({ document, sendMessage, now });
 }
 describe("continuous Facebook feed placement", () => {
+  it("reuses its discovered lane on scrolling without repeated style reads or feed requests", async () => {
+    layout(200);
+    const send = vi.fn(async () => ({ ok: true, result: { enabled: true, items: items(3, 2, 1), nextCursor: null } }));
+    const feed = start(send); await feed.scan();
+    const styles = vi.spyOn(window, "getComputedStyle");
+    for (let n = 0; n < 100; n++) await feed.scan(false);
+    expect(styles).not.toHaveBeenCalled();
+    expect(send).toHaveBeenCalledTimes(1);
+    styles.mockRestore();
+  });
+  it("includes loaded articles before FeedUnit placeholders and stays at the top as placeholders fill", async () => {
+    document.body.innerHTML = '<main><div id="lane"><div>Composer</div><section><article role="article">Loaded first post</article></section><section><article role="article">Loaded second post</article></section><div data-pagelet="FeedUnit_loading"><div role="progressbar">Loading</div></div></div></main>';
+    const lane = document.getElementById("lane")!;
+    const first = lane.children[1]!;
+    const send = vi.fn(async () => ({ ok: true, result: { enabled: true, items: items(3, 2, 1), nextCursor: null } }));
+    const feed = start(send); await feed.scan();
+    expect(lane.children[1]?.getAttribute(FEED_ATTR)).toBe(id(3));
+    expect(first.previousElementSibling?.getAttribute(FEED_ATTR)).toBe(id(1));
+    for (let n = 0; n < 20; n++) {
+      lane.querySelector('[data-pagelet]')!.outerHTML = `<section><div role="article">New Facebook post ${n}</div></section><div data-pagelet="FeedUnit_loading">Loading</div>`;
+      await feed.scan();
+      expect(lane.children[1]?.getAttribute(FEED_ATTR)).toBe(id(3));
+      expect(lane.querySelectorAll("iframe")).toHaveLength(3);
+    }
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+  it("restores all removed cards without re-fetching the same feed or resetting pagination", async () => {
+    const lane = layout(2);
+    const send = vi.fn(async () => ({ ok: true, result: { enabled: true, items: items(3, 2, 1), nextCursor: null } }));
+    const feed = start(send); await feed.scan();
+    const cards = [...lane.querySelectorAll<HTMLElement>(`[${FEED_ATTR}]`)];
+    cards.forEach(card => card.remove());
+    await feed.scan();
+    expect([...lane.querySelectorAll(`[${FEED_ATTR}]`)]).toEqual(cards);
+    expect(send).toHaveBeenCalledTimes(1);
+  });
   it("prefers the home post lane over a secondary role=feed at the bottom", async () => {
     const column = layout(3);
     document.querySelector("main")!.insertAdjacentHTML("beforeend", '<section role="feed" id="suggested"><div role="article">Suggested bottom post</div><div role="article">More suggestions</div></section>');
@@ -121,7 +157,7 @@ describe("continuous Facebook feed placement", () => {
     history.pushState({}, "", "/groups/test");
     await feed.scan();
     expect(document.querySelectorAll("iframe")).toHaveLength(2);
-    expect(send).toHaveBeenCalledTimes(3);
+    expect(send).toHaveBeenCalledTimes(2);
     history.replaceState({}, "", "/");
   });
 });

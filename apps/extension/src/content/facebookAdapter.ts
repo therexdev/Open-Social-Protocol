@@ -6,8 +6,9 @@
  * If the selectors fail nothing breaks: the side panel composer keeps working (sidebar fallback).
  */
 import { CONTROL_ATTR, TOAST_ATTR, createBoundedObserver, scanAndInject, showToast, type BoundedObserver, type ComposerAdapter } from "./adapter";
-import { FEED_ATTR, maybeInsertFeedCards, resetFeedCards, type FeedCardsRuntime } from "./feedCards";
+import { FEED_ATTR, feedCardNeedsRepair, maybeInsertFeedCards, resetFeedCards, type FeedCardsRuntime } from "./feedCards";
 import type { PublishReply } from "../shared/protocol";
+import { ComposerAttribution } from "./attribution";
 
 const SUBMIT_LABEL = /^(post|publish)$/i;
 const TEXTBOX = '[contenteditable="true"][role="textbox"], [contenteditable="true"][data-lexical-editor="true"]';
@@ -59,6 +60,26 @@ export const ADAPTER_ATTR = "data-osp-facebook";
 export const STATUS_ATTR = "data-osp-facebook-status";
 export const TOAST_SENT = "Published to Open Social";
 
+/** Ignore typing, counters, sidebars and our own insertions. Only a changed post/composer
+ * structure needs discovery. Removing our cards externally still triggers restoration. */
+export function relevantFacebookMutation(mutation: MutationRecord): boolean {
+  const target = mutation.target.nodeType === 1 ? mutation.target as Element : mutation.target.parentElement;
+  const owned = `[${CONTROL_ATTR}], [${FEED_ATTR}], [${STATUS_ATTR}], [${TOAST_ATTR}]`;
+  if (target?.closest(`${owned}, ${TEXTBOX}, aside, [role="complementary"]`)) return false;
+  const structural = '[role="main"], main, [role="feed"], [role="article"], [data-pagelet^="FeedUnit_"], [role="dialog"], dialog';
+  if (mutation.type === "attributes") return !!target?.matches(structural);
+  for (const node of mutation.removedNodes) {
+    if (node.nodeType === 1 && (node as Element).hasAttribute(FEED_ATTR) && feedCardNeedsRepair(node as Element)) return true;
+    if (node.nodeType === 1 && !node.isConnected && (node as Element).matches(`[${FEED_ATTR}], [${CONTROL_ATTR}]`)) return true;
+  }
+  for (const node of [...mutation.addedNodes, ...mutation.removedNodes]) {
+    if (node.nodeType !== 1) continue;
+    const el = node as Element;
+    if (!el.matches(owned) && (el.matches(structural) || el.querySelector(`${structural}, ${TEXTBOX}`))) return true;
+  }
+  return false;
+}
+
 function defaultRuntime(): AdapterRuntime {
   return {
     document,
@@ -83,12 +104,23 @@ export function startFacebookAdapter(runtime: AdapterRuntime = defaultRuntime())
   root.setAttribute(ADAPTER_ATTR, "1");
   const now = runtime.now ?? (() => Date.now());
   const hooks = new Map<HTMLElement, () => void>();
+  const attributions = new Map<HTMLElement, { editor: ComposerAttribution; unhook: () => void }>();
+  let attributionEnabled = false; // Wait for the stored preference before changing a draft.
+  let preferenceGeneration = 0;
   let stopped = false;
   let lastSent: { text: string; audience: number; at: number } | undefined;
   let publishing = false;
 
   const onSubmit = (text: string, audience: number, event: Event) => {
     if (stopped || publishing || !(runtime.trustedEvent?.(event) ?? event.isTrusted)) return;
+    const dialog = (event.target as Element | null)?.closest<HTMLElement>('[role="dialog"], dialog');
+    const attribution = dialog ? attributions.get(dialog)?.editor : undefined;
+    if (attribution) {
+      // Usually already visible since opt-in; repair its position if the author edited below it.
+      attribution.sync(attributionEnabled);
+      text = attribution.text();
+    }
+    if (!text) return;
     // A double activation (click + keyboard) must not create two proposals.
     if (lastSent && lastSent.text === text && lastSent.audience === audience && now() - lastSent.at < 2000) return;
     lastSent = { text, audience, at: now() };
@@ -114,6 +146,17 @@ export function startFacebookAdapter(runtime: AdapterRuntime = defaultRuntime())
       .finally(() => { publishing = false; });
   };
 
+  const optedIn = (dialog: HTMLElement) => dialog.querySelector<HTMLInputElement>(`[${CONTROL_ATTR}] input`)?.checked === true;
+  async function loadPreferences() {
+    const generation = ++preferenceGeneration;
+    try {
+      const reply = await runtime.sendMessage({ type: "adapter.preferences" }) as { ok?: boolean; result?: { facebookAttribution?: boolean } };
+      if (stopped || generation !== preferenceGeneration || !reply?.ok || typeof reply.result?.facebookAttribution !== "boolean") return;
+      attributionEnabled = reply.result.facebookAttribution;
+      for (const [dialog, { editor }] of attributions) editor.sync(attributionEnabled && optedIn(dialog));
+    } catch { /* Keep publishing available; do not override a preference we could not read. */ }
+  }
+
   function showStatus() {
     if (doc.querySelector(`[${STATUS_ATTR}]`)) return;
     const status = doc.createElement("details");
@@ -131,10 +174,20 @@ export function startFacebookAdapter(runtime: AdapterRuntime = defaultRuntime())
     if (stopped) return 0;
     try {
       for (const [dialog, unhook] of hooks) {
-        if (!dialog.isConnected) { unhook(); hooks.delete(dialog); }
+        if (!dialog.isConnected) { unhook(); hooks.delete(dialog); attributions.get(dialog)?.unhook(); attributions.delete(dialog); }
       }
       showStatus();
       const injected = scanAndInject(doc, facebookAdapter, doc, onSubmit, hooks);
+      for (const dialog of hooks.keys()) {
+        if (attributions.has(dialog)) continue;
+        const editor = new ComposerAttribution(dialog, facebookAdapter);
+        const changed = (event: Event) => {
+          if (!(runtime.trustedEvent?.(event) ?? event.isTrusted)) return;
+          if ((event.target as Element | null)?.matches(`[${CONTROL_ATTR}] input`)) editor.sync(attributionEnabled && optedIn(dialog));
+        };
+        dialog.addEventListener("change", changed);
+        attributions.set(dialog, { editor, unhook: () => dialog.removeEventListener("change", changed) });
+      }
       void maybeInsertFeedCards(runtime);
       return injected;
     } catch {
@@ -142,7 +195,11 @@ export function startFacebookAdapter(runtime: AdapterRuntime = defaultRuntime())
     }
   };
 
-  const observer = createBoundedObserver({ target: doc.body ?? root, onBatch: () => scan(), idleMs: 60_000, now });
+  const observer = createBoundedObserver({
+    target: doc.body ?? root, onBatch: () => scan(), idleMs: 60_000, now,
+    filter: relevantFacebookMutation, schedule: callback => setTimeout(callback, 120),
+    observe: { childList: true, subtree: true, attributes: true, attributeFilter: ["role", "data-pagelet", "aria-hidden", "hidden", "style"] },
+  });
   const resume = () => {
     if (stopped) return;
     observer.start();
@@ -150,20 +207,30 @@ export function startFacebookAdapter(runtime: AdapterRuntime = defaultRuntime())
   };
   const onVisibility = () => {
     if (doc.visibilityState === "visible") resume();
+    else observer.stop();
+  };
+  const wake = () => {
+    if (stopped || doc.visibilityState === "hidden") return;
+    const inactive = !observer.active;
+    observer.start();
+    if (inactive) scan();
   };
   doc.defaultView?.addEventListener("focus", resume);
   doc.addEventListener("visibilitychange", onVisibility);
   // Opening a composer after the observer went idle need not focus the window again.
-  doc.addEventListener("pointerdown", resume, true);
-  doc.addEventListener("keydown", resume, true);
+  doc.addEventListener("pointerdown", wake, true);
+  doc.addEventListener("keydown", wake, true);
+  doc.defaultView?.addEventListener("scroll", wake, { passive: true });
   observer.start();
   scan();
+  void loadPreferences();
 
   return {
     observer,
     scan,
     refresh() {
       if (stopped) return;
+      void loadPreferences();
       resetFeedCards(doc);
       doc.querySelectorAll(`[${FEED_ATTR}]`).forEach((el) => el.remove());
       resume();
@@ -173,10 +240,13 @@ export function startFacebookAdapter(runtime: AdapterRuntime = defaultRuntime())
       observer.stop();
       doc.defaultView?.removeEventListener("focus", resume);
       doc.removeEventListener("visibilitychange", onVisibility);
-      doc.removeEventListener("pointerdown", resume, true);
-      doc.removeEventListener("keydown", resume, true);
+      doc.removeEventListener("pointerdown", wake, true);
+      doc.removeEventListener("keydown", wake, true);
+      doc.defaultView?.removeEventListener("scroll", wake);
       for (const unhook of hooks.values()) unhook();
       hooks.clear();
+      for (const { editor, unhook } of attributions.values()) { editor.sync(false); unhook(); }
+      attributions.clear();
       resetFeedCards(doc);
       doc.querySelectorAll(`[${CONTROL_ATTR}], [${FEED_ATTR}], [${TOAST_ATTR}], [${STATUS_ATTR}]`).forEach((el) => el.remove());
       root.removeAttribute(ADAPTER_ATTR);
