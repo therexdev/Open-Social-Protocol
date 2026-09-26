@@ -76,6 +76,10 @@
   "startHeight": "8668232",
   "registryAdmin": "19C9kF7uBC2a3kWY5iXF4zpWhzahGCmeJd",
   "upgradeDelayMs": "86400000",
-  "indexers": [],
-  "sponsors": []
+  "indexers": [
+    "https://social-api.usekoinos.com"
+  ],
+  "sponsors": [
+    "https://social-sponsor.usekoinos.com"
+  ]
 }
