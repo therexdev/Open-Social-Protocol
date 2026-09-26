@@ -27,7 +27,7 @@ function shortAddress(address: string): string {
 }
 
 export function findFeedRoot(doc: Document): HTMLElement | null {
-  return doc.querySelector<HTMLElement>('[role="feed"]') ?? doc.querySelector<HTMLElement>("main");
+  return doc.querySelector<HTMLElement>('[role="feed"]') ?? doc.querySelector<HTMLElement>('main, [role="main"]');
 }
 
 export function buildFeedContainer(doc: Document, items: NonNullable<FeedReply["result"]>["items"] = []): HTMLElement {
@@ -78,18 +78,20 @@ export async function maybeInsertFeedCards(runtime: FeedCardsRuntime): Promise<H
       .then((reply) => {
         const r = reply as FeedReply | undefined;
         const resolved = { enabled: r?.ok === true && r.result?.enabled === true, items: r?.result?.items ?? [] };
-        pending.set(doc, resolved);
+        if (pending.get(doc) === request) pending.set(doc, resolved);
         return resolved;
       })
       .catch(() => {
         const resolved = { enabled: false, items: [] };
-        pending.set(doc, resolved);
+        if (pending.get(doc) === request) pending.set(doc, resolved);
         return resolved;
       });
     pending.set(doc, request);
     state = request;
   }
   const resolved = state instanceof Promise ? ((await state) as { enabled: boolean; items: NonNullable<FeedReply["result"]>["items"] }) : state;
+  // A toggle or stop invalidates requests already in flight. Never reinsert their stale reply.
+  if (pending.get(doc) !== resolved) return null;
   if (!resolved.enabled) return null;
   if (doc.querySelector(`[${FEED_ATTR}]`)) return doc.querySelector<HTMLElement>(`[${FEED_ATTR}]`);
   const root = findFeedRoot(doc);

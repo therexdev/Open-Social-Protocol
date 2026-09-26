@@ -170,7 +170,7 @@ export interface FeedRequestReply {
 // ---------------------------------------------------------------------------
 
 export interface AdapterStatusView {
-  facebook: { wanted: boolean; granted: boolean; registered: boolean };
+  facebook: { wanted: boolean; granted: boolean; registered: boolean; attachmentWarning?: string };
   feedInsertion: boolean;
 }
 

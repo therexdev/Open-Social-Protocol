@@ -119,16 +119,18 @@ export function hookSubmit(dialog: HTMLElement, adapter: ComposerAdapter, contro
 }
 
 /** Injects controls and hooks into every composer found under `root`; returns how many were injected now. */
-export function scanAndInject(root: ParentNode, adapter: ComposerAdapter, doc: Document, onSubmit: (text: string) => void): number {
+export function scanAndInject(root: ParentNode, adapter: ComposerAdapter, doc: Document, onSubmit: (text: string) => void, hooks?: Map<HTMLElement, () => void>): number {
   let injected = 0;
   for (const dialog of adapter.findComposers(root)) {
     const control = injectControl(dialog, adapter, doc);
     if (control) injected++;
-    hookSubmit(dialog, adapter, () => {
+    if (dialog.hasAttribute(HOOK_ATTR)) continue;
+    const unhook = hookSubmit(dialog, adapter, () => {
       const host = dialog.querySelector(`[${CONTROL_ATTR}]`) as HTMLElement | null;
       const checkbox = host?.querySelector('input[type="checkbox"]') as HTMLInputElement | null;
       return host && checkbox ? { dialog, host, checkbox } : null;
     }, onSubmit);
+    hooks?.set(dialog, unhook);
   }
   return injected;
 }

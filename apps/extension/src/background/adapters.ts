@@ -17,12 +17,31 @@ import type { Settings } from "../shared/settings";
 export const FACEBOOK_SCRIPT_ID = "osp-facebook-adapter";
 export const FACEBOOK_SCRIPT_FILE = "content/facebook.js";
 
-type ChromeLike = Pick<typeof chrome, "permissions" | "scripting">;
+type ChromeLike = Pick<typeof chrome, "permissions" | "scripting" | "tabs">;
 type AdapterSettings = Pick<Settings, "facebookAdapter" | "feedInsertion">;
 export type AdapterSettingsSource = AdapterSettings | (() => Promise<AdapterSettings>);
 
 export function adapterApi(api: ChromeLike = chrome) {
   let chain: Promise<unknown> = Promise.resolve();
+  let attachmentWarning: string | undefined;
+
+  /** Registration covers future documents; attach/refresh already-open Facebook tabs as well. */
+  async function refreshOpenTabs(matches: string[]): Promise<void> {
+    const tabs = await api.tabs.query({ url: matches });
+    const results = await Promise.allSettled(tabs.filter((tab) => tab.id !== undefined).map((tab) =>
+      api.scripting.executeScript({ target: { tabId: tab.id!, frameIds: [0] }, files: [FACEBOOK_SCRIPT_FILE], world: "ISOLATED" }),
+    )); // A tab closing or navigating during enable must not prevent the others from attaching.
+    const failed = results.filter((result) => result.status === "rejected").length;
+    attachmentWarning = failed ? `Could not attach to ${failed} open Facebook tab${failed === 1 ? "" : "s"}. Reload those pages to activate Open Social.` : undefined;
+  }
+
+  async function stopOpenTabs(matches: string[] = FACEBOOK_ORIGINS): Promise<void> {
+    // Tab ids remain available after site access is revoked; URLs may no longer be readable.
+    const tabs = await api.tabs.query({});
+    await Promise.allSettled(tabs.filter((tab) => tab.id !== undefined).map((tab) =>
+      api.tabs.sendMessage(tab.id!, { type: "osp.facebook.stop", origins: matches }, { frameId: 0 }),
+    )); // Tabs without our content script have no receiving endpoint.
+  }
 
   /** Serializes registration changes so concurrent syncs cannot interleave. */
   function serialized<T>(fn: () => Promise<T>): Promise<T> {
@@ -93,10 +112,19 @@ export function adapterApi(api: ChromeLike = chrome) {
   function sync(source: AdapterSettingsSource): Promise<AdapterStatusView> {
     return serialized(async () => {
       const settings = typeof source === "function" ? await source() : source;
-      const granted = await facebookGranted();
-      if (settings.facebookAdapter && granted) await registerFacebook();
-      else await unregisterFacebook();
-      return { facebook: { wanted: settings.facebookAdapter, granted, registered: await facebookRegistered() }, feedInsertion: settings.feedInsertion };
+      const matches = await facebookGrantedOrigins();
+      const granted = matches.length > 0;
+      if (settings.facebookAdapter && granted) {
+        await registerFacebook();
+        const revoked = FACEBOOK_ORIGINS.filter((origin) => !matches.includes(origin));
+        if (revoked.length) await stopOpenTabs(revoked);
+        await refreshOpenTabs(matches);
+      } else {
+        attachmentWarning = undefined;
+        await unregisterFacebook();
+        await stopOpenTabs();
+      }
+      return { facebook: { wanted: settings.facebookAdapter, granted, registered: await facebookRegistered(), attachmentWarning }, feedInsertion: settings.feedInsertion };
     });
   }
 
@@ -104,6 +132,7 @@ export function adapterApi(api: ChromeLike = chrome) {
   function disableFacebook(): Promise<void> {
     return serialized(async () => {
       await unregisterFacebook();
+      await stopOpenTabs();
       try {
         await api.permissions.remove({ origins: FACEBOOK_ORIGINS });
       } catch {
@@ -113,7 +142,7 @@ export function adapterApi(api: ChromeLike = chrome) {
   }
 
   async function status(settings: AdapterSettings): Promise<AdapterStatusView> {
-    return { facebook: { wanted: settings.facebookAdapter, granted: await facebookGranted(), registered: await facebookRegistered() }, feedInsertion: settings.feedInsertion };
+    return { facebook: { wanted: settings.facebookAdapter, granted: await facebookGranted(), registered: await facebookRegistered(), attachmentWarning }, feedInsertion: settings.feedInsertion };
   }
 
   return { facebookGranted, facebookGrantedOrigins, facebookRegistered, registerFacebook, unregisterFacebook, sync, disableFacebook, status };

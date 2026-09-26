@@ -26,6 +26,17 @@ runtime), `public/icons/*`. Everything is bundled; nothing is loaded from the ne
    authorize this browser (see *Device authority*).
 5. Optional: open the extension options (⚙ in the side panel) to enable the Facebook adapter.
 
+To update an unpacked installation, replace the files in the **same folder** you originally loaded,
+then click **Reload** on its card in `chrome://extensions` (or `brave://extensions`). Keep the
+existing installation to preserve its local account/settings. Refresh Facebook after an extension
+upgrade so the page uses the new content script. Check version **0.1.1** in extension Settings.
+
+When Facebook is enabled, existing granted Facebook tabs are attached immediately. Look for
+**Open Social enabled** at the bottom left; expand it for instructions. The cross-post checkbox
+appears in Facebook's **Create post** dialog. The separate **Show a labeled Open Social Protocol
+posts box** option controls feed insertion and is off by default. Enable it to see public posts in
+Facebook's feed. Neither action publishes without confirmation in the extension's Queue tab.
+
 Without `deployments/harbinger.json` (produced by the deploy-testnet workflow) the extension still
 builds, installs and starts: the side panel reports the network as **not deployed** and stays in
 read-only mode (no chain writes); the indexer and endpoints can still be configured in the options.
@@ -99,23 +110,30 @@ Mark host posted/failed, Record proof, Discard. `reconcile_required` (conflictin
 `src/content/adapter.ts` holds host-agnostic helpers: a `ComposerAdapter` interface (find composers / textbox / footer /
 submit control), one-control-per-dialog injection (`data-osp-control`), a capture-phase submit hook that reads **only**
 the textbox `textContent`, a toast, and a bounded `MutationObserver` (childList + subtree on `document.body`, batched with
-`requestAnimationFrame`, disconnected after 60 s without mutations, reconnected on focus/visibility).
+`requestAnimationFrame`, disconnected after 60 s without mutations, reconnected on focus/visibility
+or pointer/keyboard interaction before the host opens its next composer).
 
 `src/content/facebookAdapter.ts` implements the Facebook adapter with role-based selectors
-(`div[role="dialog"]` containing `[contenteditable="true"][role="textbox"]`; submit = `[aria-label]` matching
-`/^(post|publish)$/i`, else the last enabled button in the footer). When the checkbox is on and the user activates the
+(`dialog` or `[role="dialog"]` containing an editable ARIA textbox or Lexical editor; submit = aria-label
+or button text matching `/^(post|publish)$/i`, or an explicit submit button). It never guesses that an
+unrelated last button is Post. When the checkbox is on and the user activates the
 submit control it sends `{ type: "crosspost.propose", payload: { hostSite, text, attemptId, url, submitted, userGesture } }`
 (a fresh 16-byte attempt id per activation, de-duplicated for 2 s, `url` read at proposal time because Facebook navigates
-client-side) and shows "Sent to Open Social - confirm in the side panel"; the service worker stores a **draft** and sets the action badge. If the selectors fail nothing is injected and
-nothing breaks: the side panel composer keeps working. `src/content/feedCards.ts` (off by default) inserts one labeled
-container "Open Social Protocol posts" (text only, up to 5 public posts) at the top of `[role="feed"]` or `main`; it asks
-the worker (`feed.request`) at most once per page and only when such a feed root exists. The content script is built as a
+client-side) and shows "Sent to Open Social - confirm in the side panel"; the service worker stores a **draft** and sets the action badge. If composer detection fails, the page still shows the extension's enabled indicator and the side panel composer remains available. `src/content/feedCards.ts` (off by default) inserts one labeled
+container "Open Social Protocol posts" (text only, up to 5 public posts) at the top of `[role="feed"]`, `main`, or `[role="main"]`; it asks
+the worker (`feed.request`) once per page/settings refresh and only when such a feed root exists. Settings changes refresh existing tabs; disabling or revoking access stops the adapter and removes its UI/listeners. In-flight feed replies are invalidated on stop/refresh. The content script is built as a
 self-contained classic script (`scripts/build-content.mjs`, IIFE) because runtime-registered scripts cannot be modules.
 
 Fixtures under `src/content/__fixtures__/` (`composer.html`, `no-composer.html`) drive `src/content/adapter.test.ts`:
-exactly one control is injected, the submit hook reads the composer text only, a page without a composer gets nothing.
+exactly one composer control is injected, the submit hook reads the composer text only, and a page without a composer gets only the enabled indicator (plus feed cards if requested).
 
 ## Tests
+
+The build also runs the **shipped bundles** in fresh realms. `scripts/smoke-pages.mjs` renders Feed,
+Compose, review/cancel, Queue, Compose again, and options with string code generation forbidden.
+It deliberately does not borrow the worker/unit-test protobuf initialization. `scripts/smoke-facebook.mjs`
+executes the built classic script and tests repeated injection, late composer detection, opt-in draft
+capture, feed changes, and stop/re-enable. These are DOM simulations, not authenticated Facebook acceptance tests.
 
 `src/test/chromeMock.ts` provides an in-memory `chrome` (runtime messaging with sender simulation, storage areas, alarms,
 permissions, scripting registration, action badge, side panel, tabs); `src/test/support.ts` wires `createBackground` to it

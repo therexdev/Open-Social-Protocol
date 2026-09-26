@@ -144,7 +144,7 @@ export function createChromeMock(options: ChromeMockOptions = {}) {
       updateContentScripts: async (scripts: chrome.scripting.RegisteredContentScript[]) => {
         for (const script of scripts) registered.set(script.id, { ...registered.get(script.id), ...script });
       },
-      executeScript: async () => [],
+      executeScript: async (_injection: chrome.scripting.ScriptInjection<unknown[], unknown>) => [],
       _registered: registered,
     },
     action: {
@@ -168,7 +168,12 @@ export function createChromeMock(options: ChromeMockOptions = {}) {
     },
     tabs: {
       _tabs: tabs,
-      query: async () => tabs.filter((t) => t.active),
+      query: async (query: chrome.tabs.QueryInfo = {}) => tabs.filter((t) => {
+        if (query.active !== undefined && t.active !== query.active) return false;
+        const patterns = typeof query.url === "string" ? [query.url] : query.url;
+        return !patterns || patterns.some((pattern) => t.url?.startsWith(pattern.replace(/\*$/, "")));
+      }),
+      sendMessage: async (_tabId: number, _message: unknown, _options?: chrome.tabs.MessageSendOptions) => undefined,
       get: async (tabId: number) => tabs.find((t) => t.id === tabId),
       create: async (props: { url?: string }) => {
         const tab = { id: tabs.length + 1, index: tabs.length, active: true, url: props.url } as chrome.tabs.Tab;

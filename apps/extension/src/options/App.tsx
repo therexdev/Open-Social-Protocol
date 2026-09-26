@@ -58,7 +58,7 @@ export function OptionsApp() {
   }
 
   async function enableFacebook() {
-    await act("Facebook adapter enabled.", async () => {
+    await act("Facebook enabled. Look for “Open Social enabled” at the bottom left of Facebook, then open Create post for the cross-post checkbox.", async () => {
       // The permission prompt must be triggered from this page (user gesture); the service worker registers the script.
       const granted = await chrome.permissions.request({ origins: FACEBOOK_ORIGINS });
       if (!granted) throw new Error("Permission was not granted.");
@@ -104,8 +104,9 @@ export function OptionsApp() {
           Adds a clearly labeled "Also publish to Open Social Protocol" control to the Facebook composer. It only reads the text you typed in the composer, only when you tick the box and press Post, and nothing is published until you confirm in the side panel. Requires access to {FACEBOOK_ORIGINS.join(" and ")}.
         </p>
         <p>
-          Status: {adapters.facebook.registered ? <span className="pill good">active</span> : adapters.facebook.granted ? <span className="pill warn">permission granted, not active</span> : <span className="pill">off</span>}
+          Status: {adapters.facebook.registered ? <span className="pill good">enabled</span> : adapters.facebook.granted ? <span className="pill warn">permission granted, not active</span> : <span className="pill">off</span>}
         </p>
+        {adapters.facebook.attachmentWarning && <p className="notice">{adapters.facebook.attachmentWarning}</p>}
         <div className="row">
           {adapters.facebook.registered ? (
             <button className="danger" onClick={disableFacebook}>
