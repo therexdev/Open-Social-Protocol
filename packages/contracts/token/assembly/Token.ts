@@ -4,6 +4,7 @@ import { publications } from "./proto/publications";
 import { relationships } from "./proto/relationships";
 import { Actor, Capability, IS_BLOCKED_ENTRY_POINT } from "./common/actor";
 import { Util } from "./common/util";
+import { Recharge, FULL, height } from "./Recharge";
 System.setSystemBufferSize(32 * 1024);
 const DAY: u64 = 86400000;
 const FREE: u64 = 100000; // 100 actions; 1000 resource units per action.
@@ -58,7 +59,10 @@ export class Token {
         1,
         1000,
         10,
-        0
+        0,
+        2,
+        height(),
+        Util.now()
       )
     );
     return new token.init_result();
@@ -84,19 +88,33 @@ export class Token {
     );
     return new token.set_reward_policy_result();
   }
-  load(account: Uint8Array): token.account_state {
-    let a = this.accounts.get(account);
-    const now = Util.now();
-    if (a == null) return new token.account_state(0, FREE, 0, now);
-    const dt = now > a.updated_at ? min<u64>(now - a.updated_at, DAY) : 0;
-    // Bounded products: supply <= 1e6, capacity <= 1e9, dt <= 86400000.
-    const cap = a.balance * PER_TOKEN;
-    a.free_credits = min<u64>(FREE, a.free_credits + (FREE * dt) / DAY);
-    a.token_credits = min<u64>(cap, a.token_credits + (cap * dt) / DAY);
-    a.updated_at = now;
-    return a;
+  activate_recharge(args: token.activate_recharge_arguments): token.activate_recharge_result {
+    System.requireAuthority(authority.authorization_type.contract_call, this.id);
+    const c = this.cfg();
+    System.require(c.resource_version == 0, "recharge already activated");
+    c.resource_version = 2;
+    c.activation_block = height();
+    c.activation_time = Util.now();
+    this.config.put(c);
+    System.event("osp.token.recharge_activated", Protobuf.encode(
+      new token.recharge_activated_event(2, c.activation_block, c.activation_time, FULL, 100),
+      token.recharge_activated_event.encode), []);
+    return new token.activate_recharge_result();
   }
-  save(account: Uint8Array, a: token.account_state): void {
+  open(account: Uint8Array): Recharge {
+    const c = this.cfg();
+    System.require(c.resource_version == 2, "five-day recharge upgrade is not activated");
+    let a = this.accounts.get(account);
+    if (a == null) a = new token.account_state(0, FREE, 0, c.activation_time);
+    return new Recharge(this.id, account, a!, c, height());
+  }
+  load(account: Uint8Array): token.account_state {
+    const r = this.open(account);
+    return r.summarize(r.value);
+  }
+  save(account: Uint8Array, r: Recharge): void {
+    const a = r.summarize(r.value);
+    r.save();
     this.accounts.put(account, a);
     System.event(
       "osp.token.account_updated",
@@ -106,13 +124,12 @@ export class Token {
   }
   spend(account: Uint8Array, units: u64): void {
     System.require(units > 0 && units <= 100, "invalid usage cost");
-    const cost = units * 1000,
-      a = this.load(account);
-    System.require(a.free_credits + a.token_credits >= cost, "usage allowance exhausted; wait for regeneration");
-    const free = min<u64>(a.free_credits, cost);
-    a.free_credits -= free;
-    a.token_credits -= cost - free;
-    this.save(account, a);
+    const r = this.open(account), cost = units * FULL;
+    System.require(r.capacity(0) + r.capacity(1) >= cost, "usage allowance exhausted; wait for regeneration");
+    const free = min<u64>(r.capacity(0), cost);
+    r.spend(0, free);
+    r.spend(1, cost - free);
+    this.save(account, r);
   }
   consume(args: token.consume_arguments): token.consume_result {
     const c = this.cfg(),
@@ -131,16 +148,12 @@ export class Token {
     System.require(!Arrays.equal(from, to), "cannot transfer to yourself");
     Actor.requireAuthorized(this.cfg().identity!, from, null, 0);
     System.require(Actor.exists(this.cfg().identity!, to), "recipient not registered");
-    const a = this.load(from),
-      b = this.load(to);
-    System.require(args.value > 0 && args.value <= a.balance, "insufficient balance");
-    // Move the same fraction of remaining token-backed capacity with the tokens.
-    // Neither transfer leg creates credits; free credits remain with their account.
-    const moved = (a.token_credits * args.value) / a.balance;
-    a.balance -= args.value;
-    a.token_credits -= moved;
-    b.balance += args.value;
-    b.token_credits += moved;
+    const a = this.open(from), b = this.open(to);
+    System.require(args.value > 0 && args.value <= a.state.paid_ready, "insufficient transferable tokens; used tokens recharge before transfer");
+    a.value.balance -= args.value;
+    a.state.paid_ready -= args.value;
+    b.value.balance += args.value;
+    b.state.paid_ready += args.value;
     this.save(from, a);
     this.save(to, b);
     System.event(
@@ -154,10 +167,11 @@ export class Token {
     const from = Util.requireAddress(args.from, "from"),
       c = this.cfg();
     Actor.requireAuthorized(c.identity!, from, null, 0);
-    const a = this.load(from);
-    System.require(args.value > 0 && args.value <= a.balance, "insufficient balance");
-    a.token_credits -= (a.token_credits * args.value) / a.balance;
-    a.balance -= args.value;
+    const a = this.open(from);
+    System.require(args.value > 0 && args.value <= a.state.paid_ready, "insufficient transferable tokens; used tokens recharge before burning");
+    a.state.paid_ready -= args.value;
+    a.value.balance -= args.value;
+    System.require(c.supply >= args.value, "invalid token supply");
     c.supply -= args.value;
     this.config.put(c);
     this.save(from, a);
@@ -213,9 +227,9 @@ export class Token {
     this.global.put(global);
     this.rewards.put(recipient, user);
     if (reward > 0) {
-      const a = this.load(recipient);
-      a.balance += reward;
-      a.token_credits += reward * PER_TOKEN;
+      const a = this.open(recipient);
+      a.value.balance += reward;
+      a.state.paid_ready += reward;
       c.supply += reward;
       this.config.put(c);
       this.save(recipient, a);

@@ -6,6 +6,14 @@ message account_state {
   uint64 free_credits = 2 [jstype = JS_STRING];
   uint64 token_credits = 3 [jstype = JS_STRING];
   uint64 updated_at = 4 [jstype = JS_STRING];
+  uint32 resource_version = 5;
+  uint64 block = 6 [jstype = JS_STRING];
+  uint64 free_ticks = 7 [jstype = JS_STRING];
+  uint64 token_ticks = 8 [jstype = JS_STRING];
+  uint64 transferable = 9 [jstype = JS_STRING];
+  uint64 locked = 10 [jstype = JS_STRING];
+  uint64 recharge_blocks = 11 [jstype = JS_STRING];
+  uint64 ticks_per_unit = 12 [jstype = JS_STRING];
 }
 message reward_state {
   uint64 day = 1 [jstype = JS_STRING];
@@ -20,6 +28,9 @@ message config {
   uint64 daily_reward_cap = 6 [jstype = JS_STRING];
   uint64 recipient_daily_cap = 7 [jstype = JS_STRING];
   uint64 supply = 8 [jstype = JS_STRING];
+  uint32 resource_version = 9;
+  uint64 activation_block = 10 [jstype = JS_STRING];
+  uint64 activation_time = 11 [jstype = JS_STRING];
 }
 // @description init
 // @read-only false
@@ -165,4 +176,30 @@ message policy_changed_event {
   uint64 daily_reward_cap = 2 [jstype = JS_STRING];
   uint64 recipient_daily_cap = 3 [jstype = JS_STRING];
   uint64 timestamp = 4 [jstype = JS_STRING];
+}
+
+// Internal v2 storage. Existing account/config field numbers remain unchanged.
+message recharge_state {
+  uint64 free_ready = 1 [jstype = JS_STRING];
+  uint64 paid_ready = 2 [jstype = JS_STRING];
+  uint64 block = 3 [jstype = JS_STRING];
+  uint64 revision = 4 [jstype = JS_STRING];
+}
+message recharge_node {
+  uint64 count = 1 [jstype = JS_STRING];
+  uint64 deadlines = 2 [jstype = JS_STRING];
+  uint64 revision = 3 [jstype = JS_STRING];
+  uint64 floor = 4 [jstype = JS_STRING];
+}
+// @description activate five-day recharge atomically with an in-place upgrade
+// @read-only false
+message activate_recharge_arguments {}
+message activate_recharge_result {}
+
+message recharge_activated_event {
+  uint32 resource_version = 1;
+  uint64 activation_block = 2 [jstype = JS_STRING];
+  uint64 activation_time = 3 [jstype = JS_STRING];
+  uint64 recharge_blocks = 4 [jstype = JS_STRING];
+  uint64 free_units = 5 [jstype = JS_STRING];
 }

@@ -1,0 +1,5 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": { "noEmit": true, "types": ["node"] },
+  "include": ["*.ts", "../../scripts/token-v2-model.test.ts", "../../scripts/simulate-token-v2.ts"]
+}

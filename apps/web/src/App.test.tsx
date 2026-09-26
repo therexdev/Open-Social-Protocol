@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router-dom";
@@ -66,8 +66,12 @@ async function submitUnlock(container: HTMLElement, passphrase: string) {
   });
   await act(async () => {
     input.form!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
-    await new Promise((resolve) => setTimeout(resolve, 50));
   });
+  // Wait for the async KDF/UI state, not a machine-speed-dependent 50 ms delay.
+  await vi.waitFor(async () => {
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 10)); });
+    expect(container.querySelector('button[aria-busy="true"]')).toBeNull();
+  }, { timeout: 5000, interval: 20 });
 }
 
 afterEach(async () => {
