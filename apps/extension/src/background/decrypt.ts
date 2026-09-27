@@ -81,6 +81,9 @@ export async function openPost(post: PostView, ctx: OpenContext): Promise<Opened
 export function toFeedItem(post: PostView, opened: OpenedPost): FeedItem {
   return {
     postId: post.postId,
+    contentHash: post.contentHash,
+    economy: post.economy,
+    promoted: post.promoted,
     author: post.author,
     audience: post.audience,
     epoch: post.epoch,

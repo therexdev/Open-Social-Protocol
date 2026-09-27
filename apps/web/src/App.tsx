@@ -7,6 +7,7 @@ import { PeoplePage } from "./features/people/PeopleSearch";
 import { Layout } from "./components/Layout";
 import { Spinner } from "./components/ui";
 import { ComposerPage } from "./features/composer/ComposerPage";
+import { PublishingProvider } from "./features/composer/PublishingProvider";
 import { FeedPage } from "./features/feed/FeedPage";
 import { FriendsPage } from "./features/friends/FriendsPage";
 import { NotificationsPage } from "./features/notifications/NotificationsPage";
@@ -160,10 +161,12 @@ export function App({ vault = defaultVault, settings, services }: AppProps) {
   return (
     <VaultProvider store={vault}>
       <ServicesProvider {...(settings && { store: settings })} {...(services && { factory: services })}>
-        <AccountEffects />
-        <Layout>
-          <AppRoutes />
-        </Layout>
+        <PublishingProvider>
+          <AccountEffects />
+          <Layout>
+            <AppRoutes />
+          </Layout>
+        </PublishingProvider>
       </ServicesProvider>
     </VaultProvider>
   );

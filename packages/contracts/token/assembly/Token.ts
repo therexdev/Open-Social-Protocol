@@ -5,6 +5,7 @@ import { relationships } from "./proto/relationships";
 import { Actor, Capability, IS_BLOCKED_ENTRY_POINT } from "./common/actor";
 import { Util } from "./common/util";
 import { Recharge, FULL, height } from "./Recharge";
+import { Economy } from "./Economy";
 System.setSystemBufferSize(32 * 1024);
 const DAY: u64 = 86400000;
 const FREE: u64 = 100000; // 100 actions; 1000 resource units per action.
@@ -74,6 +75,7 @@ export class Token {
       "reward policy exceeds pilot bounds"
     );
     const c = this.cfg();
+    System.require(c.economy_version == 0, "legacy Support rewards are retired");
     c.reward_amount = args.reward_amount;
     c.daily_reward_cap = args.daily_reward_cap;
     c.recipient_daily_cap = args.recipient_daily_cap;
@@ -182,6 +184,7 @@ export class Token {
     const actor = Util.requireAddress(args.actor, "actor"),
       id = Util.requireBytes(args.post_id, 32, "post id"),
       c = this.cfg();
+    System.require(c.economy_version == 0, "Support rewards were replaced by paid up/down voting; update your client");
     System.require(id.length == 32, "post id must be 32 bytes");
     Actor.requireAuthorized(c.identity!, actor, args.device, Capability.SUPPORT);
     const call = System.call(
@@ -244,6 +247,27 @@ export class Token {
   get_config(args: token.get_config_arguments): token.get_config_result {
     return new token.get_config_result(this.config.get());
   }
+  activate_economy(args: token.activate_economy_arguments): token.activate_economy_result {
+    new Economy(this).activate(args.test_period_blocks); return new token.activate_economy_result();
+  }
+  grant_test_tokens(args: token.grant_test_tokens_arguments): token.grant_test_tokens_result {
+    new Economy(this).grant(args); return new token.grant_test_tokens_result();
+  }
+  vote(args: token.vote_arguments): token.vote_result {
+    new Economy(this).vote(args); return new token.vote_result();
+  }
+  settle_reward(args: token.settle_reward_arguments): token.settle_reward_result {
+    return new token.settle_reward_result(new Economy(this).settle(args));
+  }
+  promote(args: token.promote_arguments): token.promote_result {
+    new Economy(this).promote(args); return new token.promote_result();
+  }
+  cancel_promotion(args: token.cancel_promotion_arguments): token.cancel_promotion_result {
+    new Economy(this).cancel(args); return new token.cancel_promotion_result();
+  }
+  get_economy(args: token.get_economy_arguments): token.get_economy_result { return new Economy(this).view(); }
+  get_post_economy(args: token.get_post_economy_arguments): token.get_post_economy_result { return new Economy(this).postView(args); }
+  get_promotions(args: token.get_promotions_arguments): token.get_promotions_result { return new Economy(this).board(); }
   get_account(args: token.get_account_arguments): token.get_account_result {
     const a = this.load(Util.requireAddress(args.account, "account"));
     return new token.get_account_result(a, FREE + a.balance * PER_TOKEN);

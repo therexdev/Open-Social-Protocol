@@ -1,0 +1,37 @@
+{
+  "workflow": "https://github.com/therexdev/Open-Social-Protocol/actions/runs/36270944959",
+  "sourceCommit": "448eff60ca7294e8a916880b799eec44b1a4d6d7",
+  "started": "2026-09-26T20:58:26.748Z",
+  "completed": "2026-09-26T21:02:13.540Z",
+  "accounts": [
+    "197wEpvGqgrBLihqdwxb557HpwTocqq8uV",
+    "1ABmVipMNVwhY2BRzXj6561FHui8GXTUbN"
+  ],
+  "results": {
+    "register-0": "197wEpvGqgrBLihqdwxb557HpwTocqq8uV",
+    "register-1": "1ABmVipMNVwhY2BRzXj6561FHui8GXTUbN",
+    "public-post": "G9sWfVDhndSWHO1zUaiAqBI6Irwkd9OAY50eUQp8Mr0=",
+    "public-readable": true,
+    "alice-old-private": "rDBOWfwdzhOg5dGIh_Lvsv91vY2Ejl5qxXnx5xXQ86o=",
+    "bob-old-private": "see2EDt_Wnzr0U6BhEIfHNwW0lDGE7kVGX8hYJVlBxg=",
+    "stranger-cannot-read": true,
+    "friend-request": "0x1220ab7eab11957f4406cf72f9ff86c6db8451366dee0622e7d0e2445ac61cbcef05",
+    "friend-accept": "0x1220d7e3eb72dab37584486d7b5c2b40b1907dca65992ebe0a15b14ae648e56c9dbb",
+    "friend-history-both-directions": true,
+    "remove-friend": "0x12203f1fa1d98a27a68cd5aa86a7adbf9ef8eff880640088204780a6877c669a93c2",
+    "alice-post-while-removed": "bvwVjCyCdCUcRkdCVfpGZjo-UOrlTNnstzKSatEbO9k=",
+    "bob-post-while-removed": "wVRmOz-gCgnoySLkSeLfbvVKdEVpZv1TpuwtGY0v6yQ=",
+    "removed-friends-cannot-read": true,
+    "reverse-request": "0x12208e2196f574cb31114bec08493978775aad8dc00a70d816cc76f7e59fc8d48ecb",
+    "reverse-accept": "0x12200896e0c280ce72dd5f15ad2e3f4ed2825da76082540aea555c8ba79ce55d1e00",
+    "restore-all-history-both-directions": true,
+    "message-request": "0x122098bf7659042f9ff352289ee68f7fc188d7396d27cb74ccb66c981746bd658fb6",
+    "message-accept": "0x12202f2ac2d9bc0cff85f57d8fc3a6254cbc7458c2f87af934144ec32fc364d8a533",
+    "message-197wEpvGqgrBLihqdwxb557HpwTocqq8uV": "FkTy4HLaYlOqUnzgn2wFIz7Vulnvhf2xlnVaJFanZjY=",
+    "message-1ABmVipMNVwhY2BRzXj6561FHui8GXTUbN": "aNpP9rL0Se6pNuiQ0d5zUoirM0_9cQu-Ck0ejletqt8=",
+    "token-mode-and-reward-policy": "1",
+    "message-close": "0x1220d0614f9a5b2fcbd34ed7b93bca0c72b32235782ebd475d6a6fd96abdcd0437c1",
+    "block": "0x1220ff31c69ea45f49525a06e0d77aab011234a70249acba0814cfc026c733a2c3fc",
+    "blocked-relationship-inactive": true
+  }
+}

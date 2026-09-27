@@ -120,6 +120,7 @@ export function statusView(options: ApiOptions): Record<string, unknown> {
     ? Object.fromEntries(Object.entries(deployment.contracts).map(([name, entry]) => [name, entry.address]))
     : null;
   return {
+    features: { tokenEconomy: 1 },
     network: config.network,
     chainId: deployment?.chainId ?? null,
     // Chain id the node reports and whether it matches the manifest (null until the first sync step compared them).
@@ -202,6 +203,18 @@ export function buildApi(options: ApiOptions): FastifyInstance {
     const limit=parseLimit(query(request,"limit"),30,100);
     const rows=db.all("SELECT * FROM token_activity WHERE actor=? OR recipient=? ORDER BY height DESC,tx_index DESC,sequence DESC LIMIT ?",account,account,limit);
     return {items:rows.map(row=>({kind:row.kind,...JSON.parse(String(row.data_json)),txId:row.tx_id}))};
+  });
+
+  app.get("/v1/promotions", async request => {
+    const viewer = parseAddress(query(request,"viewer"),"viewer",false);
+    const scope = query(request,"scope") ?? "public";
+    if (!["public","friends","all"].includes(scope)) throw new ApiError(400,"invalid_request","invalid scope");
+    return { items: q.promotions(db,viewer,scope as q.FeedScope) };
+  });
+  app.get("/v1/token/:account/rewards", async request => {
+    const account = parseAddress(param(request,"account"),"account")!;
+    const after = parseBase64url(query(request,"cursor"),"cursor",false) ?? "";
+    return q.pendingRewards(db,account,after,parseLimit(query(request,"limit"),20,50));
   });
 
   // Every data route requires a deployment.

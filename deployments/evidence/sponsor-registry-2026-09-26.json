@@ -1,0 +1,86 @@
+{
+  "run": "36274012319-1",
+  "contract": "14bMMXtiDNFFXX8dtc6xEaPTVqRf36geSn",
+  "wasmSha256": "fbcdb71be82bd095bdb6a5bcbf1ef0e29c9c369e837046f756b9bac4f9a35511",
+  "started": "2026-09-26T21:49:00.409Z",
+  "checks": [
+    {
+      "name": "isolated-registry-upload",
+      "txId": "0x122081212b420e9ae7ef841357a95e48dce23616b0dc7a4a4044178807460869bd0f",
+      "block": 8714818,
+      "rc": "400650010"
+    },
+    {
+      "name": "register-actual-service-policy",
+      "txId": "0x12206c68f0e7cd6dee36590bab34244918045de61b3a468777c9cedfc84d13108314",
+      "block": 8714820,
+      "rc": "9204694"
+    },
+    {
+      "name": "actual-service-policy-round-trips"
+    },
+    {
+      "name": "register-unpacked-policy",
+      "txId": "0x1220663df070a9c13939e701752718abe02589065b2b87094819b9aae73582cb65c4",
+      "block": 8714823,
+      "rc": "5477764"
+    },
+    {
+      "name": "unpacked-policy-round-trips"
+    },
+    {
+      "name": "register-mixed-policy",
+      "txId": "0x122045f1ee86bd09ea9ea3966ffa6dae691427d2ae351a1e8f10286f2dd0e155dc9c",
+      "block": 8714827,
+      "rc": "5481076"
+    },
+    {
+      "name": "mixed-policy-round-trips"
+    },
+    {
+      "name": "register-packed-policy",
+      "txId": "0x12203ef3f869ecf82997b449a829393fada5679a1b8f3279465c69828f99bf2e90cc",
+      "block": 8714829,
+      "rc": "5409916"
+    },
+    {
+      "name": "packed-policy-round-trips"
+    },
+    {
+      "name": "cannot-register-another-sponsor"
+    },
+    {
+      "name": "entry-point-limit-enforced"
+    },
+    {
+      "name": "registry-discovery-matches-signed-policy"
+    },
+    {
+      "name": "deactivate-rehearsal-sponsor",
+      "txId": "0x122086789ed9ab5fd8da0259bd8f927181d5b46ad0781062c46480f87c5fde2b8137",
+      "block": 8714832,
+      "rc": "4357593"
+    },
+    {
+      "name": "deactivation-persists"
+    }
+  ],
+  "finished": "2026-09-26T21:49:54.537Z",
+  "workflow": "https://github.com/therexdev/Open-Social-Protocol/actions/runs/36274012319",
+  "sourceCommit": "69d2aa80159f971673362902e4faf0dd582a17c9",
+  "publicUpgrade": {
+    "address": "17aX6cmC3J1YtcM1DJXwD3e98PvhRhavjU",
+    "txId": "0x122002477dba961cec2fb1ef117a939984ffc1e668cd79772765af50586f78949a12",
+    "block": "8714836",
+    "wasmSha256": "fbcdb71be82bd095bdb6a5bcbf1ef0e29c9c369e837046f756b9bac4f9a35511",
+    "abiSha256": "095cad71f8c2483b5978823d40793849da69dd21324f9b628d63788a332d0725",
+    "rcUsed": "71411871"
+  },
+  "verification": {
+    "fullTestSuite": "passed",
+    "releaseSuccessfulCalls": 60,
+    "actualSponsorRegistration": "awaiting VPS restart",
+    "publicEconomy": "inactive",
+    "website": "awaiting current build upload"
+  }
+}

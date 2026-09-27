@@ -1,3 +1,4 @@
+import type { IndexedPostEconomy } from "@osp/sdk";
 /**
  * Typed client for the INDEXER API v1 (apps/indexer/README.md). The indexer is a replaceable
  * convenience, never a source of truth: chain reads through the SDK stay authoritative.
@@ -49,6 +50,8 @@ export interface LabelView {
 }
 
 export interface PostView {
+  economy?: IndexedPostEconomy;
+  promoted?: { nonce: string; opportunity: string };
   postId: string;
   author: string;
   sequence: string;
@@ -137,6 +140,12 @@ export class IndexerClient {
     return this.baseUrl.length > 0;
   }
 
+  promotions(viewer?: string, scope = "public"): Promise<{items: PostView[]}> {
+    return this.get(`/v1/promotions${qs({ viewer, scope })}`);
+  }
+  pendingRewards(account: string, cursor?: string): Promise<Page<PostView>> {
+    return this.get(`/v1/token/${encodeURIComponent(account)}/rewards${qs({ cursor })}`);
+  }
   status(): Promise<StatusView> {
     return this.get<StatusView>("/v1/status");
   }

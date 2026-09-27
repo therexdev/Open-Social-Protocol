@@ -1,0 +1,95 @@
+name: grant-initial-testers
+
+# This one-time batch is explicitly authorized for these two public accounts.
+# The zero-bootstrap guard prevents a later push from issuing it again.
+on:
+  push:
+    branches: [codex/tester-grants-20260926]
+
+permissions:
+  contents: read
+concurrency:
+  group: deploy-harbinger
+  cancel-in-progress: false
+
+jobs:
+  grant:
+    if: github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build -w packages/proto -w packages/sdk
+      - name: Verify recipients, grant atomically, and confirm balances
+        env:
+          KOINOS_HARBINGER_DEPLOYER_WIF: ${{ secrets.KOINOS_HARBINGER_DEPLOYER_WIF }}
+          OSP_CONTRACT_SEED: ${{ secrets.OSP_CONTRACT_SEED }}
+          KOINOS_RPC: ${{ vars.KOINOS_RPC }}
+        shell: bash
+        run: |
+          node --import tsx --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { mkdirSync, writeFileSync } from 'node:fs';
+          import { loadDeployment, ProtocolClient, isAddress } from '@osp/sdk';
+          import { contractSigner, deployerSigner, networkFromArgs, providerFor, readDeployment, requireSeed } from './scripts/common.ts';
+          import { submitMeasured } from './scripts/deployment-transactions.ts';
+          const grants = [
+            { account: '1WhPkYjyS1ChEKmbxNAyFUHLuRVQCjNMF', value: '20' },
+            { account: '1EiR6tc8jtVK6boR5w1chjq17XEXXHiNk4', value: '20' },
+          ];
+          const { name: network, preset } = networkFromArgs({ network: 'harbinger' });
+          const deployment = loadDeployment(readDeployment(network));
+          assert.equal(deployment.contracts.token.address, '1GxCaDA9kq6kKHtUxUEBs6boF1s5gX76fS');
+          const provider = providerFor(preset);
+          assert.equal(await provider.getChainId(), deployment.chainId);
+          const client = new ProtocolClient({ rpc: provider, deployment });
+          const policy = (await client.reads.token.get_economy({}))?.value;
+          assert.equal(policy?.version, 1, 'Economy must be active');
+          assert.equal(policy?.bootstrap_minted, '0', 'Initial batch is no longer eligible; inspect existing receipts instead of reissuing');
+          const before = [];
+          for (const grant of grants) {
+            assert(isAddress(grant.account));
+            assert((await client.reads.identity.get_identity({ account: grant.account }))?.value, `Account is not registered: ${grant.account}`);
+            const state = (await client.reads.token.get_account({ account: grant.account }))?.value;
+            assert(state);
+            before.push({ ...grant, state });
+          }
+          const evidence = { network, token: deployment.contracts.token.address, runId: process.env.GITHUB_RUN_ID, sourceCommit: process.env.GITHUB_SHA, before };
+          mkdirSync('testnet-evidence', { recursive: true });
+          const save = () => writeFileSync('testnet-evidence/initial-tester-grants.json', JSON.stringify(evidence, null, 2) + '\n');
+          save();
+          const owner = contractSigner(network, 'token', requireSeed(), provider);
+          const payer = deployerSigner(preset, provider);
+          assert.equal(owner.getAddress(), deployment.contracts.token.address);
+          const operations = await Promise.all(grants.map(grant => client.ops.token.grant_test_tokens(grant)));
+          const prepared = await client.prepare(operations, { payer: payer.getAddress(), payee: owner.getAddress() });
+          // Both grants commit together or neither does. Unknown outcomes never
+          // trigger a new transaction or an automatic rerun of this workflow.
+          const result = await submitMeasured(prepared, provider, [owner, payer], { log: console.log });
+          evidence.txId = result.transaction.id;
+          evidence.receipt = result.receipt;
+          save();
+          console.log(`Grant transaction: ${result.transaction.id}`);
+          evidence.block = await result.transaction.wait('byBlock', 120000);
+          save();
+          assert.equal((await client.reads.token.get_economy({}))?.value?.bootstrap_minted, '40');
+          evidence.after = [];
+          for (const item of before) {
+            const state = (await client.reads.token.get_account({ account: item.account }))?.value;
+            assert.equal(BigInt(state?.balance ?? '0'), BigInt(item.state.balance) + BigInt(item.value), `Grant balance mismatch: ${item.account}`);
+            evidence.after.push({ account: item.account, granted: item.value, state });
+          }
+          evidence.verifiedAt = new Date().toISOString();
+          save();
+          console.log(JSON.stringify({ txId: evidence.txId, block: evidence.block, accounts: evidence.after }, null, 2));
+          NODE
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: initial-tester-grants
+          path: testnet-evidence/

@@ -3,20 +3,38 @@ import { newAttemptId } from "@osp/sdk";
 import type { DraftRecord, DraftsFile, Session } from "../../vault/store";
 import { toHex } from "../../util/bytes";
 
+const changes = new Set<(account: string) => void>();
+export function subscribeDrafts(listener: (account: string) => void): () => void {
+  changes.add(listener);
+  return () => { changes.delete(listener); };
+}
+const writes = new Map<string, Promise<unknown>>();
+/** Serialize encrypted read/modify/write across concurrent posts and browser tabs. */
+async function changeDrafts(session: Session, update: (drafts: DraftRecord[]) => DraftRecord[]): Promise<void> {
+  const account = session.identity.account;
+  const mutate = async () => {
+    await session.drafts.save({ drafts: update(await listDrafts(session)) } satisfies DraftsFile);
+    for (const listener of changes) listener(account);
+  };
+  const pending = (writes.get(account) ?? Promise.resolve()).catch(() => undefined).then(async () => {
+    if (typeof navigator !== "undefined" && navigator.locks) await navigator.locks.request(`osp-drafts:${account}`, mutate);
+    else await mutate();
+  });
+  writes.set(account, pending);
+  try { await pending; } finally { if (writes.get(account) === pending) writes.delete(account); }
+}
+
 export async function listDrafts(session: Session): Promise<DraftRecord[]> {
   const file = await session.drafts.load();
   return file?.drafts ?? [];
 }
 
 export async function saveDraft(session: Session, draft: DraftRecord): Promise<void> {
-  const drafts = (await listDrafts(session)).filter((d) => d.id !== draft.id);
-  drafts.push(draft);
-  await session.drafts.save({ drafts } satisfies DraftsFile);
+  await changeDrafts(session, drafts => [...drafts.filter(d => d.id !== draft.id), draft]);
 }
 
 export async function removeDraft(session: Session, id: string): Promise<void> {
-  const drafts = (await listDrafts(session)).filter((d) => d.id !== id);
-  await session.drafts.save({ drafts });
+  await changeDrafts(session, drafts => drafts.filter(d => d.id !== id));
 }
 
 export function newDraft(account: string, fields: Pick<DraftRecord, "text" | "audience" | "mediaUrls" | "replyTo" | "edit">): DraftRecord {

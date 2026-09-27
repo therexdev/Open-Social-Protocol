@@ -1,0 +1,74 @@
+name: activate-token-economy
+
+# Explicit release branch for activation after the independently deployed
+# website and services pass readiness. No contract upload or tester grants.
+on:
+  push:
+    branches: [codex/token-economy-activation]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+concurrency:
+  group: deploy-harbinger
+  cancel-in-progress: false
+
+jobs:
+  activate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build -w packages/proto -w packages/sdk
+      - name: Verify readiness gate and deployed contracts
+        run: |
+          node --import tsx --test scripts/economy-readiness.test.ts
+          node --import tsx scripts/verify-deployment.ts --network harbinger
+      - name: Activate only after live services and website pass readiness
+        env:
+          KOINOS_HARBINGER_DEPLOYER_WIF: ${{ secrets.KOINOS_HARBINGER_DEPLOYER_WIF }}
+          OSP_CONTRACT_SEED: ${{ secrets.OSP_CONTRACT_SEED }}
+          KOINOS_RPC: ${{ vars.KOINOS_RPC }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p testnet-evidence
+          node --import tsx scripts/activate-token-economy.ts --network harbinger --execute | tee testnet-evidence/activation.log
+      - name: Independently read back the public pilot policy
+        shell: bash
+        run: |
+          node --import tsx --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { writeFileSync } from 'node:fs';
+          import { loadDeployment, ProtocolClient } from '@osp/sdk';
+          import { readDeployment } from './scripts/common.ts';
+          import { economyReadiness } from './scripts/economy-readiness.ts';
+          const deployment = loadDeployment(readDeployment('harbinger'));
+          const client = new ProtocolClient({ deployment });
+          assert((await client.verifyChainId()).ok, 'Wrong chain');
+          const readiness = await economyReadiness(deployment);
+          assert(readiness.ready, JSON.stringify(readiness.blockers));
+          const policy = (await client.reads.token.get_economy({}))?.value;
+          assert(policy, 'Missing economy policy');
+          const expected = { version: 1, period_blocks: '144000', period_budget: '100', curve_constant: '1', score_scale: '1000', max_vote_weight: '1000', max_period_weight: '1000000', promotion_price: '1', promotion_interval: '1200', max_opportunities: 5, promotion_slots: 32 };
+          for (const [key, value] of Object.entries(expected)) assert.equal(policy[key], value, key);
+          assert(BigInt(policy.activation_block) > 0n, 'Missing activation block');
+          const config = (await client.reads.token.get_config({}))?.value;
+          assert.equal(config?.resource_version, 2);
+          assert.equal(config?.economy_version, 1);
+          const resource = (await client.reads.token.get_account({ account: deployment.deployer }))?.value;
+          assert.equal(resource?.recharge_blocks, '144000');
+          const evidence = { verifiedAt: new Date().toISOString(), network: deployment.network, chainId: deployment.chainId, token: deployment.contracts.token.address, sourceCommit: process.env.GITHUB_SHA, runId: process.env.GITHUB_RUN_ID, readiness, policy, resourceVersion: config.resource_version, economyVersion: config.economy_version };
+          writeFileSync('testnet-evidence/activation.json', JSON.stringify(evidence, null, 2) + '\n');
+          console.log(JSON.stringify(evidence, null, 2));
+          NODE
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: token-economy-activation
+          path: testnet-evidence/

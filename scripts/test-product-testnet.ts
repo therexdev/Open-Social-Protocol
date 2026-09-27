@@ -116,7 +116,13 @@ async function main() {
     for (const me of [sender, recipient]) assert.equal((await openVerifiedMessage(client, me, me === sender ? recipient.account : sender.account, row)).text, "Encrypted V1 verification message");
     return toBase64url(id);
   });
-  await step("support-and-reward", async () => {
+  await step("token-mode-and-reward-policy", async () => {
+    const cfg=(await client.reads.token.get_config({}))?.value;
+    if(cfg?.economy_version){
+      const account=(await client.reads.token.get_account({account:b.account}))?.value;
+      assert.equal(account?.balance,"0"); assert.equal(account?.token_ticks,"0");
+      return "paid voting active; fresh identities have no free voting tokens";
+    }
     await submit(b, [await client.ops.token.support({ actor: b.account, post_id: fromBase64url(publicPost) })]);
     const account = (await client.reads.token.get_account({ account: a.account }))?.value;
     assert(account && BigInt(account.balance) >= 1n); return account.balance;

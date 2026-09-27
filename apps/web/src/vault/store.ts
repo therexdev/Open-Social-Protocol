@@ -14,6 +14,7 @@ import {
   toHex,
   unlockVault,
   type Identity,
+  type OperationJson,
   type VaultBlob,
   type VaultKdfParams,
 } from "@osp/sdk";
@@ -40,6 +41,10 @@ export interface DraftRecord {
   text: string;
   audience: number;
   mediaUrls: string[];
+  /** Attachment metadata is encrypted with the draft, so reload/retry preserves it. */
+  media?: Array<{ url: string; mime: string; size: number; contentHash: string; altText?: string }>;
+  scope?: string;
+  publication?: { postId: string; contentHash: string; epoch: number; epochKey?: string; recipients: string[]; txId?: string; operations?: OperationJson[] };
   replyTo?: string;
   edit?: { postId: string; previousVersion: string; versionNumber: number };
   createdAt: number;
@@ -47,7 +52,7 @@ export interface DraftRecord {
   /** hex attempt id; the idempotency key derives from it. */
   attemptId: string;
   /** `submitting`: persisted before signing; a reload mid-submit leaves it for reconciliation. */
-  state: "draft" | "submitting" | "failed" | "unknown";
+  state: "draft" | "queued" | "submitting" | "published" | "failed" | "unknown";
   lastError?: string;
 }
 

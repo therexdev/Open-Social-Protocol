@@ -8,6 +8,12 @@ import { Contract, Signer, utils } from "koilib";
 import { ABIS, PROTOCOL_VERSION } from "@osp/proto";
 import { CONTRACT_BUILD_DIR, CONTRACT_ORDER, type ContractName } from "./common.ts";
 import { deploymentProbe } from "./deployment-probes.ts";
+import { fixtureDeployment } from "../packages/sdk/src/testing/fixtures.ts";
+import { buildAllowlist } from "../apps/sponsor/src/policy.ts";
+import { desiredRecord } from "../apps/sponsor/src/register.ts";
+import { sponsorPolicyBytes } from "./sponsor-registration-wire.ts";
+import { encode } from "@osp/sdk";
+import protobuf from "protobufjs";
 
 const require = createRequire(import.meta.url);
 const { MockVM } = require("@koinos/mock-vm");
@@ -25,12 +31,12 @@ export async function smokeDeploymentRuntime(log: (message: string) => void = co
   const put = (key: Uint8Array, bytes: Uint8Array) => vm.db.putObject(meta.METADATA_SPACE, key, bytes);
   let calls = 0;
 
-  const invoke = async (name: ContractName, method: string, args: Record<string, unknown> = {}, authorized = [addresses[name], admin]): Promise<Record<string, any>> => {
+  const invoke = async (name: ContractName, method: string, args: Record<string, unknown> = {}, authorized = [addresses[name], admin], wireArgs?: Uint8Array): Promise<Record<string, any>> => {
     const contract = contracts.get(name)!;
     const operation = (await contract.encodeOperation({ name: method, args })).call_contract!;
     put(meta.CONTRACT_ID_KEY, utils.decodeBase58(addresses[name]));
     put(meta.ENTRY_POINT_KEY, koinos.chain.value_type.encode({ int32_value: operation.entry_point }).finish());
-    put(meta.CONTRACT_ARGUMENTS_KEY, utils.decodeBase64url(operation.args));
+    put(meta.CONTRACT_ARGUMENTS_KEY, wireArgs ?? utils.decodeBase64url(operation.args));
     put(meta.HEAD_INFO_KEY, koinos.chain.head_info.encode({ head_block_time: "1800000000000", last_irreversible_block: "1", head_topology: { height: "1" } }).finish());
     put(meta.CALLER_KEY, koinos.chain.caller_data.encode({ caller: new Uint8Array(), caller_privilege: 0 }).finish());
     put(meta.AUTHORITY_KEY, koinos.chain.list_type.encode({ values: authorized.map(account => ({ bytes_value: utils.decodeBase58(account), int32_value: 0, bool_value: true })) }).finish());
@@ -70,6 +76,49 @@ export async function smokeDeploymentRuntime(log: (message: string) => void = co
   assert.equal(Number(limits.value.protocol_version), PROTOCOL_VERSION);
   await assert.rejects(invoke("messaging", "get_dependencies"), /messaging not configured/);
   log("release entry points: all eight contracts started successfully");
+
+  // Use the service's real ABI payload, including repeated numeric entry points.
+  // AS-only tests serialize those differently from koilib/protobufjs clients.
+  const sponsorDeployment = fixtureDeployment();
+  for (const name of CONTRACT_ORDER) sponsorDeployment.contracts[name].address = addresses[name];
+  const sponsorPolicy = desiredRecord({
+    sponsor: admin,
+    publicUrl: "https://social-sponsor.usekoinos.com",
+    allowlist: buildAllowlist(sponsorDeployment),
+    limits: { version: 2, dailyOps: 200, burstOps: 20, burstWindowSec: 60, maxBytesPerOp: 6144, maxRcPerOp: "200000000", maxOpsPerTx: 4 },
+  });
+  await invoke("sponsorship", "set_sponsor", sponsorPolicy as unknown as Record<string, unknown>, [admin]);
+  const sponsorRecord = (await invoke("sponsorship", "get_sponsor", { sponsor: admin })).value;
+  assert.deepEqual(sponsorRecord.allowed, sponsorPolicy.allowed);
+  assert.equal(sponsorRecord.policy_version, 2);
+  const wirePolicy = {
+    ...sponsorPolicy,
+    allowed: [{ contract_id: addresses.token, entry_points: [0, 1, 127, 128, 0x80000000, 0xffffffff] }],
+  };
+  for (const format of ["packed", "unpacked", "mixed"] as const) {
+    await invoke("sponsorship", "set_sponsor", {}, [admin], sponsorPolicyBytes(wirePolicy, format));
+    assert.deepEqual((await invoke("sponsorship", "get_sponsor", { sponsor: admin })).value.allowed, wirePolicy.allowed);
+  }
+  // A nested packed length must not consume the following parent fields.
+  const base = encode("sponsorship.set_sponsor_arguments", { ...wirePolicy, allowed: [] });
+  for (const invalid of [[18, 255, 255, 255, 255, 15], [18, 1, 128], [21, 0, 0, 0, 0]]) {
+    const nested = protobuf.Writer.create().uint32(10).bytes(utils.decodeBase58(addresses.token)).finish();
+    const outer = protobuf.Writer.create().uint32(42).bytes(Buffer.concat([nested, Buffer.from(invalid)])).finish();
+    await assert.rejects(invoke("sponsorship", "set_sponsor", {}, [admin], Buffer.concat([base, outer])));
+    assert.deepEqual((await invoke("sponsorship", "get_sponsor", { sponsor: admin })).value.allowed, wirePolicy.allowed);
+  }
+  const maximumPolicy = {
+    ...sponsorPolicy,
+    allowed: Array.from({ length: 32 }, () => ({ contract_id: addresses.token, entry_points: Array.from({ length: 64 }, (_, i) => 0xffffffff - i) })),
+  };
+  await invoke("sponsorship", "set_sponsor", maximumPolicy as unknown as Record<string, unknown>, [admin]);
+  assert.deepEqual((await invoke("sponsorship", "get_sponsor", { sponsor: admin })).value.allowed, maximumPolicy.allowed);
+  await assert.rejects(invoke("sponsorship", "set_sponsor", { ...sponsorPolicy, allowed: [...maximumPolicy.allowed, maximumPolicy.allowed[0]] }, [admin]), /too many allowed calls/);
+  await assert.rejects(invoke("sponsorship", "set_sponsor", { ...sponsorPolicy, allowed: [{ contract_id: addresses.token, entry_points: Array(65).fill(1) }] }, [admin]), /too many entry points/);
+  await assert.rejects(invoke("sponsorship", "set_sponsor", sponsorPolicy as unknown as Record<string, unknown>, []));
+  await invoke("sponsorship", "set_sponsor", sponsorPolicy as unknown as Record<string, unknown>, [admin]);
+  assert.deepEqual((await invoke("sponsorship", "list_sponsors", { limit: 1 })).values[0].allowed, sponsorPolicy.allowed);
+  log("sponsor registry verified: service payload, packed/unpacked/mixed fields, malformed input, limits and authority");
 
   // Exercise the full bootstrap call sequence with real serialization and persisted storage.
   for (const name of ["relationships", "publications", "communities"] as const) {

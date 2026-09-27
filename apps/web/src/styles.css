@@ -5,7 +5,7 @@
   --surface: #ffffff;
   --surface-2: #f0f1f8;
   --text: #202331;
-  --muted: #696f80;
+  --muted: #646b7b;
   --border: #e7e8ef;
   --accent: #4f46e5;
   --accent-text: #ffffff;
@@ -899,3 +899,22 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 .welcome-card p { color: var(--muted); font-size: .93rem; line-height: 1.75; margin-bottom: 1.5rem; }
 .welcome-card .row { flex-direction: column; align-items: stretch; }
 @media(max-width:760px) { .header-unlock { padding: .3rem; font-size: .75rem; } .topbar:has(.header-unlock) .notification-link { display: none; } }
+
+/* Token actions stay within the post instead of opening a full-screen transition. */
+.post-economy { padding-top: .5rem; }
+.post-economy > .row { flex-wrap: wrap; gap: .25rem; }
+.economy-panel { margin: .6rem 0; padding: 1rem; background: var(--surface-2); color: var(--text); border: 1px solid var(--border); border-radius: 14px; animation: fade-in .18s ease; }
+.economy-panel .row-between { justify-content: space-between; }
+.economy-panel p { font-size: .9rem; line-height: 1.55; }
+.economy-panel input, .economy-panel select { max-width: 100%; }
+.promotion-label { display: flex; align-items: center; gap: .35rem; color: var(--muted, #64748b); font-size: .78rem; margin: .75rem 0 .25rem; }
+@media (prefers-reduced-motion: reduce) { .economy-panel { animation: none; } }
+
+.pending-posts:empty { display: none; }
+.pending-posts:not(:empty) { margin-bottom: 1.1rem; }
+.pending-post { border-color: color-mix(in srgb, var(--accent) 30%, var(--border)); }
+.pending-post .post-meta { color: var(--muted); }
+.pending-actions { border-top: 1px solid var(--border); padding-top: .75rem; }
+.pending-actions p { font-size: .85rem; color: var(--muted); }
+.post-needs-attention { border-color: var(--danger); }
+.economy-saving { color: var(--muted); font-size: .8rem; margin: .4rem 0; }

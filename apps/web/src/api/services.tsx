@@ -1,3 +1,4 @@
+import { EconomyProvider } from "../features/tokens/EconomyContext";
 /**
  * Data-layer wiring for React: the resolved settings, the IndexerClient and (when deployed) the
  * ProtocolClient, rebuilt whenever Settings change.
@@ -32,7 +33,7 @@ export function ServicesProvider({ children, store = useSettings, factory = defa
   const settings = store();
   const key = JSON.stringify([settings.network, settings.rpcUrls, settings.indexerUrl, settings.sponsorUrls, settings.payment]);
   const services = useMemo(() => factory(resolveSettings(settings)), [key, factory]); // eslint-disable-line react-hooks/exhaustive-deps
-  return <ServicesContext.Provider value={services}>{children}</ServicesContext.Provider>;
+  return <ServicesContext.Provider value={services}><EconomyProvider protocol={services.protocol}>{children}</EconomyProvider></ServicesContext.Provider>;
 }
 
 export function useServices(): Services {

@@ -5,7 +5,7 @@
     "https://testnet.koinosfoundation.org/jsonrpc"
   ],
   "protocolVersion": 1,
-  "deployedAt": "2026-09-26T19:22:49.440Z",
+  "deployedAt": "2026-09-26T21:49:55.678Z",
   "deployer": "19C9kF7uBC2a3kWY5iXF4zpWhzahGCmeJd",
   "contracts": {
     "identity": {
@@ -42,11 +42,11 @@
     },
     "sponsorship": {
       "address": "17aX6cmC3J1YtcM1DJXwD3e98PvhRhavjU",
-      "txId": "0x12206f1bf31c51fc16bf8597f54861e97a245b30378239874e3b4551e6555088a602",
-      "block": "8683370",
-      "wasmSha256": "9fadcf2647ef902c28d7a67dafd214debc51f8b7b12403bd0a5d9c9e39cf8ec7",
+      "txId": "0x122002477dba961cec2fb1ef117a939984ffc1e668cd79772765af50586f78949a12",
+      "block": "8714836",
+      "wasmSha256": "fbcdb71be82bd095bdb6a5bcbf1ef0e29c9c369e837046f756b9bac4f9a35511",
       "abiSha256": "095cad71f8c2483b5978823d40793849da69dd21324f9b628d63788a332d0725",
-      "rcUsed": "70091034"
+      "rcUsed": "71411871"
     },
     "registry": {
       "address": "1ALYxykwWdueLqSgU78PaZvhTH18z2BnTF",
@@ -66,11 +66,11 @@
     },
     "token": {
       "address": "1GxCaDA9kq6kKHtUxUEBs6boF1s5gX76fS",
-      "txId": "0x122099e1f54dc9956d0b7acc894931c638a036cb9a521afeb6b279084dd86679c83a",
-      "block": "8711966",
-      "wasmSha256": "4dfc996cfc1f072017863eeb710d1812d6780689b882505cda8d7d3101ab2293",
-      "abiSha256": "54bd15a7664139cd7d311fffa42111f376bfefc33dae47cf925c4eb351b5c953",
-      "rcUsed": "174281779"
+      "txId": "0x1220e02991e53713e544328604c5006e4aa3f891595a6c279784770de5604c25ff36",
+      "block": "8713616",
+      "wasmSha256": "4407bf2d09147c8b6307d064e78834ab448a4942dff353294f1cbddc353c02ab",
+      "abiSha256": "5b6c9a35533a3593388d1a5f14ab1dcb1738706b5af5485b0cddc0579b7c18a0",
+      "rcUsed": "339517744"
     }
   },
   "startHeight": "8668232",

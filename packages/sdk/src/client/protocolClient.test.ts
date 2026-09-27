@@ -22,12 +22,25 @@ const attacker = Signer.fromSeed("attacker");
 
 it("keeps a submitted sponsor transaction as outcome unknown when confirmation times out", async () => {
   const provider = fakeProvider();
-  provider.wait = async () => { throw new Error("confirmation timeout"); };
+  provider.wait = vi.fn(async () => { throw new Error("confirmation timeout"); });
   const sponsor = await fakeSponsor();
   const client = new ProtocolClient({ rpc: provider, deployment });
   const op = await client.ops.relationships.follow({ follower: user.getAddress(), target: attacker.getAddress() });
   await expect(client.submit({ operations: [op], signer: user, sponsor: sponsor.client, waitForReceipt: true })).rejects.toBeInstanceOf(TransactionOutcomeUnknownError);
   expect(provider.sent).toHaveLength(0); // no self-pay replay of an already accepted transaction
+  expect(provider.wait).toHaveBeenCalledWith(expect.any(String), "byTransactionId", 120_000);
+});
+
+it("honors an explicit confirmation timeout without rebroadcasting", async () => {
+  const provider = fakeProvider();
+  provider.wait = vi.fn(async () => ({ blockId: "confirmed", blockNumber: 101 }));
+  const sponsor = await fakeSponsor();
+  const client = new ProtocolClient({ rpc: provider, deployment });
+  const op = await client.ops.relationships.follow({ follower: user.getAddress(), target: attacker.getAddress() });
+  await client.submit({ operations: [op], signer: user, sponsor: sponsor.client, waitForReceipt: true, waitTimeoutMs: 90_000 });
+  expect(provider.wait).toHaveBeenCalledWith(expect.any(String), "byTransactionId", 90_000);
+  expect(sponsor.received).toHaveLength(1);
+  expect(provider.sent).toHaveLength(0);
 });
 
 interface FakeSponsorOptions {

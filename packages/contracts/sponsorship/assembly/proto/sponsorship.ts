@@ -30,7 +30,18 @@ export namespace sponsorship {
             break;
 
           case 2:
-            message.entry_points.push(reader.uint32());
+            if ((tag & 7) == 2) {
+              const packedLength = reader.uint32();
+              assert(reader.ptr <= end && <usize>packedLength <= end - reader.ptr);
+              const packedEnd = reader.ptr + packedLength;
+              while (reader.ptr < packedEnd) {
+                message.entry_points.push(reader.uint32());
+              }
+              assert(reader.ptr == packedEnd);
+            } else {
+              assert((tag & 7) == 0);
+              message.entry_points.push(reader.uint32());
+            }
             break;
 
           default:

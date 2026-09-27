@@ -44,3 +44,5 @@ packages/contracts/*/abi/*.abi
 packages/contracts/*/build/
 deployments/localnet.json
 apps/extension/dist.zip
+# Public testnet rehearsal receipts are uploaded by CI, not source files.
+testnet-evidence/

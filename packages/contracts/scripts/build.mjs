@@ -19,6 +19,7 @@ import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { assertKoinosWasm, KOINOS_DISABLED_FEATURES } from "./wasm-compat.mjs";
+import { repairRepeatedUint32 } from "./protobuf-compat.mjs";
 
 const require = createRequire(import.meta.url);
 const here = dirname(fileURLToPath(import.meta.url));
@@ -110,6 +111,11 @@ function generate(name) {
     ],
     dir
   );
+  for (const schemaName of [name, ...depNames]) {
+    const generated = join(protoOut, `${schemaName}.ts`);
+    const schema = readFileSync(join(protoOut, `${schemaName}.proto`), "utf8");
+    writeFileSync(generated, repairRepeatedUint32(readFileSync(generated, "utf8"), schema));
+  }
   // Entry-point dispatch (index.ts) and boilerplate.
   runProtoc(
     [

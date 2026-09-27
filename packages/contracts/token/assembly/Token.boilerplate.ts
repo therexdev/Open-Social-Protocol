@@ -153,4 +153,130 @@ export class Token {
 
     return res;
   }
+
+  activate_economy(
+    args: token.activate_economy_arguments
+  ): token.activate_economy_result {
+    // const test_period_blocks = args.test_period_blocks;
+
+    // YOUR CODE HERE
+
+    const res = new token.activate_economy_result();
+
+    return res;
+  }
+
+  grant_test_tokens(
+    args: token.grant_test_tokens_arguments
+  ): token.grant_test_tokens_result {
+    // const account = args.account;
+    // const value = args.value;
+
+    // YOUR CODE HERE
+
+    const res = new token.grant_test_tokens_result();
+
+    return res;
+  }
+
+  vote(args: token.vote_arguments): token.vote_result {
+    // const actor = args.actor;
+    // const post_id = args.post_id;
+    // const version = args.version;
+    // const direction = args.direction;
+    // const weight = args.weight;
+    // const device = args.device;
+
+    // YOUR CODE HERE
+
+    const res = new token.vote_result();
+
+    return res;
+  }
+
+  settle_reward(
+    args: token.settle_reward_arguments
+  ): token.settle_reward_result {
+    // const actor = args.actor;
+    // const post_id = args.post_id;
+    // const device = args.device;
+
+    // YOUR CODE HERE
+
+    const res = new token.settle_reward_result();
+    // res.reward = ;
+
+    return res;
+  }
+
+  promote(args: token.promote_arguments): token.promote_result {
+    // const actor = args.actor;
+    // const post_id = args.post_id;
+    // const version = args.version;
+    // const nonce = args.nonce;
+    // const slot = args.slot;
+    // const opportunities = args.opportunities;
+    // const burn_amount = args.burn_amount;
+
+    // YOUR CODE HERE
+
+    const res = new token.promote_result();
+
+    return res;
+  }
+
+  cancel_promotion(
+    args: token.cancel_promotion_arguments
+  ): token.cancel_promotion_result {
+    // const actor = args.actor;
+    // const post_id = args.post_id;
+    // const nonce = args.nonce;
+
+    // YOUR CODE HERE
+
+    const res = new token.cancel_promotion_result();
+
+    return res;
+  }
+
+  get_economy(args: token.get_economy_arguments): token.get_economy_result {
+    // YOUR CODE HERE
+
+    const res = new token.get_economy_result();
+    // res.value = ;
+    // res.block = ;
+    // res.current_epoch = ;
+
+    return res;
+  }
+
+  get_post_economy(
+    args: token.get_post_economy_arguments
+  ): token.get_post_economy_result {
+    // const post_id = args.post_id;
+    // const viewer = args.viewer;
+
+    // YOUR CODE HERE
+
+    const res = new token.get_post_economy_result();
+    // res.reward = ;
+    // res.vote = ;
+    // res.epoch = ;
+    // res.promotion = ;
+    // res.block = ;
+
+    return res;
+  }
+
+  get_promotions(
+    args: token.get_promotions_arguments
+  ): token.get_promotions_result {
+    // YOUR CODE HERE
+
+    const res = new token.get_promotions_result();
+    // res.values = ;
+    // res.block = ;
+
+    return res;
+  }
 }

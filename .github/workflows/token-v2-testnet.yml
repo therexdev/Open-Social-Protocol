@@ -31,10 +31,18 @@ jobs:
         run: npm run build:all
       - name: Verify accounting, authorization, clients and release execution
         run: |
+          npm run typecheck
+          npx tsc -p scripts/tsconfig.json --noEmit
           npm run test:token-v2
           npm test
           node --import tsx scripts/deployment-runtime-smoke.ts
-      - name: Upgrade token contract and activate recharge atomically
+      - name: Rehearse votes, burns and settlement on an isolated Harbinger contract
+        env:
+          KOINOS_HARBINGER_DEPLOYER_WIF: ${{ secrets.KOINOS_HARBINGER_DEPLOYER_WIF }}
+          OSP_CONTRACT_SEED: ${{ secrets.OSP_CONTRACT_SEED }}
+          KOINOS_RPC: ${{ vars.KOINOS_RPC }}
+        run: node --import tsx scripts/test-token-economy-testnet.ts --execute --run "${{ github.run_id }}-${{ github.run_attempt }}" --evidence testnet-evidence/token-economy.json
+      - name: Stage token upgrade while preserving the existing resource and Support mode
         env:
           KOINOS_HARBINGER_DEPLOYER_WIF: ${{ secrets.KOINOS_HARBINGER_DEPLOYER_WIF }}
           OSP_CONTRACT_SEED: ${{ secrets.OSP_CONTRACT_SEED }}
@@ -42,7 +50,7 @@ jobs:
         run: node --import tsx scripts/deploy-contracts.ts --network harbinger --only token
       - name: Verify deployed code, dependencies and resource policy
         run: node --import tsx scripts/verify-deployment.ts --network harbinger
-      - name: Exercise real accounts, private posts, friendship, messages and Support
+      - name: Exercise real accounts, private posts, friendship, messages and current token mode
         run: node --import tsx scripts/test-product-testnet.ts --execute "$RUNNER_TEMP/osp-token-v2-journey.json"
       - name: Publish verified website build
         uses: peaceiris/actions-gh-pages@v4
@@ -51,7 +59,7 @@ jobs:
           publish_dir: apps/web/dist
           publish_branch: hostinger-static
           force_orphan: true
-          commit_message: "Publish token v2 recharge client from ${{ github.sha }}"
+          commit_message: "Publish token economy client from ${{ github.sha }}"
       - name: FTP deploy when configured
         if: ${{ env.FTP_SERVER != '' }}
         env:
@@ -63,6 +71,12 @@ jobs:
           password: ${{ secrets.HOSTINGER_FTP_PASSWORD }}
           local-dir: apps/web/dist/
           server-dir: ${{ secrets.HOSTINGER_FTP_DIR || 'public_html/' }}
+      - name: Activate public economy only when live services and website are compatible
+        env:
+          KOINOS_HARBINGER_DEPLOYER_WIF: ${{ secrets.KOINOS_HARBINGER_DEPLOYER_WIF }}
+          OSP_CONTRACT_SEED: ${{ secrets.OSP_CONTRACT_SEED }}
+          KOINOS_RPC: ${{ vars.KOINOS_RPC }}
+        run: node --import tsx scripts/activate-token-economy.ts --network harbinger --execute --if-ready
       - name: Preserve deployment record
         if: ${{ always() }}
         run: |
@@ -81,6 +95,7 @@ jobs:
             deployments/harbinger.json
             deployment-progress/harbinger.json
             packages/contracts/build/release
+            testnet-evidence/token-economy.json
       - uses: actions/upload-artifact@v4
         with:
           name: token-v2-web

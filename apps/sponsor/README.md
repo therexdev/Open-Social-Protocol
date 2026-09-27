@@ -38,7 +38,11 @@ Nothing else is required. Several sponsors can serve the same network; each is i
 **Default allowlist**: every non-read-only method of `identity`, `relationships`,
 `publications` and `communities` except the contract-account administration setters
 (`set_identity_contract`, `set_relationships_contract`). `sponsorship` and `registry` methods
-are never funded unless listed explicitly.
+are never funded unless listed explicitly. The default also permits messaging
+actions, legacy token Support and the token economy actions `vote`, `settle_reward`,
+`promote`, and `cancel_promotion`. Economy administration and arbitrary token
+transfer/burn remain excluded. Policy version now defaults to 2; see
+[the rollout guide](../../docs/token-economy-testnet.md) for deployment overrides.
 
 `OSP_SPONSOR_ALLOWLIST` replaces the default with a `contract:method` list, e.g.
 `publications:publish,publications:react,relationships:*` (`*` = every non-admin write method
@@ -101,7 +105,7 @@ SDK's `verifySponsorResult` checks before trusting a sponsor's answer.
 | `OSP_SPONSOR_MAX_RC_PER_OP` | `200000000` | RC ceiling per operation (`rc_limit <= ceiling x ops`) |
 | `OSP_SPONSOR_MAX_OPS_PER_TX` | `4` | Operations per transaction |
 | `OSP_SPONSOR_ALLOWLIST` | default policy | `contract:method,...` override |
-| `OSP_SPONSOR_POLICY_VERSION` | `1` | Policy version in discovery and on chain; bump when the policy changes |
+| `OSP_SPONSOR_POLICY_VERSION` | `2` | Policy version in discovery and on chain; bump when the policy changes |
 | `OSP_SPONSOR_REGISTER` | `true` | Register/update the on-chain sponsor record on start |
 | `OSP_SPONSOR_LOG_LEVEL` | `info` | Fastify/pino log level |
 

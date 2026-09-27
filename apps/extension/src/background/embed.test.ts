@@ -25,10 +25,14 @@ describe("embedded post boundary", () => {
     const card = await dispatch("embed.post", { postId });
     expect(card.result?.item).toMatchObject({ status: "decrypted", text: "A private friend post", authorName: "Rex" });
     expect(touch).not.toHaveBeenCalled(); // background polling must not prevent auto-lock
-    for (const type of ["vault.export", "vault.status", "crosspost.confirm", "settings.update", "feed.get"]) expect((await dispatch(type, {})).ok).toBe(false);
+    for (const type of ["vault.export", "vault.status", "crosspost.confirm", "settings.update", "feed.get", "economy.inspect", "economy.vote", "economy.promote", "economy.settle", "economy.cancel"]) expect((await dispatch(type, {})).ok).toBe(false);
     expect((await dispatch("embed.post", { postId }, content)).ok).toBe(false);
     expect((await dispatch("embed.post", { postId }, { ...frame, frameId: 0 })).ok).toBe(false);
     expect((await dispatch("embed.post", { postId }, { ...frame, tab: { ...content.tab!, url: "https://example.org/" } })).ok).toBe(false);
+    const before = t.state.broadcasts.length;
+    expect((await dispatch("economy.open", { postId, direction: 1 })).ok).toBe(true);
+    expect(t.state.broadcasts.length).toBe(before); // Opening trusted controls never signs from an iframe.
+    expect((await dispatch("economy.open", { postId, direction: 1 }, content)).ok).toBe(false);
     await t.call("vault.lock");
     const locked = await dispatch("embed.post", { postId });
     expect(locked.result?.item).toMatchObject({ status: "locked" });

@@ -1,4 +1,4 @@
-import { searchPeople as matchPeople } from "@osp/sdk";
+import { searchPeople as matchPeople, type IndexedPostEconomy } from "@osp/sdk";
 /**
  * Read models behind the INDEXER API v1 (README.md, "API reference").
  * Every function is a pure read of the projections; the JSON shapes are the API contract.
@@ -39,6 +39,8 @@ export interface LabelView {
 }
 
 export interface PostView {
+  economy?: IndexedPostEconomy;
+  promoted?: { nonce: string; opportunity: string };
   postId: string;
   author: string;
   sequence: string;
@@ -210,6 +212,7 @@ function postView(db: IndexerDb, row: PostRow, viewer?: string): PostView {
     replyCount,
     versions,
     labels: labelsForPost(db, row.post_id),
+    economy: postEconomy(db, row.post_id, viewer),
   };
 }
 
@@ -764,4 +767,40 @@ export interface StateHashView {
 export function stateHashAt(db: IndexerDb, height?: number): StateHashView | undefined {
   const row: CheckpointRow | undefined = height === undefined ? db.lastCheckpoint() : db.checkpointAt(height);
   return row ? { height: String(row.height), blockId: row.block_id, stateHash: row.state_hash } : undefined;
+}
+
+/** Event-derived display data. The contract remains authoritative for spending and claims. */
+export function postEconomy(db: IndexerDb, postId: string, viewer?: string): IndexedPostEconomy {
+  const value = <T>(table: string, column: string, key: string): T | undefined => {
+    const row = db.get<{data_json: string}>(`SELECT data_json FROM ${table} WHERE ${column}=?`, key);
+    return row ? JSON.parse(row.data_json) as T : undefined;
+  };
+  const reward = value<IndexedPostEconomy["reward"]>("token_rewards", "post_id", postId);
+  const ballot = viewer ? db.get<{data_json: string}>("SELECT data_json FROM token_votes WHERE post_id=? AND actor=?", postId, viewer) : undefined;
+  return { block: String(db.lastCheckpoint()?.height ?? 0), ...(reward && { reward, epoch: value<IndexedPostEconomy["epoch"]>("token_epochs", "id", reward.epoch) }),
+    ...(ballot && { vote: JSON.parse(ballot.data_json) }), promotion: value<IndexedPostEconomy["promotion"]>("token_promotions", "post_id", postId) };
+}
+
+/** At most 32 live board slots. No insertion into chronological cursors. */
+export function promotions(db: IndexerDb, viewer?: string, scope: FeedScope = "public"): PostView[] {
+  const block = db.lastCheckpoint()?.height ?? 0;
+  const rows = db.all<{post_id: string; data_json: string}>("SELECT post_id,data_json FROM token_promotions WHERE end_block>? AND json_extract(data_json,'$.cancelled')=0 ORDER BY slot,post_id LIMIT 32", block);
+  const out: PostView[] = [];
+  for (const row of rows) {
+    const promo = JSON.parse(row.data_json) as NonNullable<IndexedPostEconomy["promotion"]>;
+    const post = getPost(db, row.post_id, viewer);
+    if (!post || post.state !== 0 || post.audience !== 0 || post.contentHash !== promo.version || promo.cancelled || BigInt(promo.start_block) > BigInt(block)) continue;
+    if (viewer && db.get("SELECT 1 FROM blocks_list WHERE (actor=? AND target=?) OR (actor=? AND target=?)", viewer, post.author, post.author, viewer)) continue;
+    if (scope === "friends" && (!viewer || post.author !== viewer && !db.get("SELECT 1 FROM relationships WHERE status=2 AND ((a=? AND b=?) OR (a=? AND b=?))", viewer, post.author, post.author, viewer))) continue;
+    const opportunity = ((BigInt(block) - BigInt(promo.start_block)) / BigInt(promo.interval)).toString();
+    out.push({ ...post, promoted: { nonce: promo.nonce, opportunity } });
+  }
+  // Rotate contention fairly by chain time without claiming delivery/impressions.
+  const offset = Math.floor(block / 20) % Math.max(out.length, 1);
+  return [...out.slice(offset), ...out.slice(0, offset)];
+}
+
+export function pendingRewards(db: IndexerDb, author: string, after: string, limit: number): Page<PostView> {
+  const rows = db.all<{post_id: string}>("SELECT post_id FROM token_rewards WHERE author=? AND settled=0 AND post_id>? ORDER BY post_id LIMIT ?", author, after, limit + 1);
+  return { items: rows.slice(0,limit).map(row => getPost(db,row.post_id,author)).filter((p): p is PostView => !!p), nextCursor: rows.length > limit ? rows[limit - 1]!.post_id : null };
 }

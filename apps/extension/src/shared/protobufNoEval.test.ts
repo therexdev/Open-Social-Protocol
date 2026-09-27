@@ -32,6 +32,9 @@ function interpretedRoot(): protobuf.Root {
 }
 
 const samples: Array<[string, Record<string, unknown>]> = [
+  ["token.vote_arguments", { actor: me.account, post_id: rng(32), version: rng(32), direction: 2, weight: "1000", device: me.account }],
+  ["token.promote_arguments", { actor: me.account, post_id: rng(32), version: rng(32), nonce: "3", slot: 31, opportunities: 5, burn_amount: "5" }],
+  ["token.get_post_economy_result", { block: "9007199254740993", reward: { post_id: rng(32), version: rng(32), author: me.account, epoch: "1", up: "4", down: "1", score: "2250", settled: true, reward: "100" }, vote: { direction: 1, weight: "4", block: "1" } }],
   [
     "publications.publish_arguments",
     { author: me.account, post_id: rng(32), sequence: "7", audience: 1, epoch: 3, envelope: rng(90), content_hash: rng(32), idempotency_key: rng(16), device: me.account, media: [{ content_hash: rng(32), mime: "image/png", size: "12345", locations: ["ipfs://a", "https://b"] }] },
@@ -77,7 +80,7 @@ describe("protobuf runtime without code generation", () => {
   it("never generates code once installed (the MV3 CSP would reject it)", () => {
     // setup.ts forbids code generation for the whole suite; a generated-code type would throw here.
     const type = interpretedRoot().lookupType("publications.publish_arguments");
-    expect(() => type.encode(type.fromObject(canonicalize(type, samples[0]![1]))).finish()).not.toThrow();
+    expect(() => type.encode(type.fromObject(canonicalize(type, samples.find(([name]) => name === "publications.publish_arguments")![1]))).finish()).not.toThrow();
     expect(() => withProtobufCodegen(() => originalProtobuf.setup.call(interpretedRoot().lookupType("osp.envelope.aad")))).not.toThrow();
     const fresh = interpretedRoot().lookupType("osp.envelope.aad");
     expect(() => originalProtobuf.setup.call(fresh)).toThrow(/generate code/);
@@ -86,7 +89,7 @@ describe("protobuf runtime without code generation", () => {
   it("rejects truncated input like the generated decoder", () => {
     const interp = interpretedRoot();
     const type = interp.lookupType("publications.publish_arguments");
-    const bytes = encode("publications.publish_arguments", samples[0]![1]);
+    const bytes = encode("publications.publish_arguments", samples.find(([name]) => name === "publications.publish_arguments")![1]);
     expect(() => type.decode(bytes.subarray(0, bytes.length - 5))).toThrow(RangeError);
   });
 

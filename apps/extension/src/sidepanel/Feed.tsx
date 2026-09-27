@@ -31,6 +31,8 @@ function Post({ item }: { item: FeedItem }) {
           )}
         </div>
       )}
+      {item.promoted && <p className="muted">Promoted · paid for by the author</p>}
+      {item.audience === 0 && <p><a href={chrome.runtime.getURL(`src/sidepanel/index.html#post=${encodeURIComponent(item.postId)}`)} target="_blank" rel="noopener noreferrer">Votes, rewards and promotion</a></p>}
       <div className="muted">
         {item.reactions} reactions · {item.replyCount} replies
       </div>

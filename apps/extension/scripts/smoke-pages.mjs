@@ -13,7 +13,7 @@ const status = { status: "unlocked", account: "1SmokeAccount", deviceAuthorized:
   network: { name: "harbinger", deployed: true, indexerUrl: "" }, pending: 0, autoLockMinutes: 15 };
 
 async function smoke(page, exercise) {
-  const dom = new JSDOM(readFileSync(path.join(dist, page), "utf8"), { url: `https://extension.test/${page}#post=${"q".repeat(43)}%3D&host=https%3A%2F%2Fwww.facebook.com`, referrer: "https://www.facebook.com/", pretendToBeVisual: true });
+  const dom = new JSDOM(readFileSync(path.join(dist, page), "utf8"), { url: `https://extension.test/${page}${page.includes("/embed/") ? `#post=${"q".repeat(43)}%3D&host=https%3A%2F%2Fwww.facebook.com` : ""}`, referrer: "https://www.facebook.com/", pretendToBeVisual: true });
   const calls = [];
   let facebookAttribution = true;
   const errors = [];

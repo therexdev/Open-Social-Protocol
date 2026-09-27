@@ -1,0 +1,47 @@
+{
+  "verifiedAt": "2026-09-26T23:14:59.100Z",
+  "network": "harbinger",
+  "chainId": "EiAIKVvm6-V2qmsmUvPJy09vCCLbtn9lHFpwrJbcTIEWRQ==",
+  "token": "1GxCaDA9kq6kKHtUxUEBs6boF1s5gX76fS",
+  "sourceCommit": "79ac24a24f2a9a2e19b6fed82c74756f8c6d7f69",
+  "runId": "36278809543",
+  "readiness": {
+    "ready": true,
+    "blockers": [],
+    "indexer": "https://social-api.usekoinos.com",
+    "sponsor": "https://social-sponsor.usekoinos.com",
+    "site": "https://opensocial.online"
+  },
+  "policy": {
+    "version": 1,
+    "activation_block": "8716430",
+    "period_blocks": "144000",
+    "period_budget": "100",
+    "curve_constant": "1",
+    "score_scale": "1000",
+    "max_vote_weight": "1000",
+    "max_period_weight": "1000000",
+    "promotion_price": "1",
+    "promotion_interval": "1200",
+    "max_opportunities": 5,
+    "promotion_slots": 32,
+    "reserved": "0",
+    "bootstrap_minted": "0"
+  },
+  "resourceVersion": 2,
+  "economyVersion": 1,
+  "activation": {
+    "activated": true,
+    "txId": "0x122033ee1803798423eb9799029f293969078151b1855a44ed13936c8f93df8ffbfc",
+    "block": {
+      "blockId": "0x12205323d1bde714c6af6f04caa81f0cb653795103217ac32d2074976c6cebf4bbd9",
+      "blockNumber": 8716430
+    }
+  },
+  "workflow": "https://github.com/therexdev/Open-Social-Protocol/actions/runs/36278809543",
+  "websiteClient": {
+    "path": "/assets/index-DlCP7cyw.js",
+    "sha256": "40b47cebde444aa9dbad2fc372f8e682c30964a8e3c08ab6e0c7d85525ee14b4",
+    "matchesReleasePackage": true
+  }
+}

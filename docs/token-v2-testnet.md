@@ -17,7 +17,8 @@ upgrade has happened.
 - Wallet display: total OSAT, ready to send, locked, free and paid capacity.
 - The existing capped Support reward pilot remains active. This release does
   **not** activate SWARM reward allocation or burn-funded promotional placement.
-  Their economic parameters remain undecided.
+  The subsequent [voting and promotion pilot](token-economy-testnet.md) defines
+  testnet parameters and a separate service-readiness activation gate.
 
 ## Upgrade and migration
 

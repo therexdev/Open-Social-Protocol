@@ -2,11 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { AUDIENCE } from "@osp/sdk";
-import type { PublishPlan } from "./publish";
-import type { PublishOutcome, PublishRequest } from "./usePublish";
+import type { DraftRecord } from "../../vault/store";
+import type { PublishRequest } from "./usePublish";
 import { ComposerForm } from "./ComposerForm";
 
-const transport = vi.hoisted(() => ({ plan: vi.fn(), publish: vi.fn() }));
+const transport = vi.hoisted(() => ({ start: vi.fn() }));
 vi.mock("./usePublish", () => ({ usePublish: () => ({ ...transport, ready: true }) }));
 vi.mock("../session", () => ({ useCanAct: () => ({ ok: true }) }));
 vi.mock("../../vault/context", () => ({
@@ -21,11 +21,7 @@ const dialogMethods = {
 };
 
 beforeEach(() => {
-  transport.plan.mockReset().mockImplementation(async ({ draft }: PublishRequest): Promise<PublishPlan> => ({
-    operations: [], postId: new Uint8Array(32), contentHash: new Uint8Array(32), idempotencyKey: new Uint8Array(32),
-    audience: draft.audience, epoch: 1, sequence: "1", versionNumber: 1, envelopeBytes: 100, recipients: [], skipped: [],
-  }));
-  transport.publish.mockReset();
+  transport.start.mockReset();
   // jsdom lacks the native dialog methods; keep native close/cancel event behavior.
   Object.defineProperties(HTMLDialogElement.prototype, {
     showModal: { configurable: true, value(this: HTMLDialogElement) { this.setAttribute("open", ""); } },
@@ -47,15 +43,15 @@ async function render(audience: number) {
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
-  const onPublished = vi.fn();
-  await act(async () => { root.render(<ComposerForm defaultAudience={audience} onPublished={onPublished} />); });
+  const onSubmitted = vi.fn();
+  await act(async () => { root.render(<ComposerForm defaultAudience={audience} onSubmitted={onSubmitted} />); });
   const textarea = container.querySelector("textarea")!;
   await act(async () => {
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(textarea, "A post to test publishing");
     textarea.dispatchEvent(new Event("input", { bubbles: true }));
   });
   await click("Review and publish");
-  return { textarea, onPublished };
+  return { textarea, onSubmitted };
 }
 
 function button(label: string): HTMLButtonElement {
@@ -69,46 +65,41 @@ async function click(label: string) {
 }
 
 describe("ComposerForm publish confirmation", () => {
-  it.each([[AUDIENCE.EVERYONE, "Everyone"], [AUDIENCE.FRIENDS, "Friends"]] as const)("publishes to %s exactly once without starting another review", async (audience, label) => {
-    let finish!: (value: PublishOutcome) => void;
-    transport.publish.mockImplementation(() => new Promise<PublishOutcome>((resolve) => { finish = resolve; }));
-    const { textarea, onPublished } = await render(audience);
-    const preparedDraft = transport.plan.mock.calls[0]![0].draft;
+  it.each([[AUDIENCE.EVERYONE, "Everyone"], [AUDIENCE.FRIENDS, "Friends"]] as const)("publishes to %s exactly once after local saving, without waiting for network confirmation", async (audience, label) => {
+    let finish!: (value: DraftRecord) => void;
+    transport.start.mockImplementation(() => new Promise<DraftRecord>((resolve) => { finish = resolve; }));
+    const { textarea, onSubmitted } = await render(audience);
     await click(`Publish to ${label}`);
-    expect(transport.publish).toHaveBeenCalledTimes(1);
-    expect(transport.publish.mock.calls[0]![0].draft).toBe(preparedDraft);
-    expect(transport.publish.mock.calls[0]![1].audience).toBe(audience);
-    expect(transport.plan).toHaveBeenCalledTimes(1);
-    expect(button("Publishing…").disabled).toBe(true);
+    expect(transport.start).toHaveBeenCalledTimes(1);
+    expect(transport.start.mock.calls[0]![0].draft.audience).toBe(audience);
+    expect(button("Saving…").disabled).toBe(true);
     expect(button("Cancel").disabled).toBe(true);
     await act(async () => { container.querySelector("dialog")!.dispatchEvent(new Event("cancel", { cancelable: true })); });
     expect(container.querySelector("dialog")?.hasAttribute("open")).toBe(true);
-    await click("Publishing…");
-    expect(transport.publish).toHaveBeenCalledTimes(1);
-    await act(async () => { finish({ postId: "published-post", reconciled: false }); });
-    expect(onPublished).toHaveBeenCalledWith({ postId: "published-post", reconciled: false });
+    await click("Saving…");
+    expect(transport.start).toHaveBeenCalledTimes(1);
+    await act(async () => { finish(transport.start.mock.calls[0]![0].draft); });
+    expect(onSubmitted).toHaveBeenCalledWith(transport.start.mock.calls[0]![0].draft);
     expect(textarea.value).toBe("");
     expect(container.querySelector("dialog")?.hasAttribute("open")).toBe(false);
     expect(container.querySelector("form form")).toBeNull();
   });
 
-  it.each([[AUDIENCE.EVERYONE, "Everyone"], [AUDIENCE.FRIENDS, "Friends"]] as const)("shows a failed publish to %s and preserves the post text", async (audience, label) => {
-    transport.publish.mockRejectedValue(new Error("Sponsor temporarily unavailable"));
-    const { textarea, onPublished } = await render(audience);
+  it.each([[AUDIENCE.EVERYONE, "Everyone"], [AUDIENCE.FRIENDS, "Friends"]] as const)("shows a failed local save to %s and preserves the post text", async (audience, label) => {
+    transport.start.mockRejectedValue(new Error("Device storage unavailable"));
+    const { textarea, onSubmitted } = await render(audience);
     await click(`Publish to ${label}`);
-    expect(transport.plan).toHaveBeenCalledTimes(1);
-    expect(transport.publish).toHaveBeenCalledTimes(1);
-    expect(container.querySelector("[role='alert']")?.textContent).toContain("Sponsor temporarily unavailable");
+    expect(transport.start).toHaveBeenCalledTimes(1);
+    expect(container.querySelector("[role='alert']")?.textContent).toContain("Device storage unavailable");
     expect(textarea.value).toBe("A post to test publishing");
-    expect(onPublished).not.toHaveBeenCalled();
+    expect(onSubmitted).not.toHaveBeenCalled();
     expect(container.querySelector("dialog")?.hasAttribute("open")).toBe(false);
   });
 
   it("cancels the review without publishing or changing the text", async () => {
     const { textarea } = await render(AUDIENCE.EVERYONE);
     await click("Cancel");
-    expect(transport.publish).not.toHaveBeenCalled();
-    expect(transport.plan).toHaveBeenCalledTimes(1);
+    expect(transport.start).not.toHaveBeenCalled();
     expect(textarea.value).toBe("A post to test publishing");
     expect(container.querySelector("dialog")?.hasAttribute("open")).toBe(false);
   });

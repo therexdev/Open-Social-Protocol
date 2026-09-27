@@ -1,0 +1,184 @@
+{
+  "run": "36270944959-1",
+  "contract": "1ADkox6cCeGwQKnDqYowXHgwxJTaCCgwXP",
+  "wasmSha256": "4407bf2d09147c8b6307d064e78834ab448a4942dff353294f1cbddc353c02ab",
+  "started": "2026-09-26T20:53:43.435Z",
+  "checks": [
+    {
+      "name": "isolated-code-upload",
+      "txId": "0x1220f338b43c4a7e57db2e697f017c528b7c508759ae8564689ff0f30db81351420c",
+      "rc": "784094579"
+    },
+    {
+      "name": "init",
+      "txId": "0x122080879c725ed502613bf46183635cb3dc7e76c087b8ab9da7d8fd58cb63c49644",
+      "block": 8713754,
+      "rc": "5964832"
+    },
+    {
+      "name": "register-0",
+      "txId": "0x122001018b1b0a85984a89c9f29084ab9bf7f9cd06de1dcc666785ddb133f1e8bb82",
+      "block": 8713756,
+      "rc": "5662217"
+    },
+    {
+      "name": "register-1",
+      "txId": "0x12202b9f6ce25f8221e7269fea5d380c2f822acf03fc1d01bc27543c759c8d20649e",
+      "block": 8713758,
+      "rc": "5661157"
+    },
+    {
+      "name": "register-2",
+      "txId": "0x1220fe416074135288e7d8640dc756902f42f220638f505e7bcce01badbd413712ba",
+      "block": 8713762,
+      "rc": "5678187"
+    },
+    {
+      "name": "publish-1",
+      "txId": "0x1220a9dbcde9e7d39cceb3de40ab8085113a09d888ed2d14598b6b418fdaa8657422",
+      "block": 8713765,
+      "rc": "27061258"
+    },
+    {
+      "name": "publish-2",
+      "txId": "0x1220d35b240b279f83587d06c76c4fa2f4a44524d338252f168fdf0408fef5feb054",
+      "block": 8713767,
+      "rc": "17463816"
+    },
+    {
+      "name": "register-with-no-voting-tokens",
+      "txId": "0x1220553f7ee9b9e53f5be47a701159de199a3d90ab067f2551c1c13d3ab54db8808a",
+      "block": 8713769,
+      "rc": "5663807"
+    },
+    {
+      "name": "activate-short-rehearsal-period",
+      "txId": "0x12200cdb2dc6a28201f7850a1be546c9a236c8ac2df6890ebddaac11efe36c051696",
+      "block": 8713771,
+      "rc": "5233914"
+    },
+    {
+      "name": "grant-0",
+      "txId": "0x12207cd9c5c049f7d5739ae35614fbbc356017c9dcbecab83649fd0e6545879e0276",
+      "block": 8713775,
+      "rc": "8752771"
+    },
+    {
+      "name": "grant-1",
+      "txId": "0x12201653a580c7775d43adc5c39c511378d6a899c0d760a288b2e6982728d9efd42a",
+      "block": 8713777,
+      "rc": "8714409"
+    },
+    {
+      "name": "grant-2",
+      "txId": "0x122002f6bc3f9788ebfb0ddbd4cd78117be29ad2b8e2fab8eb7255c1abeb383becf0",
+      "block": 8713779,
+      "rc": "8714409"
+    },
+    {
+      "name": "short-reward-period-keeps-five-day-resource-recharge"
+    },
+    {
+      "name": "free-credits-cannot-vote"
+    },
+    {
+      "name": "upvote-paid-weight",
+      "txId": "0x12204b2f769fe59462f8e17707140655a18a07fed4181d4a6c74fa22b626de6971ac",
+      "block": 8713781,
+      "rc": "28842036"
+    },
+    {
+      "name": "second-post-upvote",
+      "txId": "0x1220dfed6ac31622ae200fbca03e044489cf165b77e3fc601e2b691b2856d9001e5b",
+      "block": 8713784,
+      "rc": "28337124"
+    },
+    {
+      "name": "downvote-paid-weight",
+      "txId": "0x1220a57212d218c27f7273b85d76fdc47d0a670dfdacf028998add61f22232efda57",
+      "block": 8713786,
+      "rc": "19101491"
+    },
+    {
+      "name": "votes-use-paid-only-and-lock-used-units"
+    },
+    {
+      "name": "duplicate-vote-refused"
+    },
+    {
+      "name": "self-vote-refused"
+    },
+    {
+      "name": "locked-transfer-refused"
+    },
+    {
+      "name": "unapproved-promotion-price-refused"
+    },
+    {
+      "name": "purchase-promotion",
+      "txId": "0x122039c617c87697cde997bbcff7c6acef6c803543371e1129bedfaca69a09673a79",
+      "block": 8713789,
+      "rc": "11364980"
+    },
+    {
+      "name": "promotion-replay-refused"
+    },
+    {
+      "name": "promotion-burns-principal"
+    },
+    {
+      "name": "cancel-promotion",
+      "txId": "0x12205fdd4af635258e323d3e63f51ba91557440b61d3fac128143c2a2f34c8ba3139",
+      "block": 8713792,
+      "rc": "6290957"
+    },
+    {
+      "name": "cancellation-keeps-burn-permanent"
+    },
+    {
+      "name": "legacy-support-retired"
+    },
+    {
+      "name": "early-settlement-refused"
+    },
+    {
+      "name": "settle-first-reward",
+      "txId": "0x1220e5c37ac38b39badbb739f841cbe19731f8e4c5d8997b0f7841ebcdfaad4ed37c",
+      "block": 8713836,
+      "rc": "9216809"
+    },
+    {
+      "name": "settle-second-reward",
+      "txId": "0x1220fedc3e2d60da02bd568ddd8aa2c8ef03518ae6f6ef1c178420cc5d65d9963a0c",
+      "block": 8713838,
+      "rc": "9147338"
+    },
+    {
+      "name": "exact-allocation-supply-and-no-settlement-refill"
+    },
+    {
+      "name": "duplicate-settlement-refused"
+    }
+  ],
+  "policy": {
+    "block": "8713779",
+    "current_epoch": "1",
+    "value": {
+      "activation_block": "8713771",
+      "bootstrap_minted": "60",
+      "curve_constant": "1",
+      "max_opportunities": 5,
+      "max_period_weight": "1000000",
+      "max_vote_weight": "1000",
+      "period_blocks": "60",
+      "period_budget": "100",
+      "promotion_interval": "1200",
+      "promotion_price": "1",
+      "promotion_slots": 32,
+      "reserved": "0",
+      "score_scale": "1000",
+      "version": 1
+    }
+  },
+  "finished": "2026-09-26T20:58:14.491Z"
+}

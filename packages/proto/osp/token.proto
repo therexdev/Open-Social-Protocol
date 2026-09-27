@@ -31,6 +31,7 @@ message config {
   uint32 resource_version = 9;
   uint64 activation_block = 10 [jstype = JS_STRING];
   uint64 activation_time = 11 [jstype = JS_STRING];
+  uint32 economy_version = 12;
 }
 // @description init
 // @read-only false
@@ -202,4 +203,169 @@ message recharge_activated_event {
   uint64 activation_time = 3 [jstype = JS_STRING];
   uint64 recharge_blocks = 4 [jstype = JS_STRING];
   uint64 free_units = 5 [jstype = JS_STRING];
+}
+
+// Testnet economy v1. Independent of the resource schema version. Parameters
+// are fixed at activation; a future policy needs a versioned upgrade.
+message economy_config {
+  uint32 version = 1;
+  uint64 activation_block = 2 [jstype = JS_STRING];
+  uint64 period_blocks = 3 [jstype = JS_STRING];
+  uint64 period_budget = 4 [jstype = JS_STRING];
+  uint64 curve_constant = 5 [jstype = JS_STRING];
+  uint64 score_scale = 6 [jstype = JS_STRING];
+  uint64 max_vote_weight = 7 [jstype = JS_STRING];
+  uint64 max_period_weight = 8 [jstype = JS_STRING];
+  uint64 promotion_price = 9 [jstype = JS_STRING];
+  uint64 promotion_interval = 10 [jstype = JS_STRING];
+  uint32 max_opportunities = 11;
+  uint32 promotion_slots = 12;
+  uint64 reserved = 13 [jstype = JS_STRING];
+  uint64 bootstrap_minted = 14 [jstype = JS_STRING];
+}
+message reward_epoch {
+  uint64 id = 1 [jstype = JS_STRING];
+  uint64 start_block = 2 [jstype = JS_STRING];
+  uint64 end_block = 3 [jstype = JS_STRING];
+  uint64 budget = 4 [jstype = JS_STRING];
+  uint64 total_score = 5 [jstype = JS_STRING];
+  uint64 total_weight = 6 [jstype = JS_STRING];
+  uint64 post_count = 7 [jstype = JS_STRING];
+  uint64 settled_count = 8 [jstype = JS_STRING];
+  uint64 paid = 9 [jstype = JS_STRING];
+}
+message post_reward {
+  bytes post_id = 1;
+  bytes version = 2;
+  bytes author = 3 [(koinos.btype) = ADDRESS];
+  uint64 epoch = 4 [jstype = JS_STRING];
+  uint64 up = 5 [jstype = JS_STRING];
+  uint64 down = 6 [jstype = JS_STRING];
+  uint64 score = 7 [jstype = JS_STRING];
+  bool settled = 8;
+  uint64 reward = 9 [jstype = JS_STRING];
+}
+message ballot {
+  uint32 direction = 1; // 1 up, 2 down. Both consume paid capacity equally.
+  uint64 weight = 2 [jstype = JS_STRING];
+  uint64 block = 3 [jstype = JS_STRING];
+}
+message promotion {
+  bytes post_id = 1;
+  bytes version = 2;
+  bytes author = 3 [(koinos.btype) = ADDRESS];
+  uint64 nonce = 4 [jstype = JS_STRING];
+  uint32 slot = 5;
+  uint64 start_block = 6 [jstype = JS_STRING];
+  uint64 end_block = 7 [jstype = JS_STRING];
+  uint64 interval = 8 [jstype = JS_STRING];
+  uint32 opportunities = 9;
+  uint64 burned = 10 [jstype = JS_STRING];
+  bool cancelled = 11;
+}
+// @description Activate bounded Harbinger reward voting and promotion (contract account only)
+// @read-only false
+message activate_economy_arguments {
+  // Zero selects the 144,000-block public pilot. A shorter period is only for
+  // an isolated Harbinger rehearsal; it never changes the resource recharge.
+  uint64 test_period_blocks = 1 [jstype = JS_STRING];
+}
+message activate_economy_result {}
+// @description Allocate disclosed test tokens to registered testers (contract account only, Harbinger only)
+// @read-only false
+message grant_test_tokens_arguments {
+  bytes account = 1 [(koinos.btype) = ADDRESS];
+  uint64 value = 2 [jstype = JS_STRING];
+}
+message grant_test_tokens_result {}
+// @description Cast one immutable paid up/down ballot on the exact public post version
+// @read-only false
+message vote_arguments {
+  bytes actor = 1 [(koinos.btype) = ADDRESS];
+  bytes post_id = 2;
+  bytes version = 3;
+  uint32 direction = 4;
+  uint64 weight = 5 [jstype = JS_STRING];
+  bytes device = 6 [(koinos.btype) = ADDRESS];
+}
+message vote_result {}
+// @description Settle a closed-period post to its recorded author; no resource refund
+// @read-only false
+message settle_reward_arguments {
+  bytes actor = 1 [(koinos.btype) = ADDRESS];
+  bytes post_id = 2;
+  bytes device = 3 [(koinos.btype) = ADDRESS];
+}
+message settle_reward_result { uint64 reward = 1 [jstype = JS_STRING]; }
+// @description Burn an exact approved amount for public-post promotion (owner only)
+// @read-only false
+message promote_arguments {
+  bytes actor = 1 [(koinos.btype) = ADDRESS];
+  bytes post_id = 2;
+  bytes version = 3;
+  uint64 nonce = 4 [jstype = JS_STRING];
+  uint32 slot = 5;
+  uint32 opportunities = 6;
+  uint64 burn_amount = 7 [jstype = JS_STRING];
+}
+message promote_result {}
+// @description Stop a promotion without refunding its burn (owner only)
+// @read-only false
+message cancel_promotion_arguments {
+  bytes actor = 1 [(koinos.btype) = ADDRESS];
+  bytes post_id = 2;
+  uint64 nonce = 3 [jstype = JS_STRING];
+}
+message cancel_promotion_result {}
+// @description Get economy policy and current block/period
+// @read-only true
+message get_economy_arguments {}
+message get_economy_result {
+  economy_config value = 1;
+  uint64 block = 2 [jstype = JS_STRING];
+  uint64 current_epoch = 3 [jstype = JS_STRING];
+}
+// @description Get a post's reward, ballot, period and last promotion
+// @read-only true
+message get_post_economy_arguments {
+  bytes post_id = 1;
+  bytes viewer = 2 [(koinos.btype) = ADDRESS];
+}
+message get_post_economy_result {
+  post_reward reward = 1;
+  ballot vote = 2;
+  reward_epoch epoch = 3;
+  promotion promotion = 4;
+  uint64 block = 5 [jstype = JS_STRING];
+}
+// @description Get the bounded promotion board, including expired slots for purchase
+// @read-only true
+message get_promotions_arguments {}
+message get_promotions_result {
+  repeated promotion values = 1;
+  uint64 block = 2 [jstype = JS_STRING];
+}
+message economy_activated_event { economy_config value = 1; }
+message test_tokens_granted_event {
+  bytes account = 1 [(koinos.btype) = ADDRESS];
+  uint64 value = 2 [jstype = JS_STRING];
+  uint64 cumulative = 3 [jstype = JS_STRING];
+  uint64 timestamp = 4 [jstype = JS_STRING];
+}
+message voted_event {
+  bytes actor = 1 [(koinos.btype) = ADDRESS];
+  post_reward value = 2;
+  ballot vote = 3;
+  reward_epoch epoch = 4;
+  uint64 timestamp = 5 [jstype = JS_STRING];
+}
+message reward_settled_event {
+  bytes actor = 1 [(koinos.btype) = ADDRESS];
+  post_reward value = 2;
+  reward_epoch epoch = 3;
+  uint64 timestamp = 4 [jstype = JS_STRING];
+}
+message promotion_changed_event {
+  promotion value = 1;
+  uint64 timestamp = 2 [jstype = JS_STRING];
 }

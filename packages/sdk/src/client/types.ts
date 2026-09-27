@@ -616,7 +616,7 @@ export interface TokenAccount {
   resource_version?: number; block?: string; free_ticks?: string; token_ticks?: string;
   transferable?: string; locked?: string; recharge_blocks?: string; ticks_per_unit?: string;
 }
-export interface TokenConfig { identity: string; relationships: string; publications: string; messaging: string; reward_amount: string; daily_reward_cap: string; recipient_daily_cap: string; supply: string; resource_version?: number; activation_block?: string; activation_time?: string; }
+export interface TokenConfig { identity: string; relationships: string; publications: string; messaging: string; reward_amount: string; daily_reward_cap: string; recipient_daily_cap: string; supply: string; resource_version?: number; activation_block?: string; activation_time?: string; economy_version?: number; }
 export interface MessagingWriteMethods {
   set_dependencies: { identity: Address; relationships: Address; token: Address };
   request_conversation: ConversationArgs;
@@ -629,7 +629,40 @@ export interface MessagingReadMethods {
   get_conversation: [{ a: Address; b: Address }, ValueResult<ConversationRecord>];
   get_message: [{ sender: Address; message_id: Bytes }, ValueResult<DirectMessageRecord>];
 }
+export interface EconomyConfig {
+  version: number; activation_block: string; period_blocks: string; period_budget: string;
+  curve_constant: string; score_scale: string; max_vote_weight: string; max_period_weight: string;
+  promotion_price: string; promotion_interval: string; max_opportunities: number; promotion_slots: number;
+  reserved: string; bootstrap_minted: string;
+}
+export interface RewardEpoch {
+  id: string; start_block: string; end_block: string; budget: string; total_score: string;
+  total_weight: string; post_count: string; settled_count: string; paid: string;
+}
+export interface PostReward {
+  post_id: Uint8Array; version: Uint8Array; author: string; epoch: string; up: string; down: string;
+  score: string; settled: boolean; reward: string;
+}
+export interface Ballot { direction: number; weight: string; block: string; }
+export interface Promotion {
+  post_id: Uint8Array; version: Uint8Array; author: string; nonce: string; slot: number;
+  start_block: string; end_block: string; interval: string; opportunities: number; burned: string; cancelled: boolean;
+}
+export interface PostEconomy { reward?: PostReward; vote?: Ballot; epoch?: RewardEpoch; promotion?: Promotion; block: string; }
+/** JSON-safe indexer representation; state-changing clients recheck through RPC. */
+export interface IndexedPostEconomy {
+  reward?: Omit<PostReward, "post_id" | "version"> & { post_id: string; version: string };
+  vote?: Ballot; epoch?: RewardEpoch;
+  promotion?: Omit<Promotion, "post_id" | "version"> & { post_id: string; version: string };
+  block: string;
+}
 export interface TokenWriteMethods {
+  activate_economy: { test_period_blocks?: U64 };
+  grant_test_tokens: { account: Address; value: U64 };
+  vote: { actor: Address; post_id: Bytes; version: Bytes; direction: number; weight: U64; device?: Address };
+  settle_reward: { actor: Address; post_id: Bytes; device?: Address };
+  promote: { actor: Address; post_id: Bytes; version: Bytes; nonce: U64; slot: number; opportunities: number; burn_amount: U64 };
+  cancel_promotion: { actor: Address; post_id: Bytes; nonce: U64 };
   activate_recharge: Record<string, never>;
   init: { identity: Address; relationships: Address; publications: Address; messaging: Address };
   set_reward_policy: { reward_amount: U64; daily_reward_cap: U64; recipient_daily_cap: U64 };
@@ -639,6 +672,9 @@ export interface TokenWriteMethods {
   consume: { account: Address; units: U64 };
 }
 export interface TokenReadMethods {
+  get_economy: [Record<string, never>, { value?: EconomyConfig; block: string; current_epoch: string }];
+  get_post_economy: [{ post_id: Bytes; viewer?: Address }, PostEconomy];
+  get_promotions: [Record<string, never>, { values: Promotion[]; block: string }];
   get_config: [Record<string, never>, ValueResult<TokenConfig>];
   get_account: [{ account: Address }, ValueResult<TokenAccount> & { capacity: string }];
   balance_of: [{ owner: Address }, { value: string }];
@@ -937,6 +973,11 @@ export interface AdminChangedEvent {
 
 /** Event payload types keyed by full event name. */
 export interface EventPayloads {
+  "osp.token.economy_activated": { value: EconomyConfig };
+  "osp.token.test_tokens_granted": { account: string; value: string; cumulative: string; timestamp: string };
+  "osp.token.voted": { actor: string; value: PostReward; vote: Ballot; epoch: RewardEpoch; timestamp: string };
+  "osp.token.reward_settled": { actor: string; value: PostReward; epoch: RewardEpoch; timestamp: string };
+  "osp.token.promotion_changed": { value: Promotion; timestamp: string };
   "osp.messaging.conversation_changed": { value: ConversationRecord; timestamp: string };
   "osp.messaging.message_sent": { value: DirectMessageRecord; envelope: Bytes; timestamp: string };
   "osp.token.recharge_activated": { resource_version: number; activation_block: string; activation_time: string; recharge_blocks: string; free_units: string };

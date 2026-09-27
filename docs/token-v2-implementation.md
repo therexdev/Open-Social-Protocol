@@ -5,7 +5,9 @@ The branch now includes the deployable resource contract, atomic in-place
 migration, SDK fields, wallet display, contract tests and testnet release workflow.
 See [the recharge release and tester guide](token-v2-testnet.md). Deployment status
 must be verified against `deployments/harbinger.json` and the live resource version;
-this is not a completed SWARM/ad product.
+the voting/promotion pilot is described in [ADR 0009](adr/0009-token-economy-testnet-pilot.md)
+and [its release guide](token-economy-testnet.md). Public activation requires the
+updated live services and website, separately from staging bytecode.
 
 ## Completed in this branch
 
@@ -46,41 +48,49 @@ The reference's array loops are deliberately **not** pasted into a contract.
 
 ## Reward voting packet
 
-- [ ] Define post/version eligibility, voting window, replay/uniqueness, changes and
+- [x] Define post/version eligibility, voting window, replay/uniqueness, changes and
   cancellations, and exact treatment of deleted/blocked/private content.
-- [ ] Select a testnet budget/issuance policy, bootstrap distribution, allocation
+- [x] Select a testnet budget/issuance policy, bootstrap distribution, allocation
   curve, rounding, zero-positive-score behavior and payout path.
-- [ ] Record vote direction and consumed paid weight; never derive an old vote's
+- [x] Record vote direction and consumed paid weight; never derive an old vote's
   weight from a later wallet balance.
-- [ ] Preserve the rolling recharge clock across vote windows and settlement.
-- [ ] Stop v1 fixed-mint Support after v2 reward activation; avoid duplicate rewards.
-- [ ] Validate distribution invariants and simulate reciprocal accounts, purchased
+- [x] Preserve the rolling recharge clock across vote windows and settlement.
+- [x] Stop v1 fixed-mint Support after v2 reward activation; avoid duplicate rewards.
+- [x] Validate distribution invariants and simulate reciprocal accounts, purchased
   influence, downvote attacks, low participation and reward concentration.
-- [ ] Wire up/down controls into the website and extension with explicit transaction
+- [x] Wire up/down controls into the website and extension with explicit transaction
   status, current available weight and economic error messages.
 
 ## Promotion packet
 
-- [ ] Choose what is purchased: campaign windows/placements, not assumed impressions.
-- [ ] Define pricing, contention, burn timing, reservation/cancellation and expiry.
-- [ ] Bind authorization to the exact public post/version and approved burn amount.
-- [ ] Record campaign start, recurrence, end and budget/cap in canonical events.
-- [ ] Keep post identity, original timestamp and reward eligibility across resurfacing.
-- [ ] Implement labeled placements on participating feeds without bypassing audience,
+- [x] Choose what is purchased: campaign windows/placements, not assumed impressions.
+- [x] Define pricing, contention, burn timing, reservation/cancellation and expiry.
+- [x] Bind authorization to the exact public post/version and approved burn amount.
+- [x] Record campaign start, recurrence, end and budget/cap in canonical events.
+- [x] Keep post identity, original timestamp and reward eligibility across resurfacing.
+- [x] Implement labeled placements on participating feeds without bypassing audience,
   block, mute, removal or frequency rules.
-- [ ] Simulate promotion/reward feedback and prove there is no direct duplicate-mint path.
+- [x] Simulate promotion/reward feedback and prove there is no direct duplicate-mint path.
 
-## Unchosen economics
+## Pilot economics and remaining decisions
 
-No silent decision has been made about reducing the 100 free-unit baseline, changing
-individual action costs, adopting SWARM's inflation rate/curve, allocating initial
-voting tokens, or setting promotion prices. The resource model can compare allowance
-sizes now; token-distribution and promotional economics need their own evidence.
+ADR 0009 records explicit Harbinger defaults: 100 OSAT per reward period, the
+SWARM-inspired positive-net-score curve, capped owner-issued tester allocations,
+and one fully charged OSAT per 1,200-block promotion opportunity. These are pilot
+choices for testing, not an approved mainnet inflation or advertising policy.
+The free baseline stays 100 and action costs stay unchanged.
 
 ## Validation scope
 
-The executable model has no network calls, signatures, database, deployment powers,
-post/identity lookup or real token issuance. It verifies resource semantics only.
-It does not prove production contract safety, resource affordability, economic
-fairness, farming resistance, or advertising delivery. Those checks belong to the
-packets above, not to an assertion that the simulation has deployed the product.
+The resource model checks exact recharge against an independent oracle. Contract
+tests check immutable paid ballots, eligibility, shared budgets, claim ordering,
+locks, burns and authorization. SDK, indexer, sponsor and client tests cover the
+new operations, deterministic replay, policy restrictions, confirmation controls
+and trusted extension boundaries. The release workflow rehearses actual deployed
+WASM, votes, burns and settlement on an isolated Harbinger token before staging the
+public upgrade. Its receipts, not this checklist, establish live rehearsal results.
+
+These checks do not prove economic fairness, Sybil resistance, real advertising
+engagement or mainnet readiness. A concentrated or reciprocal group can still
+capture an underused reward pool; paid voting prices influence but does not prove
+one person per account. The pilot makes that limitation explicit and bounds issuance.

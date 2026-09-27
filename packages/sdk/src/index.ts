@@ -20,3 +20,4 @@ export { Signer, Provider, Contract, Transaction, Serializer, utils as koilibUti
 export * from "./crypto/messaging.js";
 
 export * from "./crypto/keyProvenance.js";
+export * from "./promotion.js";

@@ -3,7 +3,7 @@
  * cross-post orchestrator, adapters) and the message handlers exposed through the router.
  * Everything privileged lives here; pages and content scripts only send messages.
  */
-import { AUDIENCE, type PostRef, type ProviderInterface, type ValueResult } from "@osp/sdk";
+import { CAPABILITY, AUDIENCE, type PostRef, type ProviderInterface, type ValueResult } from "@osp/sdk";
 import { bytesOf, fromHex, toBase64url, toHex } from "../shared/bytes";
 import { knownNetworks } from "../shared/config";
 import { draftSizeError } from "../shared/draft";
@@ -32,7 +32,8 @@ import { CrossPostOrchestrator } from "./crosspost";
 import { FeedService } from "./feed";
 import { EncryptedStore, KeyStore, deriveAesKey, type KeyCache } from "./keystore";
 import { createRouter, defineHandler, type Handlers, type Router } from "./messages";
-import { authorizeDevice, lookupDeviceStatus, publishPost, recordCrossPostProof } from "./publish";
+import { authorizeDevice, lookupDeviceStatus, publishPost, recordCrossPostProof, submitOperations } from "./publish";
+import type { EconomyInspection } from "../sidepanel/Economy";
 import { VaultManager, type UnlockedSession, type VaultManagerOptions } from "./vault";
 
 export interface BackgroundOptions extends ResolveOptions {
@@ -119,7 +120,7 @@ export function createBackground(options: BackgroundOptions): Background {
     void session;
   }
 
-  const feed = new FeedService({ clients: () => registry.get(), session: () => vault.current(), keys: keysFor, vault, now });
+  const feed = new FeedService({ clients: () => registry.get(), session: () => vault.current(), keys: keysFor, vault, now, promotionStorage: sessionArea });
 
   const crossposts = new CrossPostOrchestrator({
     storage: local,
@@ -252,7 +253,63 @@ export function createBackground(options: BackgroundOptions): Background {
     feedScope: optional(oneOf(["public", "friends", "all"] as const)),
   });
 
+  const postIdSchema = str({ min: 43, max: 44, pattern: /^[A-Za-z0-9_-]{43}=?$/ });
+  const wholeAmount = str({ min: 1, max: 7, pattern: /^[1-9]\d*$/ });
+  let economyBusy = false;
+  const economySubmit = async (kind: "vote" | "promote" | "settle" | "cancel", p: { postId: string; version?: string; direction?: number; weight?: string; nonce?: string; slot?: number; opportunities?: number; burnAmount?: string }) => {
+    if (economyBusy) throw new Error("Wait for the current token action to finish.");
+    economyBusy = true;
+    try {
+      const session = await requireSession(), clients = await registry.get(), client = requireProtocol(clients);
+      const actor = session.account, post_id = bytesOf(p.postId);
+      const ownerAction = kind === "promote" || kind === "cancel";
+      const signer = vault.signers(session).owner;
+      if (ownerAction && !signer) throw new Error("Open the website to approve a promotion with your account's owner key.");
+      if (!ownerAction) {
+        await requireDevice(session);
+        const device = await lookupDeviceStatus(client, actor, session.deviceAddress, now());
+        if (!device.authorized || ((device.capabilities ?? 0) & CAPABILITY.SUPPORT) === 0) throw new Error("Authorize this browser for reward voting first. Existing publishing permissions do not include voting.");
+      }
+      const op = kind === "vote" ? await client.ops.token.vote({ actor, post_id, version: bytesOf(p.version), direction: p.direction!, weight: p.weight!, device: session.deviceAddress })
+        : kind === "settle" ? await client.ops.token.settle_reward({ actor, post_id, device: session.deviceAddress })
+        : kind === "cancel" ? await client.ops.token.cancel_promotion({ actor, post_id, nonce: p.nonce! })
+        : await client.ops.token.promote({ actor, post_id, version: bytesOf(p.version), nonce: p.nonce!, slot: p.slot!, opportunities: p.opportunities!, burn_amount: p.burnAmount! });
+      // Recheck the unlocked account after reads, before invoking any signer.
+      if ((await vault.current())?.account !== actor) throw new Error("Unlock the same account again before confirming.");
+      if (ownerAction && clients.resolved.payment === "sponsor-only" && !clients.resolved.sponsorUrls.length) throw new Error("Add a sponsor in Settings before purchasing promotion.");
+      const result = ownerAction ? await client.submit({ operations: [op], signer: signer!, ...(clients.resolved.payment === "self-only" ? { sponsor: null } : { selfPayFallback: clients.resolved.payment !== "sponsor-only" }), waitForReceipt: true })
+        : await submitOperations([op], { client, session, vault, payment: clients.resolved.payment, sponsorUrls: clients.resolved.sponsorUrls });
+      if (!ownerAction && result.transaction.id) await client.provider.wait(result.transaction.id, "byTransactionId", 120000);
+      feed.invalidate();
+      return { txId: result.transaction.id };
+    } finally { economyBusy = false; }
+  };
+
   const handlers: Handlers = {
+    "economy.open": defineHandler({ source: "embed", validate: obj({ postId: postIdSchema, direction: oneOf([1,2] as const) }), handle: async p => {
+      await api.tabs.create({ url: api.runtime.getURL(`src/sidepanel/index.html#post=${encodeURIComponent(p.postId)}&direction=${p.direction}`) });
+      return {};
+    }}),
+    "economy.inspect": defineHandler({ source: "extension", validate: obj({ postId: postIdSchema }), handle: async (p): Promise<EconomyInspection> => {
+      const session = await requireSession(), clients = await registry.get(), client = requireProtocol(clients);
+      const [config, view, account, post, board, device, preview] = await Promise.all([
+        client.reads.token.get_economy({}), client.reads.token.get_post_economy({ post_id: bytesOf(p.postId), viewer: session.account }),
+        client.reads.token.get_account({ account: session.account }), client.reads.publications.get_post({ post_id: bytesOf(p.postId) }),
+        client.reads.token.get_promotions({}), lookupDeviceStatus(client,session.account,session.deviceAddress,now()), feed.card(p.postId),
+      ]);
+      const mapped = view ? { ...view, reward: view.reward ? { ...view.reward, post_id: toBase64url(view.reward.post_id), version: toBase64url(view.reward.version) } : undefined,
+        promotion: view.promotion ? { ...view.promotion, post_id: toBase64url(view.promotion.post_id), version: toBase64url(view.promotion.version) } : undefined } : undefined;
+      const verified = preview?.status === "plain" && preview.contentHash === (post?.value?.latest_version ? toBase64url(post.value.latest_version) : "");
+      return { preview: verified ? preview?.text ?? "" : undefined, policy: config?.value, view: mapped, account: account?.value, version: post?.value?.latest_version ? toBase64url(post.value.latest_version) : "",
+        own: post?.value?.author === session.account, active: verified && post?.value?.state === 0 && post.value.audience === 0,
+        canVote: device.authorized && ((device.capabilities ?? 0) & CAPABILITY.SUPPORT) !== 0, ownerAvailable: !!vault.signers(session).owner,
+        slot: config?.value ? Array.from({length:config.value.promotion_slots},(_,i)=>i).find(i => !board?.values.some(p=>p.slot===i && !p.cancelled && BigInt(p.end_block)>BigInt(board.block))) : undefined };
+    }}),
+    "economy.vote": defineHandler({ source: "extension", validate: obj({ postId: postIdSchema, version: postIdSchema, direction: oneOf([1,2] as const), weight: wholeAmount }), handle: p => economySubmit("vote",p) }),
+    "economy.settle": defineHandler({ source: "extension", validate: obj({ postId: postIdSchema }), handle: p => economySubmit("settle",p) }),
+    "economy.promote": defineHandler({ source: "extension", validate: obj({ postId: postIdSchema, version: postIdSchema, nonce: wholeAmount, slot: num({min:0,max:31,int:true}), opportunities: num({min:1,max:5,int:true}), burnAmount: wholeAmount }), handle: p => economySubmit("promote",p) }),
+    "economy.cancel": defineHandler({ source: "extension", validate: obj({ postId: postIdSchema, nonce: wholeAmount }), handle: p => economySubmit("cancel",p) }),
+
     "vault.status": defineHandler({ source: "extension", validate: empty, handle: () => vaultStatus() }),
     "vault.touch": defineHandler({ source: "extension", validate: empty, handle: async () => vault.touch() }),
     "vault.create": defineHandler({

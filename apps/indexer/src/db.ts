@@ -17,7 +17,7 @@ import { DatabaseSync, type SQLInputValue, type StatementSync, type StatementRes
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import path from "node:path";
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 /** Every projection table (truncated on replay), in a fixed order. */
 export const PROJECTION_TABLES = [
@@ -43,6 +43,10 @@ export const PROJECTION_TABLES = [
   "direct_messages",
   "token_accounts",
   "token_activity",
+  "token_rewards",
+  "token_votes",
+  "token_epochs",
+  "token_promotions",
 ] as const;
 
 const MIGRATIONS: string[] = [
@@ -322,6 +326,14 @@ const MIGRATIONS: string[] = [
   CREATE TABLE token_activity (height INTEGER NOT NULL, tx_index INTEGER NOT NULL, sequence INTEGER NOT NULL, actor TEXT NOT NULL, recipient TEXT NOT NULL, kind TEXT NOT NULL, data_json TEXT NOT NULL, tx_id TEXT NOT NULL, PRIMARY KEY(height,tx_index,sequence));
   CREATE INDEX token_activity_actor ON token_activity(actor,height);
   CREATE INDEX token_activity_recipient ON token_activity(recipient,height);
+  `,
+  `
+  CREATE TABLE token_rewards (post_id TEXT PRIMARY KEY, author TEXT NOT NULL, epoch TEXT NOT NULL, settled INTEGER NOT NULL, data_json TEXT NOT NULL);
+  CREATE INDEX token_rewards_author ON token_rewards(author,settled,post_id);
+  CREATE TABLE token_votes (post_id TEXT NOT NULL, actor TEXT NOT NULL, data_json TEXT NOT NULL, PRIMARY KEY(post_id,actor));
+  CREATE TABLE token_epochs (id TEXT PRIMARY KEY, data_json TEXT NOT NULL);
+  CREATE TABLE token_promotions (post_id TEXT PRIMARY KEY, author TEXT NOT NULL, slot INTEGER NOT NULL, end_block INTEGER NOT NULL, data_json TEXT NOT NULL);
+  CREATE INDEX token_promotions_end ON token_promotions(end_block);
   `,
 ];
 
