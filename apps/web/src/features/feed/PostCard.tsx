@@ -1,6 +1,6 @@
 import { PostEconomyActions } from "../tokens/PostEconomyActions";
 /** One post in a list or on its page: author, audience, decrypted body, media, reactions. */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { AUDIENCE, LIFECYCLE, REACTION } from "@osp/sdk";
 import type { PostView } from "../../api/indexer";
@@ -109,18 +109,23 @@ export function PostCard({ post, onChanged, expanded = false }: PostCardProps) {
   const muted = useSettings((s) => s.muted.includes(post.author));
   const [showMuted, setShowMuted] = useState(false);
   const [busy, setBusy] = useState(false);
-  const liked = (post.reactions.viewer ?? []).includes(REACTION.LIKE);
-  const likes = post.reactions.byType[String(REACTION.LIKE)] ?? post.reactions.total;
+  const indexedLike = (post.reactions.viewer ?? []).includes(REACTION.LIKE);
+  const [optimisticLike, setOptimisticLike] = useState<boolean>();
+  const liked = optimisticLike ?? indexedLike;
+  const likes = Math.max(0, (post.reactions.byType[String(REACTION.LIKE)] ?? post.reactions.total) + Number(liked) - Number(indexedLike));
+  useEffect(() => { if (optimisticLike === indexedLike) setOptimisticLike(undefined); }, [indexedLike, optimisticLike]);
   const deleted = post.state === LIFECYCLE.DELETED;
 
   const react = async () => {
-    if (!submit || !can.ok) return;
+    if (!submit || !can.ok || busy) return;
     setBusy(true);
+    setOptimisticLike(!liked);
     try {
       const op = await submit.client.ops.publications.react({ actor: submit.signer.getAddress(), post_id: bytesOf(post.postId), reaction: REACTION.LIKE, remove: liked });
-      await submitAction(submit, [op], { label: liked ? "Removing your like" : "Liking the post", success: liked ? "Like removed" : "Liked" });
+      await submitAction(submit, [op], { label: liked ? "Removing your like" : "Liking the post", success: liked ? "Like removed" : "Liked", quietProgress: true });
       onChanged?.();
     } catch {
+      setOptimisticLike(undefined);
       // the toast already explains
     } finally {
       setBusy(false);

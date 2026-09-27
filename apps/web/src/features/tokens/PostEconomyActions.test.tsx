@@ -34,6 +34,18 @@ describe("token action controls",()=>{
     h.getPost.mockResolvedValue({block:"100",vote:{direction:1,weight:"3",block:"99"}});await render();await click("Upvote");
     expect(container.textContent).toContain("upvote used 3 paid capacity");expect(container.querySelector("form")).toBeNull();
   });
+  it("closes the vote panel while confirmation runs and keeps a later failure visible",async()=>{
+    let reject!: (error:Error)=>void;
+    h.submit.mockReturnValue(new Promise((_resolve,fail)=>{reject=fail;}));
+    await render();await click("Upvote");
+    await act(async()=>{container.querySelector("form")!.dispatchEvent(new Event("submit",{bubbles:true,cancelable:true}));});
+    expect(container.querySelector(".economy-panel")).toBeNull();
+    expect(container.textContent).toContain("Saving… You can keep browsing.");
+    expect(h.submit.mock.calls[0]?.[2]).toMatchObject({quietProgress:true});
+    await act(async()=>{reject(new Error("Network rejected this vote"));});
+    expect(container.textContent).toContain("Network rejected this vote");
+    expect(container.textContent).not.toContain("Saving…");
+  });
   it("binds a promotion to its exact burn amount, version, free slot and next nonce",async()=>{
     h.me.account="bob";h.getPost.mockResolvedValue({block:"100",promotion:{nonce:"7",end_block:"50",cancelled:false}});
     h.getBoard.mockResolvedValue({block:"100",values:[{slot:0,end_block:"200",cancelled:false}]});

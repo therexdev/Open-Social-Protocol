@@ -1,19 +1,20 @@
 import { useCallback, useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { AUDIENCE } from "@osp/sdk";
 import { Button, Card, Empty, Notice } from "../../components/ui";
 import { formatDateTime } from "../../util/format";
 import type { DraftRecord } from "../../vault/store";
 import { useSession } from "../session";
 import { ComposerForm } from "./ComposerForm";
-import { listDrafts, removeDraft } from "./drafts";
+import { listDrafts, removeDraft, subscribeDrafts } from "./drafts";
 import { usePublish } from "./usePublish";
 import { errorMessage } from "../../util/format";
 
 export function ComposerPage() {
   const session = useSession();
   const navigate = useNavigate();
-  const { publish } = usePublish();
+  const { start } = usePublish();
+  const [params, setParams] = useSearchParams();
   const [drafts, setDrafts] = useState<DraftRecord[]>([]);
   const [resume, setResume] = useState<DraftRecord | undefined>();
   const [error, setError] = useState<string | undefined>();
@@ -21,20 +22,24 @@ export function ComposerPage() {
 
   const reload = useCallback(async () => {
     if (!session) return;
-    setDrafts(await listDrafts(session));
-  }, [session]);
+    const saved = await listDrafts(session);
+    setDrafts(saved.filter(d => d.state === "failed" || d.state === "draft" || (!d.scope && d.state !== "published")));
+    const selected = saved.find(d => d.id === params.get("draft") && (d.state === "failed" || d.state === "draft"));
+    if (params.has("draft")) setResume(current => current?.id === selected?.id ? current : selected);
+  }, [session, params]);
 
   useEffect(() => {
     void reload();
+    return subscribeDrafts(() => { void reload(); });
   }, [reload]);
 
   const retry = async (draft: DraftRecord) => {
     setBusy(draft.id);
     setError(undefined);
     try {
-      const outcome = await publish({ draft });
+      await start({ draft });
       await reload();
-      navigate(`/post/${outcome.postId}`);
+      navigate(draft.audience === AUDIENCE.FRIENDS ? "/?feed=friends" : "/");
     } catch (e) {
       setError(errorMessage(e));
       await reload();
@@ -51,11 +56,11 @@ export function ComposerPage() {
           key={resume?.id ?? "new"}
           draft={resume}
           defaultAudience={AUDIENCE.EVERYONE}
-          onPublished={(outcome) => {
+          onSubmitted={(draft) => {
             void reload();
-            navigate(`/post/${outcome.postId}`);
+            navigate(draft.audience === AUDIENCE.FRIENDS ? "/?feed=friends" : "/");
           }}
-          onCancel={resume ? () => setResume(undefined) : undefined}
+          onCancel={resume ? () => { setResume(undefined); setParams({}); } : undefined}
         />
       </Card>
       <Card title="Unsent drafts">
@@ -70,9 +75,9 @@ export function ComposerPage() {
                   <p className="preview-line">{draft.text}</p>
                   <p className="muted">
                     {draft.state === "unknown"
-                      ? "Outcome unknown: the network did not answer. Retry checks whether it was published before sending again."
+                      ? "Outcome unknown: the network did not answer. Checking the saved attempt prevents duplicate posts."
                       : draft.state === "submitting"
-                        ? "Interrupted while sending. Retry checks whether it was published before sending again."
+                        ? "Interrupted while sending. Checking the saved attempt prevents duplicate posts."
                         : draft.state === "failed"
                           ? `Failed: ${draft.lastError ?? "unknown error"}`
                           : "Draft"}{" "}

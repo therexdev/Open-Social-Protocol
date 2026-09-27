@@ -7,6 +7,7 @@ import { useGraph } from "./friends/RelationshipActions";
 import { usePagedPosts } from "./feed/FeedPage";
 import type { PostView } from "../api/indexer";
 
+vi.mock("./composer/PublishingProvider", () => ({ usePublishing: () => ({ posts: [], ready: false }) }));
 const api = vi.hoisted(() => ({ indexer: { configured: true, post: vi.fn(), replies: vi.fn(), graph: vi.fn() } }));
 vi.mock("../api/services", () => ({ useServices: () => api }));
 vi.mock("../vault/context", () => ({ useVault: (pick: (s: object) => unknown) => pick({ status: "locked" }) }));

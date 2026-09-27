@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { AUDIENCE, ProtocolClient, RELATIONSHIP_STATUS, decode, identityFromSeed } from "@osp/sdk";
 import { IndexerClient } from "../../api/indexer";
 import { fakeIndexerFetch, fakeProvider, fixtureDeployment, readResult } from "../../testing/fixtures";
@@ -7,9 +7,12 @@ import { bytesOf } from "../../util/bytes";
 import { unsupportedPasskey } from "../../vault/passkey";
 import { memoryStorage } from "../../vault/storage";
 import { createVaultStore, type Session } from "../../vault/store";
-import { listDrafts, newDraft } from "./drafts";
+import { listDrafts, newDraft, saveDraft } from "./drafts";
 import { planDraft, publishDraft, type PublishDeps } from "./usePublish";
 
+import { startPublication, waitForPublication } from "./backgroundPublishing";
+import { reconcileDraft } from "./publishDraft";
+import { submitAction } from "../../tx/submit";
 const deployment = fixtureDeployment();
 const friend = identityFromSeed(new Uint8Array(32).fill(9));
 
@@ -21,7 +24,7 @@ async function openSession(): Promise<Session> {
 }
 
 function chainFor(me: string) {
-  const state = { epoch: 1 };
+  const state = { epoch: 1, sequence: "1", existing: undefined as Uint8Array | undefined };
   const probe = new ProtocolClient({ rpc: fakeProvider(), deployment });
   const entry = (contract: "relationships" | "publications" | "identity", method: string) => probe.contracts.method(contract, method).entry_point;
   const provider = fakeProvider({
@@ -35,7 +38,8 @@ function chainFor(me: string) {
         const { account } = decode<{ account: string }>("identity.get_identity_arguments", bytesOf(op.args));
         return account === friend.account ? readResult("identity.get_identity_result", { value: { account, owner: account, encryption_key: friend.encryption.publicKey, key_version: 1 } }) : undefined;
       }
-      if (op.entry_point === entry("publications", "get_author_state")) return readResult("publications.get_author_state_result", { value: { next_sequence: "1", post_count: "0" } });
+      if (op.entry_point === entry("publications", "get_author_state")) return readResult("publications.get_author_state_result", { value: { next_sequence: state.sequence, post_count: "0" } });
+      if (op.entry_point === entry("publications", "get_post_by_idempotency_key") && state.existing) return readResult("publications.get_post_by_idempotency_key_result", { value: { post_id: state.existing } });
       return undefined;
     },
   });
@@ -97,5 +101,117 @@ describe("publishDraft", () => {
     const entry = session.keys.trusted({ author: me, audienceId: new Uint8Array(0), epoch: 1 });
     expect(entry).toBeDefined();
     expect(entry!.recipients.sort()).toEqual([me, friend.account].sort());
+  });
+});
+
+
+describe("background publication", () => {
+  it("returns after encrypted saving, keeps both rapid posts, and prepares the next sequence only after the first confirms", async () => {
+    const session = await openSession();
+    const { protocol, indexer, state } = chainFor(session.identity.account);
+    const first = newDraft(session.identity.account, { text: "first", audience: 0, mediaUrls: [] });
+    const second = newDraft(session.identity.account, { text: "second", audience: 0, mediaUrls: [] });
+    const sequences: string[] = [];
+    let release!: () => void;
+    const hold = new Promise<void>(resolve => { release = resolve; });
+    const deps: PublishDeps = { session, protocol, indexer, payment: "self-only", submit: async (ctx, operations, options) => {
+      const publish = operations.at(-1)!.call_contract!;
+      const args = decode<{ sequence: string }>("publications.publish_arguments", bytesOf(publish.args));
+      sequences.push(args.sequence);
+      if (sequences.length === 1) await hold;
+      const result = await submitAction(ctx, operations, options);
+      state.sequence = "2";
+      return result;
+    } };
+    const accepted = startPublication(deps, { draft: first });
+    expect(startPublication(deps, { draft: first })).toBe(accepted);
+    await accepted;
+    await startPublication(deps, { draft: second });
+    await vi.waitFor(() => expect(sequences).toEqual(["1"]));
+    expect((await listDrafts(session)).map(d => d.text).sort()).toEqual(["first", "second"]);
+    release();
+    await Promise.all([waitForPublication(deps, first.id), waitForPublication(deps, second.id)]);
+    expect(sequences).toEqual(["1", "2"]);
+    expect((await listDrafts(session)).map(d => d.state)).toEqual(["published", "published"]);
+  });
+
+  it("recovers a private post and its reading key after an unknown outcome without resubmitting", async () => {
+    const session = await openSession();
+    const { protocol, indexer, state, provider } = chainFor(session.identity.account);
+    const draft = newDraft(session.identity.account, { text: "private retry", audience: AUDIENCE.FRIENDS, mediaUrls: [] });
+    const submit = vi.fn(async () => { const error = new Error("confirmation timed out"); error.name = "TransactionOutcomeUnknownError"; throw error; });
+    const deps: PublishDeps = { session, protocol, indexer, payment: "self-only", background: true, submit };
+    await startPublication(deps, { draft });
+    await waitForPublication(deps, draft.id);
+    const saved = (await listDrafts(session))[0]!;
+    expect(saved.state).toBe("unknown");
+    expect(saved.publication?.epochKey).toBeTruthy();
+    state.existing = bytesOf(saved.publication!.postId);
+    await reconcileDraft(deps, saved);
+    expect((await listDrafts(session))[0]?.state).toBe("published");
+    expect(session.keys.trusted({ author: draft.account, audienceId: new Uint8Array(0), epoch: 1 })?.key).toEqual(bytesOf(saved.publication!.epochKey!));
+    expect(submit).toHaveBeenCalledTimes(1);
+    expect(provider.sent).toHaveLength(0);
+  });
+
+  it("keeps concurrent encrypted draft writes and resumes attachment metadata", async () => {
+    const session = await openSession();
+    const { protocol, indexer } = chainFor(session.identity.account);
+    const drafts = Array.from({ length: 5 }, (_, i) => newDraft(session.identity.account, { text: `draft ${i}`, audience: 0, mediaUrls: [] }));
+    await Promise.all(drafts.map(d => saveDraft(session, d)));
+    expect(await listDrafts(session)).toHaveLength(5);
+    const media = [{ url: "https://example.test/image.png", mime: "image/png", size: 12, contentHash: new Uint8Array(32).fill(4) }];
+    const deps: PublishDeps = { session, protocol, indexer, payment: "self-only" };
+    await startPublication(deps, { draft: drafts[0]!, media });
+    await waitForPublication(deps, drafts[0]!.id);
+    const saved = (await listDrafts(session)).find(d => d.id === drafts[0]!.id)!;
+    expect(saved.media?.[0]?.url).toBe(media[0]!.url);
+    expect(bytesOf(saved.media![0]!.contentHash)).toEqual(media[0]!.contentHash);
+    expect(saved.state).toBe("published");
+  });
+  it("retries the identical private payload after a timeout and holds later posts until the outcome is known", async () => {
+    const session = await openSession();
+    const { protocol, indexer } = chainFor(session.identity.account);
+    const first = newDraft(session.identity.account, { text: "uncertain private", audience: AUDIENCE.FRIENDS, mediaUrls: [] });
+    const second = newDraft(session.identity.account, { text: "later private", audience: AUDIENCE.FRIENDS, mediaUrls: [] });
+    const submit = vi.fn<NonNullable<PublishDeps["submit"]>>().mockImplementationOnce(async () => {
+      const error = new Error("confirmation timed out"); error.name = "TransactionOutcomeUnknownError"; throw error;
+    }).mockImplementation(submitAction);
+    const deps: PublishDeps = { session, protocol, indexer, payment: "self-only", background: true, submit };
+    await startPublication(deps, { draft: first }); await waitForPublication(deps, first.id);
+    const uncertain = (await listDrafts(session))[0]!;
+    await startPublication(deps, { draft: second }); await waitForPublication(deps, second.id);
+    expect(submit).toHaveBeenCalledTimes(1);
+    expect((await listDrafts(session)).find(d => d.id === second.id)?.state).toBe("queued");
+    await startPublication(deps, { draft: uncertain }); await waitForPublication(deps, first.id);
+    expect(submit).toHaveBeenCalledTimes(2);
+    expect(submit.mock.calls[1]![1]).toEqual(submit.mock.calls[0]![1]);
+    expect(session.keys.trusted({ author: first.account, audienceId: new Uint8Array(0), epoch: 1 })?.key).toEqual(bytesOf(uncertain.publication!.epochKey!));
+    expect((await listDrafts(session)).find(d => d.id === first.id)?.publication?.operations).toBeUndefined();
+  });
+
+  it("does not send a queued publication after the vault locks", async () => {
+    const session = await openSession();
+    const { protocol, indexer, provider } = chainFor(session.identity.account);
+    let unlocked = true;
+    let release!: () => void;
+    const hold = new Promise<void>(resolve => { release = resolve; });
+    const deps: PublishDeps = { session, protocol, indexer, payment: "self-only", assertActive: () => { if (!unlocked) throw new Error("Unlock your account"); }, submit: async (ctx, ops, options) => { await hold; return submitAction(ctx, ops, options); } };
+    const draft = newDraft(session.identity.account, { text: "locked", audience: 0, mediaUrls: [] });
+    await startPublication(deps, { draft });
+    unlocked = false; release();
+    await waitForPublication(deps, draft.id);
+    expect(provider.sent).toHaveLength(0);
+    expect((await listDrafts(session))[0]?.state).toBe("failed");
+  });
+
+  it("reconciles edits through their saved attempt instead of publishing a second version", async () => {
+    const session = await openSession();
+    const { protocol, indexer, state, provider } = chainFor(session.identity.account);
+    state.existing = new Uint8Array(32).fill(8);
+    const draft = { ...newDraft(session.identity.account, { text: "edit", audience: 0, mediaUrls: [], edit: { postId: "unused", previousVersion: "unused", versionNumber: 2 } }), state: "unknown" as const };
+    const outcome = await publishDraft({ session, protocol, indexer, payment: "self-only" }, { draft });
+    expect(outcome.reconciled).toBe(true);
+    expect(provider.sent).toHaveLength(0);
   });
 });

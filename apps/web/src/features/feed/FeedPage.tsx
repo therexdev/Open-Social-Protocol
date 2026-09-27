@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import type { PostView } from "../../api/indexer";
 import { useServices } from "../../api/services";
 import { Button, Empty, Notice, Tabs } from "../../components/ui";
@@ -7,6 +7,8 @@ import { errorMessage } from "../../util/format";
 import { useVault } from "../../vault/context";
 import { Icon } from "../../components/Icon";
 import { useSwipeTabs } from "../../components/useSwipeTabs";
+import { usePublishing } from "../composer/PublishingProvider";
+import { PendingPosts } from "../composer/PendingPosts";
 import { PromotedFeed } from "../tokens/PromotedFeed";
 
 type Tab = "public" | "friends";
@@ -18,15 +20,16 @@ export function usePagedPosts(load: (cursor?: string) => Promise<{ items: PostVi
   const [cursor, setCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | undefined>();
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (quiet = false) => {
+    if (quiet && paging.current) return;
     const request = ++version.current;
-    setLoading(true);
+    if (!quiet) setLoading(true);
     setError(undefined);
     try {
       const page = await load();
       if (request !== version.current) return;
-      setItems(page.items);
-      setCursor(page.nextCursor);
+      setItems(previous => quiet ? [...page.items, ...previous.filter(p => !page.items.some(n => n.postId === p.postId))] : page.items);
+      if (!quiet) setCursor(page.nextCursor);
     } catch (e) {
       if (request === version.current) setError(errorMessage(e));
     } finally {
@@ -81,13 +84,23 @@ function FeedPanel({ scope, viewer, active }: { scope: Tab; viewer: string | und
     if (scope === "friends" && !viewer) return { items: [], nextCursor: null };
     return indexer.feed({ scope, ...(viewer && { viewer }), ...(cursor && { cursor }), limit: 20 });
   }, [indexer, scope, viewer]);
+  const publishing = usePublishing();
+  const pending = publishing.posts.filter(d => !d.replyTo && (scope === "friends" || d.audience === 0));
+  const hasPending = pending.length > 0;
+  useEffect(() => {
+    if (!active || !hasPending) return;
+    const refresh = () => { if (document.visibilityState !== "hidden") void feed.refresh(true); };
+    const timer = window.setInterval(refresh, 3000);
+    return () => window.clearInterval(timer);
+  }, [active, hasPending, feed.refresh]);
   return <section hidden={!active} role="tabpanel" id={`feed-${scope}`} aria-label={scope === "public" ? "Everyone" : "Friends"} className="feed-panel">
     {scope === "friends" && !viewer && <Notice kind="info">Unlock your account to see posts from your friends.</Notice>}
     {feed.error && <Notice kind="error">{feed.error}</Notice>}
     {!indexer.configured && <Empty>Configure an indexer in Settings to load posts.</Empty>}
-    {indexer.configured && !feed.loading && feed.items.length === 0 && !feed.error && !(scope === "friends" && !viewer) && <Empty>{scope === "friends" ? "Nothing from your friends yet. Posts you and your friends publish appear here." : "No posts yet. Be the first to say hello."}</Empty>}
+    {indexer.configured && !feed.loading && feed.items.length === 0 && !hasPending && !feed.error && !(scope === "friends" && !viewer) && <Empty>{scope === "friends" ? "Nothing from your friends yet. Posts you and your friends publish appear here." : "No posts yet. Be the first to say hello."}</Empty>}
+    <PendingPosts posts={pending} indexed={feed.items}/>
     <PromotedFeed items={feed.items} viewer={viewer} scope={scope} active={active} onChanged={() => void feed.refresh()}/>
-    {feed.loading && feed.items.length === 0 && <FeedSkeleton/>}
+    {feed.loading && feed.items.length === 0 && !hasPending && <FeedSkeleton/>}
     <div className="row feed-pagination"><Button variant="ghost" onClick={() => void feed.refresh()} disabled={feed.loading}><Icon name="refresh"/> {feed.loading && feed.items.length > 0 ? "Refreshing…" : "Refresh"}</Button>{feed.hasMore && <Button onClick={() => void feed.more()} busy={feed.loading}>Load more</Button>}</div>
   </section>;
 }
@@ -96,9 +109,10 @@ export function FeedPage() {
   const account = useVault(s => s.account);
   const status = useVault(s => s.status);
   const viewer = status === "unlocked" ? account : undefined;
-  const [tab, setTab] = useState<Tab>("public");
+  const [params, setParams] = useSearchParams();
+  const tab: Tab = params.get("feed") === "friends" ? "friends" : "public";
   const [direction, setDirection] = useState(1);
-  const changeTab = (next: Tab) => { setDirection(next === "friends" ? 1 : -1); setTab(next); };
+  const changeTab = (next: Tab) => { setDirection(next === "friends" ? 1 : -1); setParams(next === "friends" ? { feed: "friends" } : {}, { replace: true }); };
   const swipe = useSwipeTabs(direction => changeTab(direction === 1 ? "friends" : "public"));
   return <div className="page feed-page">
     <div className="page-header"><div><p className="eyebrow">YOUR DAILY CONNECTION</p><h1>Feed</h1><p className="page-subtitle">A little closer to your people.</p></div><Link to="/compose" className="btn btn-primary"><Icon name="plus"/> New post</Link></div>

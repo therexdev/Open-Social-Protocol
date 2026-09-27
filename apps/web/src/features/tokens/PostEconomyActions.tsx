@@ -32,8 +32,8 @@ export function PostEconomyActions({ post, onChanged }: { post: PostView; onChan
   useEffect(() => {
     const current = ++generation.current;
     let alive = true;
-    setView(undefined); setAccount(undefined); setError("");
     if (panel) {
+      setView(undefined); setAccount(undefined); setError("");
       setLoading(true);
       void refresh().catch(e => { if (alive) setError(humanizeError(e)); }).finally(() => { if (alive) setLoading(false); });
     }
@@ -64,7 +64,8 @@ export function PostEconomyActions({ post, onChanged }: { post: PostView; onChan
         op = await ctx.client.ops.token.promote({ actor, post_id: id, version: bytesOf(post.contentHash), nonce: (BigInt(view.promotion?.nonce ?? "0") + 1n).toString(), slot, opportunities, burn_amount: (BigInt(opportunities) * BigInt(policy.promotion_price)).toString() });
         label = "Purchasing promotion"; success = "Promotion confirmed. Your post is eligible for labeled feed placement.";
       }
-      await submitAction(ctx, [op], { label, success, waitForReceipt: true });
+      setPanel(undefined);
+      await submitAction(ctx, [op], { label, success, waitForReceipt: true, quietProgress: true });
       if (kind !== "support") await refresh();
       onChanged?.();
     } catch (e) { setError(humanizeError(e)); }
@@ -90,6 +91,8 @@ export function PostEconomyActions({ post, onChanged }: { post: PostView; onChan
       {active && own && <Button variant="ghost" disabled={!can.ok || busy} onClick={() => setPanel("promote")}><Icon name="spark" size={18}/>Promote</Button>}
       {reward && <Button variant="ghost" disabled={busy} onClick={() => setPanel("reward")}>{reward.settled ? `${reward.reward} OSAT rewarded` : "Reward details"}</Button>}
     </div>
+    {busy && <p className="economy-saving" role="status">Saving… You can keep browsing.</p>}
+    {!panel && error && <Notice kind="error">{error}</Notice>}
     {panel && <div className="economy-panel">
       <div className="row row-between"><strong>{panel === "vote" ? "Reward vote" : panel === "promote" ? "Promote this post" : "Author reward"}</strong><Button variant="ghost" aria-label="Close token action" disabled={busy} onClick={() => setPanel(undefined)}><Icon name="close" size={16}/></Button></div>
       {error && <Notice kind="error">{error}</Notice>}

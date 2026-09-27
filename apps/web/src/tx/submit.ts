@@ -22,6 +22,8 @@ export interface SubmitOptions {
   waitForReceipt?: boolean;
   /** Revalidate a prepared action after earlier submissions for this account finish. */
   beforeSubmit?: () => Promise<void>;
+  /** The surrounding UI owns progress; keep routine confirmation out of its way. */
+  quietProgress?: boolean;
 }
 
 // Background key sharing and user actions use the same account nonce. Serialize submissions
@@ -110,7 +112,11 @@ export async function submitAction(ctx: SubmitContext, operations: OperationJson
     toasts.push({ kind: "error", title: `${options.label}: not sent`, message: blocker, sticky: true });
     throw new ActionError(blocker);
   }
-  const id = toasts.push({ kind: "pending", title: options.label, message: "Waiting for the network…", sticky: true });
+  const id = options.quietProgress ? undefined : toasts.push({ kind: "pending", title: options.label, message: "Saving in the background. You can keep browsing.", sticky: true });
+  const report = (patch: Parameters<typeof toasts.push>[0]) => {
+    if (id) toasts.update(id, patch);
+    else if (patch.kind === "error" || patch.kind === "info") toasts.push(patch);
+  };
   try {
     const result = await withAccountSubmission(ctx, async () => {
       await options.beforeSubmit?.();
@@ -129,7 +135,7 @@ export async function submitAction(ctx: SubmitContext, operations: OperationJson
       ...result.refusals.map((r) => `Sponsor ${r.endpoint} declined (${r.error.category})`),
     ];
     const reverted = Boolean(result.receipt.reverted);
-    toasts.update(id, {
+    report({
       kind: reverted ? "error" : "success",
       title: reverted ? `${options.label}: rejected by the network` : (options.success ?? `${options.label}: done`),
       message: reverted ? "The network rejected this action." : undefined,
@@ -142,17 +148,17 @@ export async function submitAction(ctx: SubmitContext, operations: OperationJson
     if (error instanceof ActionError) throw error;
     if (error instanceof Error && error.name === "TransactionOutcomeUnknownError") {
       const message = "The action was submitted, but confirmation is still pending. Refresh its status before retrying; it may already have succeeded.";
-      toasts.update(id, { kind: "error", title: `${options.label}: outcome unknown`, message, sticky: true, details: [errorMessage(error)] });
+      report({ kind: "info", title: "Still saving", message: "Confirmation is taking longer. Check its status before trying again.", sticky: false, details: [errorMessage(error)] });
       throw new ActionError(message, error);
     }
     if (error instanceof Error && error.name === "TransactionRevertedError") {
       const logs = (error as { logs?: string[] }).logs ?? [];
       const message = humanizeError(new Error(logs.join("; ") || "The network rejected this action."));
-      toasts.update(id, { kind: "error", title: `${options.label}: rejected by the network`, message, sticky: true, details: [errorMessage(error), ...logs] });
+      report({ kind: "error", title: `${options.label}: rejected by the network`, message, sticky: true, details: [errorMessage(error), ...logs] });
       throw new ActionError(message, error);
     }
     const message = humanizeError(error);
-    toasts.update(id, { kind: "error", title: `${options.label}: failed`, message, sticky: true, details: [errorMessage(error)] });
+    report({ kind: "error", title: `${options.label}: failed`, message, sticky: true, details: [errorMessage(error)] });
     throw new ActionError(message, error);
   }
 }

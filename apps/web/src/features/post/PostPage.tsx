@@ -9,6 +9,8 @@ import { submitAction } from "../../tx/submit";
 import { bytesOf } from "../../util/bytes";
 import { errorMessage, formatDateTime } from "../../util/format";
 import { useVault } from "../../vault/context";
+import { PendingPosts } from "../composer/PendingPosts";
+import { usePublishing } from "../composer/PublishingProvider";
 import { ComposerForm } from "../composer/ComposerForm";
 import { PostCard } from "../feed/PostCard";
 import { usePagedPosts } from "../feed/FeedPage";
@@ -26,7 +28,7 @@ function EditDialog({ post, onDone, onCancel }: { post: PostView; onDone: () => 
         edit={{ postId: post.postId, previousVersion: post.contentHash, versionNumber: post.versionNumber + 1, text, audience: post.audience }}
         defaultAudience={post.audience}
         compact
-        onPublished={onDone}
+        onSubmitted={onDone}
         onCancel={onCancel}
       />
     </Card>
@@ -36,6 +38,8 @@ function EditDialog({ post, onDone, onCancel }: { post: PostView; onDone: () => 
 export function PostPage() {
   const { postId = "" } = useParams();
   const { indexer } = useServices();
+  const publishing = usePublishing();
+  const pending = publishing.posts.filter(d => d.replyTo === postId || d.edit?.postId === postId);
   const account = useVault((s) => s.account);
   const status = useVault((s) => s.status);
   const viewer = status === "unlocked" ? account : undefined;
@@ -51,9 +55,9 @@ export function PostPage() {
   const [deleting, setDeleting] = useState(false);
   const [replying, setReplying] = useState(false);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (quiet = false) => {
     const request = ++requestVersion.current;
-    setLoading(true);
+    if (!quiet) setLoading(true);
     setError(undefined);
     try {
       const found = await indexer.post(postId, viewer);
@@ -102,6 +106,12 @@ export function PostPage() {
     }
   };
 
+  const hasPending = pending.length > 0;
+  useEffect(() => {
+    if (!hasPending) return;
+    const timer = window.setInterval(() => { if (document.visibilityState !== "hidden") { void load(true); void replies.refresh(true); } }, 3000);
+    return () => window.clearInterval(timer);
+  }, [hasPending, load, replies.refresh]);
   const mine = post !== undefined && account !== undefined && post.author === account;
 
   return (
@@ -114,6 +124,7 @@ export function PostPage() {
       {error && <Notice kind="error">{error} <Button onClick={() => void load()} disabled={loading}>Retry</Button></Notice>}
       {post && (
         <>
+          <PendingPosts posts={pending.filter(d => !!d.edit)} indexed={[post]}/>
           <PostCard post={post} expanded onChanged={() => void load()} />
           {mine && post.state !== LIFECYCLE.DELETED && (
             <div className="row">
@@ -130,7 +141,7 @@ export function PostPage() {
               post={post}
               onDone={() => {
                 setEditing(false);
-                void load();
+                void load(true);
               }}
               onCancel={() => setEditing(false)}
             />
@@ -161,16 +172,17 @@ export function PostPage() {
                 replyTo={post.postId}
                 defaultAudience={post.audience === AUDIENCE.FRIENDS ? AUDIENCE.FRIENDS : AUDIENCE.EVERYONE}
                 compact
-                onPublished={() => {
+                onSubmitted={() => {
                   setReplying(false);
-                  void replies.refresh();
-                  void load();
+                  void replies.refresh(true);
+                  void load(true);
                 }}
                 onCancel={() => setReplying(false)}
               />
             )}
             {replies.error && <Notice kind="error">{replies.error}</Notice>}
-            {!replies.loading && replies.items.length === 0 && <Empty>No replies yet.</Empty>}
+            {!replies.loading && replies.items.length === 0 && !pending.some(d => !d.edit) && <Empty>No replies yet.</Empty>}
+            <PendingPosts posts={pending.filter(d => !d.edit)} indexed={replies.items}/>
             <div className="post-list">
               {replies.items.map((reply) => (
                 <PostCard key={`${reply.postId}:${reply.contentHash}`} post={reply} onChanged={() => void replies.refresh()} />
