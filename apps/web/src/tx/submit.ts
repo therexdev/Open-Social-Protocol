@@ -33,7 +33,13 @@ const submissions = new Map<string, Promise<unknown>>();
 export async function withAccountSubmission<T>(ctx: SubmitContext, action: () => Promise<T>): Promise<T> {
   const key = `${ctx.client.chainId}:${ctx.signer.getAddress()}`;
   const previous = submissions.get(key) ?? Promise.resolve();
-  const next = previous.catch(() => undefined).then(action);
+  const next = previous.catch(() => undefined).then(async () => {
+    // The in-memory queue cannot coordinate another tab. Use the same account
+    // lock across this origin; keep the queue as a fallback without Web Locks.
+    if (typeof navigator !== "undefined" && navigator.locks?.request)
+      return await navigator.locks.request(`osp:submit:${key}`, action);
+    return await action();
+  });
   submissions.set(key, next);
   try {
     return await next;
@@ -52,6 +58,9 @@ export class ActionError extends Error {
 }
 
 export function sponsorWording(error: SponsorError): string {
+  if (error.category === "invalid_transaction" && /\binvalid account nonce\b/i.test(error.message)) {
+    return "Another transaction is still updating this account. Wait a moment and retry; this is not a Mana shortage.";
+  }
   if (error.category === "invalid_transaction" && /\bnot friends\b/i.test(error.message)) {
     return "The network says these accounts are no longer friends. Refresh the profile before trying another action.";
   }
@@ -78,6 +87,7 @@ export function sponsorWording(error: SponsorError): string {
 export function humanizeError(error: unknown): string {
   if (error instanceof InsufficientManaError) {
     const refusal = error.refusals.at(-1);
+    if (refusal && /\binvalid account nonce\b/i.test(refusal.error.message)) return sponsorWording(refusal.error);
     return refusal
       ? `${sponsorWording(refusal.error)} Your account also has no Mana available for this action.`
       : "Your account has no Mana available for this action. Add a funded sponsor in Settings or fund the paying account.";

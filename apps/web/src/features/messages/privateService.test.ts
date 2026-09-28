@@ -26,8 +26,8 @@ import {
 } from "./privateService";
 
 vi.mock("../../tx/submit", () => ({
-  submitAction: async (ctx: any, ops: any[]) =>
-    ctx.client.submit({ operations: ops, signer: ctx.signer }),
+  submitAction: async (ctx: any, ops: any[], options: any) =>
+    ctx.client.submit({ operations: ops, signer: ctx.signer, waitForReceipt: options.waitForReceipt }),
 }));
 beforeAll(() =>
   Object.defineProperty(globalThis, "crypto", {
@@ -47,6 +47,8 @@ const lock: ExclusiveLock = async (name, action) => {
   return p;
 };
 function harness(prepaid = true) {
+  let delayedNonce = false;
+  const pendingNonces = new Set<string>();
   const devices = new Map<string, PrivateDevice[]>(),
     channels = new Map<string, any>(),
     packets: PrivatePacketView[] = [],
@@ -105,7 +107,11 @@ function harness(prepaid = true) {
         { get: (_, method) => async (args: any) => ({ method, args }) },
       ),
     },
-    submit: async ({ operations: ops, signer }: any) => {
+    submit: async ({ operations: ops, signer, waitForReceipt }: any) => {
+      const account = signer.getAddress();
+      const reserves = delayedNonce && ops.some((op: any) => op.method === "reserve_private_usage");
+      if (reserves && pendingNonces.has(account)) throw new Error("invalid account nonce");
+      if (reserves) pendingNonces.add(account);
       for (const op of ops) {
         const a = op.args;
         operations.push({ ...op, signer: signer.getAddress() });
@@ -159,6 +165,11 @@ function harness(prepaid = true) {
             throw new Error("Network timeout after broadcast");
           }
         }
+      }
+      if (reserves && waitForReceipt) {
+        // Inclusion advances the chain nonce; merely broadcasting does not.
+        await Promise.resolve();
+        pendingNonces.delete(account);
       }
       return {};
     },
@@ -275,6 +286,7 @@ function harness(prepaid = true) {
     pump,
     connect,
     reservations,
+    delayNonceUntilInclusion: () => { delayedNonce = true; },
     allocate: (reservationId: string, actor: string, signature: string) => {
       const reservation = reservations.get(reservationId);
       expect(reservation).toBeDefined();
@@ -292,6 +304,31 @@ function harness(prepaid = true) {
 }
 
 describe("two-browser private conversations", () => {
+  it("accepts with two allowance reservations without reusing an unmined account nonce", async () => {
+    let now = Date.now();
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    const h = harness(false);
+    vi.spyOn(SponsorClient.prototype, "discover").mockResolvedValue({
+      sponsor: deployment.contracts.sponsorship.address,
+      policy: { allowed: [{ contract: scope.contract, entryPoints: [ABIS.messaging.methods.reserve_private_usage!.entry_point] }] },
+    } as any);
+    vi.spyOn(SponsorClient.prototype, "allocatePrivateUsage").mockImplementation(async payload => {
+      h.allocate(payload.reservationId, payload.actor, payload.signature);
+      return { grantId: "grant", pending: true };
+    });
+    await h.a.service.enable(); await h.b.service.enable(); await h.pump();
+    const chat = await h.a.service.start(bob.account);
+    for (let i = 0; i < 5; i++) { now += 60_000; await h.pump(2); }
+    expect(h.b.snapshot.chats[0]?.status).toBe("incoming");
+    h.delayNonceUntilInclusion();
+    await h.b.service.accept(chat);
+    // Wait behind acceptance's background sync without starting a new retry.
+    await h.b.service.load();
+    expect(h.b.snapshot.error).toBe("");
+    const reservations = h.operations.filter(op => op.method === "reserve_private_usage" && op.signer === bob.account);
+    expect(reservations.map(op => op.args.units)).toEqual([4, 1]);
+    expect(new Set(reservations.map(op => toBase64url(op.args.reservation_id))).size).toBe(2);
+  });
   it.each(["expired", "future-dated"] as const)("does not surface a correctly signed but %s invitation", async scenario => {
     let now = Date.now();
     vi.spyOn(Date, "now").mockImplementation(() => now);

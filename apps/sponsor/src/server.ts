@@ -50,7 +50,7 @@ export interface SponsorServiceOptions {
 }
 
 export interface StatusReport {
-  features: { privateMessaging: 2 };
+  features: { privateMessaging: 2; messagingNonceOrdering: 1 };
   ok: boolean;
   state: ServiceState;
   message: string;
@@ -213,7 +213,9 @@ export class SponsorService {
       if (!held.ok) throw new SponsorRefusal("quota_exceeded", held.message);
       try {
         const op = await client.ops.messaging.allocate_private_usage({ sponsor, actor, grant_id: fromBase64url(grantId), units: reservation.units });
-        const result = await client.submit({ operations: [op], signer, sponsor: null, rcLimit: this.limits.maxRcPerOp, waitForReceipt: false });
+        // All grants use the payer's nonce. Keep the allocation queue held until
+        // inclusion before preparing the next grant for any user.
+        const result = await client.submit({ operations: [op], signer, sponsor: null, rcLimit: this.limits.maxRcPerOp, waitForReceipt: true, waitTimeoutMs: 20_000 });
         held.commit({ rcUsed: result.rcUsed });
         return { grantId, pending: true };
       } catch (error) {
@@ -236,7 +238,7 @@ export class SponsorService {
 
   status(): StatusReport {
     return {
-      features: { privateMessaging: 2 },
+      features: { privateMessaging: 2, messagingNonceOrdering: 1 },
       ok: this.state === "serving",
       state: this.state,
       message: stateMessage(this.state, this.options),

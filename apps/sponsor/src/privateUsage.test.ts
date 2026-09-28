@@ -4,6 +4,7 @@ import {
   ProtocolClient,
   Signer,
   encode,
+  decode,
   fromBase64url,
   randomBytes,
   signPrivateStatement,
@@ -14,6 +15,7 @@ import {
   fakeProvider,
   fixtureDeployment,
   testConfig,
+  nonceValue,
 } from "./__tests__/helpers.js";
 const deployment = fixtureDeployment(),
   signer = Signer.fromSeed("private-payer"),
@@ -26,7 +28,7 @@ const scope = {
 };
 async function start() {
   const reservationId = toBase64url(randomBytes(32));
-  let granted: any;
+  const grants = new Map<string, any>();
   let lib = "100";
   const provider = fakeProvider({
     onRead(op) {
@@ -42,18 +44,21 @@ async function start() {
           value: {
             account: owner.getAddress(),
             sponsor: signer.getAddress(),
-            reservation_id: fromBase64url(reservationId),
+            reservation_id: decode(ABIS.messaging.methods.get_private_reservation!.argument, op.args).reservation_id,
             units: 4,
             block: "50",
           },
         });
       if (
         op.entry_point === ABIS.messaging.methods.get_private_grant!.entry_point
-      )
+      ) {
+        const requested = decode(ABIS.messaging.methods.get_private_grant!.argument, op.args).grant_id as Uint8Array;
+        const granted = grants.get(toBase64url(requested));
         return encode(
           "messaging.get_private_grant_result",
           granted ? { value: granted } : {},
         );
+      }
       return undefined;
     },
   });
@@ -69,13 +74,13 @@ async function start() {
     signer,
     provider,
   });
-  const request = async (actor = alias, proofSigner = owner) => ({
-    reservationId,
+  const request = async (actor = alias, proofSigner = owner, requestedId = reservationId) => ({
+    reservationId: requestedId,
     actor,
     signature: await signPrivateStatement(
       scope,
       "allocate",
-      { reservationId, actor },
+      { reservationId: requestedId, actor },
       proofSigner,
     ),
   });
@@ -85,7 +90,7 @@ async function start() {
     request,
     reservationId,
     setGranted: (v: any) => {
-      granted = v;
+      grants.set(toBase64url(v.grant_id), v);
     },
     setLib: (v: string) => {
       lib = v;
@@ -93,6 +98,46 @@ async function start() {
   };
 }
 describe("private allowance assignments", () => {
+  it("holds the payer queue through inclusion before granting the next reservation", async () => {
+    const h = await start();
+    let release!: () => void;
+    const block = new Promise<void>(resolve => { release = resolve; });
+    let broadcast!: () => void;
+    const broadcasted = new Promise<void>(resolve => { broadcast = resolve; });
+    let nonce = 0, inFlight = false;
+    h.provider.getNextNonce = async () => nonceValue(nonce + 1);
+    const send = h.provider.sendTransaction;
+    const client = new ProtocolClient({ deployment, rpc: h.provider });
+    h.provider.sendTransaction = async (tx, shouldBroadcast) => {
+      if (inFlight || tx.header?.nonce !== nonceValue(nonce + 1)) throw new Error("invalid account nonce");
+      inFlight = true;
+      const result = await send(tx, shouldBroadcast);
+      broadcast();
+      const first = nonce === 0;
+      return { ...result, transaction: { ...result.transaction, wait: async () => {
+        if (first) await block;
+        nonce++; inFlight = false;
+        const op = client.contracts.decodeOperation(tx.operations![0]!)!;
+        h.setGranted(op.args);
+        return { blockId: `block-${nonce}`, blockNumber: 100 + nonce };
+      } } };
+    };
+    try {
+      let finished = false;
+      const first = h.app.inject({ method: "POST", url: "/v2/private/allocate", payload: await h.request() }).then(r => { finished = true; return r; });
+      await broadcasted;
+      const second = h.app.inject({ method: "POST", url: "/v2/private/allocate", payload: await h.request(other.getAddress(), owner, toBase64url(randomBytes(32))) });
+      // Let both HTTP handlers run while the first transaction is still unmined.
+      const both = Promise.all([first, second]);
+      await new Promise(resolve => setImmediate(resolve));
+      expect(finished).toBe(false);
+      expect(h.provider.sent).toHaveLength(1);
+      release();
+      const responses = await both;
+      expect(responses.map(r => r.statusCode)).toEqual([200, 200]);
+      expect(h.provider.sent.map(r => r.transaction.header?.nonce)).toEqual([nonceValue(1), nonceValue(2)]);
+    } finally { release(); await h.app.close(); }
+  });
   it("requires owner proof and finality before allocating a prepaid reservation", async () => {
     const h = await start();
     try {

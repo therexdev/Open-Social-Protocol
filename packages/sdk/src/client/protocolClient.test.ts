@@ -133,6 +133,15 @@ async function reactOp(client: ProtocolClient): Promise<OperationJson> {
 }
 
 describe("ProtocolClient", () => {
+  it.each(["0", "500000000"])("does not self-pay a sponsor nonce rejection with %s Mana", async rc => {
+    const provider = fakeProvider({ rc: { [user.getAddress()]: rc } });
+    const sponsor = await fakeSponsor({ refuse: { status: 400, category: "invalid_transaction", message: "chain rejected the transaction: invalid account nonce" } });
+    const client = new ProtocolClient({ rpc: provider, deployment });
+    await expect(client.submit({ operations: [await reactOp(client)], signer: user, sponsor: sponsor.client })).rejects.toMatchObject({ name: "SponsorError", message: "chain rejected the transaction: invalid account nonce" });
+    expect(provider.sent).toHaveLength(0);
+    expect(provider.rcCalls).toHaveLength(0);
+    expect(sponsor.received).toHaveLength(1);
+  });
   it("does not sign or broadcast a self-paid transaction with zero Mana", async () => {
     const provider = fakeProvider({ rc: { [user.getAddress()]: "0" } });
     const client = new ProtocolClient({ rpc: provider, deployment });

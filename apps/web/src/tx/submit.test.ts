@@ -1,13 +1,32 @@
 // @vitest-environment node
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { InsufficientManaError, ProtocolClient, SponsorError, identityFromSeed } from "@osp/sdk";
 import { fakeProvider, fixtureDeployment } from "../testing/fixtures";
 import { useToasts } from "../stores/toasts";
 import { ActionError, NO_SPONSOR_MESSAGE, humanizeError, paymentBlocker, submitAction, withAccountSubmission, type SubmitContext } from "./submit";
 
 const me = identityFromSeed(new Uint8Array(32).fill(7));
+afterEach(() => vi.unstubAllGlobals());
 
 describe("background sharing and user transaction ordering", () => {
+  it("waits for another browser tab's account lock before preparing a transaction", async () => {
+    let release!: () => void;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    let requested!: () => void;
+    const entered = new Promise<void>(resolve => { requested = resolve; });
+    const request = vi.fn(async (_name: string, action: () => Promise<unknown>) => { requested(); await held; return action(); });
+    vi.stubGlobal("navigator", { locks: { request } });
+    const provider = fakeProvider();
+    const client = new ProtocolClient({ rpc: provider, deployment: fixtureDeployment() });
+    const op = await client.ops.relationships.follow({ follower: me.account, target: me.account });
+    const submitted = submitAction({ client, signer: me.signer, payment: "self-only" }, [op], { label: "Following" });
+    await entered;
+    expect(provider.sent).toHaveLength(0);
+    expect(request).toHaveBeenCalledWith(`osp:submit:${client.chainId}:${me.account}`, expect.any(Function));
+    release();
+    await submitted;
+    expect(provider.sent).toHaveLength(1);
+  });
   it("queues a user action behind key sharing for the same account, even after an endpoint change", async () => {
     const provider = fakeProvider();
     const client = new ProtocolClient({ rpc: provider, deployment: fixtureDeployment() });
@@ -40,6 +59,13 @@ describe("background sharing and user transaction ordering", () => {
 });
 
 describe("submitAction payment preference", () => {
+  it("explains a nonce rejection without asking users to fund Mana or change networks", () => {
+    const error = new SponsorError("invalid_transaction", "chain rejected the transaction: invalid account nonce", { status: 400 });
+    expect(humanizeError(error)).toContain("Another transaction");
+    expect(humanizeError(error)).not.toContain("Check the network");
+    const legacy = new InsufficientManaError(me.account, [{ endpoint: "https://sponsor.test", error }]);
+    expect(humanizeError(legacy)).toBe(humanizeError(error));
+  });
   it("explains a stale friend removal instead of suggesting a network change", () => {
     const error = new SponsorError("invalid_transaction", "transaction reverted: not friends");
     expect(humanizeError(error)).toContain("no longer friends");

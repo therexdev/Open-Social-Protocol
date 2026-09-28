@@ -335,6 +335,11 @@ export class ProtocolClient {
       sponsored = true;
       sponsorAddress = attempt.value.sponsorAddress;
     } else {
+      // Paying for the same stale account nonce cannot fix a sequence conflict.
+      // Surface the explicit rejection so saved actions can reconcile/retry;
+      // do not replace it with an unrelated zero-Mana error or charge self-pay.
+      const nonceRefusal = attempt.refusals.find(({ error }) => error.category === "invalid_transaction" && error.status === 400 && /\binvalid account nonce\b/i.test(error.message));
+      if (nonceRefusal) throw nonceRefusal.error;
       if (!selfPayFallback && pool.sponsors.length > 0) {
         const last = attempt.refusals[attempt.refusals.length - 1];
         throw last?.error ?? new ProtocolClientError("every sponsor refused");

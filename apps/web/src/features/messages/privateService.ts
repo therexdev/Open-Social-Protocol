@@ -121,7 +121,9 @@ export class PrivateMessagingService {
     await submitAction(
       { client: this.protocol, signer, payment: this.payment },
       operations,
-      { label, quietProgress: true, waitForReceipt: false },
+      // This runs in the background already. Hold the account submission queue
+      // until inclusion so the next allowance does not reuse its chain nonce.
+      { label, quietProgress: true, waitForReceipt: true, beforeSubmit: async () => this.active() },
     );
   }
   async enable(): Promise<void> {
