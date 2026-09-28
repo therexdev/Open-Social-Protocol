@@ -17,12 +17,14 @@ The integration is testnet software; upstream review does not constitute an audi
 
 1. Each browser generates an independent random delivery key and publishes its public key
    in an owner-authorized device directory. No conversation wallet is in that directory.
-2. Starting a conversation generates a fresh conversation signing wallet, a separate
-   invitation signing wallet, a random one-time Olm account/prekey, and a random return
+2. Starting a conversation generates a fresh conversation signing wallet,
+   a random one-time Olm account/prekey, and a random return
    delivery key. A signed, encrypted invitation contains the real identities and the
    conversation public material. It is posted to the shared invitation log without a
-   recipient identifier. All browsers scan the same bounded pages locally.
-3. Acceptance creates the recipient's own conversation wallet and independent Olm
+   recipient identifier. The conversation wallet also signs its introduction, so
+   setup packets and subsequent traffic from that alias are publicly linkable,
+   without exposing its profile address. All browsers scan the same bounded pages locally.
+3. Automatic acceptance (or explicit approval when opted out) creates the recipient's own conversation wallet and independent Olm
    session using the invitation's one-time prekey. The authenticated acceptance travels
    through the same log encrypted to the invitation's return key. It contains the
    recipient's alias, not in the public routing fields.
@@ -34,7 +36,12 @@ The integration is testnet software; upstream review does not constitute an audi
 
 Per-conversation prekeys are carried on-chain **inside the encrypted invitation**.
 No publicly attributable prekey-claim transaction links the invitation to its recipient.
-Messaging starts after acceptance; there is no fallback to seed-derived encryption.
+The first message is saved immediately in a separately locked, doubly encrypted browser
+queue. Setup and delivery run in the background; the first key exchange still requires
+the recipient's enabled, unlocked browser to come online. No user acceptance click is
+needed by default. Disabling automatic connections restores manual approval. Blocks are
+checked before accepting and before sending. There is no fallback to seed-derived or
+static delivery-key encryption for message text.
 Each browser owns its own sessions. Importing an account recovery file on another browser
 does not import conversations or chat history.
 
@@ -66,14 +73,38 @@ the chain commitment; persist the advanced ratchet and local history atomically.
 advance state on authentication failure, clear pending state on an uncertain broadcast,
 or reconstruct/reuse a message key. Cross-tab operations require an exclusive browser lock.
 
-An outgoing request is locally saved before it is delivered. Show **Preparing request**
-while reserving/allocating allowance, **Confirming request** after attempting publication,
-and **Request sent** after its exact packet meets the network confirmation policy
-(three confirmations on Harbinger; irreversibility elsewhere). Old sponsors still
-require full finality for allowance; see the testnet policy below. Signing stops when
-the account is locked, switched, or its browser closes. Navigating to another page
-within the unlocked app is supported, including while the tab is hidden.
-Incoming requests have a separate approval section at the top of Messages.
+Sending saves text to the encrypted queue immediately, independently of the main sync
+lock and slow network reads. The UI permits composing while connecting. The queue is
+consumed into one atomic ratchet/outbox/history commit, then its entry is removed;
+message IDs deduplicate a crash between these writes. Closing cancels pending sends;
+remote closure retains unsent text as **Not sent**. Simultaneous introductions select
+one conversation deterministically before either browser advances its message ratchet.
+
+Both participants reuse their conversation allowance for introductions and channel
+consent. Where the peer's consent permits it, channel opening and the first packet
+share one transaction. A cold connection and first message require two four-unit
+reservations and seven transactions (including sponsor grants), rather than four
+reservations and eleven transactions. Enabling browser devices is a separate one-time
+step. Connected conversations need a single transaction per message while allowance
+remains. Automatic incoming setup spends the recipient's usage credits; the privacy
+settings explain this and provide an opt-out. Repeated introductions do not create
+multiple active conversations for the same peer.
+
+By default, an idle enabled browser prepares one unused conversation wallet with four
+credits. Both peers can then complete a new conversation and its first message in three
+transactions. Claiming the spare and saving the conversation are serialized with the
+same browser lock; reloads reuse the saved reservation. Only one spare is prepared at a
+time. The privacy settings explain the prepayment and let users disable it without
+losing already prepaid credits. Background preparation backs off on errors.
+
+On Harbinger, authenticated packets can be processed at inclusion and remain provisional
+until irreversibility; allowance grants still require three confirmations. Other networks
+retain full irreversibility. Old sponsors still require full finality for allowance; see below. Signing
+stops when the account is locked, switched, or its browser closes. Navigating to another
+page within the unlocked app is supported, including while the tab is hidden.
+
+When automatic connections are disabled, incoming requests have a separate approval
+section at the top of Messages. The default flow is choose a person, type, and send.
 
 Invitations have a signed seven-day lifetime. A funding or network delay longer than
 five minutes must not invalidate them. Reject expired or future-dated requests, and
@@ -166,12 +197,14 @@ npm run test:private-messaging:testnet -- --execute
 ```
 
 It creates two disposable test identities, enables their devices, reserves and allocates
-real usage, delivers/accepts a request, and verifies decrypted messages both ways. It never
-uses a tester's seed or writes private material. It consumes testnet sponsor Mana and may
-take several minutes per finality stage. This supplements the browser checks below.
+real usage, automatically connects, and verifies decrypted messages both ways. It never
+uses a tester's seed or writes private material. It consumes testnet sponsor Mana.
+Add `--warm` to wait for the prepared allowances before measuring first-message delivery.
+The script reports local-save and recipient-decryption timing separately.
 
 Use two separate browser profiles and two test identities. Enable private messages
-on each browser, send and accept a request, and exchange several messages both ways.
+on each browser, choose a person, type the first message, and send. Verify that the
+recipient connects without approval, then exchange several messages both ways.
 Verify the following before bringing in the wider tester group:
 
 - Pending messages appear immediately and continue sending after navigating away.
@@ -240,17 +273,20 @@ the reverse direction, bidirectional messages, and closure of an established cha
 The `2026-09-28-messaging-fast-testnet` web release continues polling while an
 unlocked browser tab is hidden. Previously visibility stopped polling and could
 leave the peer waiting indefinitely. Pending work polls every two seconds; idle
-messaging polls every eight seconds. Browser suspension can still delay work,
+messaging polls every eight seconds; the visible Messages page also polls every two
+seconds in the send-first release. Browser suspension can still delay work,
 and locking still stops signing and hides private state.
 
-On Harbinger only, invitations, acceptances, and messages can be processed after
-three confirmations instead of full irreversibility. The sponsor also permits
+The `2026-09-28-messaging-send-first` frontend processes authenticated Harbinger
+invitations, acceptances, and messages at inclusion, retaining them as provisional.
+It prepares one conversation allowance ahead of time when idle. The sponsor permits
 private allowance assignment after three confirmations and advertises this in
 its signed discovery policy as `privateUsageConfirmations: 3`. The web client
 uses the shorter allowance wait only when the sponsor advertises that policy.
-Other networks continue requiring full irreversibility. This changes client and
-sponsor policy, not consensus or contracts. Update both the sponsor and frontend;
-the sponsor health endpoint then reports `messagingFastConfirmation: 1`.
+Other networks continue requiring full irreversibility. The earlier fast-confirmation rollout changed client and sponsor policy, not
+consensus or contracts. Its sponsor health endpoint reports
+`messagingFastConfirmation: 1`. The send-first release requires a frontend update
+only when that sponsor version is already running.
 
 Early confirmation is provisional. A testnet reorganization can remove packets
 or allowance grants. The sender retains exact ciphertext and packet IDs until
@@ -278,6 +314,25 @@ sync pass reuses one conservative chain head instead of reading it separately
 for every queued packet. Setup progress excludes already-confirmed control packets
 that remain saved only for finality and recovery.
 
-Regression coverage includes hidden-tab polling, locking, three-confirmation
-boundaries, strict non-Harbinger finality, burst delivery, reload, replacement
+Regression coverage includes hidden-tab polling, locking, packet-inclusion and
+three-confirmation allowance boundaries, strict non-Harbinger finality, burst delivery, reload, replacement
 sequences, unchanged-ciphertext rebroadcast, and orphaned allowance recovery.
+
+### Send-first validation (2026-09-28)
+
+Disposable-account live tests against the deployed Harbinger contracts, public sponsor,
+and public indexer completed automatic setup and bidirectional decryption without
+manual request acceptance. The final run saved locally in under 1 ms, observed the
+prepared first message in 54 seconds, and observed the reply in 25 seconds. Initial
+allowance preparation took another 51 seconds in the background. These are environment
+measurements, not delivery guarantees; the test polls every five seconds and uses a
+pooled HTTP transport. Blockchain delivery remains substantially slower than local UI
+updates. No relay, static-key message fallback, contract update, or sponsor redeployment
+is introduced by this release.
+
+Automated regression coverage includes automatic and opt-out approval, metered batching,
+prepayment reuse, simultaneous introductions, encrypted queues during slow RPC calls,
+two-tab sends, failed queue cleanup, failed signing, merge recovery, cancellation, blocks,
+reorganizations, and vault deletion. Prepared-allowance replenishment pauses for a minute
+after chat activity so it does not compete with replies. Pending badges exclude observed
+messages and control packets retained only for recovery.

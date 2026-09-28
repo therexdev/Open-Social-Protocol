@@ -38,6 +38,19 @@ describe("private browser state", () => {
     expect(device!.extractable).toBe(false);
     await expect(crypto.subtle.exportKey("raw", device!)).rejects.toThrow();
   });
+  it("encrypts unsent messages with both keys and refuses drafts while locked", async () => {
+    const storage = memoryStorage(), seed = randomBytes(32);
+    let active = true;
+    const store = new PrivateStore("alice", seed, scope, () => active, storage, lock);
+    await store.edit(async () => {});
+    await store.drafts(drafts => drafts.push({ id: "1", peer: "bob", text: "Unsent private message", createdAt: 1 }));
+    const raw = await storage.get<EncryptedRecord>(`${store.name}:drafts`);
+    expect(JSON.stringify(raw)).not.toContain("Unsent private message");
+    await expect(decryptJson(await deriveAesKey(seed, store.name), raw!)).rejects.toThrow();
+    await store.drafts(drafts => expect(drafts[0]?.text).toBe("Unsent private message"));
+    active = false;
+    await expect(store.drafts(drafts => drafts.splice(0))).rejects.toThrow("Unlock");
+  });
   it("fails closed on missing keys, corrupted state, failed persistence, and lock", async () => {
     const storage = memoryStorage(),
       seed = randomBytes(32);

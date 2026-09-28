@@ -49,13 +49,14 @@ const lock: ExclusiveLock = async (name, action) => {
   locks.set(name, p);
   return p;
 };
-function harness(prepaid = true, fast = false) {
+function harness(prepaid = true, fast = false, auto = false, warm = false) {
   let delayedNonce = false;
   const pendingNonces = new Set<string>();
   const devices = new Map<string, PrivateDevice[]>(),
     channels = new Map<string, any>(),
     packets: PrivatePacketView[] = [],
     operations: any[] = [],
+    transactions: any[][] = [],
     units = new Map<string, number>(),
     reservations = new Map<string, any>(), grants = new Map<string, any>();
   const pair = (a: string, b: string) => [a, b].sort().join(":");
@@ -116,6 +117,12 @@ function harness(prepaid = true, fast = false) {
       const reserves = delayedNonce && ops.some((op: any) => op.method === "reserve_private_usage");
       if (reserves && pendingNonces.has(account)) throw new Error("invalid account nonce");
       if (reserves) pendingNonces.add(account);
+      const debit = (actor: string) => {
+        const remaining = units.get(actor) ?? (prepaid ? 100 : 0);
+        if (remaining < 1) throw new Error("Insufficient private units");
+        units.set(actor, remaining - 1);
+      };
+      transactions.push(structuredClone(ops));
       for (const op of ops) {
         const a = op.args;
         operations.push({ ...op, signer: signer.getAddress() });
@@ -135,10 +142,11 @@ function harness(prepaid = true, fast = false) {
         if (op.method === "open_private_channel") {
           const key = pair(a.actor, a.peer),
             old = channels.get(key);
+          if (!old || (old.status === 1 && old.requester !== a.actor)) debit(a.actor);
           channels.set(
             key,
             old
-              ? { ...old, status: old.requester === a.actor ? 1 : 2 }
+              ? { ...old, status: old.status === 2 || old.requester !== a.actor ? 2 : 1 }
               : { a: a.actor, b: a.peer, requester: a.actor, status: 1 },
           );
         }
@@ -147,12 +155,14 @@ function harness(prepaid = true, fast = false) {
           channels.set(key, { ...channels.get(key), status: 3, block: "5" });
         }
         if (op.method === "post_private_packet") {
+          if (a.peer && channels.get(pair(a.actor, a.peer))?.status !== 2) throw new Error("Channel must be mutually open before posting");
           if (
             !packets.some(
               (p) =>
                 p.actor === a.actor && p.packet_id === toBase64url(a.packet_id),
             )
-          )
+          ) {
+            debit(a.actor);
             packets.push({
               actor: a.actor,
               peer: a.peer ?? "",
@@ -164,6 +174,7 @@ function harness(prepaid = true, fast = false) {
               envelope: toBase64url(a.envelope),
               txId: "test",
             });
+          }
           if (unknown) {
             unknown = false;
             throw new Error("Network timeout after broadcast");
@@ -223,6 +234,7 @@ function harness(prepaid = true, fast = false) {
       storage,
       lock,
     );
+    const initialized = store.edit(async data => { data.autoConnect = auto; data.prepareInAdvance = warm; });
     const make = () =>
       new PrivateMessagingService(
         me,
@@ -238,6 +250,7 @@ function harness(prepaid = true, fast = false) {
     let service = make();
     return {
       store,
+      initialized,
       storage,
       anotherTab: make,
       get service() {
@@ -287,6 +300,7 @@ function harness(prepaid = true, fast = false) {
     b,
     packets,
     operations,
+    transactions,
     pump,
     connect,
     reservations,
@@ -295,7 +309,7 @@ function harness(prepaid = true, fast = false) {
       const reservation = reservations.get(reservationId);
       expect(reservation).toBeDefined();
       expect(verifyPrivateStatement(scope, "allocate", { reservationId, actor }, signature, reservation.account)).toBe(true);
-      units.set(actor, reservation.units);
+      units.set(actor, (units.get(actor) ?? 0) + reservation.units);
       grants.set(reservationId, { grant_id: fromBase64url(reservationId), sponsor: reservation.sponsor, actor, units: reservation.units });
     },
     setDirectoryDown: (value: boolean) => { directoryDown = value; },
@@ -311,14 +325,188 @@ function harness(prepaid = true, fast = false) {
 }
 
 describe("two-browser private conversations", () => {
-  it("connects after three testnet confirmations and pipelines messages before finality", async () => {
+  it("saves and delivers the first message with no request or acceptance clicks, using two allowances and batched consent", async () => {
+    const h = harness(false, true, true);
+    h.setLib("1"); h.setHead("7");
+    vi.spyOn(SponsorClient.prototype, "discover").mockResolvedValue({
+      sponsor: deployment.contracts.sponsorship.address,
+      policy: { privateUsageConfirmations: 3, allowed: [{ contract: scope.contract, entryPoints: [ABIS.messaging.methods.reserve_private_usage!.entry_point] }] },
+    } as any);
+    vi.spyOn(SponsorClient.prototype, "allocatePrivateUsage").mockImplementation(async payload => {
+      h.allocate(payload.reservationId, payload.actor, payload.signature);
+      return { grantId: payload.reservationId, pending: true };
+    });
+    await h.a.service.enable(); await h.b.service.enable(); await h.pump();
+    await h.a.service.queueMessage(bob.account, "A first message without approval");
+    expect(h.a.snapshot.chats[0]?.messages[0]?.text).toBe("A first message without approval");
+    await h.pump(12);
+    expect(h.a.snapshot.error).toBe(""); expect(h.b.snapshot.error).toBe("");
+    expect(h.b.snapshot.chats[0]?.messages[0]?.text).toBe("A first message without approval");
+    expect(h.b.snapshot.chats[0]?.messages[0]?.mine).toBe(false);
+    expect(h.reservations.size).toBe(2);
+    expect([...h.units.values()].reduce((sum, value) => sum + value, 0)).toBe(3);
+    expect([...h.reservations.values()].map(r => r.units)).toEqual([4, 4]);
+    expect(h.transactions.filter(ops => ops.length === 2 && ops[0].method === "open_private_channel" && ops[1].method === "post_private_packet")).toHaveLength(2);
+    await h.a.store.drafts(drafts => expect(drafts).toHaveLength(0));
+    await h.b.service.queueMessage(alice.account, "Automatic reply"); await h.pump();
+    expect(h.a.snapshot.chats[0]?.messages.at(-1)?.text).toBe("Automatic reply");
+  });
+  it("prepares one allowance in advance and uses only three transactions for the first message", async () => {
+    const h = harness(false, true, true, true);
+    vi.spyOn(SponsorClient.prototype, "discover").mockResolvedValue({
+      sponsor: deployment.contracts.sponsorship.address,
+      policy: { privateUsageConfirmations: 3, allowed: [{ contract: scope.contract, entryPoints: [ABIS.messaging.methods.reserve_private_usage!.entry_point] }] },
+    } as any);
+    vi.spyOn(SponsorClient.prototype, "allocatePrivateUsage").mockImplementation(async payload => {
+      h.allocate(payload.reservationId, payload.actor, payload.signature);
+      return { grantId: payload.reservationId, pending: true };
+    });
+    await h.a.service.enable(); await h.b.service.enable(); await h.pump(8);
+    expect(h.reservations.size).toBe(2);
+    await h.a.store.edit(async data => expect(data.spareAliasReady).toBe(true));
+    await h.b.store.edit(async data => expect(data.spareAliasReady).toBe(true));
+    h.a.reload(); h.b.reload(); await h.pump();
+    expect(h.reservations.size).toBe(2);
+    // Disabling further preparation preserves already prepaid credits for use.
+    await h.a.service.setPrepareInAdvance(false); await h.b.service.setPrepareInAdvance(false);
+    await h.pump(); const count = h.transactions.length;
+    await h.a.service.queueMessage(bob.account, "Prepared earlier"); await h.pump(8);
+    expect(h.b.snapshot.chats[0]?.messages[0]?.text).toBe("Prepared earlier");
+    expect(h.transactions.length - count).toBe(3);
+    await h.a.service.setPrepareInAdvance(true); await h.b.service.setPrepareInAdvance(true);
+    await h.b.service.queueMessage(alice.account, "Reply before optional replenishment"); await h.pump();
+    expect(h.transactions.length - count).toBe(4);
+    expect(h.a.snapshot.chats[0]?.messages.at(-1)?.text).toBe("Reply before optional replenishment");
+    expect(h.reservations.size).toBe(2);
+    await h.a.store.edit(async data => expect(data.spareAliasId).toBeUndefined());
+  });
+  it("keeps a prepaid wallet available when signing the introduction fails", async () => {
+    const h = harness(true, true, true);
+    await h.a.service.enable(); await h.b.service.enable(); await h.pump();
+    const spare = toBase64url(randomBytes(32));
+    await h.a.store.edit(async data => { data.spareAliasId = spare; data.spareAliasReady = true; });
+    const signing = vi.spyOn(alice.signer, "signHash").mockRejectedValue(new Error("Signing unavailable"));
+    await h.a.service.queueMessage(bob.account, "Saved while signing fails");
+    await h.a.service.load();
+    await h.a.store.edit(async data => { expect(data.spareAliasId).toBe(spare); expect(data.chats).toHaveLength(0); });
+    signing.mockRestore(); await h.pump(10);
+    expect(h.b.snapshot.chats[0]?.messages[0]?.text).toBe("Saved while signing fails");
+    await h.a.store.edit(async data => expect(data.chats[0]?.aliasId).toBe(spare));
+  });
+  it("saves immediately while a sync RPC is blocked, then resumes across reload without duplicates", async () => {
+    const h = harness(true, true, true);
+    await h.a.service.enable(); await h.b.service.enable(); await h.pump();
+    let release!: () => void;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    let entered!: () => void;
+    const started = new Promise<void>(resolve => { entered = resolve; });
+    const original = h.protocol.reads.messaging.get_private_devices;
+    vi.spyOn(h.protocol.reads.messaging, "get_private_devices").mockImplementationOnce(async args => { entered(); await held; return original(args); });
+    const syncing = h.a.service.sync(); await started;
+    try {
+      await h.a.service.queueMessage(bob.account, "Saved while offline");
+      expect(h.a.snapshot.chats[0]?.messages[0]?.text).toBe("Saved while offline");
+      await h.a.store.drafts(drafts => expect(drafts[0]?.text).toBe("Saved while offline"));
+    } finally { release(); await syncing; }
+    h.a.reload(); await h.pump(10);
+    expect(h.b.snapshot.chats[0]?.messages.filter(m => m.text === "Saved while offline")).toHaveLength(1);
+    await h.pump();
+    expect(h.b.snapshot.chats[0]?.messages).toHaveLength(1);
+  });
+  it("serializes drafts from two tabs without dropping either message", async () => {
+    const h = harness(true, true, true);
+    await h.a.service.enable(); await h.b.service.enable(); await h.pump();
+    const other = h.a.anotherTab(); await other.load();
+    await Promise.all([h.a.service.queueMessage(bob.account, "First tab"), other.queueMessage(bob.account, "Second tab")]);
+    await h.pump(12); other.stop();
+    expect(h.b.snapshot.chats[0]?.messages.map(m => m.text).sort()).toEqual(["First tab", "Second tab"]);
+    expect(h.packets.filter(p => p.peer)).toHaveLength(2);
+  });
+  it("reports corrupt queued data instead of silently hiding unsent messages", async () => {
+    const h = harness(); await h.a.initialized;
+    await h.a.storage.set(`${h.a.store.name}:drafts`, { version: 1, ciphertext: "broken" });
+    await expect(h.a.service.load()).rejects.toThrow();
+  });
+  it("does not auto-connect or allocate credits to a blocked sender", async () => {
+    const h = harness(true, true, true);
+    await h.a.service.enable(); await h.b.service.enable(); await h.pump();
+    await h.a.service.start(bob.account);
+    await h.a.service.load(); await h.a.service.sync();
+    const before = h.operations.length;
+    vi.spyOn(h.protocol.reads.relationships, "is_blocked").mockResolvedValue({ value: true });
+    await h.b.service.sync();
+    expect(h.b.snapshot.chats).toHaveLength(0);
+    expect(h.operations.slice(before).filter(op => op.method === "open_private_channel" || op.method === "reserve_private_usage")).toHaveLength(0);
+  });
+  it("converges when both people send their first message at the same time", async () => {
+    const h = harness(true, true, true);
+    await h.a.service.enable(); await h.b.service.enable(); await h.pump();
+    await Promise.all([h.a.service.queueMessage(bob.account, "From Alice"), h.b.service.queueMessage(alice.account, "From Bob")]);
+    await h.pump(12);
+    const ac = h.a.snapshot.chats.filter(c => c.status === "ready"), bc = h.b.snapshot.chats.filter(c => c.status === "ready");
+    expect(ac).toHaveLength(1); expect(bc).toHaveLength(1);
+    expect(ac[0]?.id).toBe(bc[0]?.id);
+    expect(ac[0]?.messages.some(m => !m.mine && m.text === "From Bob")).toBe(true);
+    expect(bc[0]?.messages.some(m => !m.mine && m.text === "From Alice")).toBe(true);
+  });
+  it("recovers draft routing if storage fails while merging simultaneous introductions", async () => {
+    const h = harness(true, true, true);
+    await h.a.service.enable(); await h.b.service.enable(); await h.pump();
+    let failed = false;
+    for (const browser of [h.a, h.b]) {
+      const original = browser.store.drafts.bind(browser.store);
+      vi.spyOn(browser.store, "drafts").mockImplementation(action => original(drafts => {
+        const before = structuredClone(drafts);
+        const result = action(drafts);
+        if (!failed && drafts.some(d => before.some(old => old.id === d.id && old.chatId && d.chatId && old.chatId !== d.chatId))) {
+          failed = true; throw new Error("Merge queue write failed");
+        }
+        return result;
+      }));
+    }
+    await Promise.all([h.a.service.queueMessage(bob.account, "Alice despite storage failure"), h.b.service.queueMessage(alice.account, "Bob despite storage failure")]);
+    await h.pump(12);
+    expect(failed).toBe(true);
+    expect(h.a.snapshot.chats.find(c => c.status === "ready")?.messages.some(m => !m.mine && m.text === "Bob despite storage failure")).toBe(true);
+    expect(h.b.snapshot.chats.find(c => c.status === "ready")?.messages.some(m => !m.mine && m.text === "Alice despite storage failure")).toBe(true);
+  });
+  it("does not reconnect a closed conversation to deliver an unsent first message", async () => {
+    const h = harness(true, true, true);
+    await h.a.service.enable(); await h.b.service.enable(); await h.pump();
+    await h.a.service.queueMessage(bob.account, "Cancelled draft");
+    const pending = h.a.snapshot.chats.find(c => c.status !== "closed")!.id;
+    await h.a.service.close(pending); await h.pump(10);
+    expect(h.a.snapshot.chats.every(c => c.status === "closed")).toBe(true);
+    expect(h.b.snapshot.chats.every(c => c.status === "closed")).toBe(true);
+    await h.a.store.drafts(drafts => expect(drafts).toHaveLength(0));
+    expect(h.packets.filter(p => p.peer)).toHaveLength(0);
+  });
+  it("recovers a committed ratchet after queue cleanup fails without encrypting or delivering twice", async () => {
+    const h = harness(true, true, true);
+    await h.a.service.enable(); await h.b.service.enable(); await h.pump();
+    await h.a.service.queueMessage(bob.account, "Exactly once");
+    const set = h.a.storage.set.bind(h.a.storage);
+    let failed = false;
+    h.a.storage.set = async (key, value) => {
+      if (!failed && key === `${h.a.store.name}:drafts` && h.packets.some(p => p.actor !== h.a.snapshot.chats[0]?.peer && !p.peer) && h.channels.size) {
+        failed = true; throw new Error("Simulated queue cleanup failure");
+      }
+      return set(key, value);
+    };
+    await h.pump(10); h.a.reload(); await h.pump();
+    expect(failed).toBe(true);
+    expect(h.b.snapshot.chats[0]?.messages.filter(m => m.text === "Exactly once")).toHaveLength(1);
+    expect(h.packets.filter(p => p.peer)).toHaveLength(1);
+    await h.a.store.drafts(drafts => expect(drafts).toHaveLength(0));
+  });
+  it("connects at testnet inclusion and pipelines messages before finality", async () => {
     const h = harness(true, true);
-    h.setLib("1"); h.setHead("6");
+    h.setLib("1"); h.setHead("4");
     await h.a.service.enable(); await h.b.service.enable(); await h.pump();
     const chat = await h.a.service.start(bob.account);
     await h.pump();
     expect(h.b.snapshot.chats).toHaveLength(0);
-    h.setHead("7"); await h.pump();
+    h.setHead("5"); await h.pump();
     expect(h.b.snapshot.chats[0]?.status).toBe("incoming");
     await h.b.service.accept(chat);
     for (let i = 0; i < 3; i++) { await h.b.service.load(); await h.b.service.sync(); }
@@ -544,7 +732,7 @@ describe("two-browser private conversations", () => {
     expect(h.a.snapshot.chats[0]?.error).toContain("sponsor");
     expect(discovery).toHaveBeenCalled();
   });
-  it("accepts with two allowance reservations without reusing an unmined account nonce", async () => {
+  it("reuses one allowance for acceptance and channel opening without reusing an unmined nonce", async () => {
     let now = Date.now();
     vi.spyOn(Date, "now").mockImplementation(() => now);
     const h = harness(false);
@@ -566,8 +754,8 @@ describe("two-browser private conversations", () => {
     await h.b.service.load();
     expect(h.b.snapshot.error).toBe("");
     const reservations = h.operations.filter(op => op.method === "reserve_private_usage" && op.signer === bob.account);
-    expect(reservations.map(op => op.args.units)).toEqual([4, 1]);
-    expect(new Set(reservations.map(op => toBase64url(op.args.reservation_id))).size).toBe(2);
+    expect(reservations.map(op => op.args.units)).toEqual([4]);
+    expect(new Set(reservations.map(op => toBase64url(op.args.reservation_id))).size).toBe(1);
   });
   it.each(["expired", "future-dated"] as const)("does not surface a correctly signed but %s invitation", async scenario => {
     let now = Date.now();

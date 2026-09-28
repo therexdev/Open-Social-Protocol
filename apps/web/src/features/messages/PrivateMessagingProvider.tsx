@@ -64,7 +64,7 @@ export function PrivateMessagingProvider({
       resolved.sponsorUrls,
       resolved.payment,
       (snapshot) => {
-        workPending = snapshot.pending > 0 || (snapshot.enabled && !snapshot.registered)
+        workPending = snapshot.pending > 0 || !!snapshot.preparingAllowance || (snapshot.enabled && !snapshot.registered)
           || snapshot.chats.some(c => c.status === "accepting" || c.status === "outgoing" || c.closing);
         if (alive && vault.getState().session?.identity === me)
           setValue({ service, snapshot });
@@ -90,7 +90,8 @@ export function PrivateMessagingProvider({
     // Hidden is not locked. Pausing an open background browser deadlocks the
     // two-party handshake. The service still checks the vault before signing.
     const timer = window.setInterval(() => {
-      if (Date.now() - lastPoll >= (workPending ? 2000 : 8000)) sync();
+      const readingMessages = document.visibilityState !== "hidden" && window.location.pathname.startsWith("/messages");
+      if (Date.now() - lastPoll >= (workPending || readingMessages ? 2000 : 8000)) sync();
     }, 2000);
     window.addEventListener("online", sync);
     window.addEventListener("focus", sync);

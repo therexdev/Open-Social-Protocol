@@ -115,6 +115,7 @@ describe("vault store", () => {
     for (const name of names) {
       await storage.set(name, { ciphertext: "encrypted history" });
       await storage.set(`${name}:key`, "device key");
+      await storage.set(`${name}:drafts`, { ciphertext: "encrypted pending messages" });
     }
     await vault.getState().destroy();
     expect(vault.getState().status).toBe("empty");

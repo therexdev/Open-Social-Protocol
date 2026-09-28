@@ -39,7 +39,7 @@ if (process.env.OSP_TEST_CURL === "1") globalThis.fetch = (async (input: any, in
   });
 }) as typeof fetch;
 const provider = new Provider(deployment.rpc);
-if (process.env.OSP_TEST_CURL === "1") provider.call = async <T>(method: string, params: any): Promise<T> => {
+if (process.env.OSP_TEST_CURL === "1" || process.env.OSP_TEST_FETCH === "1") provider.call = async <T>(method: string, params: any): Promise<T> => {
   const response = await fetch(deployment.rpc[0]!, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) });
   const body = await response.json() as any;
   if (body.error) throw new Error(JSON.stringify(body.error));
@@ -76,22 +76,26 @@ async function until(label: string, ready: () => boolean, timeout = 1_200_000) {
   const started = Date.now();
   const deadline = started + timeout;
   let lastReport = 0;
-  while (!ready()) {
-    assert(Date.now() < deadline, `Timed out: ${label}`);
-    // Independent browsers poll concurrently in the product. Serializing them
-    // here adds an artificial round trip for every network read in the handshake.
-    await Promise.all(browsers.map(async browser => {
-      await browser.service.load(); await browser.service.sync();
-    }));
-    if (Date.now() - lastReport > 30_000) {
-      for (const [index, browser] of browsers.entries()) await browser.store.edit(async data => {
-        console.log("DELIVERY", index + 1, { funding: Object.values(data.funding).map(f => ({ units: f.units, lastAttempt: f.lastAttempt })), outbox: data.outbox.map(p => ({ peer: !!p.peer, attempted: !!p.lastAttempt, error: p.error })) });
-      });
-      lastReport = Date.now();
+  let observedAt: number | undefined;
+  const observer = setInterval(() => { if (ready()) observedAt ??= Date.now(); }, 10);
+  try {
+    while (!ready()) {
+      assert(Date.now() < deadline, `Timed out: ${label}`);
+      // Independent browsers poll concurrently in the product. Serializing them
+      // here adds an artificial round trip for every network read in the handshake.
+      await Promise.all(browsers.map(async browser => {
+        await browser.service.load(); await browser.service.sync();
+      }));
+      if (Date.now() - lastReport > 30_000) {
+        for (const [index, browser] of browsers.entries()) await browser.store.edit(async data => {
+          console.log("DELIVERY", index + 1, { funding: Object.values(data.funding).map(f => ({ units: f.units, lastAttempt: f.lastAttempt })), outbox: data.outbox.map(p => ({ peer: !!p.peer, attempted: !!p.lastAttempt, error: p.error })) });
+        });
+        lastReport = Date.now();
+      }
+      if (!ready()) await new Promise(resolve => setTimeout(resolve, 5_000));
     }
-    if (!ready()) await new Promise(resolve => setTimeout(resolve, 5_000));
-  }
-  console.log("PASS", label, { elapsedSeconds: Math.round((Date.now() - started) / 1000) });
+  } finally { clearInterval(observer); }
+  console.log("PASS", label, { elapsedSeconds: Math.round(((observedAt ?? Date.now()) - started) / 1000) });
 }
 try {
   assert.equal(await provider.getChainId(), deployment.chainId);
@@ -102,20 +106,26 @@ try {
   }));
   await until("both messaging browsers enabled", () => browsers.every(d => d.snapshot.registered), 180_000);
   if (process.argv.includes("--lifecycle")) {
+    await a!.service.setAutoConnect(false);
     const cancelled = await b!.service.start(a!.me.account);
     await until("reverse request delivered", () => a!.snapshot.chats.some(c => c.id === cancelled && c.status === "incoming"));
     await a!.service.close(cancelled);
     await until("pending request cancellation reaches both browsers", () => browsers.every(d => d.snapshot.chats.some(c => c.id === cancelled && c.status === "closed")));
+    await a!.service.setAutoConnect(true);
   }
-  const chat = await a!.service.start(b!.me.account);
-  await until("recipient sees request", () => b!.snapshot.chats.some(c => c.id === chat && c.status === "incoming"));
-  await b!.service.accept(chat);
-  await until("both conversations connected", () => browsers.every(d => d.snapshot.chats.some(c => c.id === chat && c.status === "ready")));
-  await a!.service.send(chat, "Live test: hello from the first browser");
-  await until("recipient decrypts first message", () => !!b!.snapshot.chats.find(c => c.id === chat)?.messages.some(m => !m.mine && m.text === "Live test: hello from the first browser"));
-  await b!.service.send(chat, "Live test: reply from the second browser");
+  if (process.argv.includes("--warm")) {
+    await until("both browsers have prepared allowance", () => browsers.every(d => d.snapshot.preparingAllowance === false), 240_000);
+    for (const browser of browsers) await browser.store.edit(async data => assert(data.spareAliasReady));
+  }
+  const queuedAt = Date.now();
+  await a!.service.queueMessage(b!.me.account, "Live test: hello from the first browser");
+  console.log("PASS first message saved locally", { elapsedMs: Date.now() - queuedAt });
+  await until("recipient decrypts first message without approval", () => b!.snapshot.chats.some(c => c.messages.some(m => !m.mine && m.text === "Live test: hello from the first browser")));
+  const chat = b!.snapshot.chats.find(c => c.messages.some(m => m.text === "Live test: hello from the first browser"))!.id;
+  assert(browsers.every(d => d.snapshot.chats.some(c => c.id === chat && c.status === "ready")));
+  await b!.service.queueMessage(a!.me.account, "Live test: reply from the second browser");
   await until("sender decrypts reply", () => !!a!.snapshot.chats.find(c => c.id === chat)?.messages.some(m => !m.mine && m.text === "Live test: reply from the second browser"));
-  console.log("PASS live request, acceptance, and bidirectional encrypted messages");
+  console.log("PASS automatic connection and bidirectional encrypted messages");
   if (process.argv.includes("--lifecycle")) {
     await b!.service.close(chat);
     await until("connected conversation closes on both browsers", () => browsers.every(d => d.snapshot.chats.some(c => c.id === chat && c.status === "closed")));

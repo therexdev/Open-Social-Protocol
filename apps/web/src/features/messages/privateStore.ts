@@ -59,7 +59,7 @@ export interface LocalMessage {
   text: string;
   mine: boolean;
   timestamp: number;
-  state: "sending" | "confirming" | "sent";
+  state: "sending" | "confirming" | "sent" | "not-sent" | "stopped";
   envelopeHash?: string;
 }
 export interface PrivateChat {
@@ -81,6 +81,7 @@ export interface PrivateChat {
   closeChannelPending?: boolean;
   closeChannelAttempt?: number;
   closeError?: string;
+  supersededBy?: string;
 }
 export interface PrivateOutbox {
   id: string;
@@ -112,6 +113,10 @@ export interface PrivateFile {
   pickleKey: string;
   enabled: boolean;
   registered?: boolean;
+  autoConnect?: boolean;
+  prepareInAdvance?: boolean;
+  spareAliasId?: string;
+  spareAliasReady?: boolean;
   deviceAttempt?: number;
   inboxAfter: string;
   inboxValidation?: 1 | 2;
@@ -119,6 +124,13 @@ export interface PrivateFile {
   outbox: PrivateOutbox[];
   funding: Record<string, Funding>;
   closedRequests?: Array<{ id: string; peer: string; expiresAt: number }>;
+}
+export interface QueuedPrivateMessage {
+  id: string;
+  peer: string;
+  chatId?: string;
+  text: string;
+  createdAt: number;
 }
 export type ExclusiveLock = <T>(
   name: string,
@@ -147,6 +159,30 @@ export class PrivateStore {
     private readonly lock: ExclusiveLock = browserLock,
   ) {
     this.name = `osp.private.v2:${scope.chainId}:${scope.contract}:${account}`;
+  }
+  /** A separate encrypted queue keeps typing/sending independent of a slow sync.
+   * Ratchets remain exclusively in edit(); queue entries are removed only after
+   * their message ID and advanced ratchet have been committed there together.
+   */
+  async drafts<T>(action: (drafts: QueuedPrivateMessage[]) => T): Promise<T> {
+    return this.lock(`${this.name}:drafts`, async () => {
+      this.assertActive();
+      const key = await this.storage.get<CryptoKey>(`${this.name}:key`);
+      if (!key) throw new Error("Enable private messages on this browser first");
+      const accountKey = await deriveAesKey(this.seed, this.name);
+      const name = `${this.name}:drafts`;
+      const record = await this.storage.get<EncryptedRecord>(name);
+      const drafts = record ? await decryptJson<QueuedPrivateMessage[]>(accountKey, await decryptJson<EncryptedRecord>(key, record)) : [];
+      const before = JSON.stringify(drafts);
+      const result = action(drafts);
+      if (JSON.stringify(drafts) !== before) {
+        const encrypted = await encryptJson(key, await encryptJson(accountKey, drafts));
+        this.assertActive();
+        await this.storage.set(name, encrypted);
+      }
+      this.assertActive();
+      return result;
+    });
   }
   async edit<T>(
     action: (data: PrivateFile, save: () => Promise<void>) => Promise<T>,

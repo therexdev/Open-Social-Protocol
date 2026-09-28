@@ -12,7 +12,7 @@ import { RichText } from "../../components/RichText";
 
 const labels = {
   incoming: "Message request",
-  outgoing: "Preparing request",
+  outgoing: "Connecting",
   accepting: "Connecting",
   ready: "Connected",
   closed: "Closed",
@@ -21,7 +21,7 @@ function chatLabel(chat: PrivateSnapshot["chats"][number]): string {
   if (chat.error) return "Needs attention";
   if (chat.closing) return "Closing · notifying peer";
   if (chat.status !== "outgoing") return labels[chat.status];
-  return { preparing: "Preparing request", confirming: "Confirming request", sent: "Request sent", failed: "Request needs attention" }[chat.requestDelivery ?? "preparing"];
+  return chat.requestDelivery === "failed" ? "Needs attention" : "Connecting";
 }
 export function MessagesPage() {
   const { service, snapshot } = usePrivateMessaging(),
@@ -30,6 +30,7 @@ export function MessagesPage() {
   const [input, setInput] = useState(""),
     [selected, setSelected] = useState(""),
     [text, setText] = useState(""),
+    [newText, setNewText] = useState(""),
     [error, setError] = useState(""),
     [chatSearch, setChatSearch] = useState(""),
     [busy, setBusy] = useState(false);
@@ -41,14 +42,15 @@ export function MessagesPage() {
   const existingChat = snapshot.chats.find(c => c.peer === input && c.status !== "closed");
   useEffect(() => {
     setInput(target);
-    setSelected(linkedChat ?? "");
+    setSelected(linkedChat ? target : "");
     setText("");
     setError("");
   }, [target, linkedChat, account]);
   const visibleChats = snapshot.chats.filter(c =>
     `${people.name(c.peer)} ${c.peer}`.toLocaleLowerCase().includes(chatSearch.trim().toLocaleLowerCase()));
-  const chat = snapshot.chats.find((c) => c.id === selected);
-  const requests = snapshot.chats.filter(c => c.status === "incoming");
+  const chat = snapshot.chats.find(c => c.id === selected)
+    ?? snapshot.chats.find(c => c.peer === selected && c.status !== "closed");
+  const requests = snapshot.autoConnect === false ? snapshot.chats.filter(c => c.status === "incoming") : [];
   const run = async (action: () => Promise<unknown>) => {
     if (busy) return;
     setBusy(true);
@@ -110,14 +112,15 @@ export function MessagesPage() {
               <Button variant="ghost" onClick={() => { setSelected(request.id); setText(""); }}>View</Button>
             </li>)}</ul>
           </Card>}
-          <Card title="Start a conversation">
+          <Card title="New message">
             <form
               className="form-stack"
               onSubmit={(e) => {
                 e.preventDefault();
                 void run(async () => {
-                  setSelected(existingChat?.id ?? await service!.start(input.trim()));
-                  setText("");
+                  await service!.queueMessage(input.trim(), newText);
+                  setSelected(input.trim());
+                  setNewText("");
                 });
               }}
             >
@@ -125,16 +128,20 @@ export function MessagesPage() {
                 friends={people.friends} blocked={people.blocked} name={people.name}
                 loading={people.loading} friendsError={people.error}
                 retryFriends={() => void people.refresh()} disabled={busy} />
+              <Field label="Your message">
+                {id => <textarea id={id} rows={3} maxLength={2500} value={newText} onChange={event => setNewText(event.target.value)} disabled={busy} placeholder="Write a message…" />}
+              </Field>
               <Button
                 type="submit"
                 variant="primary"
                 disabled={
-                  !can.ok || !service || (!snapshot.registered && !existingChat) || !input
+                  !can.ok || !service || !input || !newText.trim()
                 }
                 busy={busy}
               >
-                {existingChat ? "Open conversation" : "Start private conversation"}
+                Send message
               </Button>
+              {existingChat && <Button type="button" variant="ghost" onClick={() => { setSelected(input); setText(""); }}>Open conversation</Button>}
             </form>
           </Card>
           <div className="messages-grid">
@@ -150,10 +157,10 @@ export function MessagesPage() {
                 visibleChats.map((c) => (
                   <Button
                     key={c.id}
-                    aria-pressed={c.id === selected}
+                    aria-pressed={c.id === chat?.id}
                     className="private-chat-choice"
                     onClick={() => {
-                      setSelected(c.id);
+                      setSelected(c.status === "closed" ? c.id : c.peer);
                       setText("");
                       setError("");
                     }}
@@ -174,7 +181,7 @@ export function MessagesPage() {
                 title={<AccountLink account={chat.peer} name={people.name(chat.peer)} />}
                 actions={<small className="muted">{chatLabel(chat)}</small>}
               >
-                {chat.status === "incoming" && (
+                {chat.status === "incoming" && snapshot.autoConnect === false && (
                   <Button
                     variant="primary"
                     busy={busy}
@@ -184,18 +191,11 @@ export function MessagesPage() {
                   </Button>
                 )}
                 {chat.error && <Notice kind="error">{chat.error}</Notice>}
-                {chat.status === "outgoing" && !chat.error && (
+                {["incoming", "outgoing", "accepting"].includes(chat.status) && !chat.error && (
                   <Notice>
-                    {chat.requestDelivery === "sent"
-                      ? "Your request has been sent. It is waiting for them to accept on their messaging browser."
-                      : chat.requestDelivery === "failed"
-                        ? "Your request has not been confirmed. Check the error above; the saved request will retry without creating a duplicate."
-                        : <>{chat.progress || "Preparing your encrypted request."} Keep this account unlocked until it says Request sent; you can browse other pages in Open Social while it finishes.</>}
-                  </Notice>
-                )}
-                {chat.status === "accepting" && !chat.error && (
-                  <Notice>
-                    {chat.progress || "Checking the private connection."}
+                    Encrypted setup runs automatically. You can write and send now.
+                    Both messaging browsers need to be online and unlocked to finish the first connection.
+                    {chat.progress && <details><summary>Connection status</summary>{chat.progress}</details>}
                   </Notice>
                 )}
                 {chat.closing && !chat.error && <Notice>{chat.progress} Keep this account unlocked until the notice is sent.</Notice>}
@@ -209,6 +209,8 @@ export function MessagesPage() {
                         {m.mine ? "You" : "Them"} ·{" "}
                         {m.state === "sending"
                           ? "Sending…"
+                          : m.state === "not-sent" ? "Not sent · conversation closed"
+                          : m.state === "stopped" ? "Delivery stopped · conversation closed"
                           : m.state === "confirming" ? (m.mine ? "Sent · confirming" : "Confirming")
                           : new Date(m.timestamp).toLocaleString()}
                       </small>
@@ -216,13 +218,13 @@ export function MessagesPage() {
                     </div>
                   ))}
                 </div>
-                {chat.status === "ready" && (
+                {chat.status !== "closed" && (
                   <form
                     className="form-stack"
                     onSubmit={(e) => {
                       e.preventDefault();
                       void run(async () => {
-                        await service!.send(chat.id, text);
+                        await service!.queueMessage(chat.peer, text);
                         setText("");
                       });
                     }}
@@ -242,7 +244,7 @@ export function MessagesPage() {
                     <Button
                       type="submit"
                       variant="primary"
-                      disabled={!can.ok || !text.trim()}
+                      disabled={!can.ok || !service || !text.trim()}
                       busy={busy}
                     >
                       Send message
@@ -276,6 +278,18 @@ export function MessagesPage() {
       )}
       <details className="private-message-details">
         <summary>Privacy and message history</summary>
+        {snapshot.enabled && <label className="checkbox-row">
+          <input type="checkbox" checked={snapshot.autoConnect !== false} disabled={busy || !service}
+            onChange={event => void run(() => service!.setAutoConnect(event.target.checked))} />
+          Connect incoming conversations automatically
+        </label>}
+        <p>Automatic connections use your message credits. Turn this off to approve new conversations yourself. Block a profile to stop unwanted connections.</p>
+        {snapshot.enabled && <label className="checkbox-row">
+          <input type="checkbox" checked={snapshot.prepareInAdvance !== false} disabled={busy || !service}
+            onChange={event => void run(() => service!.setPrepareInAdvance(event.target.checked))} />
+          Prepare the next conversation in advance
+        </label>}
+        <p>Reserve four usage credits in the background for your next conversation so sending starts faster. Unused prepaid credits stay with that conversation wallet; this uses your existing allowance.</p>
         <p>
           Conversation wallets keep your profile address out of message
           transactions. Timing and encrypted data remain public. Your sponsor

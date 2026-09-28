@@ -261,6 +261,7 @@ export function createVaultStore(options: VaultStoreOptions = {}): VaultStore {
           for (const name of stores) {
             await storage.del(name);
             await storage.del(`${name}:key`);
+            await storage.del(`${name}:drafts`);
           }
           await storage.del(registry);
         }

@@ -9,8 +9,8 @@ const bob = "1WhPkYjyS1ChEKmbxNAyFUHLuRVQCjNMF";
 const other = "16HVcW9kHPJYd8CgAwdw7smZuU1nqiNzAN";
 const mocks = vi.hoisted(() => ({
   value: {
-    service: { me: { account: "1EiR6tc8jtVK6boR5w1chjq17XEXXHiNk4" }, enable: vi.fn(), sync: vi.fn(), send: vi.fn(), start: vi.fn(), accept: vi.fn() },
-    snapshot: { enabled: false, registered: false, chats: [] as any[], pending: 0, error: "" },
+    service: { me: { account: "1EiR6tc8jtVK6boR5w1chjq17XEXXHiNk4" }, enable: vi.fn(), sync: vi.fn(), send: vi.fn(), start: vi.fn(), accept: vi.fn(), queueMessage: vi.fn(), setAutoConnect: vi.fn(), setPrepareInAdvance: vi.fn() },
+    snapshot: { enabled: false, registered: false, autoConnect: true, chats: [] as any[], pending: 0, error: "" },
   },
   search: vi.fn(), friends: [] as string[], names: {} as Record<string, string>,
 }));
@@ -28,7 +28,7 @@ beforeEach(() => {
   mocks.names = { [bob]: "Jim Profits", [other]: "Jim Profits" };
   mocks.search.mockResolvedValue([]);
   mocks.value.service.start.mockResolvedValue("new-chat");
-  mocks.value.snapshot = { enabled: false, registered: false, chats: [], pending: 0, error: "" };
+  mocks.value.snapshot = { enabled: false, registered: false, autoConnect: true, chats: [], pending: 0, error: "" };
 });
 afterEach(async () => { await act(async () => root?.unmount()); container?.remove(); vi.useRealTimers(); });
 async function mount(url = "/messages") {
@@ -39,7 +39,7 @@ const button = (name: string) => [...container.querySelectorAll<HTMLButtonElemen
 async function type(selector: string, value: string) {
   const input = container.querySelector<HTMLInputElement>(selector)!;
   await act(async () => {
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, value);
+    Object.getOwnPropertyDescriptor(input.tagName === "TEXTAREA" ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype, "value")!.set!.call(input, value);
     input.dispatchEvent(new Event("input", { bubbles: true }));
   });
 }
@@ -84,8 +84,9 @@ it("preserves a profile recipient through browser setup without auto-sending", a
   enabled();
   await act(async () => root.render(<MemoryRouter initialEntries={[`/messages?to=${bob}`]}><MessagesPage /></MemoryRouter>));
   expect(container.querySelector<HTMLInputElement>('[role="combobox"]')?.value).toBe("Jim Profits");
-  await act(async () => button("Start private conversation").click());
-  expect(mocks.value.service.start).toHaveBeenCalledWith(bob);
+  await type("textarea", "Hello Jim");
+  await act(async () => button("Send message").click());
+  expect(mocks.value.service.queueMessage).toHaveBeenCalledWith(bob, "Hello Jim");
 });
 it("chooses friends by name and shows their address before sending", async () => {
   enabled(); await mount();
@@ -94,8 +95,9 @@ it("chooses friends by name and shows their address before sending", async () =>
   expect(option.textContent).toContain("Jim Profits"); expect(option.textContent).toContain(bob);
   await act(async () => option.click());
   expect(container.querySelector(".message-recipient-selected")?.textContent).toContain(bob);
-  await act(async () => button("Start private conversation").click());
-  expect(mocks.value.service.start).toHaveBeenCalledWith(bob);
+  await type("textarea", "Hello Jim");
+  await act(async () => button("Send message").click());
+  expect(mocks.value.service.queueMessage).toHaveBeenCalledWith(bob, "Hello Jim");
 });
 it("searches duplicate names, ignores stale results, and supports keyboard selection", async () => {
   vi.useFakeTimers(); enabled();
@@ -110,20 +112,21 @@ it("searches duplicate names, ignores stale results, and supports keyboard selec
   await act(async () => vi.advanceTimersByTimeAsync(300));
   await act(async () => resolveOld([{ account: alice, profileUri: buildProfileDocument({ display_name: "Old" }).uri }]));
   expect(container.querySelectorAll('[role="option"]')).toHaveLength(2);
-  expect(button("Start private conversation").disabled).toBe(true);
+  expect(button("Send message").disabled).toBe(true);
   const input = container.querySelector<HTMLInputElement>('[role="combobox"]')!;
   for (const key of ["ArrowDown", "ArrowDown", "Enter"]) {
     await act(async () => input.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true })));
   }
   expect(container.querySelector(".message-recipient-selected")?.textContent).toContain(other);
-  await act(async () => button("Start private conversation").click());
-  expect(mocks.value.service.start).toHaveBeenCalledWith(other);
+  await type("textarea", "Hello Jim");
+  await act(async () => button("Send message").click());
+  expect(mocks.value.service.queueMessage).toHaveBeenCalledWith(other, "Hello Jim");
 });
 it("editing a chosen recipient disables sending until the new person is selected", async () => {
   enabled(); await mount(`/messages?to=${bob}`);
   await type('[role="combobox"]', "Someone else");
   expect(container.querySelector<HTMLInputElement>('[role="combobox"]')?.value).toBe("Someone else");
-  expect(button("Start private conversation").disabled).toBe(true);
+  expect(button("Send message").disabled).toBe(true);
   expect(container.querySelector(".message-recipient-selected")).toBeNull();
 });
 it("filters existing conversations by nickname or address", async () => {
@@ -139,16 +142,16 @@ it("filters existing conversations by nickname or address", async () => {
 it("shows request preparation until the chain confirms delivery", async () => {
   enabled(); mocks.value.snapshot.chats = [{ ...chat(), status: "outgoing", requestDelivery: "preparing", messages: [] }];
   await mount();
-  expect(container.querySelector(".private-chat-choice")?.textContent).toContain("Preparing request");
+  expect(container.querySelector(".private-chat-choice")?.textContent).toContain("Connecting");
   expect(container.querySelector(".private-chat-choice")?.textContent).not.toContain("Request sent");
   await act(async () => container.querySelector<HTMLButtonElement>(".private-chat-choice")!.click());
-  expect(container.textContent).toContain("Keep this account unlocked");
+  expect(container.textContent).toContain("You can write and send now");
   mocks.value.snapshot.chats[0].requestDelivery = "sent";
   await act(async () => root.render(<MemoryRouter><MessagesPage /></MemoryRouter>));
-  expect(container.querySelector(".private-chat-choice")?.textContent).toContain("Request sent");
+  expect(container.querySelector(".private-chat-choice")?.textContent).toContain("Connecting");
 });
-it("offers incoming requests for approval without first opening a conversation", async () => {
-  enabled(); mocks.value.snapshot.chats = [{ ...chat(), status: "incoming", messages: [] }];
+it("offers incoming requests for approval when automatic connections are disabled", async () => {
+  enabled(); mocks.value.snapshot.autoConnect = false; mocks.value.snapshot.chats = [{ ...chat(), status: "incoming", messages: [] }];
   await mount();
   expect(container.textContent).toContain("Message requests (1)");
   await act(async () => button("Accept request").click());
@@ -171,4 +174,15 @@ it("distinguishes a local close from a delivered close and shows errors without 
   await act(async () => root.render(<MemoryRouter><MessagesPage /></MemoryRouter>));
   expect(container.textContent).toContain("Sponsor unavailable");
   expect(container.textContent).not.toContain("Checking the private connection");
+});
+
+it("lets people compose while connecting and hides approval controls by default", async () => {
+  enabled(); mocks.value.snapshot.chats = [{ ...chat(), status: "incoming", messages: [] }];
+  await mount();
+  expect(button("Accept request")).toBeUndefined();
+  await act(async () => container.querySelector<HTMLButtonElement>(".private-chat-choice")!.click());
+  expect(button("Accept message request")).toBeUndefined();
+  const fields = container.querySelectorAll<HTMLTextAreaElement>("textarea");
+  expect(fields).toHaveLength(2);
+  expect(fields[1]?.disabled).toBe(false);
 });
