@@ -15,6 +15,7 @@ import { useProfileName } from "../profile/useProfileName";
 import { useCanAct, useSubmitContext } from "../session";
 import { usePostContent } from "./usePostContent";
 import type { OpenedContent, PostContent } from "../../api/decrypt";
+import { RichText } from "../../components/RichText";
 
 export function audienceLabel(audience: number): string {
   if (audience === AUDIENCE.EVERYONE) return "Everyone";
@@ -63,7 +64,7 @@ export function PostBody({ content }: { content: PostContent | undefined }) {
     case "decrypted":
       return (
         <div className="post-body">
-          <p className="post-text">{content.content.text}</p>
+          <p className="post-text"><RichText text={content.content.text}/></p>
           <MediaList content={content.content} />
         </div>
       );
@@ -98,9 +99,14 @@ export interface PostCardProps {
   expanded?: boolean;
 }
 
-export function PostCard({ post, onChanged, expanded = false }: PostCardProps) {
+export function PostCard(props: PostCardProps) {
+  const content = usePostContent(props.post);
+  return <OpenedPostCard {...props} content={content}/>;
+}
+
+/** Reuse verified, locally opened content when a tag result has already read it. */
+export function OpenedPostCard({ post, onChanged, expanded = false, content }: PostCardProps & { content: PostContent | undefined }) {
   const name = useProfileName(post.author);
-  const content = usePostContent(post);
   // A plaintext envelope is by definition an everyone post, whatever the indexer's audience field says.
   const audience = content?.status === "plain" ? AUDIENCE.EVERYONE : post.audience;
   const can = useCanAct();

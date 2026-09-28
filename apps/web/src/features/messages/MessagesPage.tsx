@@ -8,6 +8,7 @@ import { usePrivateMessaging } from "./PrivateMessagingProvider";
 import { MessageRecipientPicker } from "./MessageRecipientPicker";
 import { useMessagePeople } from "./useMessagePeople";
 import type { PrivateSnapshot } from "./privateService";
+import { RichText } from "../../components/RichText";
 
 const labels = {
   incoming: "Message request",
@@ -206,7 +207,7 @@ export function MessagesPage() {
                           ? "Sending…"
                           : new Date(m.timestamp).toLocaleString()}
                       </small>
-                      <p>{m.text}</p>
+                      <p><RichText text={m.text}/></p>
                     </div>
                   ))}
                 </div>

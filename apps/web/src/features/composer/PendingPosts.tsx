@@ -10,6 +10,7 @@ import { audienceLabel } from "../feed/PostCard";
 import type { DraftRecord } from "../../vault/store";
 import { usePublishing } from "./PublishingProvider";
 import { removeDraft } from "./drafts";
+import { RichText } from "../../components/RichText";
 
 export function indexedDraft(draft: DraftRecord, posts: PostView[]): boolean {
   return !!draft.publication && posts.some(p => p.postId === draft.publication!.postId &&
@@ -29,7 +30,7 @@ function PendingPost({ draft }: { draft: DraftRecord }) {
     </header>
     {draft.edit && <p className="muted">Your updated post</p>}
     {draft.replyTo && <p className="muted">Reply to <Link to={`/post/${draft.replyTo}`}>a post</Link></p>}
-    <div className="post-body"><p className="post-text">{draft.text}</p>
+    <div className="post-body"><p className="post-text"><RichText text={draft.text}/></p>
       {draft.media?.map(m => <p key={m.url}><a href={m.url} target="_blank" rel="noreferrer noopener">{m.altText || m.url}</a></p>)}
     </div>
     {(failed || unknown) && <footer className="pending-actions">

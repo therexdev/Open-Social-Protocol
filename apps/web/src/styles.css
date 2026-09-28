@@ -955,4 +955,8 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 .profile-contact-actions { display: grid; gap: .75rem; justify-items: start; }
 .message-request-row { display: flex; flex-wrap: wrap; align-items: center; gap: .65rem; padding-block: .75rem; }
 .message-request-row .message-person-copy { min-width: 9rem; }
+.text-link { color: var(--accent); text-decoration: underline; text-underline-offset: .18em; overflow-wrap: anywhere; }
+.hashtag-link { font-weight: 650; }
+.hashtag-page h1 { overflow-wrap: anywhere; }
+.tag-results { display: grid; gap: 1rem; min-width: 0; }
 @media (max-width: 600px) { .message-recipient-input { gap: .2rem; } .message-recipient-input input { font-size: 1rem; padding-inline: .3rem; } }

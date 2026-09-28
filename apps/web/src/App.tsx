@@ -9,6 +9,7 @@ import { Spinner } from "./components/ui";
 import { ComposerPage } from "./features/composer/ComposerPage";
 import { PublishingProvider } from "./features/composer/PublishingProvider";
 import { FeedPage } from "./features/feed/FeedPage";
+import { HashtagPage } from "./features/feed/HashtagPage";
 import { FriendsPage } from "./features/friends/FriendsPage";
 import { NotificationsPage } from "./features/notifications/NotificationsPage";
 import { OnboardingPage } from "./features/onboarding/OnboardingPage";
@@ -89,6 +90,7 @@ export function AppRoutes() {
     <Routes>
       <Route path="/about" element={<AboutPage />} />
       <Route path="/people" element={<PeoplePage />} />
+      <Route path="/tags/:tag" element={<Optional><HashtagPage /></Optional>} />
       <Route path="/me" element={<RequireAccount><OwnProfile /></RequireAccount>} />
       <Route path="/welcome" element={<OnboardingPage />} />
       <Route path="/recover" element={<RecoveryPage />} />
