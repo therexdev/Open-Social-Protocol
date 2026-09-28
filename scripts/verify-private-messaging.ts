@@ -46,6 +46,7 @@ const checks: Array<[string, () => Promise<void>]> = [
     const health = await json(`${endpoint}/healthz`);
     assert.equal(health.ok, true);
     assert.equal(health.features?.privateMessaging, 2, "upgrade sponsor first");
+    assert.equal(health.features?.messagingResponsiveAllocation, 1, "upgrade sponsor for responsive message allowance requests");
     const doc = await new SponsorClient({ endpoint, expectedChainId: deployment.chainId }).discover();
     const allowed = doc.policy.allowed.find(a => a.contract === messaging)?.entryPoints ?? [];
     for (const method of ["set_private_device", "reserve_private_usage", "open_private_channel", "close_private_channel", "post_private_packet"]) {

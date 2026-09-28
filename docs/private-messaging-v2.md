@@ -77,7 +77,7 @@ Sending saves text to the encrypted queue immediately, independently of the main
 lock and slow network reads. The UI permits composing while connecting. The queue is
 consumed into one atomic ratchet/outbox/history commit, then its entry is removed;
 message IDs deduplicate a crash between these writes. Closing cancels pending sends;
-remote closure retains unsent text as **Not sent**. Simultaneous introductions select
+both local and remote closure retain unsent text as **Not sent**. Simultaneous introductions select
 one conversation deterministically before either browser advances its message ratchet.
 
 Both participants reuse their conversation allowance for introductions and channel
@@ -117,6 +117,60 @@ combined with the account unlock secret. Account exports omit it. No seed-encryp
 of the ratchet or message history is retained. Storage failures stop the operation.
 
 ## Remaining metadata and future work
+
+### September 28 delivery reliability release
+
+This release is additive and preserves the existing contracts, device keys, sessions,
+and history. It does **not** implement asynchronous initial key agreement or linked-device
+delivery. Those must not be advertised as available merely because established chats
+can receive messages after coming back online.
+
+- The sponsor verifies the owner proof and persists an idempotent assignment before
+  acknowledging a pending grant. HTTP waiting is bounded to 1.5 seconds **after the
+  validation RPCs**, independent of the serialized inclusion wait. In-flight retries
+  join one job, and the queue is capped at 32 jobs. A pending response is not credit:
+  the browser still checks the on-chain allowance and retries the same saved reservation.
+  A process restart can lose an in-memory job, but cannot lose/rebind its durable
+  assignment. Client retry recovers it. Payer nonce ordering remains enforced.
+- Alias packet submission returns after broadcast instead of waiting for an inclusion
+  receipt while holding the browser's messaging lock. The next packet for that alias
+  stays blocked until its predecessor's commitment is read on-chain. Profile reservations
+  still hold the shared account submission queue through inclusion.
+- Inbox processing precedes sending/refilling, and signed sponsor discovery is reused
+  for up to 60 seconds. An interrupted response body is classified as a transport
+  failure, including interruption after HTTP headers arrive.
+- Closing archives queued plaintext as **Not sent** before removing queue entries.
+  A crash between those writes is deduplicated by message ID. Failed sync reads no
+  longer replace the visible inbox with an empty, disabled snapshot.
+- Close notices reuse the conversation's already funded alias. Each alias still has
+  only one unobserved transaction at a time. On testnet the sender's closing badge can
+  finish at inclusion, while exact ciphertext and channel reconciliation continue
+  through finality. Receiving ratchet keys are not deleted on a reversible remote close.
+- The UI distinguishes **Queued on this browser**, **Submitted**, and **On chain**.
+  None is a read receipt. Multiple registered browsers show a clear notice that their
+  histories are independent.
+
+### Next protocol milestone: offline first messages and linked devices
+
+The required behavior is that a sender can establish a session and post the first
+ciphertext while the recipient is offline, using authenticated prepublished device
+prekeys. The recipient must generate and retain its own secret keys. Sending or deriving
+those secrets on the sender's device is not an acceptable shortcut. A public one-time
+prekey claim must not silently introduce a direct profile-to-conversation-alias link;
+fallback/reused prekeys must not silently weaken the stated forward-secrecy boundary.
+The prekey lifecycle and routing design need explicit conformance tests before rollout.
+
+Linked devices require independent ratchets, authenticated device enrollment/revocation,
+and separate encrypted copies to the recipient's devices and the sender's other devices.
+Copying a live ratchet between independently sending devices risks state/key reuse.
+Existing history transfer must be explicitly authorized from a device that still has it;
+account-seed recovery alone must not decrypt old messages. Any new format must coexist
+with current browser-local sessions during a staggered upgrade.
+
+Acceptance gates include: recipient offline during first send; sender offline before
+receipt; duplicate/reordered packets; simultaneous starts; exhausted/revoked prekeys;
+two devices sending concurrently; device removal during delivery; interrupted history
+transfer; and reorgs without double charging, lost drafts, or repeated ratchet advancement.
 
 Conversation aliases, ciphertext, timing, and sizes remain permanent on-chain. Endpoint
 operators can correlate requests and IPs. Contacts know whom they are talking to. Full

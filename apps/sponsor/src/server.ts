@@ -49,10 +49,12 @@ export interface SponsorServiceOptions {
   /** Quota store; defaults to the SQLite file from the config. */
   quota?: QuotaStore | undefined;
   now?: (() => number) | undefined;
+  /** Bound HTTP waiting, not the serialized chain submission. Default 1500 ms. */
+  allocationResponseWaitMs?: number;
 }
 
 export interface StatusReport {
-  features: { privateMessaging: 2; messagingNonceOrdering: 1; messagingFastConfirmation: 1 };
+  features: { privateMessaging: 2; messagingNonceOrdering: 1; messagingFastConfirmation: 1; messagingResponsiveAllocation: 1 };
   ok: boolean;
   state: ServiceState;
   message: string;
@@ -129,6 +131,8 @@ export class SponsorService {
   private readonly now: () => number;
   private discoveryDoc: Promise<SponsorDiscovery> | undefined;
   private allocationQueue: Promise<unknown> = Promise.resolve();
+  private allocationJobs = new Map<string, Promise<{ grantId: string; pending: boolean }>>();
+  private closing = false;
 
   constructor(options: SponsorServiceOptions) {
     this.options = options;
@@ -187,48 +191,66 @@ export class SponsorService {
 
   /** Never copy the request's profile proof or reservation id into the grant transaction. */
   async allocatePrivateUsage(input: unknown): Promise<{ grantId: string; pending: boolean }> {
-    const task = this.allocationQueue.catch(() => undefined).then(async () => {
-      const { client, sponsor, signer, deployment, provider } = this.serving();
-      const body = input as { reservationId?: unknown; actor?: unknown; signature?: unknown };
-      if (!body || typeof body.reservationId !== "string" || !/^[A-Za-z0-9_-]{43}=$/.test(body.reservationId) ||
-        typeof body.actor !== "string" || !isAddress(body.actor) || typeof body.signature !== "string" || body.signature.length > 100) {
-        throw new SponsorRefusal("invalid_transaction", "Invalid private allocation request");
-      }
-      const reservationId = body.reservationId, actor = body.actor;
-      if (toBase64url(fromBase64url(reservationId)) !== reservationId) throw new SponsorRefusal("invalid_transaction", "Noncanonical reservation id");
-      const reservation = (await client.reads.messaging.get_private_reservation({ reservation_id: fromBase64url(reservationId) }))?.value;
-      if (!reservation || reservation.sponsor !== sponsor || reservation.units < 1 || reservation.units > 20) throw new SponsorRefusal("invalid_transaction", "No matching usage reservation");
-      const owner = (await client.reads.identity.get_identity({ account: reservation.account }))?.value?.owner;
-      const scope = { chainId: deployment.chainId, contract: deployment.contracts.messaging.address };
-      if (!owner || !verifyPrivateStatement(scope, "allocate", { reservationId, actor }, body.signature, owner)) throw new SponsorRefusal("invalid_signature", "Private allocation must be authorized by the reservation owner");
-      const head = await provider.getHeadInfo();
-      if (!reservation.block || BigInt(reservation.block) > privateConfirmationHeight(head, privateConfirmationDepth(deployment.network)))
-        throw new SponsorRefusal("temporarily_unavailable", "Usage reservation is confirming; retry this same reservation");
-      let grantId: string;
-      try { grantId = this.quota.assignPrivateUsage(`${scope.chainId}:${scope.contract}:${sponsor}`, reservationId, actor); }
-      catch { throw new SponsorRefusal("invalid_transaction", "This reservation was already assigned to another wallet"); }
-      const existing = (await client.reads.messaging.get_private_grant({ grant_id: fromBase64url(grantId) }))?.value;
-      if (existing) {
-        if (existing.actor !== actor || existing.sponsor !== sponsor || existing.units !== reservation.units) throw new SponsorRefusal("invalid_transaction", "Private grant mismatch");
-        return { grantId, pending: false };
-      }
-      const held = this.quota.reserve(reservation.account, 1, this.now());
-      if (!held.ok) throw new SponsorRefusal("quota_exceeded", held.message);
-      try {
-        const op = await client.ops.messaging.allocate_private_usage({ sponsor, actor, grant_id: fromBase64url(grantId), units: reservation.units });
-        // All grants use the payer's nonce. Keep the allocation queue held until
-        // inclusion before preparing the next grant for any user.
-        const result = await client.submit({ operations: [op], signer, sponsor: null, rcLimit: this.limits.maxRcPerOp, waitForReceipt: true, waitTimeoutMs: 20_000 });
-        held.commit({ rcUsed: result.rcUsed });
-        return { grantId, pending: true };
-      } catch (error) {
-        // An unknown outcome can have spent Mana; don't refund the sponsor's rate limit.
-        held.commit();
-        throw classifySendError(error);
-      }
-    });
-    this.allocationQueue = task;
-    return task;
+    if (this.closing) throw new SponsorRefusal("temporarily_unavailable", "Sponsor is restarting; retry this same reservation");
+    const { client, sponsor, signer, deployment, provider } = this.serving();
+    const body = input as { reservationId?: unknown; actor?: unknown; signature?: unknown };
+    if (!body || typeof body.reservationId !== "string" || !/^[A-Za-z0-9_-]{43}=$/.test(body.reservationId) ||
+      typeof body.actor !== "string" || !isAddress(body.actor) || typeof body.signature !== "string" || body.signature.length > 100) {
+      throw new SponsorRefusal("invalid_transaction", "Invalid private allocation request");
+    }
+    const reservationId = body.reservationId, actor = body.actor;
+    if (toBase64url(fromBase64url(reservationId)) !== reservationId) throw new SponsorRefusal("invalid_transaction", "Noncanonical reservation id");
+    const reservation = (await client.reads.messaging.get_private_reservation({ reservation_id: fromBase64url(reservationId) }))?.value;
+    if (!reservation || reservation.sponsor !== sponsor || reservation.units < 1 || reservation.units > 20) throw new SponsorRefusal("invalid_transaction", "No matching usage reservation");
+    const owner = (await client.reads.identity.get_identity({ account: reservation.account }))?.value?.owner;
+    const scope = { chainId: deployment.chainId, contract: deployment.contracts.messaging.address };
+    // Authenticate every HTTP request, including retries joining an existing job.
+    if (!owner || !verifyPrivateStatement(scope, "allocate", { reservationId, actor }, body.signature, owner)) throw new SponsorRefusal("invalid_signature", "Private allocation must be authorized by the reservation owner");
+    const head = await provider.getHeadInfo();
+    if (!reservation.block || BigInt(reservation.block) > privateConfirmationHeight(head, privateConfirmationDepth(deployment.network)))
+      throw new SponsorRefusal("temporarily_unavailable", "Usage reservation is confirming; retry this same reservation");
+    let grantId: string;
+    try { grantId = this.quota.assignPrivateUsage(`${scope.chainId}:${scope.contract}:${sponsor}`, reservationId, actor); }
+    catch { throw new SponsorRefusal("invalid_transaction", "This reservation was already assigned to another wallet"); }
+    const existing = (await client.reads.messaging.get_private_grant({ grant_id: fromBase64url(grantId) }))?.value;
+    if (existing) {
+      if (existing.actor !== actor || existing.sponsor !== sponsor || existing.units !== reservation.units) throw new SponsorRefusal("invalid_transaction", "Private grant mismatch");
+      return { grantId, pending: false };
+    }
+    let task = this.allocationJobs.get(grantId);
+    if (!task) {
+      // Bound queued work. Retries of an existing job never consume another slot
+      // or quota reservation, and the assignment survives process restarts.
+      if (this.allocationJobs.size >= 32) throw new SponsorRefusal("temporarily_unavailable", "Message allowance queue is busy; retry this same reservation");
+      task = this.allocationQueue.catch(() => undefined).then(async () => {
+        if (this.closing) throw new SponsorRefusal("temporarily_unavailable", "Sponsor is restarting; retry this same reservation");
+        const held = this.quota.reserve(reservation.account, 1, this.now());
+        if (!held.ok) throw new SponsorRefusal("quota_exceeded", held.message);
+        try {
+          const op = await client.ops.messaging.allocate_private_usage({ sponsor, actor, grant_id: fromBase64url(grantId), units: reservation.units });
+          // Keep the payer nonce serialized through inclusion. Only the HTTP
+          // wait is shortened; another grant never races an unmined predecessor.
+          const result = await client.submit({ operations: [op], signer, sponsor: null, rcLimit: this.limits.maxRcPerOp, waitForReceipt: true, waitTimeoutMs: 20_000 });
+          held.commit({ rcUsed: result.rcUsed });
+          return { grantId, pending: true };
+        } catch (error) {
+          held.commit();
+          throw classifySendError(error);
+        }
+      });
+      this.allocationJobs.set(grantId, task);
+      this.allocationQueue = task.then(() => undefined, () => undefined);
+      void task.then(() => this.allocationJobs.delete(grantId), () => this.allocationJobs.delete(grantId));
+    }
+    // A pending response acknowledges the saved assignment, NOT on-chain credit.
+    // Clients verify the grant/allowance and retry the same reservation after a
+    // timeout, restart, or reorg. The in-flight job outlives this HTTP request.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([task, new Promise<{ grantId: string; pending: boolean }>(resolve => {
+        timer = setTimeout(() => resolve({ grantId, pending: true }), this.options.allocationResponseWaitMs ?? 1500);
+      })]);
+    } finally { if (timer) clearTimeout(timer); }
   }
 
   private refuse(error: unknown): never {
@@ -241,7 +263,7 @@ export class SponsorService {
 
   status(): StatusReport {
     return {
-      features: { privateMessaging: 2, messagingNonceOrdering: 1, messagingFastConfirmation: 1 },
+      features: { privateMessaging: 2, messagingNonceOrdering: 1, messagingFastConfirmation: 1, messagingResponsiveAllocation: 1 },
       ok: this.state === "serving",
       state: this.state,
       message: stateMessage(this.state, this.options),
@@ -371,7 +393,9 @@ export class SponsorService {
     return this.quota.utilization(this.now());
   }
 
-  close(): void {
+  async close(): Promise<void> {
+    this.closing = true;
+    await this.allocationQueue;
     this.quota.close();
   }
 }

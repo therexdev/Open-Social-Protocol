@@ -26,7 +26,7 @@ const scope = {
   chainId: deployment.chainId,
   contract: deployment.contracts.messaging.address,
 };
-async function start(fast = false) {
+async function start(fast = false, allocationResponseWaitMs = 1500) {
   const reservationId = toBase64url(randomBytes(32));
   const grants = new Map<string, any>();
   let lib = "100", height = "100";
@@ -69,6 +69,7 @@ async function start(fast = false) {
     last_irreversible_block: lib,
   });
   const app = await createServer({
+    allocationResponseWaitMs,
     config: testConfig({ allowlist: "messaging:allocate_private_usage" }),
     deployment: { ...deployment, network: fast ? "harbinger" : deployment.network },
     signer,
@@ -99,6 +100,48 @@ async function start(fast = false) {
   };
 }
 describe("private allowance assignments", () => {
+  it("acknowledges queued grants promptly, coalesces retries, and preserves payer nonce order", async () => {
+    const h = await start(true, 10);
+    let release!: () => void, finished!: () => void;
+    const blocked = new Promise<void>(resolve => { release = resolve; });
+    const completed = new Promise<void>(resolve => { finished = resolve; });
+    let nonce = 0, inFlight = false;
+    const client = new ProtocolClient({ deployment, rpc: h.provider });
+    const send = h.provider.sendTransaction;
+    h.provider.getNextNonce = async () => nonceValue(nonce + 1);
+    h.provider.sendTransaction = async (tx, broadcast) => {
+      if (inFlight || tx.header?.nonce !== nonceValue(nonce + 1)) throw new Error("invalid account nonce");
+      inFlight = true;
+      const result = await send(tx, broadcast);
+      return { ...result, transaction: { ...result.transaction, wait: async () => {
+        if (nonce === 0) await blocked;
+        nonce++; inFlight = false;
+        h.setGranted(client.contracts.decodeOperation(tx.operations![0]!)!.args);
+        if (nonce === 2) finished();
+        return { blockId: `block-${nonce}`, blockNumber: 100 + nonce };
+      } } };
+    };
+    try {
+      const payload = await h.request();
+      const first = await h.app.inject({ method: "POST", url: "/v2/private/allocate", payload });
+      expect(first.statusCode).toBe(200); expect(first.json().pending).toBe(true);
+      // The receipt remains blocked, but neither the original HTTP request nor
+      // another person's request must wait for it (or hit a browser timeout).
+      const retry = await h.app.inject({ method: "POST", url: "/v2/private/allocate", payload });
+      expect(retry.json()).toEqual(first.json());
+      const forged = await h.app.inject({ method: "POST", url: "/v2/private/allocate", payload: await h.request(alias, other) });
+      expect(forged.statusCode).toBe(400);
+      const secondPayload = await h.request(other.getAddress(), owner, toBase64url(randomBytes(32)));
+      const second = await h.app.inject({ method: "POST", url: "/v2/private/allocate", payload: secondPayload });
+      expect(second.json().pending).toBe(true);
+      expect(second.json().grantId).not.toBe(first.json().grantId);
+      expect(h.provider.sent).toHaveLength(1);
+      release(); await completed;
+      const done = await h.app.inject({ method: "POST", url: "/v2/private/allocate", payload });
+      expect(done.json()).toEqual({ grantId: first.json().grantId, pending: false });
+      expect(h.provider.sent.map(p => p.transaction.header?.nonce)).toEqual([nonceValue(1), nonceValue(2)]);
+    } finally { release(); await h.app.close(); }
+  });
   it("advertises three testnet confirmations and enforces that boundary", async () => {
     const h = await start(true);
     try {

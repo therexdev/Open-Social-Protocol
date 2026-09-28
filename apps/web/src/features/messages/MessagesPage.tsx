@@ -94,11 +94,15 @@ export function MessagesPage() {
       {(error || snapshot.error) && (
         <Notice kind="error">
           {error || snapshot.error}{" "}
+          {snapshot.pending > 0 && <p>Your pending messages are kept on this browser. Delivery retries while this account is open and unlocked.</p>}
           <Button variant="ghost" busy={busy} disabled={!service || !can.ok} onClick={() => void run(() => service!.sync())}>
             Retry
           </Button>
         </Notice>
       )}
+      {snapshot.enabled && !chat && !composing && (snapshot.devices?.length ?? 0) > 1 && <Notice>
+        You have messaging enabled on more than one browser. Conversations currently stay on the browser that received them; phone and desktop history do not sync yet.
+      </Notice>}
       {!snapshot.enabled ? (
         <Card title="Private messages on this browser">
           <p>
@@ -204,7 +208,7 @@ export function MessagesPage() {
                     {chat.progress && <details><summary>Connection status</summary>{chat.progress}</details>}
                   </Notice>
                 )}
-                {chat.closing && !chat.error && <Notice>{chat.progress} Keep this account unlocked until the notice is sent.</Notice>}
+                {chat.closing && !chat.error && <Notice>{chat.progress} This continues in the background while the account is unlocked.</Notice>}
                 <div ref={history} className="message-history" aria-live="polite" onScroll={event => { const node = event.currentTarget; followMessages.current = node.scrollHeight - node.scrollTop - node.clientHeight < 80; }}>
                   {chat.messages.map((m) => (
                     <div
@@ -213,11 +217,13 @@ export function MessagesPage() {
                     >
                       <small>
                         {m.mine ? "You" : "Them"} ·{" "}
-                        {m.state === "sending"
+                        {m.state === "queued" ? "Queued on this browser"
+                          : m.state === "sending"
                           ? "Sending…"
+                          : m.state === "submitted" ? "Submitted · waiting for the network"
                           : m.state === "not-sent" ? "Not sent · conversation closed"
                           : m.state === "stopped" ? "Delivery stopped · conversation closed"
-                          : m.state === "confirming" ? (m.mine ? "Sent · confirming" : "Confirming")
+                          : m.state === "confirming" ? "On chain · confirming"
                           : new Date(m.timestamp).toLocaleString()}
                       </small>
                       <p><RichText text={m.text}/></p>
@@ -285,6 +291,7 @@ export function MessagesPage() {
       )}
       <details className="private-message-details">
         <summary>Privacy and message history</summary>
+        <p>On chain means the network has recorded the encrypted message. It does not mean the other person has read it.</p>
         {snapshot.enabled && <label className="checkbox-row">
           <input type="checkbox" checked={snapshot.autoConnect !== false} disabled={busy || !service}
             onChange={event => void run(() => service!.setAutoConnect(event.target.checked))} />

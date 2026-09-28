@@ -86,6 +86,14 @@ export class PrivateMessagingService {
   private chatErrors = new Map<string, string>();
   private scanIrreversible = 0n;
   private syncHead: ReturnType<ProtocolClient["provider"]["getHeadInfo"]> | undefined;
+  private sponsors = new Map<string, { client: SponsorClient; expiresAt: number }>();
+  private sponsor(endpoint: string): SponsorClient {
+    const cached = this.sponsors.get(endpoint);
+    if (cached && cached.expiresAt > Date.now()) return cached.client;
+    const client = new SponsorClient({ endpoint, expectedChainId: this.scope.chainId });
+    this.sponsors.set(endpoint, { client, expiresAt: Date.now() + 60_000 });
+    return client;
+  }
   private head() {
     // One conservative boundary per pass avoids an RPC round trip per pending
     // message. A newly mined transaction can advance on the following pass.
@@ -123,7 +131,9 @@ export class PrivateMessagingService {
       registered: !!data.registered,
       chats: data.chats.map((c) => {
         const request = data.outbox.find(p => p.chatId === c.id && !p.peer && p.kind !== "close");
-        const closing = c.status === "closed" && (c.closeNotice === "needed" || c.closeNotice === "queued" || !!c.closeChannelPending);
+        const closing = c.status === "closed" && (c.closeNotice === "needed"
+          || (c.closeNotice === "queued" && data.outbox.some(p => p.chatId === c.id && p.kind === "close" && !p.observed))
+          || (!!c.closeChannelPending && !c.closeChannelObserved));
         const pending = (request && !request.observed ? request : undefined)
           ?? data.outbox.find(p => p.chatId === c.id && !p.observed);
         const error = c.closeError || pending?.error || this.chatErrors.get(c.id);
@@ -165,7 +175,7 @@ export class PrivateMessagingService {
           progress: "Preparing your encrypted conversation in the background." };
         value.chats.unshift(chat);
       }
-      chat.messages.push({ id: draft.id, text: draft.text, mine: true, timestamp: draft.createdAt, state: chat.status === "closed" ? "not-sent" : "sending" });
+      chat.messages.push({ id: draft.id, text: draft.text, mine: true, timestamp: draft.createdAt, state: chat.status === "closed" ? "not-sent" : "queued" });
       chat.error = this.queueErrors.get(draft.peer) || chat.error;
       if (chat.status !== "closed") value.pending++;
     }
@@ -202,14 +212,16 @@ export class PrivateMessagingService {
     signer: SignerInterface,
     operations: OperationJson[],
     label: string,
+    waitForReceipt = true,
   ): Promise<void> {
     this.active();
     await submitAction(
       { client: this.protocol, signer, payment: this.payment },
       operations,
-      // This runs in the background already. Hold the account submission queue
-      // until inclusion so the next allowance does not reuse its chain nonce.
-      { label, quietProgress: true, waitForReceipt: true, beforeSubmit: async () => this.active() },
+      // Profile reservations must hold the shared account queue until inclusion.
+      // Alias packets reconcile their exact chain commitment before the next
+      // packet can send, so they need not block inbox reads on a receipt wait.
+      { label, quietProgress: true, waitForReceipt, beforeSubmit: async () => this.active() },
     );
   }
   async enable(): Promise<void> {
@@ -577,7 +589,7 @@ export class PrivateMessagingService {
     delete chat.invitation;
     // An attempted broadcast may have succeeded even if its receipt was lost.
     // Only never-encrypted drafts can truthfully be labelled "not sent".
-    for (const message of chat.messages) if (message.mine && message.state === "sending") message.state = "stopped";
+    for (const message of chat.messages) if (message.mine && ["sending", "submitted"].includes(message.state)) message.state = "stopped";
     this.chatErrors.delete(chat.id);
     // Keep a durable close notification, but never send queued chat messages.
     data.outbox = data.outbox.filter(p => p.chatId !== chat.id || p.kind === "close");
@@ -587,18 +599,35 @@ export class PrivateMessagingService {
       // A pending placeholder can become a real conversation while close waits
       // for the sync lock. Resolve it again inside that lock before cancelling.
       const peer = chatId.startsWith("pending:") ? chatId.slice(8) : undefined;
-      const chat = data.chats.find(c => c.id === chatId || (peer && c.peer === peer && c.status !== "closed"));
+      let chat = data.chats.find(c => c.id === chatId || (peer && c.peer === peer && c.status !== "closed"));
+      const drafts = await this.store.drafts(drafts => structuredClone(drafts.filter(d =>
+        d.chatId === chatId || (d.peer === (chat?.peer ?? peer) && (!d.chatId || d.chatId === chat?.id || d.chatId.startsWith("pending:"))))));
+      if (!chat && peer) chat = data.chats.find(c => c.peer === peer && c.status === "closed"
+        && drafts.some(d => c.messages.some(m => m.id === d.id)));
+      // A request may still be only a local placeholder. Archive its text too,
+      // without creating a network request solely to cancel it.
+      if (!chat && drafts.length && peer && isAddress(peer)) {
+        const aliasId = id();
+        chat = { id: id(), peer, aliasId, alias: privateWallet(this.me.seed, this.scope, "conversation", aliasId).getAddress(),
+          status: "closed", closeNotice: "sent", after: "0", createdAt: drafts[0]!.createdAt, messages: [] };
+        data.chats.push(chat);
+      }
+      if (!chat) { this.snapshot(data); return; }
+      for (const draft of drafts) if (!chat.messages.some(m => m.id === draft.id))
+        chat.messages.push({ id: draft.id, text: draft.text, mine: true, timestamp: draft.createdAt, state: "not-sent" });
+      if (chat.status !== "closed") {
+        this.markClosed(data, chat);
+        chat.closeNotice = "needed";
+        chat.closeChannelPending = !!chat.peerAlias;
+      }
+      // Commit the archive before removing drafts. A crash between these two
+      // writes is deduplicated by message ID, never lost or sent after closing.
+      await save();
+      const archived = new Set(drafts.map(d => d.id));
       this.queued = await this.store.drafts(drafts => {
-        for (let i = drafts.length - 1; i >= 0; i--)
-          if (drafts[i]!.chatId === chatId || drafts[i]!.peer === (chat?.peer ?? peer)) drafts.splice(i, 1);
+        for (let i = drafts.length - 1; i >= 0; i--) if (archived.has(drafts[i]!.id)) drafts.splice(i, 1);
         return structuredClone(drafts);
       });
-      if (!chat) { this.snapshot(data); return; }
-      if (chat.status === "closed") { this.snapshot(data); return; }
-      this.markClosed(data, chat);
-      chat.closeNotice = "needed";
-      chat.closeChannelPending = !!chat.peerAlias;
-      await save();
       this.snapshot(data);
     });
     void this.sync();
@@ -619,8 +648,10 @@ export class PrivateMessagingService {
           const result = await this.protocol.reads.messaging.get_private_channel({ a: chat.alias, b: chat.peerAlias });
           if (!result) throw new Error("Could not check whether the conversation is closed");
           const channel = result.value;
+          if (channel?.status !== 3) delete chat.closeChannelObserved;
           if (channel?.status === 3) {
             const head = await this.head();
+            chat.closeChannelObserved = !!channel.block && BigInt(channel.block) <= privateConfirmationHeight(head, this.protocol.deployment.network === "harbinger" ? 1 : 0);
             if (channel.block && BigInt(channel.block) <= BigInt(head.last_irreversible_block)) chat.closeChannelPending = false;
           } else if (channel && Date.now() - (chat.closeChannelAttempt ?? 0) >= RETRY_MS) {
             chat.closeChannelAttempt = Date.now();
@@ -640,9 +671,8 @@ export class PrivateMessagingService {
           // Invitations are addressed to a browser; notify every currently registered
           // browser so acceptance and cancellation work in either direction.
           const packets = devices.map(device => {
-            const derivationId = id(), packetId = id();
-            const actor = privateWallet(this.me.seed, this.scope, "invitation", derivationId).getAddress();
-            return { id: packetId, actor, derivationId, purpose: "invitation" as const, peer: "", kind: "close" as const,
+            const derivationId = chat.aliasId, packetId = id(), actor = chat.alias;
+            return { id: packetId, actor, derivationId, purpose: "conversation" as const, peer: "", kind: "close" as const,
               envelope: toBase64url(sealPrivateInvitation(this.context(actor, "", packetId), device.delivery_key, signed)), chatId: chat.id };
           });
           data.outbox.push(...packets);
@@ -772,10 +802,7 @@ export class PrivateMessagingService {
       let discovered = false;
       for (const endpoint of this.sponsorUrls) {
         try {
-          const sponsor = new SponsorClient({
-            endpoint,
-            expectedChainId: this.scope.chainId,
-          });
+          const sponsor = this.sponsor(endpoint);
           const doc = await sponsor.discover();
           discovered = true;
           if (
@@ -832,7 +859,7 @@ export class PrivateMessagingService {
       reservation.units !== funding.units
     )
       throw new Error("Private usage reservation mismatch");
-    const sponsor = new SponsorClient({ endpoint: funding.endpoint, expectedChainId: this.scope.chainId });
+    const sponsor = this.sponsor(funding.endpoint);
     const discovery = await sponsor.discover();
     if (discovery.sponsor !== funding.sponsor)
       throw new Error("The sponsor changed identity; keep this saved reservation for recovery");
@@ -1186,10 +1213,11 @@ export class PrivateMessagingService {
     data: PrivateFile,
     save: () => Promise<void>,
   ): Promise<void> {
-    // Order chat messages, but let independent device cancellation notices progress.
+    // One unobserved transaction per alias. Close notices can now reuse that
+    // alias too, so ordering by packet ID would race its account nonce.
     const visited = new Set<string>();
     for (const packet of [...data.outbox]) {
-      const orderKey = packet.kind === "close" ? packet.id : packet.chatId;
+      const orderKey = packet.actor;
       if (visited.has(orderKey)) continue;
       visited.add(orderKey);
       this.active();
@@ -1212,7 +1240,7 @@ export class PrivateMessagingService {
             }
             // Retain this exact ciphertext for reorg recovery, but do not make
             // every later message wait for its predecessor's full finality.
-            if (packet.kind !== "close") visited.delete(orderKey);
+            visited.delete(orderKey);
             continue;
           }
           data.outbox = data.outbox.filter(p => p.id !== packet.id);
@@ -1220,11 +1248,12 @@ export class PrivateMessagingService {
           if (packet.kind === "close" && !data.outbox.some(p => p.chatId === chat.id && p.kind === "close")) chat.closeNotice = "sent";
           if (message) { message.state = "sent"; message.timestamp = Number(existing.timestamp); }
           await save();
-          if (packet.kind !== "close") visited.delete(orderKey);
+          visited.delete(orderKey);
           continue;
         }
         if (packet.observed) {
           delete packet.observed;
+          delete packet.submitted;
           delete packet.lastAttempt;
           const message = chat.messages.find(m => m.id === packet.id);
           if (message) message.state = "sending";
@@ -1255,7 +1284,10 @@ export class PrivateMessagingService {
         operations.push(await this.protocol.ops.messaging.post_private_packet({
           actor: packet.actor, ...(packet.peer ? { peer: packet.peer } : {}), packet_id: fromBase64url(packet.id), envelope: fromBase64url(packet.envelope),
         }));
-        await this.submit(signer, operations, packet.kind === "close" ? "Notifying conversation closure" : "Sending private message");
+        await this.submit(signer, operations, packet.kind === "close" ? "Notifying conversation closure" : "Sending private message", false);
+        packet.submitted = true;
+        const message = chat.messages.find(m => m.id === packet.id);
+        if (message) message.state = "submitted";
       } catch (error) {
         // Funding and lookup failures belong to this packet too; one broken
         // request must not silently stall every newer conversation behind it.
@@ -1285,7 +1317,7 @@ export class PrivateMessagingService {
             }
             // Receiving can fail independently of sending (for example an
             // indexer outage). Keep the durable outbox and closures moving.
-            for (const work of [this.prepareQueued, this.closures, this.dispatch, this.invitations, this.prepareQueued, this.channels, this.dispatch, this.warmAllowance]) {
+            for (const work of [this.invitations, this.prepareQueued, this.channels, this.dispatch, this.closures, this.warmAllowance]) {
               try { await work.call(this, data, save); }
               catch (error) { this.error = error instanceof Error ? error.message : String(error); }
               await save();
@@ -1300,14 +1332,12 @@ export class PrivateMessagingService {
       });
     } catch (error) {
       this.error = error instanceof Error ? error.message : String(error);
-      if (!this.stopped)
-        this.changed({
-          enabled: false,
-          registered: false,
-          chats: [],
-          pending: 0,
-          error: this.error,
-        });
+      if (!this.stopped) {
+        // A failed read/write must not replace saved conversations with an
+        // empty, disabled inbox. Never emit plaintext after the vault locks.
+        try { this.active(); this.lastSnapshot.error = this.error; this.emit(); }
+        catch { /* The provider clears the snapshot when the session locks. */ }
+      }
     } finally {
       this.syncHead = undefined;
       this.running = false;

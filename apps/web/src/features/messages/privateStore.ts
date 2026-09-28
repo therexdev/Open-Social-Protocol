@@ -59,7 +59,7 @@ export interface LocalMessage {
   text: string;
   mine: boolean;
   timestamp: number;
-  state: "sending" | "confirming" | "sent" | "not-sent" | "stopped";
+  state: "queued" | "sending" | "submitted" | "confirming" | "sent" | "not-sent" | "stopped";
   envelopeHash?: string;
 }
 export interface PrivateChat {
@@ -80,6 +80,7 @@ export interface PrivateChat {
   closedAt?: number;
   closeChannelPending?: boolean;
   closeChannelAttempt?: number;
+  closeChannelObserved?: boolean;
   closeError?: string;
   supersededBy?: string;
 }
@@ -95,6 +96,7 @@ export interface PrivateOutbox {
   lastAttempt?: number;
   error?: string;
   observed?: boolean;
+  submitted?: boolean;
 }
 export interface Funding {
   id: string;

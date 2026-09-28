@@ -75,6 +75,23 @@ it("does not claim setup is progressing after a failure and Retry clears a local
   await act(async () => button("Retry").click());
   expect(mocks.value.service.sync).toHaveBeenCalledTimes(1);
 });
+it("distinguishes local queue, submitted, and on-chain messages without claiming they were read", async () => {
+  enabled(); mocks.value.snapshot.chats = [{ ...chat(), messages: [
+    { id: "queued", text: "Local", mine: true, timestamp: 1, state: "queued" },
+    { id: "submitted", text: "Broadcast", mine: true, timestamp: 2, state: "submitted" },
+    { id: "included", text: "Included", mine: true, timestamp: 3, state: "confirming" },
+  ] }];
+  await mount(`/messages?to=${bob}`);
+  expect(container.textContent).toContain("Queued on this browser");
+  expect(container.textContent).toContain("Submitted · waiting for the network");
+  expect(container.textContent).toContain("On chain · confirming");
+  expect(container.textContent).toContain("It does not mean the other person has read it");
+});
+it("explains separate browser histories when the account has multiple messaging devices", async () => {
+  enabled(); Object.assign(mocks.value.snapshot, { devices: [{ id: "desktop", current: true }, { id: "phone", current: false }] });
+  await mount();
+  expect(container.textContent).toContain("phone and desktop history do not sync yet");
+});
 it("opens a friend's existing chat from a profile link without creating a request", async () => {
   enabled(); mocks.value.snapshot.chats = [chat()];
   await mount(`/messages?to=${bob}`);

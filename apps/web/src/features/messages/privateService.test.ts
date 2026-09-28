@@ -478,6 +478,7 @@ describe("two-browser private conversations", () => {
     await h.a.service.close(pending); await h.pump(10);
     expect(h.a.snapshot.chats.every(c => c.status === "closed")).toBe(true);
     expect(h.b.snapshot.chats.every(c => c.status === "closed")).toBe(true);
+    expect(h.a.snapshot.chats.flatMap(c => c.messages)).toContainEqual(expect.objectContaining({ text: "Cancelled draft", state: "not-sent" }));
     await h.a.store.drafts(drafts => expect(drafts).toHaveLength(0));
     expect(h.packets.filter(p => p.peer)).toHaveLength(0);
   });
@@ -996,5 +997,107 @@ describe("two-browser private conversations", () => {
     await h.b.store.edit(async (d) =>
       expect(d.chats[0]?.ratchet).toBeUndefined(),
     );
+  });
+  it("retains the visible inbox through a storage read failure and resumes without duplicating messages", async () => {
+    const h = harness(), chat = await h.connect();
+    await h.a.service.send(chat, "Keep my history visible"); await h.pump();
+    const get = h.a.storage.get.bind(h.a.storage);
+    const failure = vi.spyOn(h.a.storage, "get").mockImplementation(async key => {
+      if (key === h.a.store.name) throw new Error("Temporary storage read failure");
+      return get(key);
+    });
+    await h.a.service.sync();
+    expect(h.a.snapshot.enabled).toBe(true);
+    expect(h.a.snapshot.chats[0]?.messages[0]?.text).toBe("Keep my history visible");
+    expect(h.a.snapshot.error).toContain("Temporary storage read failure");
+    failure.mockRestore(); await h.pump();
+    expect(h.a.snapshot.error).toBe("");
+    expect(h.b.snapshot.chats[0]?.messages).toHaveLength(1);
+  });
+  it("archives a never-submitted placeholder and preserves its draft if the archive write fails", async () => {
+    const h = harness(); await h.a.initialized; await h.a.service.load();
+    await h.a.service.queueMessage(bob.account, "Not lost when I close");
+    await h.a.service.load();
+    const set = h.a.storage.set.bind(h.a.storage);
+    const failure = vi.spyOn(h.a.storage, "set").mockImplementation(async (key, value) => {
+      if (key === h.a.store.name) throw new Error("Archive storage unavailable");
+      return set(key, value);
+    });
+    await expect(h.a.service.close(`pending:${bob.account}`)).rejects.toThrow("Archive storage unavailable");
+    await h.a.store.drafts(drafts => expect(drafts[0]?.text).toBe("Not lost when I close"));
+    failure.mockRestore(); await h.a.service.close(`pending:${bob.account}`); h.a.reload(); await h.a.service.load();
+    expect(h.a.snapshot.chats[0]).toMatchObject({ status: "closed", messages: [{ text: "Not lost when I close", state: "not-sent" }] });
+    await h.a.store.drafts(drafts => expect(drafts).toHaveLength(0));
+    expect(h.operations).toHaveLength(0);
+  });
+  it("lets an established recipient return after the sender has closed, without requiring a receipt wait", async () => {
+    const h = harness(true, true), chat = await h.connect();
+    h.b.service.stop(); h.setLib("1"); h.setHead("5");
+    const submit = h.protocol.submit.bind(h.protocol);
+    const sent = vi.spyOn(h.protocol, "submit").mockImplementation(async options => {
+      if (options.operations.some((op: any) => op.method === "post_private_packet")) {
+        expect(options.waitForReceipt).toBe(false);
+      }
+      return submit(options);
+    });
+    await h.a.service.queueMessage(bob.account, "Waiting on chain while you are away");
+    await h.a.service.load(); await h.a.service.sync();
+    expect(sent).toHaveBeenCalled();
+    expect(h.b.snapshot.chats[0]?.messages).toHaveLength(0);
+    h.a.service.stop(); h.b.reload(); await h.b.service.load(); await h.b.service.sync();
+    expect(h.b.snapshot.chats[0]?.messages).toContainEqual(expect.objectContaining({ text: "Waiting on chain while you are away", mine: false }));
+    await h.b.service.sync();
+    expect(h.b.snapshot.chats[0]?.messages).toHaveLength(1);
+  });
+  it("recovers a placeholder close after draft cleanup fails without creating another archive", async () => {
+    const h = harness(); await h.a.initialized; await h.a.service.load();
+    await h.a.service.queueMessage(bob.account, "Archive once"); await h.a.service.load();
+    const set = h.a.storage.set.bind(h.a.storage);
+    const failure = vi.spyOn(h.a.storage, "set").mockImplementation(async (key, value) => {
+      if (key === `${h.a.store.name}:drafts`) throw new Error("Draft cleanup interrupted");
+      return set(key, value);
+    });
+    await expect(h.a.service.close(`pending:${bob.account}`)).rejects.toThrow("Draft cleanup interrupted");
+    failure.mockRestore(); await h.a.service.close(`pending:${bob.account}`);
+    expect(h.a.snapshot.chats).toHaveLength(1);
+    expect(h.a.snapshot.chats[0]?.messages).toHaveLength(1);
+    await h.a.store.drafts(drafts => expect(drafts).toHaveLength(0));
+  });
+  it("keeps later packets behind an unobserved alias transaction even after the HTTP response", async () => {
+    const h = harness(true, true), chat = await h.connect();
+    const submit = h.protocol.submit.bind(h.protocol);
+    let held: PrivatePacketView | undefined;
+    const sent = vi.spyOn(h.protocol, "submit").mockImplementation(async options => {
+      const result = await submit(options);
+      if (options.operations.some((op: any) => op.method === "post_private_packet")) held = h.packets.pop();
+      return result;
+    });
+    await h.a.service.queueMessage(bob.account, "First");
+    await h.a.service.queueMessage(bob.account, "Second");
+    await h.a.service.load(); await h.a.service.sync(); await h.a.service.sync();
+    expect(sent).toHaveBeenCalledTimes(1);
+    expect(h.a.snapshot.chats[0]?.messages[0]?.state).toBe("submitted");
+    sent.mockRestore(); h.packets.push(held!); await h.pump();
+    expect(h.b.snapshot.chats[0]?.messages.map(m => m.text)).toEqual(["First", "Second"]);
+  });
+  it("reuses prepaid conversation credits for closure and hides only its finality wait", async () => {
+    const h = harness(true, true), chat = await h.connect();
+    const actor = await h.a.store.edit(async data => data.chats[0]!.alias);
+    h.setLib("1"); h.setHead("5");
+    await h.a.service.close(chat); await h.pump();
+    const closed = h.a.snapshot.chats[0]!;
+    expect(closed.status).toBe("closed"); expect(closed.closing).toBeUndefined();
+    await h.a.store.edit(async data => {
+      expect(data.outbox.filter(p => p.kind === "close")).toHaveLength(1);
+      expect(data.outbox[0]).toMatchObject({ actor, purpose: "conversation", observed: true });
+      expect(data.chats[0]?.closeChannelPending).toBe(true);
+    });
+    const original = h.packets.find(p => !p.peer && p.actor === actor && p.packet_id !== chat && p.sequence !== "1")!;
+    h.packets.splice(h.packets.indexOf(original), 1);
+    await h.a.service.sync(); await h.a.service.sync();
+    expect(h.packets.filter(p => p.packet_id === original.packet_id)).toHaveLength(1);
+    expect(h.packets.find(p => p.packet_id === original.packet_id)?.envelope).toBe(original.envelope);
+    h.setLib("1000"); await h.pump();
+    await h.a.store.edit(async data => expect(data.outbox).toHaveLength(0));
   });
 });

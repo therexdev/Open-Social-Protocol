@@ -280,8 +280,12 @@ export class SponsorClient {
       init.signal = AbortSignal.timeout(this.timeoutMs);
     }
     let response: Response;
+    let text: string;
     try {
       response = await this.fetchFn(url, init);
+      // A phone can suspend the response body after headers arrive. Normalize
+      // that failure too so callers retain the same retry/unknown-outcome rules.
+      text = await response.text();
     } catch (error) {
       throw new SponsorError("temporarily_unavailable", `sponsor ${this.endpoint} unreachable: ${(error as Error).message}`, {
         endpoint: this.endpoint,
@@ -289,7 +293,6 @@ export class SponsorClient {
       });
     }
     let payload: unknown = undefined;
-    const text = await response.text();
     if (text.length > 0) {
       try {
         payload = JSON.parse(text);
