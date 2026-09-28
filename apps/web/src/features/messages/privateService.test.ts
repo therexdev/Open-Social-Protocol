@@ -130,15 +130,16 @@ function harness(prepaid = true, fast = false, auto = false, warm = false) {
           const key = toBase64url(a.reservation_id);
           if (!reservations.has(key)) reservations.set(key, { ...a, block: "5" });
         }
-        if (op.method === "set_private_device")
-          devices.set(a.account, [
-            {
+        if (op.method === "set_private_device") {
+          const existing = (devices.get(a.account) ?? []).filter(d => toBase64url(d.device_id) !== toBase64url(a.device_id));
+          devices.set(a.account, [ ...existing, ...(a.delivery_key?.length ? [{
               device_id: a.device_id,
               delivery_key: a.delivery_key,
               label: a.label,
               updated_at: String(Date.now()),
-            },
+            }] : []),
           ]);
+        }
         if (op.method === "open_private_channel") {
           const key = pair(a.actor, a.peer),
             old = channels.get(key);
@@ -298,6 +299,7 @@ function harness(prepaid = true, fast = false, auto = false, warm = false) {
   return {
     a,
     b,
+    device,
     packets,
     operations,
     transactions,
@@ -1162,4 +1164,166 @@ describe("two-browser private conversations", () => {
     h.setLib("1000"); await h.pump();
     await h.a.store.edit(async data => expect(data.outbox).toHaveLength(0));
   });
+});
+
+describe("linked messaging browsers", () => {
+  type Browser = ReturnType<ReturnType<typeof harness>["device"]>;
+  async function pump(browsers: Browser[], n = 8) {
+    for (let i = 0; i < n; i++) for (const browser of browsers) {
+      await browser.service.load(); await browser.service.sync();
+    }
+  }
+  async function add(h: ReturnType<typeof harness>, identity = alice) {
+    const browser = h.device(identity); await browser.initialized;
+    await browser.service.enable(); await pump([browser], 2); return browser;
+  }
+  async function link(a: Browser, phone: Browser) {
+    await a.service.linkDevice(phone.snapshot.deviceId!);
+    await pump([a, phone], 4);
+    const request = phone.snapshot.links!.find(l => l.status === "incoming")!;
+    expect(request).toBeDefined();
+    expect(a.snapshot.links!.find(l => l.status === "outgoing")?.id).toBe(request.id);
+    await phone.service.accept(request.id);
+    await pump([a, phone], 12);
+    expect(a.snapshot.links!.some(l => l.status === "ready")).toBe(true);
+    expect(phone.snapshot.links!.some(l => l.status === "ready")).toBe(true);
+    expect(a.snapshot.error).toBe(""); expect(phone.snapshot.error).toBe("");
+  }
+  it("requires explicit approval despite auto-connect, copies existing history, and never exports the live session", async () => {
+    const h = harness(); const chat = await h.connect();
+    await h.a.service.send(chat, "Earlier desktop message"); await h.pump();
+    const phone = await add(h);
+    await phone.service.setAutoConnect(true);
+    await pump([h.a, h.b, phone], 3);
+    expect(phone.snapshot.chats).toHaveLength(0);
+    await h.a.service.linkDevice(phone.snapshot.deviceId!);
+    await pump([h.a, phone], 5);
+    expect(phone.snapshot.links![0]!.status).toBe("incoming");
+    expect(phone.snapshot.chats).toHaveLength(0);
+    await phone.service.accept(phone.snapshot.links![0]!.id);
+    await pump([h.a, phone], 12);
+    expect(phone.snapshot.chats[0]?.messages.map(m => m.text)).toEqual(["Earlier desktop message"]);
+    expect(phone.snapshot.chats[0]?.synced).toBe(true);
+    await phone.store.edit(async data => {
+      expect(data.chats.filter(c => !c.kind)).toHaveLength(0);
+      expect(data.mirrors?.[0]?.messages[0]?.text).toBe("Earlier desktop message");
+      expect(JSON.stringify(data.mirrors)).not.toMatch(/pickle|ratchet|secret|aliasId|returnKey/);
+    });
+    // Unchanged copies settle: no ever-growing echo loop between devices.
+    const packets = h.packets.length; await pump([h.a, phone], 8);
+    expect(h.packets.length).toBe(packets);
+  });
+  it("catches up after an offline browser returns, including long Unicode messages and reloads", async () => {
+    const h = harness(); const chat = await h.connect(); const phone = await add(h);
+    await link(h.a, phone);
+    const long = "😀".repeat(600);
+    await h.a.service.send(chat, long); await h.pump();
+    await pump([h.a], 10); // phone is offline while the encrypted copies reach chain
+    phone.reload(); await pump([phone], 10);
+    expect(phone.snapshot.chats[0]?.messages.map(m => m.text)).toEqual([long]);
+    expect(phone.snapshot.error).toBe("");
+  });
+  it("supports four browsers with independent sessions, replies from the phone, and one visible copy", async () => {
+    const h = harness(); const root = await h.connect();
+    await h.a.service.setAutoConnect(true); await h.b.service.setAutoConnect(true);
+    const ap = await add(h), bp = await add(h, bob);
+    await ap.service.setAutoConnect(true); await bp.service.setAutoConnect(true);
+    await link(h.a, ap); await link(h.b, bp);
+    await h.a.service.queueMessage(bob.account, "Desktop to both", root);
+    await pump([h.a, h.b, ap, bp], 22);
+    for (const browser of [h.a, h.b, ap, bp]) {
+      expect(browser.snapshot.error).toBe("");
+      expect(browser.snapshot.chats).toHaveLength(1);
+      expect(browser.snapshot.chats[0]?.messages.map(m => m.text)).toEqual(["Desktop to both"]);
+    }
+    await ap.service.queueMessage(bob.account, "Reply from phone", root);
+    await pump([ap, h.b, bp, h.a], 22);
+    for (const browser of [h.a, h.b, ap, bp]) {
+      expect(browser.snapshot.error).toBe("");
+      expect(browser.snapshot.chats).toHaveLength(1);
+      expect(browser.snapshot.chats[0]?.messages.map(m => m.text)).toEqual(["Desktop to both", "Reply from phone"]);
+    }
+    // Once the independent phone route exists, a sleeping desktop is not a gate.
+    await h.b.service.queueMessage(alice.account, "Arrives while desktop is offline", root);
+    await pump([h.b, bp, ap], 12);
+    expect(ap.snapshot.chats[0]?.messages.at(-1)?.text).toBe("Arrives while desktop is offline");
+    await pump([h.a], 6);
+    expect(h.a.snapshot.chats[0]?.messages.filter(m => m.text === "Arrives while desktop is offline")).toHaveLength(1);
+    const a = await h.a.store.edit(async data => data.chats.filter(c => !c.kind && c.status === "ready"));
+    const b = await ap.store.edit(async data => data.chats.filter(c => !c.kind && c.status === "ready"));
+    {
+      expect(a.length).toBe(2); expect(b.length).toBe(2);
+      for (const left of a) for (const right of b) {
+        expect(left.alias).not.toBe(right.alias);
+        expect(left.ratchet).not.toEqual(right.ratchet);
+      }
+    }
+  }, 30000);
+  it("stops copying after revocation and does not reauthorize a re-enabled browser", async () => {
+    const h = harness(); const root = await h.connect(); const phone = await add(h);
+    await link(h.a, phone);
+    await h.a.service.send(root, "Before removal"); await pump([h.a, h.b, phone], 10);
+    await h.a.service.revokeDevice(phone.snapshot.deviceId!);
+    await pump([h.a, phone], 2);
+    expect(phone.snapshot.enabled).toBe(false);
+    await phone.service.enable(); await pump([phone], 2);
+    await h.a.service.send(root, "After removal"); await pump([h.a, h.b, phone], 10);
+    expect(phone.snapshot.chats[0]?.messages.map(m => m.text)).toEqual(["Before removal"]);
+    expect(phone.snapshot.links!.every(l => l.status === "closed")).toBe(true);
+  });
+  it("closes a mirrored conversation on the linked native browser and its peer", async () => {
+    const h = harness(); const root = await h.connect(); const phone = await add(h);
+    await h.a.service.send(root, "Preserve this history"); await h.pump();
+    await link(h.a, phone);
+    await phone.service.close(root); await pump([phone, h.a, h.b], 15);
+    for (const browser of [phone, h.a, h.b]) {
+      expect(browser.snapshot.chats[0]?.status).toBe("closed");
+      expect(browser.snapshot.chats[0]?.messages[0]?.text).toBe("Preserve this history");
+    }
+    await expect(phone.service.queueMessage(bob.account, "Must not reopen", root)).rejects.toThrow("closed");
+  });
+  it("recovers a multipart history batch after a crash between encrypted frames", async () => {
+    const h = harness(); const root = await h.connect(); const phone = await add(h);
+    await link(h.a, phone);
+    const service = h.a.service as any;
+    const send = service.sendInFile.bind(service);
+    let failed = false;
+    const crash = vi.spyOn(service, "sendInFile").mockImplementation(async (...args: any[]) => {
+      await send(...args);
+      if (!failed && args[0].chats.find((c: any) => c.id === args[2])?.kind) {
+        failed = true; throw new Error("Browser interrupted after saving a history frame");
+      }
+    });
+    const text = "Long encrypted history 😀 ".repeat(80);
+    await h.a.service.send(root, text); await pump([h.a], 2);
+    expect(failed).toBe(true); crash.mockRestore(); h.a.reload(); phone.reload();
+    await pump([h.a, h.b, phone], 16);
+    expect(phone.snapshot.chats[0]?.messages.map(m => m.text)).toEqual([text]);
+    expect(phone.snapshot.error).toBe("");
+    const before = h.packets.length; await pump([h.a, phone], 8);
+    expect(h.packets.length).toBe(before);
+  });
+  it("converges simultaneous link requests and never auto-approves the winning request", async () => {
+    const h = harness(true, false, true); await h.a.service.enable(); await h.pump();
+    const phone = await add(h);
+    await Promise.all([h.a.service.linkDevice(phone.snapshot.deviceId!), phone.service.linkDevice(h.a.snapshot.deviceId!)]);
+    await pump([h.a, phone], 6);
+    const a = h.a.snapshot.links!.filter(l => l.status !== "closed"), b = phone.snapshot.links!.filter(l => l.status !== "closed");
+    expect(a).toHaveLength(1); expect(b).toHaveLength(1); expect(a[0]!.id).toBe(b[0]!.id);
+    expect([a[0]!.status, b[0]!.status].sort()).toEqual(["incoming", "outgoing"]);
+    await (a[0]!.status === "incoming" ? h.a : phone).service.accept(a[0]!.id);
+    await pump([h.a, phone], 10);
+    expect(h.a.snapshot.links!.filter(l => l.status === "ready")).toHaveLength(1);
+    expect(phone.snapshot.links!.filter(l => l.status === "ready")).toHaveLength(1);
+  });
+  it("unlinks without deleting history and refuses future copies until approved again", async () => {
+    const h = harness(); const root = await h.connect(); const phone = await add(h);
+    await h.a.service.send(root, "Keep the old copy"); await h.pump(); await link(h.a, phone);
+    const linkId = phone.snapshot.links!.find(l => l.status === "ready")!.id;
+    await phone.service.close(linkId); await pump([phone, h.a], 8);
+    expect(h.a.snapshot.links!.find(l => l.id === linkId)!.status).toBe("closed");
+    await h.a.service.send(root, "Do not copy this"); await pump([h.a, h.b, phone], 8);
+    expect(phone.snapshot.chats[0]?.messages.map(m => m.text)).toEqual(["Keep the old copy"]);
+  });
+
 });

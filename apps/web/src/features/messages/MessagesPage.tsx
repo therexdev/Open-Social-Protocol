@@ -9,6 +9,7 @@ import { MessageRecipientPicker } from "./MessageRecipientPicker";
 import { useMessagePeople } from "./useMessagePeople";
 import type { PrivateSnapshot } from "./privateService";
 import { RichText } from "../../components/RichText";
+import { deviceLinkCode, messageKey } from "./deviceSync";
 
 const labels = {
   incoming: "Message request",
@@ -20,6 +21,7 @@ const labels = {
 function chatLabel(chat: PrivateSnapshot["chats"][number]): string {
   if (chat.error) return "Needs attention";
   if (chat.closing) return "Closing · notifying peer";
+  if (chat.synced && chat.status !== "closed") return "Synced";
   if (chat.status !== "outgoing") return labels[chat.status];
   return chat.requestDelivery === "failed" ? "Needs attention" : "Connecting";
 }
@@ -49,7 +51,7 @@ export function MessagesPage() {
   const existingChat = snapshot.chats.find(c => c.peer === input && c.status !== "closed");
   useEffect(() => {
     setInput(target);
-    setSelected(linkedChat ? target : "");
+    setSelected(linkedChat ?? "");
     setComposing(!!target && !linkedChat);
     setConversationView("open");
     setText("");
@@ -110,15 +112,14 @@ export function MessagesPage() {
           </Button>
         </Notice>
       )}
-      {snapshot.enabled && !chat && !composing && (snapshot.devices?.length ?? 0) > 1 && <Notice>
-        You have messaging enabled on more than one browser. Conversations currently stay on the browser that received them; phone and desktop history do not sync yet.
+      {snapshot.enabled && !chat && !composing && (snapshot.devices?.length ?? 0) > 1 && !snapshot.links?.some(link => link.status === "ready") && <Notice>
+        Link your browsers below to share message history between your phone and desktop. Keep both unlocked while linking, then approve the matching code on your other browser.
       </Notice>}
       {!snapshot.enabled ? (
         <Card title="Private messages on this browser">
           <p>
-            Your conversations and history stay on this device. An account
-            recovery file restores your profile, but cannot restore these
-            messages.
+            Messages are saved securely on this browser. You can link another
+            browser to copy history. An account recovery file alone cannot restore messages.
           </p>
           <Button
             variant="primary"
@@ -151,7 +152,7 @@ export function MessagesPage() {
                 {id => <input id={id} type="search" placeholder="Search a name or address" value={chatSearch} onChange={event => setChatSearch(event.target.value)} />}
               </Field>
               <div className="conversation-choices">
-                {visibleChats.map(c => <Button key={c.id} aria-pressed={c.id === chat?.id} className="private-chat-choice" onClick={() => { setSelected(c.status === "closed" ? c.id : c.peer); setComposing(false); setText(""); setError(""); }}>
+                {visibleChats.map(c => <Button key={c.id} aria-pressed={c.id === chat?.id} className="private-chat-choice" onClick={() => { setSelected(c.id); setComposing(false); setText(""); setError(""); }}>
                   <Avatar account={c.peer} name={people.name(c.peer)} />
                   <span className="private-chat-person"><strong>{people.name(c.peer)}</strong><span className="chat-preview">{c.messages.at(-1)?.text || "Start a conversation"}</span></span>
                   <small className="private-chat-status">{chatLabel(c)}</small>
@@ -191,7 +192,7 @@ export function MessagesPage() {
               >
                 Send message
               </Button>
-              {existingChat && <Button type="button" variant="ghost" onClick={() => { setSelected(input); setComposing(false); setText(""); }}>Open conversation</Button>}
+              {existingChat && <Button type="button" variant="ghost" onClick={() => { setSelected(existingChat.id); setComposing(false); setText(""); }}>Open conversation</Button>}
             </form>
           </Card>}
             {!chat && !composing && (snapshot.chats.length > 0 || conversationView === "closed") && <div className="conversation-placeholder"><span className="feature-icon"><Icon name="message" size={30} /></span><h2>A little closer to your people.</h2><p>Choose a conversation, or start a new one.</p><Button variant="primary" onClick={() => { setComposing(true); setConversationView("open"); }}>New message <Icon name="plus" size={18} /></Button></div>}
@@ -227,7 +228,7 @@ export function MessagesPage() {
                 }}>
                   {chat.messages.map((m) => (
                     <div
-                      key={m.id}
+                      key={messageKey(m)}
                       className={`message-bubble ${m.mine ? "mine" : ""}`}
                     >
                       <small>
@@ -258,7 +259,7 @@ export function MessagesPage() {
                       e.preventDefault();
                       void run(async () => {
                         followMessages.current = true;
-                        await service!.queueMessage(chat.peer, text);
+                        await service!.queueMessage(chat.peer, text, chat.id.startsWith("pending:") ? undefined : chat.id);
                         setText("");
                       });
                     }}
@@ -311,6 +312,30 @@ export function MessagesPage() {
           closing the browser pauses unfinished delivery.
         </p>
       )}
+      {snapshot.enabled && !!snapshot.devices?.length && <Card title="Linked browsers" className="linked-browsers">
+        <p>Copy existing history and new messages securely between browsers you approve. Each browser keeps its own message keys. Copies use your existing message credits.</p>
+        <p className="muted">This browser: <strong className="mono">{snapshot.deviceId?.slice(0, 8)}</strong></p>
+        <p>Open Messages on both browsers. Choose Link here, then compare the code on both screens before approving on the other browser. Only approve a request you started.</p>
+        {snapshot.devices.filter(d => !d.current).map(device => {
+          const link = snapshot.links?.find(l => l.deviceId === device.id && l.status !== "closed");
+          return <div key={device.id} className="browser-link-row">
+            <div className="row"><strong>{device.label || "Browser"} · <span className="mono">{device.id.slice(0, 8)}</span></strong>
+              {!link && <Button disabled={!service || busy || !snapshot.registered} onClick={() => void run(() => service!.linkDevice(device.id))}>Link</Button>}
+              {link?.status === "ready" && <span className="muted" role="status">{link.pending ? "Copying history…" : "Linked · updates automatically"}</span>}
+            </div>
+            {link && link.status !== "ready" && <>
+              <p>Compare this code on both browsers:</p>
+              <p className="device-link-code mono">{deviceLinkCode(link.id)}</p>
+              {link.status === "incoming" ? <Button variant="primary" disabled={!service || !can.ok} busy={busy} onClick={() => void run(() => service!.accept(link.id))}>Codes match — approve link</Button>
+                : <p role="status">{link.status === "outgoing" ? "Waiting for approval on your other browser." : "Connecting the browsers…"}</p>}
+            </>}
+            {link?.error && <Notice kind="error">{link.error}</Notice>}
+            {link && <Button variant="ghost" disabled={!service} busy={busy} onClick={() => void run(() => service!.close(link.id))}>{link.status === "incoming" ? "Decline link" : link.status === "ready" ? "Unlink" : "Cancel link"}</Button>}
+          </div>;
+        })}
+        {snapshot.devices.length === 1 && <p>Enable messaging on your other browser to link it here.</p>}
+        <p className="hint">A linked browser can catch up after being offline. History copying pauses while the sending browser is closed or locked. Unlinking stops future copies; it cannot erase messages already copied.</p>
+      </Card>}
       <details className="private-message-details">
         <summary>Privacy and message history</summary>
         <p>On chain means the network has recorded the encrypted message. It does not mean the other person has read it.</p>
@@ -348,8 +373,7 @@ export function MessagesPage() {
         <details className="private-message-details">
           <summary>Messaging browsers</summary>
           <p>
-            Removing a browser stops new message requests to it. It cannot erase
-            messages already saved there.
+            Removing a browser stops new requests and new copies sent by updated browsers. It cannot erase messages already sent or saved there.
           </p>
           {snapshot.devices.map((d) => (
             <div className="row" key={d.id}>

@@ -9,7 +9,7 @@ const bob = "1WhPkYjyS1ChEKmbxNAyFUHLuRVQCjNMF";
 const other = "16HVcW9kHPJYd8CgAwdw7smZuU1nqiNzAN";
 const mocks = vi.hoisted(() => ({
   value: {
-    service: { me: { account: "1EiR6tc8jtVK6boR5w1chjq17XEXXHiNk4" }, enable: vi.fn(), sync: vi.fn(), send: vi.fn(), start: vi.fn(), accept: vi.fn(), queueMessage: vi.fn(), setAutoConnect: vi.fn(), setPrepareInAdvance: vi.fn() },
+    service: { me: { account: "1EiR6tc8jtVK6boR5w1chjq17XEXXHiNk4" }, enable: vi.fn(), sync: vi.fn(), send: vi.fn(), start: vi.fn(), accept: vi.fn(), queueMessage: vi.fn(), setAutoConnect: vi.fn(), setPrepareInAdvance: vi.fn(), linkDevice: vi.fn(), close: vi.fn(), revokeDevice: vi.fn() },
     snapshot: { enabled: false, registered: false, autoConnect: true, chats: [] as any[], pending: 0, error: "" },
   },
   search: vi.fn(), friends: [] as string[], names: {} as Record<string, string>,
@@ -53,7 +53,7 @@ function chat(peer = bob) {
 }
 function enabled() { mocks.value.snapshot.enabled = true; mocks.value.snapshot.registered = true; }
 it("explains seed recovery does not restore chat history before enabling", async () => {
-  await mount(); expect(container.textContent).toContain("cannot restore these messages");
+  await mount(); expect(container.textContent).toContain("cannot restore messages");
   await act(async () => button("Enable private messages").click());
   expect(mocks.value.service.enable).toHaveBeenCalled();
 });
@@ -102,10 +102,12 @@ it("distinguishes local queue, submitted, and on-chain messages without claiming
   expect(container.textContent).toContain("On chain · confirming");
   expect(container.textContent).toContain("It does not mean the other person has read it");
 });
-it("explains separate browser histories when the account has multiple messaging devices", async () => {
+it("offers linking when the account has multiple messaging devices", async () => {
   enabled(); Object.assign(mocks.value.snapshot, { devices: [{ id: "desktop", current: true }, { id: "phone", current: false }] });
   await mount();
-  expect(container.textContent).toContain("phone and desktop history do not sync yet");
+  expect(container.textContent).toContain("Link your browsers below");
+  await act(async () => button("Link").click());
+  expect(mocks.value.service.linkDevice).toHaveBeenCalledWith("phone");
 });
 it("opens a friend's existing chat from a profile link without creating a request", async () => {
   enabled(); mocks.value.snapshot.chats = [chat()];
@@ -260,4 +262,17 @@ it("a new message returns from the closed archive to the open inbox", async () =
   await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="New message"]')!.click());
   expect(container.querySelector<HTMLSelectElement>('select[aria-label="Conversation view"]')?.value).toBe("open");
   expect(container.querySelector('[role="combobox"]')).not.toBeNull();
+});
+
+it("requires an explicit matching-code action for a new browser link", async () => {
+  enabled(); Object.assign(mocks.value.snapshot, {
+    deviceId: "local", devices: [{ id: "local", current: true }, { id: "phone", current: false }],
+    links: [{ id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa=", deviceId: "phone", status: "incoming", pending: 0 }],
+  });
+  await mount();
+  expect(mocks.value.service.accept).not.toHaveBeenCalled();
+  expect(container.querySelector(".device-link-code")?.textContent).toMatch(/^[A-F0-9]{4}( [A-F0-9]{4}){3}$/);
+  expect(container.textContent).toContain("Only approve a request you started");
+  await act(async () => button("Codes match — approve link").click());
+  expect(mocks.value.service.accept).toHaveBeenCalledWith("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa=");
 });

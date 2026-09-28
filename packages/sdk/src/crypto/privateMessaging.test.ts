@@ -185,3 +185,19 @@ describe("private messaging v2", () => {
     ).rejects.toThrow();
   });
 });
+
+it("authenticates logical message/device/thread metadata without breaking text-only sessions", async () => {
+  const p = await pair(), c = context();
+  const metadata = { id: toBase64url(randomBytes(32)), deviceId: toBase64url(randomBytes(32)), threadId: toBase64url(randomBytes(32)), sentAt: 1234 };
+  const sent = await encryptPrivateMessage(p.aKey, p.a, c, "One copy on each device", metadata);
+  const received = await decryptPrivateMessage(p.bKey, p.b, c, sent.envelope);
+  expect(received.metadata).toEqual(metadata);
+  expect(received.text).toBe("One copy on each device");
+  const replyContext = context("bob", "alice");
+  const reply = await encryptPrivateMessage(p.bKey, received.state, replyContext, "Legacy text payload");
+  expect((await decryptPrivateMessage(p.aKey, sent.state, replyContext, reply.envelope)).metadata).toBeUndefined();
+  await expect(encryptPrivateMessage(p.aKey, sent.state, c, "Bad routing", { ...metadata, id: "invalid" })).rejects.toThrow("metadata");
+  // Failed validation must not consume a sender key.
+  const retry = await encryptPrivateMessage(p.aKey, sent.state, c, "Valid retry", metadata);
+  expect((await decryptPrivateMessage(p.bKey, received.state, c, retry.envelope)).text).toBe("Valid retry");
+});

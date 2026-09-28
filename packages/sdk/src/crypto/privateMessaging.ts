@@ -45,6 +45,20 @@ export interface RatchetWire {
   type: number;
   body: string;
 }
+/** Optional authenticated routing information; older v2 readers still see text. */
+export interface PrivateMessageMetadata {
+  id: string;
+  deviceId: string;
+  threadId: string;
+  sentAt: number;
+}
+function validMessageMetadata(value: unknown): value is PrivateMessageMetadata {
+  if (!value || typeof value !== "object") return false;
+  const m = value as PrivateMessageMetadata;
+  const key = (v: unknown) => typeof v === "string" && /^[A-Za-z0-9_-]{43}=$/.test(v)
+    && fromBase64url(v).length === 32 && toBase64url(fromBase64url(v)) === v;
+  return key(m.id) && key(m.deviceId) && key(m.threadId) && Number.isSafeInteger(m.sentAt) && m.sentAt >= 0;
+}
 export const PRIVATE_MESSAGE_LIMIT = 2500;
 export const PRIVATE_INVITATION_PLAINTEXT = 4096;
 export const PRIVATE_PACKET_LIMIT = 6144;
@@ -296,11 +310,13 @@ export async function encryptPrivateMessage(
   state: RatchetState,
   context: PrivatePacketContext,
   text: string,
+  metadata?: PrivateMessageMetadata,
 ): Promise<{ state: RatchetState; envelope: Uint8Array }> {
   if (!text.trim() || utf8(text).length > PRIVATE_MESSAGE_LIMIT)
     throw new Error(
       `Message must contain 1–${PRIVATE_MESSAGE_LIMIT} UTF-8 bytes`,
     );
+  if (metadata && !validMessageMetadata(metadata)) throw new Error("Invalid message routing metadata");
   const lib = await olm(),
     session = lib.Session.from_pickle(state.pickle, pickleKey);
   let message: OlmMessage | undefined;
@@ -313,6 +329,7 @@ export async function encryptPrivateMessage(
         ...context,
         sessionId: state.sessionId,
         text,
+        ...(metadata && { metadata }),
       }),
     );
     const envelope = utf8(
@@ -339,7 +356,7 @@ export async function decryptPrivateMessage(
   state: RatchetState,
   context: PrivatePacketContext,
   envelope: Uint8Array,
-): Promise<{ state: RatchetState; text: string }> {
+): Promise<{ state: RatchetState; text: string; metadata?: PrivateMessageMetadata }> {
   if (envelope.length > PRIVATE_PACKET_LIMIT)
     throw new Error("Encrypted message is too large");
   const lib = await olm(),
@@ -353,6 +370,7 @@ export async function decryptPrivateMessage(
       domain: string;
       sessionId: string;
       text: string;
+      metadata?: PrivateMessageMetadata;
     };
     if (
       payload.domain !== "osp/private-message/v2" ||
@@ -366,11 +384,13 @@ export async function decryptPrivateMessage(
       typeof payload.text !== "string" ||
       !payload.text.trim() ||
       utf8(payload.text).length > PRIVATE_MESSAGE_LIMIT
+      || (payload.metadata !== undefined && !validMessageMetadata(payload.metadata))
     )
       throw new Error("Message authentication context mismatch");
     return {
       state: { pickle: session.pickle(pickleKey), sessionId: state.sessionId },
       text: payload.text,
+      ...(payload.metadata && { metadata: payload.metadata }),
     };
   } finally {
     message?.free();

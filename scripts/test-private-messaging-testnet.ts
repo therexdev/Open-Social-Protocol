@@ -53,8 +53,7 @@ const lock: ExclusiveLock = (name, action) => {
   const next = (locks.get(name) ?? Promise.resolve()).catch(() => {}).then(action);
   locks.set(name, next); return next;
 };
-const browsers = [0, 1].map(index => {
-  const me = identityFromSeed(randomBytes(32));
+function browser(me = identityFromSeed(randomBytes(32)), index = 0) {
   const store = new PrivateStore(me.account, me.seed, { chainId: client.chainId, contract: deployment.contracts.messaging.address }, () => true, memoryStorage(), lock);
   let snapshot: PrivateSnapshot = { enabled: false, registered: false, chats: [], pending: 0, error: "" };
   let last = "";
@@ -64,7 +63,8 @@ const browsers = [0, 1].map(index => {
     if (summary !== last) { console.log(`BROWSER ${index + 1}`, summary); last = summary; }
   });
   return { me, service, store, get snapshot() { return snapshot; } };
-});
+}
+const browsers = [browser(undefined, 0), browser(undefined, 1)];
 const [a, b] = browsers;
 let lastError = "";
 useToasts.subscribe(state => {
@@ -126,6 +126,25 @@ try {
   await b!.service.queueMessage(a!.me.account, "Live test: reply from the second browser");
   await until("sender decrypts reply", () => !!a!.snapshot.chats.find(c => c.id === chat)?.messages.some(m => !m.mine && m.text === "Live test: reply from the second browser"));
   console.log("PASS automatic connection and bidirectional encrypted messages");
+  if (process.argv.includes("--devices")) {
+    const phone = browser(a!.me, 2);
+    browsers.push(phone);
+    await phone.service.enable();
+    await until("third browser enabled", () => phone.snapshot.registered, 180_000);
+    assert.equal(phone.snapshot.chats.length, 0, "Seed alone must not restore history");
+    await a!.service.linkDevice(phone.snapshot.deviceId!);
+    await until("explicit device link request arrives", () => phone.snapshot.links?.some(l => l.status === "incoming") === true, 300_000);
+    const request = phone.snapshot.links!.find(l => l.status === "incoming")!;
+    assert.equal(a!.snapshot.links!.find(l => l.status === "outgoing")!.id, request.id);
+    assert.equal(phone.snapshot.chats.length, 0, "Automatic conversation acceptance must not approve a device link");
+    await phone.service.accept(request.id);
+    await until("phone decrypts existing desktop history", () => phone.snapshot.chats.some(c => c.id === chat && c.messages.length === 2), 300_000);
+    await phone.service.queueMessage(b!.me.account, "Live test: reply from linked phone", chat);
+    await until("phone reply reaches peer and desktop exactly once", () => [a!, b!, phone].every(d =>
+      d.snapshot.chats.find(c => c.id === chat)?.messages.filter(m => m.text === "Live test: reply from linked phone").length === 1), 300_000);
+    console.log("PASS explicit device linking, history copy and independent phone reply on testnet");
+  }
+
   if (process.argv.includes("--lifecycle")) {
     await b!.service.close(chat);
     await until("connected conversation closes on both browsers", () => browsers.every(d => d.snapshot.chats.some(c => c.id === chat && c.status === "closed")));

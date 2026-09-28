@@ -65,8 +65,9 @@ export function PrivateMessagingProvider({
       resolved.sponsorUrls,
       resolved.payment,
       (snapshot) => {
-        workPending = snapshot.pending > 0 || !!snapshot.preparingAllowance || (snapshot.enabled && !snapshot.registered)
-          || snapshot.chats.some(c => c.status === "accepting" || c.status === "outgoing" || c.closing);
+        workPending = snapshot.pending > 0 || !!snapshot.preparingAllowance || !!snapshot.syncingBrowsers || (snapshot.enabled && !snapshot.registered)
+          || snapshot.chats.some(c => c.status === "accepting" || c.status === "outgoing" || c.closing)
+          || snapshot.links?.some(c => c.status === "accepting" || c.status === "outgoing" || c.pending > 0) === true;
         if (alive && vault.getState().session?.identity === me) {
           setValue({ service, snapshot });
           if (snapshot.enabled && !stopWatching) stopWatching = indexer.watchPrivateUpdates(sync);

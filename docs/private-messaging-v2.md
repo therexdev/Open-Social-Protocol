@@ -424,3 +424,53 @@ two-tab sends, failed queue cleanup, failed signing, merge recovery, cancellatio
 reorganizations, and vault deletion. Prepared-allowance replenishment pauses for a minute
 after chat activity so it does not compete with replies. Pending badges exclude observed
 messages and control packets retained only for recovery.
+
+### Linked browsers (2026-09-28)
+
+The linked-messaging-browsers frontend adds an explicit **Linked browsers** flow.
+Enable messages on both browsers, start Link on one, compare the 64-bit invitation
+code on both screens, and approve the matching request on the other. Automatic
+conversation acceptance NEVER approves a device link. Simultaneous link requests
+converge to one request and still require approval. An account seed alone does not
+restore history or silently enroll a browser into history sharing.
+
+An approved link uses its own Olm session over the existing v2 on-chain transport.
+Only whitelisted conversation metadata and readable history records are copied;
+no live ratchet, pickle key, signing secret, delivery secret, or one-time setup is
+exported. Copies are encrypted in transit and saved under the receiving browser's
+own encrypted store. This deliberately creates another readable history copy on
+an approved device: compromising that unlocked device can expose copied history.
+It does not promise that saved plaintext history can never be exposed.
+
+History sync batches small records and splits long records into hash-checked parts.
+The batch and packet IDs are persisted before encryption; advanced ratchets, exact
+ciphertext, and delivery records commit together. Retries resume the same packet,
+including after a crash between parts. Logical message IDs merge duplicate copies
+and converge state updates without repeated echo traffic. Newer records precede
+older history. Closures propagate across linked browsers, including a mirrored-only
+thread closed on the phone, while preserving already saved text.
+
+Updated peers can deliver through independent sessions for every registered device
+pair, grouped into one logical conversation. Secondary-device setup does not block
+the primary message; its copy job remains durable until the target can connect.
+Routing capability is negotiated through optional authenticated invitation/acceptance
+fields; existing text-only sessions remain readable. A browser upgrade does not
+replace or clear local messaging storage. Device removal stops future copies after
+the directory check; delivery-key changes invalidate a pinned history link. Re-enabling
+a revoked browser requires a new approved link. Unlinking/removal cannot erase copies
+already delivered. All additional on-chain copies consume the existing usage allowance.
+
+No relay, new contract, sponsor policy change, or backend redeployment is required
+for this frontend release. Both linked browsers need the new frontend. Initial
+linking and first-time device-pair connection still require both relevant browsers
+to be online and unlocked once. After that, ciphertext can wait on-chain for an
+offline recipient. Browser suspension can pause unsent work; this is not a native
+background push service. Future offline prekey setup remains a separate upgrade.
+
+Validation includes four independent browser stores, explicit approval with auto-connect
+on, old-history copy, offline catch-up, Unicode multipart history, interrupted batch
+recovery, independent phone replies, revocation/re-enrollment, unlinking, simultaneous
+link requests, duplicate suppression, and linked conversation closure. Run the opt-in
+live journey with `npm run test:private-messaging:testnet -- --execute --devices` to
+exercise seed-only isolation, linking, history copy, and a phone reply using disposable
+test identities against the deployed testnet.

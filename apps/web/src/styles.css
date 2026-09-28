@@ -1209,3 +1209,9 @@ select, .quick-composer select, .conversation-list select, .composer-identity se
   .friend-actions { padding-left: 0; }
   .feed-heading h1 { font-size: 1.7rem; }
 }
+
+.browser-link-row { padding: 1rem 0; border-top: 1px solid var(--border); min-width: 0; }
+.browser-link-row .row { flex-wrap: wrap; gap: .75rem; }
+.browser-link-row .mono { overflow-wrap: anywhere; }
+.device-link-code { font-size: clamp(1rem, 4vw, 1.35rem); font-weight: 700; letter-spacing: .06em; overflow-wrap: anywhere; }
+.linked-browsers { margin-top: 1rem; }

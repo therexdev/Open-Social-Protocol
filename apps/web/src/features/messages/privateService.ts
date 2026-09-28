@@ -24,6 +24,7 @@ import {
   type PrivatePacketContext,
   type PrivateScope,
   type ProtocolClient,
+  type PrivateDevice,
   type SignerInterface,
   PRIVATE_MESSAGE_LIMIT,
   utf8,
@@ -44,6 +45,7 @@ import {
   type QueuedPrivateMessage,
   type Signed,
 } from "./privateStore";
+import { encodeHistoryFrames, historyRecords, historyThreads, mergeMessage, receiveHistoryFrame, recordHash, recordKey, threadId } from "./deviceSync";
 
 const id = () => toBase64url(randomBytes(32));
 const INVITATION_LIFETIME = 7 * 86_400_000;
@@ -54,12 +56,14 @@ export interface PrivateSnapshot {
   autoConnect?: boolean;
   prepareInAdvance?: boolean;
   preparingAllowance?: boolean;
+  syncingBrowsers?: boolean;
   chats: Array<
     Pick<PrivateChat, "id" | "peer" | "status" | "messages" | "createdAt"> & {
       requestDelivery?: "preparing" | "confirming" | "sent" | "failed";
       closing?: boolean;
       progress?: string;
       error?: string;
+      synced?: boolean;
     }
   >;
   pending: number;
@@ -70,6 +74,8 @@ export interface PrivateSnapshot {
     current: boolean;
     updatedAt: string;
   }>;
+  links?: Array<{ id: string; deviceId: string; status: PrivateChat["status"]; progress?: string; error?: string; pending: number }>;
+  deviceId?: string;
 }
 export class PrivateMessagingService {
   readonly scope: PrivateScope;
@@ -85,6 +91,8 @@ export class PrivateMessagingService {
   private readonly verifiedProvisional = new Map<string, string>();
   private stopped = false;
   private devices: NonNullable<PrivateSnapshot["devices"]> = [];
+  private directory: PrivateDevice[] = [];
+  private peerDirectories = new Map<string, PrivateDevice[]>();
   private fundingSteps = new Map<string, string>();
   private channelSteps = new Map<string, string>();
   private chatErrors = new Map<string, string>();
@@ -129,6 +137,8 @@ export class PrivateMessagingService {
   }
   private snapshot(data: PrivateFile): void {
     if (this.stopped) return;
+    const native = data.chats.filter(c => !c.kind);
+    const histories = historyThreads(data);
     this.lastSnapshot = {
       enabled: data.enabled,
       autoConnect: data.autoConnect !== false,
@@ -136,7 +146,20 @@ export class PrivateMessagingService {
       preparingAllowance: data.enabled && !!data.registered && !!data.spareAliasId && !data.spareAliasReady
         && data.prepareInAdvance !== false && Date.now() >= this.warmRetryAt,
       registered: !!data.registered,
-      chats: data.chats.map((c) => {
+      syncingBrowsers: !!data.deliveries?.length || data.chats.some(c => c.kind && c.syncApproved && c.status !== "closed"
+        && (c.status !== "ready" || !!c.syncBatch || data.outbox.some(p => p.chatId === c.id && !p.observed))),
+      deviceId: data.deviceId,
+      links: data.chats.filter(c => c.kind === "device-link" && c.peerDeviceId).map(c => ({
+        id: c.id, deviceId: c.peerDeviceId!, status: c.status,
+        progress: this.channelSteps.get(c.id) ?? this.fundingSteps.get(c.alias),
+        error: this.chatErrors.get(c.id) ?? data.outbox.find(p => p.chatId === c.id && p.error)?.error,
+        pending: data.outbox.filter(p => p.chatId === c.id && !p.observed).length,
+      })),
+      chats: histories.map(history => {
+        const routes = native.filter(c => threadId(c) === history.id);
+        const c = routes.find(c => c.status === "ready") ?? routes.find(c => c.status !== "closed") ?? routes[0];
+        if (!c || (c.routeOnlyClosed && history.closedAt === undefined)) return { id: history.id, peer: history.peer, status: history.closedAt === undefined ? "ready" as const : "closed" as const,
+          messages: structuredClone(history.messages), createdAt: history.createdAt, synced: true };
         const request = data.outbox.find(p => p.chatId === c.id && !p.peer && p.kind !== "close");
         const closing = c.status === "closed" && (c.closeNotice === "needed"
           || (c.closeNotice === "queued" && data.outbox.some(p => p.chatId === c.id && p.kind === "close" && !p.observed))
@@ -151,11 +174,11 @@ export class PrivateMessagingService {
         const requestDelivery = !request || request.observed ? "sent" : request.error ? "failed"
           : request.lastAttempt ? "confirming" : "preparing";
         return {
-          id: c.id,
+          id: history.id,
           peer: c.peer,
-          status: c.status,
-          messages: structuredClone(c.messages),
-          createdAt: c.createdAt,
+          status: history.closedAt === undefined ? c.status : "closed" as const,
+          messages: structuredClone(history.messages),
+          createdAt: history.createdAt,
           ...(c.status === "outgoing" && { requestDelivery }),
           ...(closing && { closing }),
           ...(progress && { progress }),
@@ -164,7 +187,7 @@ export class PrivateMessagingService {
       }),
       // Control packets and already observed ciphertext are not unsent messages.
       // Keep recovery records until finality without a minutes-long sending badge.
-      pending: data.outbox.filter(p => p.peer && !p.observed).length,
+      pending: data.outbox.filter(p => p.peer && !p.kind && !p.observed).length,
       error: this.error,
       devices: this.devices,
     };
@@ -188,11 +211,12 @@ export class PrivateMessagingService {
     }
     this.changed(value);
   }
-  async queueMessage(peer: string, text: string): Promise<void> {
+  async queueMessage(peer: string, text: string, requestedThread?: string): Promise<void> {
     this.active();
     if (!isAddress(peer) || peer === this.me.account) throw new Error("Choose another person to message");
     if (!text.trim() || utf8(text).length > PRIVATE_MESSAGE_LIMIT) throw new Error(`Message must contain 1–${PRIVATE_MESSAGE_LIMIT} UTF-8 bytes`);
-    const chatId = this.lastSnapshot.chats.find(c => c.peer === peer && c.status !== "closed")?.id;
+    const chatId = this.lastSnapshot.chats.find(c => c.peer === peer && c.status !== "closed" && (!requestedThread || c.id === requestedThread))?.id;
+    if (requestedThread && !chatId) throw new Error("This conversation is closed");
     this.queued = await this.store.drafts(drafts => {
       if (drafts.filter(d => d.peer === peer).length >= 20) throw new Error("Wait for your pending messages to send");
       drafts.push({ id: id(), peer, chatId, text, createdAt: Date.now() });
@@ -270,6 +294,11 @@ export class PrivateMessagingService {
         data.registered = false;
       }
       this.devices = this.devices.filter((d) => d.id !== deviceId);
+      this.directory = this.directory.filter(d => toBase64url(d.device_id) !== deviceId);
+      for (const link of data.chats.filter(c => c.kind && (c.peerDeviceId === deviceId || deviceId === data.deviceId))) {
+        this.markClosed(data, link);
+        link.closeNotice = "received";
+      }
       await save();
       this.snapshot(data);
     });
@@ -299,12 +328,38 @@ export class PrivateMessagingService {
     void this.sync();
     return result;
   }
-  private async startInFile(data: PrivateFile, save: () => Promise<void>, peer: string): Promise<string> {
-    if (!isAddress(peer) || peer === this.me.account)
+  async linkDevice(deviceId: string): Promise<void> {
+    if (!validId(deviceId)) throw new Error("Choose a registered messaging browser");
+    await this.store.edit((data, save) => this.startInFile(data, save, this.me.account, { deviceId, deviceLink: true }));
+    void this.sync();
+  }
+  private linkCurrent(chat: PrivateChat): boolean {
+    return chat.kind === "device-link" && !!this.directory.find(d => toBase64url(d.device_id) === chat.peerDeviceId && toBase64url(d.delivery_key) === chat.peerDeliveryKey);
+  }
+  private async recipientDevices(peer: string): Promise<PrivateDevice[]> {
+    const cached = this.peerDirectories.get(peer);
+    if (cached) return cached;
+    const devices = (await this.protocol.reads.messaging.get_private_devices({ account: peer }))?.values;
+    if (!devices) throw new Error("Could not read the messaging device directory");
+    this.peerDirectories.set(peer, devices);
+    return devices;
+  }
+  private async routeCurrent(chat: PrivateChat): Promise<boolean> {
+    if (chat.kind) return !!chat.syncApproved && this.linkCurrent(chat);
+    if (!chat.peerDeviceId) return true; // Preserve existing, pre-device-routing chats.
+    return (await this.recipientDevices(chat.peer)).some(d => toBase64url(d.device_id) === chat.peerDeviceId
+      && (!chat.peerDeliveryKey || toBase64url(d.delivery_key) === chat.peerDeliveryKey));
+  }
+  private async startInFile(data: PrivateFile, save: () => Promise<void>, peer: string,
+    options: { deviceId?: string; threadId?: string; deviceLink?: boolean } = {}): Promise<string> {
+    if (!isAddress(peer) || (peer === this.me.account) !== !!options.deviceLink)
       throw new Error("Enter another person's account address");
-    const existingId = data.chats.find(c => c.peer === peer && c.status !== "closed")?.id;
+    if (options.deviceLink && (!options.deviceId || options.deviceId === data.deviceId)) throw new Error("Choose your other browser");
+    const matches = (c: PrivateChat) => c.peer === peer && c.status !== "closed" && !!c.kind === !!options.deviceLink
+      && (!options.deviceId || c.peerDeviceId === options.deviceId) && (!options.threadId || threadId(c) === options.threadId);
+    const existingId = data.chats.find(matches)?.id;
     if (existingId) return existingId;
-    if (!(await this.unblocked(peer)))
+    if (!options.deviceLink && !(await this.unblocked(peer)))
       throw new Error("This conversation is blocked");
     const devices =
       (
@@ -312,7 +367,7 @@ export class PrivateMessagingService {
           account: peer,
         })
       )?.values ?? [];
-    const device = [...devices].sort((a, b) =>
+    const device = [...devices].filter(d => !options.deviceId || toBase64url(d.device_id) === options.deviceId).sort((a, b) =>
       Number(BigInt(b.updated_at) - BigInt(a.updated_at)),
     )[0];
     if (!device)
@@ -321,9 +376,7 @@ export class PrivateMessagingService {
       );
     if (!data.registered)
       throw new Error("Finish enabling this browser first");
-    const existing = data.chats.find(
-      (c) => c.peer === peer && c.status !== "closed",
-    );
+    const existing = data.chats.find(matches);
     if (existing) return existing.id;
     const channelId = id(),
       aliasId = data.spareAliasId ?? id(),
@@ -349,6 +402,9 @@ export class PrivateMessagingService {
       returnKey: toBase64url(reply.publicKey),
       createdAt,
       expiresAt: createdAt + INVITATION_LIFETIME,
+      fromDeviceId: data.deviceId,
+      threadId: options.threadId ?? channelId,
+      ...(options.deviceLink && { deviceLink: true }),
     };
     const signed: Signed<Invitation> = {
       value,
@@ -377,6 +433,10 @@ export class PrivateMessagingService {
       messages: [],
       createdAt: Date.now(),
       invitation: value,
+      peerDeviceId: toBase64url(device.device_id),
+      peerDeliveryKey: toBase64url(device.delivery_key),
+      threadId: value.threadId,
+      ...(options.deviceLink && { kind: "device-link", syncApproved: true }),
     });
     reply.secretKey.fill(0);
     data.outbox.push({
@@ -395,14 +455,19 @@ export class PrivateMessagingService {
     return channelId;
   }
   async accept(chatId: string): Promise<void> {
-    await this.store.edit((data, save) => this.acceptInFile(data, save, chatId));
+    await this.store.edit(async (data, save) => {
+      const chat = data.chats.find(c => c.id === chatId);
+      if (chat?.kind === "device-link") { chat.syncApproved = true; await save(); }
+      await this.acceptInFile(data, save, chatId);
+    });
     void this.sync();
   }
   private async acceptInFile(data: PrivateFile, save: () => Promise<void>, chatId: string): Promise<void> {
     const chat = data.chats.find((c) => c.id === chatId);
     if (!chat || chat.status !== "incoming" || !chat.invitation)
       throw new Error("Message request is no longer available");
-    if (!(await this.unblocked(chat.peer)))
+    if (chat.kind === "device-link" && (!chat.syncApproved || !this.linkCurrent(chat))) throw new Error("Approve a currently registered browser before linking");
+    if (!chat.kind && !(await this.unblocked(chat.peer)))
       throw new Error("This conversation is blocked");
     if (chat.invitation.expiresAt < Date.now())
       throw new Error(
@@ -417,6 +482,9 @@ export class PrivateMessagingService {
       to: chat.peer,
       alias,
       peerAlias: chat.peerAlias!,
+      deviceId: data.deviceId,
+      threadId: threadId(chat),
+      ...(chat.kind === "device-link" && { deviceLink: true }),
     };
     const signed: Signed<Acceptance> = {
       value,
@@ -467,7 +535,8 @@ export class PrivateMessagingService {
     await this.store.edit((data, save) => this.sendInFile(data, save, chatId, text, id()));
     void this.sync();
   }
-  private async sendInFile(data: PrivateFile, save: () => Promise<void>, chatId: string, text: string, messageId: string): Promise<void> {
+  private async sendInFile(data: PrivateFile, save: () => Promise<void>, chatId: string, text: string, messageId: string,
+    options: { logicalId?: string; sentAt?: number; copy?: boolean } = {}): Promise<void> {
     const chat = data.chats.find((c) => c.id === chatId);
     if (!chat || chat.status === "closed" || !chat.ratchet || !chat.peerAlias)
       throw new Error("This conversation is not ready yet");
@@ -477,20 +546,23 @@ export class PrivateMessagingService {
       throw new Error("Wait for your pending messages to send");
     const packetId = messageId,
       context = this.context(chat.alias, chat.peerAlias, packetId);
+    const sentAt = options.sentAt ?? Date.now();
     const encrypted = await encryptPrivateMessage(
       fromBase64url(data.pickleKey),
       chat.ratchet,
       context,
       text,
+      chat.kind ? undefined : { id: options.logicalId ?? messageId, deviceId: data.deviceId, threadId: threadId(chat), sentAt },
     );
     chat.ratchet = encrypted.state;
     chat.messages.push({
       id: packetId,
-      text,
+      text: chat.kind ? "" : text,
       mine: true,
-      timestamp: Date.now(),
+      timestamp: sentAt,
       state: "sending",
       envelopeHash: toBase64url(contentHash(encrypted.envelope)),
+      ...(!chat.kind && { logicalId: options.logicalId ?? messageId, sourceDeviceId: data.deviceId }),
     });
     data.outbox.push({
       id: packetId,
@@ -500,6 +572,8 @@ export class PrivateMessagingService {
       peer: chat.peerAlias,
       envelope: toBase64url(encrypted.envelope),
       chatId,
+      ...(chat.kind && { kind: "sync" }),
+      ...(options.copy && { kind: "copy" }),
     });
     // This is the commit point. No packet may be submitted before it succeeds.
     await save();
@@ -509,10 +583,16 @@ export class PrivateMessagingService {
     this.queued = await this.store.drafts(drafts => structuredClone(drafts));
     if (data.autoConnect !== false) {
       // One active conversation per peer avoids paying for repeated introductions.
-      for (const chat of data.chats.filter(c => c.status === "incoming")) {
-        const existing = data.chats.find(c => c !== chat && c.peer === chat.peer && c.status !== "closed" && c.status !== "incoming");
+      for (const chat of data.chats.filter(c => !c.kind && c.status === "incoming")) {
+        const existing = data.chats.find(c => !c.kind && c !== chat && c.peer === chat.peer && c.status !== "closed" && c.status !== "incoming"
+          && (!chat.peerDeviceId || !c.peerDeviceId || chat.peerDeviceId === c.peerDeviceId)
+          && (c.status === "outgoing" || threadId(c) === threadId(chat)));
         if (existing) {
-          if (existing.status !== "outgoing") continue;
+          if (existing.status !== "outgoing") {
+            // New device pairs are separate ratchets. A legacy conversation has
+            // no device id, so it cannot suppress a new device's introduction.
+            if (!chat.peerDeviceId || existing.peerDeviceId === chat.peerDeviceId) continue;
+          } else {
           // Simultaneous first messages choose the same introduction on both
           // browsers. Move only unsent drafts; never move an advanced ratchet.
           const loser = this.me.account < chat.peer ? chat : existing;
@@ -526,6 +606,7 @@ export class PrivateMessagingService {
             return structuredClone(drafts);
           });
           if (loser === chat) continue;
+          }
         }
         try { await this.acceptInFile(data, save, chat.id); }
         catch (error) { this.chatErrors.set(chat.id, error instanceof Error ? error.message : String(error)); }
@@ -537,7 +618,7 @@ export class PrivateMessagingService {
           await this.removeDraft(draft.id);
           continue;
         }
-        let chat = data.chats.find(c => c.peer === draft.peer && c.status !== "closed");
+        let chat = data.chats.find(c => !c.kind && c.peer === draft.peer && c.status !== "closed" && (!draft.chatId || threadId(c) === draft.chatId || c.id === draft.chatId));
         const previous = data.chats.find(c => c.id === draft.chatId);
         if (previous?.supersededBy) {
           const winner = data.chats.find(c => c.id === previous.supersededBy && c.peer === draft.peer);
@@ -549,7 +630,8 @@ export class PrivateMessagingService {
             return structuredClone(drafts);
           });
         }
-        const closed = draft.chatId && data.chats.find(c => c.id === draft.chatId && c.status === "closed");
+        const closed = draft.chatId && (data.mirrors?.find(c => c.id === draft.chatId && c.closedAt !== undefined)
+          ?? data.chats.find(c => c.id === draft.chatId && c.status === "closed" && !c.routeOnlyClosed));
         if (closed) {
           closed.messages.push({ id: draft.id, text: draft.text, mine: true, timestamp: draft.createdAt, state: "not-sent" });
           await save();
@@ -557,11 +639,11 @@ export class PrivateMessagingService {
           continue;
         }
         if (!chat) {
-          const chatId = await this.startInFile(data, save, draft.peer);
+          const chatId = await this.startInFile(data, save, draft.peer, draft.chatId && !draft.chatId.startsWith("pending:") ? { threadId: draft.chatId } : {});
           chat = data.chats.find(c => c.id === chatId)!;
         }
         if (!draft.chatId) {
-          const chatId = chat.id;
+          const chatId = threadId(chat);
           this.queued = await this.store.drafts(drafts => {
             const saved = drafts.find(d => d.id === draft.id);
             if (saved) saved.chatId = chatId;
@@ -572,8 +654,19 @@ export class PrivateMessagingService {
         if (!chat.ratchet || !chat.peerAlias) continue;
         // A crash after committing the ratchet but before clearing the queue
         // must never encrypt this message a second time.
-        if (!data.chats.some(c => c.messages.some(m => m.id === draft.id)))
-          await this.sendInFile(data, save, chat.id, draft.text, draft.id);
+        if (!data.chats.some(c => c.messages.some(m => m.id === draft.id))) {
+          // Capture recipient devices before committing the primary copy. A
+          // second device may finish setup later without blocking the first.
+          const devices = (await this.protocol.reads.messaging.get_private_devices({ account: draft.peer }))?.values;
+          if (!devices) throw new Error("Could not check recipient messaging browsers");
+          const targets = chat.peerSupportsDevices && chat.peerDeviceId
+            ? devices.filter(d => toBase64url(d.device_id) !== chat!.peerDeviceId).map(d => ({ deviceId: toBase64url(d.device_id), packetId: id() })) : [];
+          if (targets.length && !data.deliveries?.some(d => d.id === draft.id)) {
+            if ((data.deliveries?.length ?? 0) >= 500) throw new Error("Some recipient browsers have not caught up. Pending copies are saved; try again after they reconnect.");
+            (data.deliveries ??= []).push({ id: draft.id, peer: draft.peer, threadId: threadId(chat), text: draft.text, createdAt: draft.createdAt, targets });
+          }
+          await this.sendInFile(data, save, chat.id, draft.text, draft.id, { sentAt: draft.createdAt });
+        }
         await save();
         await this.removeDraft(draft.id);
         this.queueErrors.delete(draft.peer);
@@ -587,6 +680,81 @@ export class PrivateMessagingService {
       return structuredClone(drafts);
     });
   }
+  /** Separate sessions per recipient browser. A sleeping secondary browser must
+   * not block delivery to the active one or share its live ratchet state. */
+  private async prepareCopies(data: PrivateFile, save: () => Promise<void>): Promise<void> {
+    let prepared = 0;
+    for (const job of [...(data.deliveries ?? [])]) {
+      if (historyThreads(data).some(t => t.id === job.threadId && t.closedAt !== undefined)) {
+        data.deliveries = data.deliveries!.filter(d => d !== job);
+        continue;
+      }
+      if (!(await this.unblocked(job.peer))) continue;
+      const devices = await this.recipientDevices(job.peer);
+      job.targets = job.targets.filter(t => devices.some(d => toBase64url(d.device_id) === t.deviceId));
+      for (const target of [...job.targets]) {
+        if (prepared >= 4) break;
+        let route = data.chats.find(c => !c.kind && c.peer === job.peer && threadId(c) === job.threadId
+          && c.peerDeviceId === target.deviceId && c.status !== "closed");
+        if (!route) {
+          const routeId = await this.startInFile(data, save, job.peer, { deviceId: target.deviceId, threadId: job.threadId });
+          route = data.chats.find(c => c.id === routeId)!;
+          prepared++;
+        }
+        if (!route.ratchet || !route.peerAlias || !(await this.routeCurrent(route))) continue;
+        if (!route.messages.some(m => m.id === target.packetId)) {
+          if (data.outbox.filter(p => p.chatId === route!.id && p.peer && !p.observed).length >= 20) continue;
+          await this.sendInFile(data, save, route.id, job.text, target.packetId, { logicalId: job.id, sentAt: job.createdAt, copy: true });
+          prepared++;
+        }
+        job.targets = job.targets.filter(t => t !== target);
+        await save();
+      }
+      if (!job.targets.length) data.deliveries = data.deliveries!.filter(d => d !== job);
+    }
+  }
+  private async shareHistory(data: PrivateFile, save: () => Promise<void>): Promise<void> {
+    const links = data.chats.filter(c => c.kind === "device-link" && c.status === "ready" && c.syncApproved && this.linkCurrent(c));
+    if (!links.length) return;
+    const records = historyRecords(data);
+    for (const link of links) {
+      if (data.outbox.some(p => p.chatId === link.id && p.peer && !p.observed)) continue;
+      if (!link.syncBatch) {
+        const changed = records.filter(r => link.syncSent?.[recordKey(r)] !== recordHash(r));
+        if (!changed.length) continue;
+        // Bound each turn so copying old history does not starve ordinary traffic.
+        const batch = changed.slice(0, 4);
+        link.syncBatch = { frames: encodeHistoryFrames(batch).map(text => ({ id: id(), text })),
+          records: batch.map(r => ({ key: recordKey(r), hash: recordHash(r) })) };
+        await save();
+      }
+      // Persist the frame IDs BEFORE encrypting. A crash after advancing the
+      // ratchet resumes this exact batch without duplicate encryption or gaps.
+      const remaining = link.syncBatch.frames.filter(frame => !link.messages.some(m => m.id === frame.id));
+      for (const frame of remaining.slice(0, 4)) await this.sendInFile(data, save, link.id, frame.text, frame.id);
+      if (remaining.length > 4) continue;
+      for (const record of link.syncBatch.records) (link.syncSent ??= {})[record.key] = record.hash;
+      delete link.syncBatch;
+      await save();
+    }
+  }
+  private closeThread(data: PrivateFile, root: string, peer: string, timestamp: number, notify: boolean): void {
+    let mirror = (data.mirrors ??= []).find(t => t.id === root);
+    if (mirror && mirror.peer !== peer) throw new Error("Conflicting conversation closure");
+    if (!mirror) {
+      mirror = { id: root, peer, createdAt: data.chats.find(c => !c.kind && threadId(c) === root)?.createdAt ?? timestamp, messages: [] };
+      data.mirrors.push(mirror);
+    }
+    mirror.closedAt = Math.min(mirror.closedAt ?? timestamp, timestamp);
+    for (const route of data.chats.filter(c => !c.kind && threadId(c) === root && c.peer === peer)) {
+      if (route.status === "closed" && !route.routeOnlyClosed) continue;
+      this.markClosed(data, route);
+      delete route.routeOnlyClosed;
+      route.closeNotice = notify ? "needed" : "received";
+      route.closeChannelPending = !!route.peerAlias;
+    }
+    data.deliveries = data.deliveries?.filter(d => d.threadId !== root);
+  }
   private markClosed(data: PrivateFile, chat: PrivateChat): void {
     chat.status = "closed";
     chat.closedAt ??= Date.now();
@@ -594,6 +762,8 @@ export class PrivateMessagingService {
     delete chat.returnSecret;
     delete chat.ratchet;
     delete chat.invitation;
+    delete chat.syncBatch;
+    delete chat.syncParts;
     // An attempted broadcast may have succeeded even if its receipt was lost.
     // Only never-encrypted drafts can truthfully be labelled "not sent".
     for (const message of chat.messages) if (message.mine && ["sending", "submitted"].includes(message.state)) message.state = "stopped";
@@ -606,7 +776,8 @@ export class PrivateMessagingService {
       // A pending placeholder can become a real conversation while close waits
       // for the sync lock. Resolve it again inside that lock before cancelling.
       const peer = chatId.startsWith("pending:") ? chatId.slice(8) : undefined;
-      let chat = data.chats.find(c => c.id === chatId || (peer && c.peer === peer && c.status !== "closed"));
+      let chat = data.chats.find(c => c.id === chatId || (!c.kind && threadId(c) === chatId) || (peer && c.peer === peer && c.status !== "closed"));
+      const mirror = data.mirrors?.find(t => t.id === chatId);
       const drafts = await this.store.drafts(drafts => structuredClone(drafts.filter(d =>
         d.chatId === chatId || (d.peer === (chat?.peer ?? peer) && (!d.chatId || d.chatId === chat?.id || d.chatId.startsWith("pending:"))))));
       if (!chat && peer) chat = data.chats.find(c => c.peer === peer && c.status === "closed"
@@ -619,13 +790,24 @@ export class PrivateMessagingService {
           status: "closed", closeNotice: "sent", after: "0", createdAt: drafts[0]!.createdAt, messages: [] };
         data.chats.push(chat);
       }
+      if (!chat && mirror) {
+        for (const draft of drafts) mergeMessage(mirror.messages, { id: draft.id, text: draft.text, mine: true, timestamp: draft.createdAt, state: "not-sent" });
+        this.closeThread(data, mirror.id, mirror.peer, Date.now(), true);
+        await save();
+        for (const draft of drafts) await this.removeDraft(draft.id);
+        this.snapshot(data);
+        return;
+      }
       if (!chat) { this.snapshot(data); return; }
       for (const draft of drafts) if (!chat.messages.some(m => m.id === draft.id))
         chat.messages.push({ id: draft.id, text: draft.text, mine: true, timestamp: draft.createdAt, state: "not-sent" });
       if (chat.status !== "closed") {
-        this.markClosed(data, chat);
-        chat.closeNotice = "needed";
-        chat.closeChannelPending = !!chat.peerAlias;
+        if (!chat.kind) this.closeThread(data, threadId(chat), chat.peer, Date.now(), true);
+        else {
+          this.markClosed(data, chat);
+          chat.closeNotice = "needed";
+          chat.closeChannelPending = !!chat.peerAlias;
+        }
       }
       // Commit the archive before removing drafts. A crash between these two
       // writes is deduplicated by message ID, never lost or sent after closing.
@@ -671,9 +853,11 @@ export class PrivateMessagingService {
           }
         }
         if (chat.closeNotice === "needed") {
-          const devices = (await this.protocol.reads.messaging.get_private_devices({ account: chat.peer }))?.values;
+          const available = (await this.protocol.reads.messaging.get_private_devices({ account: chat.peer }))?.values;
+          const devices = available?.filter(d => !chat.kind || toBase64url(d.device_id) === chat.peerDeviceId);
           if (!devices?.length) throw new Error("The other person has no messaging browser available to receive the cancellation. It will retry automatically.");
-          const value: Closure = { kind: "close", id: chat.id, from: this.me.account, to: chat.peer, createdAt: chat.closedAt! };
+          const value: Closure = { kind: "close", id: chat.id, from: this.me.account, to: chat.peer, createdAt: chat.closedAt!,
+            ...(!chat.kind && !chat.routeOnlyClosed && { threadId: threadId(chat) }) };
           const signed: Signed<Closure> = { value, signature: await signPrivateStatement(this.scope, "close", value, this.me.signer) };
           // Invitations are addressed to a browser; notify every currently registered
           // browser so acceptance and cancellation work in either direction.
@@ -695,22 +879,26 @@ export class PrivateMessagingService {
   }
   private async receiveClosure(data: PrivateFile, signed: Signed<Closure>, timestamp: number): Promise<void> {
     const v = signed.value;
-    if (!validId(v.id) || v.to !== this.me.account || v.from === this.me.account || !isAddress(v.from)
+    if (!validId(v.id) || v.to !== this.me.account || !isAddress(v.from) || (v.threadId !== undefined && !validId(v.threadId))
       || !Number.isSafeInteger(v.createdAt) || v.createdAt > timestamp + 300_000) return;
     const chat = data.chats.find(c => c.id === v.id);
     if (chat && chat.peer !== v.from) return;
+    if (v.from === this.me.account && chat?.kind !== "device-link") return;
     if (!verifyPrivateStatement(this.scope, "close", v, signed.signature, await this.owner(v.from))) return;
     if (chat) {
+      if (!chat.kind) this.closeThread(data, v.threadId ?? threadId(chat), chat.peer, v.createdAt, false);
       this.markClosed(data, chat);
       chat.closeNotice = "received";
       chat.closeChannelPending = !!chat.peerAlias;
       delete chat.closeError;
       data.outbox = data.outbox.filter(p => p.chatId !== chat.id);
     } else {
+      if (v.threadId && historyThreads(data).some(t => t.id === v.threadId && t.peer === v.from)) this.closeThread(data, v.threadId, v.from, v.createdAt, false);
       // A cancellation can arrive before its invitation. Keep only authenticated,
       // bounded tombstones so that a delayed invitation cannot resurrect it.
       data.closedRequests = (data.closedRequests ?? []).filter(c => c.expiresAt > Date.now() && !(c.id === v.id && c.peer === v.from));
       data.closedRequests.push({ id: v.id, peer: v.from, expiresAt: Date.now() + INVITATION_LIFETIME });
+      if (v.threadId && v.threadId !== v.id) data.closedRequests.push({ id: v.threadId, peer: v.from, expiresAt: Date.now() + INVITATION_LIFETIME });
       data.closedRequests = data.closedRequests.slice(-256);
     }
   }
@@ -732,6 +920,11 @@ export class PrivateMessagingService {
     )?.values;
     if (!devices)
       throw new Error("Could not read the messaging device directory");
+    this.directory = devices;
+    for (const link of data.chats.filter(c => c.kind && c.status !== "closed" && !this.linkCurrent(c))) {
+      this.markClosed(data, link);
+      link.closeNotice = "received";
+    }
     this.devices = devices.map((d) => ({
       id: toBase64url(d.device_id),
       label: d.label,
@@ -750,6 +943,10 @@ export class PrivateMessagingService {
     if (data.registered) {
       data.enabled = false;
       data.registered = false;
+      for (const link of data.chats.filter(c => c.kind && c.status !== "closed")) {
+        this.markClosed(data, link);
+        link.closeNotice = "received";
+      }
       throw new Error(
         "This messaging browser was revoked. Enable it again to receive new requests.",
       );
@@ -1030,6 +1227,9 @@ export class PrivateMessagingService {
               value.to !== this.me.account ||
               value.peerAlias !== chat.alias ||
               !isAddress(value.alias)
+              || (value.deviceId !== undefined && (!validId(value.deviceId) || (chat.peerDeviceId && value.deviceId !== chat.peerDeviceId)))
+              || (value.threadId !== undefined && value.threadId !== threadId(chat))
+              || (chat.kind === "device-link" && (value.deviceLink !== true || value.deviceId !== chat.peerDeviceId || !chat.syncApproved || !this.linkCurrent(chat)))
             )
               continue;
             // A temporary RPC failure must leave this packet unread, not discard the acceptance.
@@ -1041,12 +1241,14 @@ export class PrivateMessagingService {
                 accepted.payload.signature,
                 await this.owner(chat.peer),
               ) ||
-              !(await this.unblocked(chat.peer))
+              (!chat.kind && !(await this.unblocked(chat.peer)))
             )
               continue;
             chat.peerAlias = value.alias;
             chat.ratchet = accepted.state;
             chat.status = "accepting";
+            chat.peerDeviceId ??= value.deviceId;
+            chat.peerSupportsDevices = !!value.deviceId && !!value.threadId;
             delete chat.setup;
             delete chat.returnSecret;
             delete chat.invitation;
@@ -1074,11 +1276,14 @@ export class PrivateMessagingService {
     if (
       !validId(v.id) ||
       v.to !== this.me.account ||
-      v.from === this.me.account ||
+      ((v.from === this.me.account) !== (v.deviceLink === true)) ||
       !isAddress(v.from) ||
       !isAddress(v.alias) ||
       v.deviceId !== data.deviceId ||
       !validId(v.returnKey) ||
+      (v.fromDeviceId !== undefined && (!validId(v.fromDeviceId) || (v.deviceLink && v.fromDeviceId === data.deviceId))) ||
+      (v.threadId !== undefined && !validId(v.threadId)) ||
+      (v.deviceLink && !v.fromDeviceId) ||
       typeof v.identityKey !== "string" ||
       typeof v.oneTimeKey !== "string" ||
       !Number.isSafeInteger(v.createdAt) ||
@@ -1093,7 +1298,7 @@ export class PrivateMessagingService {
       // Older senders sampled the two timestamps separately.
       v.expiresAt - v.createdAt > INVITATION_LIFETIME + 1_000 ||
       data.chats.some((c) => c.id === v.id)
-      || data.closedRequests?.some(c => c.id === v.id && c.peer === v.from && c.expiresAt > Date.now())
+      || data.closedRequests?.some(c => (c.id === v.id || c.id === v.threadId) && c.peer === v.from && c.expiresAt > Date.now())
     )
       return;
     if (
@@ -1104,9 +1309,22 @@ export class PrivateMessagingService {
         signed.signature,
         await this.owner(v.from),
       ) ||
-      !(await this.unblocked(v.from))
+      (!v.deviceLink && !(await this.unblocked(v.from)))
     )
       return;
+    const sourceDevice = v.deviceLink ? this.directory.find(d => toBase64url(d.device_id) === v.fromDeviceId) : undefined;
+    if (v.deviceLink && !sourceDevice) return;
+    if (v.deviceLink) {
+      const existing = data.chats.find(c => c.kind && c.peerDeviceId === v.fromDeviceId && c.status !== "closed");
+      if (existing) {
+        if (existing.status !== "outgoing" || existing.id < v.id) return;
+        // Both browsers clicked Link: keep the same request at each end. The
+        // incoming winner still needs code comparison and explicit approval.
+        this.markClosed(data, existing);
+        existing.closeNotice = "received";
+      }
+    }
+    if (!v.deviceLink && data.mirrors?.some(t => t.id === (v.threadId ?? v.id) && t.peer === v.from && t.closedAt !== undefined)) return;
     if (data.chats.filter((c) => c.status === "incoming").length >= 100) return;
     const aliasId = id(),
       alias = privateWallet(
@@ -1126,6 +1344,10 @@ export class PrivateMessagingService {
       after: "0",
       messages: [],
       createdAt: timestamp,
+      peerDeviceId: v.fromDeviceId,
+      peerSupportsDevices: !!v.fromDeviceId && !!v.threadId,
+      threadId: v.threadId ?? v.id,
+      ...(v.deviceLink && { kind: "device-link", peerDeliveryKey: toBase64url(sourceDevice!.delivery_key) }),
     });
   }
   private async channels(
@@ -1138,6 +1360,12 @@ export class PrivateMessagingService {
         continue;
       try {
         this.chatErrors.delete(chat.id);
+        if (!(await this.routeCurrent(chat))) {
+          this.markClosed(data, chat);
+          chat.routeOnlyClosed = true;
+          chat.closeNotice = "received";
+          continue;
+        }
         const result = await this.protocol.reads.messaging.get_private_channel({
             a: chat.alias,
             b: chat.peerAlias,
@@ -1157,7 +1385,7 @@ export class PrivateMessagingService {
           continue;
         }
         if (!c || (c.status === 1 && c.requester !== chat.alias)) {
-          if (!(await this.unblocked(chat.peer))) continue;
+          if (!chat.kind && !(await this.unblocked(chat.peer))) continue;
           // Let dispatch combine consent with its first packet in one atomic
           // transaction. Older introduction wallets still use the separate path.
           if (data.outbox.some(p => p.chatId === chat.id && p.actor === chat.alias && p.kind !== "close" && !p.observed
@@ -1190,7 +1418,7 @@ export class PrivateMessagingService {
         }
         chat.status = "ready";
         this.channelSteps.delete(chat.id);
-        if (!(await this.unblocked(chat.peer))) continue;
+        if (!chat.kind && !(await this.unblocked(chat.peer))) continue;
         const page = await this.indexer.privatePackets(
           chat.after,
           chat.alias,
@@ -1223,14 +1451,36 @@ export class PrivateMessagingService {
               this.context(row.actor, row.peer, row.packet_id),
               fromBase64url(row.envelope),
             );
+            if (chat.kind) {
+              // Validate all records on a copy before advancing keys. A bad
+              // authenticated frame must not partially commit history.
+              const candidate = structuredClone(data);
+              const link = candidate.chats.find(c => c.id === chat.id)!;
+              const closed = receiveHistoryFrame(candidate, link, opened.text, this.me.account);
+              data.mirrors = candidate.mirrors;
+              chat.syncParts = link.syncParts;
+              chat.syncSent = link.syncSent;
+              for (const root of closed) {
+                const mirror = data.mirrors!.find(t => t.id === root)!;
+                this.closeThread(data, root, mirror.peer, mirror.closedAt!, true);
+              }
+            } else if (opened.metadata && (opened.metadata.threadId !== threadId(chat)
+              || (chat.peerDeviceId && opened.metadata.deviceId !== chat.peerDeviceId))) {
+              throw new Error("The message belongs to a different conversation or browser");
+            }
+            if (!chat.kind && opened.metadata) {
+              chat.peerDeviceId ??= opened.metadata.deviceId;
+              chat.peerSupportsDevices = true;
+            }
             chat.ratchet = opened.state;
             chat.messages.push({
               id: row.packet_id,
-              text: opened.text,
+              text: chat.kind ? "" : opened.text,
               mine: false,
-              timestamp: Number(row.timestamp),
+              timestamp: opened.metadata?.sentAt ?? Number(row.timestamp),
               state: BigInt(row.block) <= this.scanIrreversible ? "sent" : "confirming",
               envelopeHash: row.content_hash,
+              ...(!chat.kind && opened.metadata && { logicalId: opened.metadata.id, sourceDeviceId: opened.metadata.deviceId }),
             });
             modified = true;
           }
@@ -1282,7 +1532,7 @@ export class PrivateMessagingService {
           data.outbox = data.outbox.filter(p => p.id !== packet.id);
           this.fundingSteps.delete(packet.actor);
           if (packet.kind === "close" && !data.outbox.some(p => p.chatId === chat.id && p.kind === "close")) chat.closeNotice = "sent";
-          if (message) { message.state = "sent"; message.timestamp = Number(existing.timestamp); }
+          if (message) { message.state = "sent"; if (!message.logicalId) message.timestamp = Number(existing.timestamp); }
           await save();
           visited.delete(orderKey);
           continue;
@@ -1295,7 +1545,12 @@ export class PrivateMessagingService {
           if (message) message.state = "sending";
           await save();
         }
-        if (packet.kind !== "close" && !(await this.unblocked(chat.peer))) throw new Error("This conversation is blocked");
+        if (packet.kind !== "close") {
+          // Introductions initiate trust; history/message packets require an
+          // approved, still-registered destination on every submission attempt.
+          if ((packet.peer || chat.status !== "outgoing") && !(await this.routeCurrent(chat))) continue;
+          if (!chat.kind && !(await this.unblocked(chat.peer))) throw new Error("This conversation is blocked");
+        }
         let open = false;
         if (chat.peerAlias && packet.actor === chat.alias && packet.kind !== "close") {
           const result = await this.protocol.reads.messaging.get_private_channel({ a: chat.alias, b: chat.peerAlias });
@@ -1356,6 +1611,7 @@ export class PrivateMessagingService {
   }
   private async syncOnce(): Promise<void> {
     this.syncHead = undefined;
+    this.peerDirectories.clear();
     try {
       await this.store.edit(async (data, save) => {
         this.error = "";
@@ -1371,7 +1627,7 @@ export class PrivateMessagingService {
             }
             // Receiving can fail independently of sending (for example an
             // indexer outage). Keep the durable outbox and closures moving.
-            for (const work of [this.invitations, this.prepareQueued, this.channels, this.dispatch, this.closures, this.warmAllowance]) {
+            for (const work of [this.invitations, this.prepareQueued, this.channels, this.prepareCopies, this.shareHistory, this.dispatch, this.closures, this.warmAllowance]) {
               try { await work.call(this, data, save); }
               catch (error) { this.error = error instanceof Error ? error.message : String(error); }
               await save();

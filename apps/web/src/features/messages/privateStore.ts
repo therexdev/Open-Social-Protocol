@@ -28,6 +28,9 @@ export interface Invitation {
   returnKey: string;
   createdAt: number;
   expiresAt: number;
+  fromDeviceId?: string;
+  threadId?: string;
+  deviceLink?: boolean;
 }
 export interface Acceptance {
   kind: "accept";
@@ -36,6 +39,9 @@ export interface Acceptance {
   to: string;
   alias: string;
   peerAlias: string;
+  deviceId?: string;
+  threadId?: string;
+  deviceLink?: boolean;
 }
 export interface Closure {
   kind: "close";
@@ -43,6 +49,7 @@ export interface Closure {
   from: string;
   to: string;
   createdAt: number;
+  threadId?: string;
 }
 export interface Signed<T> {
   value: T;
@@ -61,6 +68,8 @@ export interface LocalMessage {
   timestamp: number;
   state: "queued" | "sending" | "submitted" | "confirming" | "sent" | "not-sent" | "stopped";
   envelopeHash?: string;
+  logicalId?: string;
+  sourceDeviceId?: string;
 }
 export interface PrivateChat {
   id: string;
@@ -83,6 +92,24 @@ export interface PrivateChat {
   closeChannelObserved?: boolean;
   closeError?: string;
   supersededBy?: string;
+  routeOnlyClosed?: boolean;
+  kind?: "device-link";
+  peerDeviceId?: string;
+  peerSupportsDevices?: boolean;
+  peerDeliveryKey?: string;
+  threadId?: string;
+  syncApproved?: boolean;
+  syncSent?: Record<string, string>;
+  syncParts?: Record<string, { hash: string; parts: string[]; total: number }>;
+  syncBatch?: { frames: Array<{ id: string; text: string }>; records: Array<{ key: string; hash: string }> };
+}
+/** Readable history only. Never contains another browser's session or signing keys. */
+export interface MirroredThread {
+  id: string;
+  peer: string;
+  createdAt: number;
+  closedAt?: number;
+  messages: LocalMessage[];
 }
 export interface PrivateOutbox {
   id: string;
@@ -92,7 +119,7 @@ export interface PrivateOutbox {
   peer: string;
   envelope: string;
   chatId: string;
-  kind?: "close";
+  kind?: "close" | "sync" | "copy";
   lastAttempt?: number;
   error?: string;
   observed?: boolean;
@@ -126,6 +153,8 @@ export interface PrivateFile {
   outbox: PrivateOutbox[];
   funding: Record<string, Funding>;
   closedRequests?: Array<{ id: string; peer: string; expiresAt: number }>;
+  mirrors?: MirroredThread[];
+  deliveries?: Array<{ id: string; peer: string; threadId: string; text: string; createdAt: number; targets: Array<{ deviceId: string; packetId: string }> }>;
 }
 export interface QueuedPrivateMessage {
   id: string;
