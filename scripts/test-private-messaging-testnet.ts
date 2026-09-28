@@ -71,13 +71,17 @@ useToasts.subscribe(state => {
   const failure = [...state.toasts].reverse().find(t => t.kind === "error");
   if (failure && failure.id !== lastError) { lastError = failure.id; console.log("SUBMISSION ERROR", failure.title, failure.message, failure.details); }
 });
-async function until(label: string, ready: () => boolean, timeout = 720_000) {
+async function until(label: string, ready: () => boolean, timeout = 1_200_000) {
   console.log("WAIT", label);
   const deadline = Date.now() + timeout;
   let lastReport = 0;
   while (!ready()) {
     assert(Date.now() < deadline, `Timed out: ${label}`);
-    for (const browser of browsers) { await browser.service.load(); await browser.service.sync(); }
+    // Independent browsers poll concurrently in the product. Serializing them
+    // here adds an artificial round trip for every network read in the handshake.
+    await Promise.all(browsers.map(async browser => {
+      await browser.service.load(); await browser.service.sync();
+    }));
     if (Date.now() - lastReport > 30_000) {
       for (const [index, browser] of browsers.entries()) await browser.store.edit(async data => {
         console.log("DELIVERY", index + 1, { funding: Object.values(data.funding).map(f => ({ units: f.units, lastAttempt: f.lastAttempt })), outbox: data.outbox.map(p => ({ peer: !!p.peer, attempted: !!p.lastAttempt, error: p.error })) });
@@ -90,11 +94,11 @@ async function until(label: string, ready: () => boolean, timeout = 720_000) {
 }
 try {
   assert.equal(await provider.getChainId(), deployment.chainId);
-  for (const browser of browsers) {
+  await Promise.all(browsers.map(async browser => {
     console.log("REGISTER disposable account", browser.me.account);
     await client.submit({ signer: browser.me.signer, selfPayFallback: false, waitForReceipt: true, operations: [await client.ops.identity.register({ account: browser.me.account, encryption_key: browser.me.encryption.publicKey, key_version: 1 })] });
     await browser.service.enable();
-  }
+  }));
   await until("both messaging browsers enabled", () => browsers.every(d => d.snapshot.registered), 180_000);
   const chat = await a!.service.start(b!.me.account);
   await until("recipient sees request", () => b!.snapshot.chats.some(c => c.id === chat && c.status === "incoming"));
