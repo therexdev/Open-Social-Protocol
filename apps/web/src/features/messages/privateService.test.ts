@@ -322,7 +322,7 @@ describe("two-browser private conversations", () => {
     expect(h.b.snapshot.chats[0]?.status).toBe("incoming");
     await h.b.service.accept(chat);
     for (let i = 0; i < 3; i++) { await h.b.service.load(); await h.b.service.sync(); }
-    expect(h.b.snapshot.chats[0]?.progress).toContain("other messaging browser");
+    expect(h.b.snapshot.chats[0]?.progress).toBe("Your side is ready. Waiting for the other account to finish confirming the connection.");
     await h.pump(8);
     expect(h.a.snapshot.chats[0]?.status).toBe("ready");
     expect(h.b.snapshot.chats[0]?.status).toBe("ready");

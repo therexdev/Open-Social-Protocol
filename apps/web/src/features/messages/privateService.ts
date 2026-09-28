@@ -952,7 +952,7 @@ export class PrivateMessagingService {
           continue;
         }
         if (c.status !== 2) {
-          this.channelSteps.set(chat.id, "Waiting for the other messaging browser to finish connecting. Both accounts need to be unlocked in their messaging browsers.");
+          this.channelSteps.set(chat.id, "Your side is ready. Waiting for the other account to finish confirming the connection.");
           continue;
         }
         chat.status = "ready";
