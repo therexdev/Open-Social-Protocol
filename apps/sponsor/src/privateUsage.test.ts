@@ -26,10 +26,10 @@ const scope = {
   chainId: deployment.chainId,
   contract: deployment.contracts.messaging.address,
 };
-async function start() {
+async function start(fast = false) {
   const reservationId = toBase64url(randomBytes(32));
   const grants = new Map<string, any>();
-  let lib = "100";
+  let lib = "100", height = "100";
   const provider = fakeProvider({
     onRead(op) {
       if (op.contract_id === deployment.contracts.identity.address)
@@ -64,13 +64,13 @@ async function start() {
   });
   provider.getHeadInfo = async () => ({
     head_block_time: "1",
-    head_topology: { height: "100", id: "id", previous: "previous" },
+    head_topology: { height, id: "id", previous: "previous" },
     head_state_merkle_root: "",
     last_irreversible_block: lib,
   });
   const app = await createServer({
     config: testConfig({ allowlist: "messaging:allocate_private_usage" }),
-    deployment,
+    deployment: { ...deployment, network: fast ? "harbinger" : deployment.network },
     signer,
     provider,
   });
@@ -89,6 +89,7 @@ async function start() {
     provider,
     request,
     reservationId,
+    setHead: (value: string) => { height = value; },
     setGranted: (v: any) => {
       grants.set(toBase64url(v.grant_id), v);
     },
@@ -98,6 +99,23 @@ async function start() {
   };
 }
 describe("private allowance assignments", () => {
+  it("advertises three testnet confirmations and enforces that boundary", async () => {
+    const h = await start(true);
+    try {
+      h.setLib("1"); h.setHead("51");
+      const pending = await h.app.inject({ method: "POST", url: "/v2/private/allocate", payload: await h.request() });
+      expect(pending.statusCode).toBe(503);
+      expect(h.provider.sent).toHaveLength(0);
+      h.setHead("52");
+      const accepted = await h.app.inject({ method: "POST", url: "/v2/private/allocate", payload: await h.request() });
+      expect(accepted.statusCode).toBe(200);
+      expect(h.provider.sent).toHaveLength(1);
+      const health = await h.app.inject({ method: "GET", url: "/healthz" });
+      expect(health.json().features.messagingFastConfirmation).toBe(1);
+      const discovery = await h.app.inject({ method: "GET", url: "/.well-known/osp-sponsor.json" });
+      expect(discovery.json().policy.privateUsageConfirmations).toBe(3);
+    } finally { await h.app.close(); }
+  });
   it("holds the payer queue through inclusion before granting the next reservation", async () => {
     const h = await start();
     let release!: () => void;

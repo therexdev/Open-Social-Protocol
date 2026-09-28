@@ -10,6 +10,8 @@ import {
   isAddress,
   openPrivateInvitation,
   privateWallet,
+  privateConfirmationDepth,
+  privateConfirmationHeight,
   randomBytes,
   sealPrivateInvitation,
   signPrivateStatement,
@@ -72,6 +74,7 @@ export class PrivateMessagingService {
   private fundingSteps = new Map<string, string>();
   private channelSteps = new Map<string, string>();
   private chatErrors = new Map<string, string>();
+  private scanIrreversible = 0n;
   constructor(
     readonly me: Identity,
     readonly protocol: ProtocolClient,
@@ -107,7 +110,7 @@ export class PrivateMessagingService {
           : pending ? this.fundingSteps.get(pending.actor) ?? (pending.lastAttempt ? "Waiting for the network to confirm delivery." : "Preparing the encrypted request.")
           : c.status === "accepting" ? this.channelSteps.get(c.id) ?? "Checking the private connection."
           : undefined;
-        const requestDelivery = !request ? "sent" : request.error ? "failed"
+        const requestDelivery = !request || request.observed ? "sent" : request.error ? "failed"
           : request.lastAttempt ? "confirming" : "preparing";
         return {
           id: c.id,
@@ -153,7 +156,9 @@ export class PrivateMessagingService {
       if (!data.enabled) {
         data.enabled = true;
         data.registered = false;
-        data.inboxAfter = status.sequence;
+        // The head's sequence is reversible. A fast-mode browser must not skip
+        // a future invitation if a reorg reuses a sequence below that head.
+        data.inboxAfter = privateConfirmationDepth(this.protocol.deployment.network) ? "0" : status.sequence;
         data.inboxValidation = 2;
       }
       await save();
@@ -397,6 +402,7 @@ export class PrivateMessagingService {
         mine: true,
         timestamp: Date.now(),
         state: "sending",
+        envelopeHash: toBase64url(contentHash(encrypted.envelope)),
       });
       data.outbox.push({
         id: packetId,
@@ -585,11 +591,17 @@ export class PrivateMessagingService {
     if (units === undefined)
       throw new Error("Could not read private message allowance");
     if (BigInt(units) > 0n) {
-      delete data.funding[actor];
       this.fundingSteps.delete(actor);
       return true;
     }
     let funding = data.funding[actor];
+    if (funding?.grantId) {
+      const grant = await this.protocol.reads.messaging.get_private_grant({ grant_id: fromBase64url(funding.grantId) });
+      if (!grant) throw new Error("Could not check message allowance delivery");
+      // An extant, exhausted grant needs a new reservation. An orphaned grant
+      // retries its original reservation/id instead of charging a second time.
+      if (grant.value) { delete data.funding[actor]; funding = undefined; }
+    }
     if (!funding) {
       stage("Connecting to the message sponsor.");
       if (!this.sponsorUrls.length)
@@ -658,26 +670,26 @@ export class PrivateMessagingService {
       reservation.units !== funding.units
     )
       throw new Error("Private usage reservation mismatch");
+    const sponsor = new SponsorClient({ endpoint: funding.endpoint, expectedChainId: this.scope.chainId });
+    const discovery = await sponsor.discover();
+    if (discovery.sponsor !== funding.sponsor)
+      throw new Error("The sponsor changed identity; keep this saved reservation for recovery");
     const head = await this.protocol.provider.getHeadInfo();
-    if (BigInt(reservation.block) > BigInt(head.last_irreversible_block)) {
-      stage(`Waiting for message allowance to become final (${BigInt(reservation.block) - BigInt(head.last_irreversible_block)} blocks remaining).`);
+    const fast = privateConfirmationDepth(this.protocol.deployment.network);
+    const depth = fast && discovery.policy.privateUsageConfirmations === fast ? fast : 0;
+    const boundary = privateConfirmationHeight(head, depth);
+    if (BigInt(reservation.block) > boundary) {
+      stage(depth
+        ? `Confirming message allowance (${BigInt(reservation.block) - boundary} blocks remaining).`
+        : `Waiting for message allowance to become final (${BigInt(reservation.block) - boundary} blocks remaining).${fast ? " This sponsor still needs the faster messaging update." : ""}`);
       return false;
     }
     stage("Waiting for the sponsor to activate message allowance.");
-    if (Date.now() - (funding.lastAttempt ?? 0) < RETRY_MS) return false;
+    if (Date.now() - (funding.lastAllocationAttempt ?? 0) < RETRY_MS) return false;
     const payload = { reservationId: funding.id, actor };
-    funding.lastAttempt = Date.now();
+    funding.lastAllocationAttempt = Date.now();
     await save();
-    const sponsor = new SponsorClient({
-      endpoint: funding.endpoint,
-      expectedChainId: this.scope.chainId,
-    });
-    const discovery = await sponsor.discover();
-    if (discovery.sponsor !== funding.sponsor)
-      throw new Error(
-        "The sponsor changed identity; keep this saved reservation for recovery",
-      );
-    await sponsor.allocatePrivateUsage({
+    const grant = await sponsor.allocatePrivateUsage({
       ...payload,
       signature: await signPrivateStatement(
         this.scope,
@@ -686,6 +698,8 @@ export class PrivateMessagingService {
         this.me.signer,
       ),
     });
+    funding.grantId = grant.grantId;
+    await save();
     return false;
   }
   private async verified(row: PrivatePacketView, irreversible?: string): Promise<boolean> {
@@ -702,6 +716,7 @@ export class PrivateMessagingService {
       record.actor !== row.actor ||
       record.peer !== row.peer ||
       record.sequence !== row.sequence ||
+      record.block !== row.block ||
       record.timestamp !== row.timestamp ||
       !bytesEqual(
         record.content_hash,
@@ -718,9 +733,11 @@ export class PrivateMessagingService {
     // A recovery scan can contain many unrelated invitations. Reuse a conservative
     // finality boundary and bound parallel reads instead of two serial RPCs per row.
     const head = await this.protocol.provider.getHeadInfo();
+    this.scanIrreversible = BigInt(head.last_irreversible_block);
+    const boundary = privateConfirmationHeight(head, privateConfirmationDepth(this.protocol.deployment.network)).toString();
     for (let offset = 0; offset < rows.length; offset += 4) {
       const batch = rows.slice(offset, offset + 4);
-      const results = await Promise.allSettled(batch.map(row => this.verified(row, head.last_irreversible_block)));
+      const results = await Promise.allSettled(batch.map(row => this.verified(row, boundary)));
       for (const [index, result] of results.entries()) {
         this.active();
         if (result.status === "rejected") throw result.reason;
@@ -733,78 +750,85 @@ export class PrivateMessagingService {
     data: PrivateFile,
     save: () => Promise<void>,
   ): Promise<void> {
-    const page = await this.indexer.privatePackets(data.inboxAfter);
-    for await (const row of this.confirmedPackets(page.items)) {
-      this.active();
-      if (row.peer || BigInt(row.sequence) <= BigInt(data.inboxAfter))
-        throw new Error("Invalid invitation page");
-      const context = this.context(row.actor, "", row.packet_id),
-        bytes = fromBase64url(row.envelope);
-      const opened = openPrivateInvitation<Signed<Invitation | Closure>>(
-        context,
-        fromBase64url(data.deliverySecret),
-        bytes,
-      );
-      if (opened?.value?.kind === "invite")
-        await this.receiveInvitation(data, opened as Signed<Invitation>, Number(row.timestamp));
-      else if (opened?.value?.kind === "close")
-        await this.receiveClosure(data, opened as Signed<Closure>, Number(row.timestamp));
-      else {
-        for (const chat of data.chats) {
-          if (chat.status !== "outgoing" || !chat.returnSecret || !chat.setup)
-            continue;
-          const reply = openPrivateInvitation<AcceptanceEnvelope>(
-            context,
-            fromBase64url(chat.returnSecret),
-            bytes,
-          );
-          if (reply?.kind !== "accept" || reply.id !== chat.id) continue;
-          let accepted: Awaited<
-            ReturnType<typeof finishRatchet<Signed<Acceptance>>>
-          >;
-          try {
-            accepted = await finishRatchet<Signed<Acceptance>>(
-              fromBase64url(data.pickleKey),
-              chat.setup.account,
-              reply.identityKey,
-              reply.wire,
+    let scanAfter = data.inboxAfter;
+    for (let pageNumber = 0; pageNumber < 4; pageNumber++) {
+      const page = await this.indexer.privatePackets(scanAfter);
+      for await (const row of this.confirmedPackets(page.items)) {
+        this.active();
+        if (row.peer || BigInt(row.sequence) <= BigInt(data.inboxAfter))
+          throw new Error("Invalid invitation page");
+        const context = this.context(row.actor, "", row.packet_id),
+          bytes = fromBase64url(row.envelope);
+        const opened = openPrivateInvitation<Signed<Invitation | Closure>>(
+          context,
+          fromBase64url(data.deliverySecret),
+          bytes,
+        );
+        if (opened?.value?.kind === "invite")
+          await this.receiveInvitation(data, opened as Signed<Invitation>, Number(row.timestamp));
+        else if (opened?.value?.kind === "close" && BigInt(row.block) <= this.scanIrreversible)
+          await this.receiveClosure(data, opened as Signed<Closure>, Number(row.timestamp));
+        else {
+          for (const chat of data.chats) {
+            if (chat.status !== "outgoing" || !chat.returnSecret || !chat.setup)
+              continue;
+            const reply = openPrivateInvitation<AcceptanceEnvelope>(
+              context,
+              fromBase64url(chat.returnSecret),
+              bytes,
             );
-          } catch {
-            continue;
+            if (reply?.kind !== "accept" || reply.id !== chat.id) continue;
+            let accepted: Awaited<
+              ReturnType<typeof finishRatchet<Signed<Acceptance>>>
+            >;
+            try {
+              accepted = await finishRatchet<Signed<Acceptance>>(
+                fromBase64url(data.pickleKey),
+                chat.setup.account,
+                reply.identityKey,
+                reply.wire,
+              );
+            } catch {
+              continue;
+            }
+            const value = accepted.payload?.value;
+            if (
+              !value ||
+              value.kind !== "accept" ||
+              value.id !== chat.id ||
+              value.from !== chat.peer ||
+              value.to !== this.me.account ||
+              value.peerAlias !== chat.alias ||
+              !isAddress(value.alias)
+            )
+              continue;
+            // A temporary RPC failure must leave this packet unread, not discard the acceptance.
+            if (
+              !verifyPrivateStatement(
+                this.scope,
+                "accept",
+                value,
+                accepted.payload.signature,
+                await this.owner(chat.peer),
+              ) ||
+              !(await this.unblocked(chat.peer))
+            )
+              continue;
+            chat.peerAlias = value.alias;
+            chat.ratchet = accepted.state;
+            chat.status = "accepting";
+            delete chat.setup;
+            delete chat.returnSecret;
+            delete chat.invitation;
           }
-          const value = accepted.payload?.value;
-          if (
-            !value ||
-            value.kind !== "accept" ||
-            value.id !== chat.id ||
-            value.from !== chat.peer ||
-            value.to !== this.me.account ||
-            value.peerAlias !== chat.alias ||
-            !isAddress(value.alias)
-          )
-            continue;
-          // A temporary RPC failure must leave this packet unread, not discard the acceptance.
-          if (
-            !verifyPrivateStatement(
-              this.scope,
-              "accept",
-              value,
-              accepted.payload.signature,
-              await this.owner(chat.peer),
-            ) ||
-            !(await this.unblocked(chat.peer))
-          )
-            continue;
-          chat.peerAlias = value.alias;
-          chat.ratchet = accepted.state;
-          chat.status = "accepting";
-          delete chat.setup;
-          delete chat.returnSecret;
-          delete chat.invitation;
         }
+        // Keep rescanning the reversible suffix. Already processed request IDs
+        // are deduplicated; replaced sequences cannot hide a later invitation.
+        if (BigInt(row.block) <= this.scanIrreversible) data.inboxAfter = row.sequence;
+        scanAfter = row.sequence;
+        await save();
       }
-      data.inboxAfter = row.sequence;
-      await save();
+      if (!page.more || scanAfter !== page.items.at(-1)?.sequence) break;
     }
   }
   private async receiveInvitation(
@@ -932,7 +956,7 @@ export class PrivateMessagingService {
           chat.alias,
           chat.peerAlias,
         );
-        for (const row of page.items) {
+        for await (const row of this.confirmedPackets(page.items)) {
           if (
             !(
               (row.actor === chat.alias && row.peer === chat.peerAlias) ||
@@ -941,7 +965,10 @@ export class PrivateMessagingService {
             BigInt(row.sequence) <= BigInt(chat.after)
           )
             throw new Error("Invalid conversation packet page");
-          if (!(await this.verified(row))) break;
+          const previous = chat.messages.find(m => m.id === row.packet_id);
+          if (previous?.envelopeHash && previous.envelopeHash !== row.content_hash)
+            throw new Error("The network returned conflicting ciphertext for a saved message");
+          if (previous && !previous.mine && BigInt(row.block) <= this.scanIrreversible) previous.state = "sent";
           if (
             row.actor === chat.peerAlias &&
             !chat.messages.some((m) => m.id === row.packet_id)
@@ -958,10 +985,11 @@ export class PrivateMessagingService {
               text: opened.text,
               mine: false,
               timestamp: Number(row.timestamp),
-              state: "sent",
+              state: BigInt(row.block) <= this.scanIrreversible ? "sent" : "confirming",
+              envelopeHash: row.content_hash,
             });
           }
-          chat.after = row.sequence;
+          if (BigInt(row.block) <= this.scanIrreversible) chat.after = row.sequence;
           await save();
         }
       } catch (error) {
@@ -993,14 +1021,31 @@ export class PrivateMessagingService {
             throw new Error("Saved packet does not match the chain");
           delete packet.error;
           const head = await this.protocol.provider.getHeadInfo();
-          if (BigInt(existing.block) > BigInt(head.last_irreversible_block)) continue;
+          const message = chat.messages.find(m => m.id === packet.id);
+          if (BigInt(existing.block) > BigInt(head.last_irreversible_block)) {
+            if (BigInt(existing.block) <= privateConfirmationHeight(head, privateConfirmationDepth(this.protocol.deployment.network))) {
+              packet.observed = true;
+              if (message) message.state = "confirming";
+            }
+            // Retain this exact ciphertext for reorg recovery, but do not make
+            // every later message wait for its predecessor's full finality.
+            if (packet.kind !== "close") visited.delete(orderKey);
+            continue;
+          }
           data.outbox = data.outbox.filter(p => p.id !== packet.id);
           this.fundingSteps.delete(packet.actor);
           if (packet.kind === "close" && !data.outbox.some(p => p.chatId === chat.id && p.kind === "close")) chat.closeNotice = "sent";
-          const message = chat.messages.find(m => m.id === packet.id);
           if (message) { message.state = "sent"; message.timestamp = Number(existing.timestamp); }
           await save();
+          if (packet.kind !== "close") visited.delete(orderKey);
           continue;
+        }
+        if (packet.observed) {
+          delete packet.observed;
+          delete packet.lastAttempt;
+          const message = chat.messages.find(m => m.id === packet.id);
+          if (message) message.state = "sending";
+          await save();
         }
         if (packet.peer && chat.status !== "ready") continue;
         if (packet.kind !== "close" && !(await this.unblocked(chat.peer))) throw new Error("This conversation is blocked");

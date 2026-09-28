@@ -49,7 +49,7 @@ const lock: ExclusiveLock = async (name, action) => {
   locks.set(name, p);
   return p;
 };
-function harness(prepaid = true) {
+function harness(prepaid = true, fast = false) {
   let delayedNonce = false;
   const pendingNonces = new Set<string>();
   const devices = new Map<string, PrivateDevice[]>(),
@@ -57,10 +57,10 @@ function harness(prepaid = true) {
     packets: PrivatePacketView[] = [],
     operations: any[] = [],
     units = new Map<string, number>(),
-    reservations = new Map<string, any>();
+    reservations = new Map<string, any>(), grants = new Map<string, any>();
   const pair = (a: string, b: string) => [a, b].sort().join(":");
   let unknown = false,
-    lib = "1000",
+    lib = "1000", height = "1000",
     directoryDown = false;
   const reads = {
     get_private_status: async () => ({
@@ -73,6 +73,7 @@ function harness(prepaid = true) {
     },
     get_private_units: async ({ account }: any) => ({ units: String(units.get(account) ?? (prepaid ? 100 : 0)) }),
     get_private_reservation: async ({ reservation_id }: any) => ({ value: reservations.get(toBase64url(reservation_id)) }),
+    get_private_grant: async ({ grant_id }: any) => ({ value: grants.get(toBase64url(grant_id)) }),
     get_private_packet: async ({ actor, packet_id }: any) => {
       const p = packets.find(
         (p) => p.actor === actor && p.packet_id === toBase64url(packet_id),
@@ -93,8 +94,8 @@ function harness(prepaid = true) {
   };
   const protocol = {
     chainId: scope.chainId,
-    deployment,
-    provider: { getHeadInfo: async () => ({ last_irreversible_block: lib }) },
+    deployment: { ...deployment, network: fast ? "harbinger" : deployment.network },
+    provider: { getHeadInfo: async () => ({ last_irreversible_block: lib, head_topology: { height } }) },
     reads: {
       messaging: reads,
       identity: {
@@ -295,9 +296,11 @@ function harness(prepaid = true) {
       expect(reservation).toBeDefined();
       expect(verifyPrivateStatement(scope, "allocate", { reservationId, actor }, signature, reservation.account)).toBe(true);
       units.set(actor, reservation.units);
+      grants.set(reservationId, { grant_id: fromBase64url(reservationId), sponsor: reservation.sponsor, actor, units: reservation.units });
     },
     setDirectoryDown: (value: boolean) => { directoryDown = value; },
-    protocol, indexer, devices,
+    protocol, indexer, devices, channels, grants, units,
+    setHead: (value: string) => { height = value; },
     setUnknown: () => {
       unknown = true;
     },
@@ -308,6 +311,90 @@ function harness(prepaid = true) {
 }
 
 describe("two-browser private conversations", () => {
+  it("connects after three testnet confirmations and pipelines messages before finality", async () => {
+    const h = harness(true, true);
+    h.setLib("1"); h.setHead("6");
+    await h.a.service.enable(); await h.b.service.enable(); await h.pump();
+    const chat = await h.a.service.start(bob.account);
+    await h.pump();
+    expect(h.b.snapshot.chats).toHaveLength(0);
+    h.setHead("7"); await h.pump();
+    expect(h.b.snapshot.chats[0]?.status).toBe("incoming");
+    await h.b.service.accept(chat); await h.pump(8);
+    expect(h.a.snapshot.chats[0]?.status).toBe("ready");
+    expect(h.b.snapshot.chats[0]?.status).toBe("ready");
+    await h.a.service.send(chat, "first");
+    await h.a.service.send(chat, "second");
+    await h.pump();
+    expect(h.b.snapshot.chats[0]?.messages.map(m => m.text)).toEqual(["first", "second"]);
+    expect(h.b.snapshot.chats[0]?.messages.every(m => m.state === "confirming")).toBe(true);
+    await h.b.store.edit(async data => {
+      expect(data.inboxAfter).toBe("0"); expect(data.chats[0]?.after).toBe("0");
+    });
+    await h.a.store.edit(async data => expect(data.outbox.filter(p => p.peer)).toHaveLength(2));
+    h.b.reload(); await h.pump();
+    expect(h.b.snapshot.chats[0]?.messages).toHaveLength(2);
+    h.setLib("7"); await h.pump();
+    expect(h.a.snapshot.pending).toBe(0);
+    expect(h.b.snapshot.chats[0]?.messages.every(m => m.state === "sent")).toBe(true);
+  });
+  it("rebroadcasts identical ciphertext after a testnet reorg without repeating ratchet decryption", async () => {
+    const h = harness(true, true), chat = await h.connect();
+    h.setLib("1"); h.setHead("7");
+    // Move this conversation's stable cursor before the reversible message.
+    await h.a.service.send(chat, "survives a reorg"); await h.pump();
+    const original = structuredClone(h.packets.find(p => !!p.peer)!);
+    expect(h.b.snapshot.chats[0]?.messages).toHaveLength(1);
+    h.packets.splice(h.packets.findIndex(p => p.packet_id === original.packet_id), 1);
+    h.a.reload(); h.b.reload(); await h.pump();
+    const replay = h.packets.find(p => p.packet_id === original.packet_id)!;
+    expect(replay.envelope).toBe(original.envelope);
+    expect(h.b.snapshot.chats[0]?.messages).toHaveLength(1);
+    expect(h.b.snapshot.error).toBe("");
+    await h.b.service.send(chat, "ratchet still works"); await h.pump();
+    expect(h.a.snapshot.chats[0]?.messages.at(-1)?.text).toBe("ratchet still works");
+  });
+  it("finds a replacement invitation when a reversible sequence is reused", async () => {
+    const h = harness(true, true);
+    h.setLib("1"); h.setHead("7");
+    await h.a.service.enable(); await h.b.service.enable(); await h.pump();
+    const old = await h.a.service.start(bob.account); await h.pump();
+    expect(h.b.snapshot.chats[0]?.id).toBe(old);
+    h.packets.length = 0;
+    // Simulate an offline old sender, then a fresh independent invitation.
+    await h.a.store.edit(async data => { data.outbox = []; data.chats[0]!.status = "closed"; data.chats[0]!.closeNotice = "sent"; });
+    const fresh = await h.a.service.start(bob.account); await h.pump();
+    expect(h.packets[0]?.sequence).toBe("1");
+    expect(h.b.snapshot.chats.some(c => c.id === fresh)).toBe(true);
+    expect(fresh).not.toBe(old);
+  });
+  it("uses the advertised testnet allowance policy and repairs an orphaned grant without a second charge", async () => {
+    let now = Date.now(); vi.spyOn(Date, "now").mockImplementation(() => now);
+    const h = harness(false, true);
+    h.setLib("1"); h.setHead("6");
+    vi.spyOn(SponsorClient.prototype, "discover").mockResolvedValue({
+      sponsor: deployment.contracts.sponsorship.address,
+      policy: { privateUsageConfirmations: 3, allowed: [{ contract: scope.contract, entryPoints: [ABIS.messaging.methods.reserve_private_usage!.entry_point] }] },
+    } as any);
+    const allocate = vi.spyOn(SponsorClient.prototype, "allocatePrivateUsage").mockImplementation(async payload => {
+      h.allocate(payload.reservationId, payload.actor, payload.signature);
+      return { grantId: payload.reservationId, pending: true };
+    });
+    await h.a.service.enable(); await h.b.service.enable(); await h.pump();
+    await h.a.service.start(bob.account); await h.pump();
+    expect(allocate).not.toHaveBeenCalled();
+    h.setHead("7"); await h.pump(8);
+    expect(h.a.snapshot.error).toBe("");
+    expect(h.b.snapshot.chats[0]?.status).toBe("incoming");
+    expect(allocate).toHaveBeenCalledTimes(1);
+    h.packets.length = 0; h.grants.clear(); h.units.clear(); now += 60_000;
+    h.a.reload(); await h.pump(8);
+    expect(allocate).toHaveBeenCalledTimes(2);
+    expect(h.operations.filter(op => op.method === "reserve_private_usage")).toHaveLength(1);
+    expect(allocate.mock.calls[1]?.[0].reservationId).toBe(allocate.mock.calls[0]?.[0].reservationId);
+    expect(h.packets).toHaveLength(1);
+    expect(h.b.snapshot.chats).toHaveLength(1);
+  });
   it.each(["sender", "recipient"])("delivers %s cancellation before a channel exists", async side => {
     const h = harness();
     await h.a.service.enable(); await h.b.service.enable(); await h.pump();
@@ -460,7 +547,7 @@ describe("two-browser private conversations", () => {
     } as any);
     vi.spyOn(SponsorClient.prototype, "allocatePrivateUsage").mockImplementation(async payload => {
       h.allocate(payload.reservationId, payload.actor, payload.signature);
-      return { grantId: "grant", pending: true };
+      return { grantId: payload.reservationId, pending: true };
     });
     await h.a.service.enable(); await h.b.service.enable(); await h.pump();
     const chat = await h.a.service.start(bob.account);
@@ -500,7 +587,7 @@ describe("two-browser private conversations", () => {
     } as any);
     const allocate = vi.spyOn(SponsorClient.prototype, "allocatePrivateUsage").mockImplementation(async payload => {
       h.allocate(payload.reservationId, payload.actor, payload.signature);
-      return { grantId: "grant", pending: true };
+      return { grantId: payload.reservationId, pending: true };
     });
     await h.a.service.enable(); await h.b.service.enable(); await h.pump();
     h.setLib("1");

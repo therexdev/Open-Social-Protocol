@@ -44,6 +44,8 @@ export function PrivateMessagingProvider({
     setValue({ snapshot: empty });
     if (!me || !protocol) return;
     let alive = true;
+    let workPending = false;
+    let lastPoll = 0;
     const scope = {
       chainId: protocol.chainId,
       contract: protocol.deployment.contracts.messaging.address,
@@ -62,6 +64,8 @@ export function PrivateMessagingProvider({
       resolved.sponsorUrls,
       resolved.payment,
       (snapshot) => {
+        workPending = snapshot.pending > 0 || (snapshot.enabled && !snapshot.registered)
+          || snapshot.chats.some(c => c.status === "accepting" || c.status === "outgoing" || c.closing);
         if (alive && vault.getState().session?.identity === me)
           setValue({ service, snapshot });
       },
@@ -80,16 +84,23 @@ export function PrivateMessagingProvider({
           });
       });
     const sync = () => {
-      if (document.visibilityState !== "hidden") void service.sync();
+      lastPoll = Date.now();
+      void service.sync();
     };
-    const timer = window.setInterval(sync, 8000);
+    // Hidden is not locked. Pausing an open background browser deadlocks the
+    // two-party handshake. The service still checks the vault before signing.
+    const timer = window.setInterval(() => {
+      if (Date.now() - lastPoll >= (workPending ? 2000 : 8000)) sync();
+    }, 2000);
     window.addEventListener("online", sync);
+    window.addEventListener("focus", sync);
     document.addEventListener("visibilitychange", sync);
     return () => {
       alive = false;
       service.stop();
       window.clearInterval(timer);
       window.removeEventListener("online", sync);
+      window.removeEventListener("focus", sync);
       document.removeEventListener("visibilitychange", sync);
     };
   }, [me, protocol, indexer, resolved, vault]);

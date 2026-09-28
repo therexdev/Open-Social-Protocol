@@ -209,6 +209,7 @@ export function MessagesPage() {
                         {m.mine ? "You" : "Them"} ·{" "}
                         {m.state === "sending"
                           ? "Sending…"
+                          : m.state === "confirming" ? (m.mine ? "Sent · confirming" : "Confirming")
                           : new Date(m.timestamp).toLocaleString()}
                       </small>
                       <p><RichText text={m.text}/></p>

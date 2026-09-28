@@ -16,6 +16,8 @@ import {
   toBase64url,
   verifyPrivateStatement,
   signSponsorDiscovery,
+  privateConfirmationDepth,
+  privateConfirmationHeight,
   type Deployment,
   type OperationJson,
   type ProviderInterface,
@@ -50,7 +52,7 @@ export interface SponsorServiceOptions {
 }
 
 export interface StatusReport {
-  features: { privateMessaging: 2; messagingNonceOrdering: 1 };
+  features: { privateMessaging: 2; messagingNonceOrdering: 1; messagingFastConfirmation: 1 };
   ok: boolean;
   state: ServiceState;
   message: string;
@@ -200,7 +202,8 @@ export class SponsorService {
       const scope = { chainId: deployment.chainId, contract: deployment.contracts.messaging.address };
       if (!owner || !verifyPrivateStatement(scope, "allocate", { reservationId, actor }, body.signature, owner)) throw new SponsorRefusal("invalid_signature", "Private allocation must be authorized by the reservation owner");
       const head = await provider.getHeadInfo();
-      if (!reservation.block || BigInt(reservation.block) > BigInt(head.last_irreversible_block)) throw new SponsorRefusal("temporarily_unavailable", "Usage reservation is confirming; retry this same reservation");
+      if (!reservation.block || BigInt(reservation.block) > privateConfirmationHeight(head, privateConfirmationDepth(deployment.network)))
+        throw new SponsorRefusal("temporarily_unavailable", "Usage reservation is confirming; retry this same reservation");
       let grantId: string;
       try { grantId = this.quota.assignPrivateUsage(`${scope.chainId}:${scope.contract}:${sponsor}`, reservationId, actor); }
       catch { throw new SponsorRefusal("invalid_transaction", "This reservation was already assigned to another wallet"); }
@@ -238,7 +241,7 @@ export class SponsorService {
 
   status(): StatusReport {
     return {
-      features: { privateMessaging: 2, messagingNonceOrdering: 1 },
+      features: { privateMessaging: 2, messagingNonceOrdering: 1, messagingFastConfirmation: 1 },
       ok: this.state === "serving",
       state: this.state,
       message: stateMessage(this.state, this.options),
@@ -263,7 +266,7 @@ export class SponsorService {
           version: 1,
           sponsor,
           network: { name: deployment.network, chainId: deployment.chainId, rpc: deployment.rpc },
-          policy: discoveryPolicy(allowlist, this.limits),
+          policy: { ...discoveryPolicy(allowlist, this.limits), privateUsageConfirmations: privateConfirmationDepth(deployment.network) },
           endpoint: this.config.publicUrl,
           protocolVersion: deployment.protocolVersion,
           contracts: contractAddresses(deployment),

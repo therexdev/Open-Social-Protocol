@@ -73,7 +73,8 @@ useToasts.subscribe(state => {
 });
 async function until(label: string, ready: () => boolean, timeout = 1_200_000) {
   console.log("WAIT", label);
-  const deadline = Date.now() + timeout;
+  const started = Date.now();
+  const deadline = started + timeout;
   let lastReport = 0;
   while (!ready()) {
     assert(Date.now() < deadline, `Timed out: ${label}`);
@@ -90,7 +91,7 @@ async function until(label: string, ready: () => boolean, timeout = 1_200_000) {
     }
     if (!ready()) await new Promise(resolve => setTimeout(resolve, 5_000));
   }
-  console.log("PASS", label);
+  console.log("PASS", label, { elapsedSeconds: Math.round((Date.now() - started) / 1000) });
 }
 try {
   assert.equal(await provider.getChainId(), deployment.chainId);

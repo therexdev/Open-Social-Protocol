@@ -68,9 +68,11 @@ or reconstruct/reuse a message key. Cross-tab operations require an exclusive br
 
 An outgoing request is locally saved before it is delivered. Show **Preparing request**
 while reserving/allocating allowance, **Confirming request** after attempting publication,
-and **Request sent** only after its exact packet is irreversible. Preparing the first
-request can take several minutes; signing stops when the account is locked, switched,
-or its browser closes. Navigating to another page within the unlocked app is supported.
+and **Request sent** after its exact packet meets the network confirmation policy
+(three confirmations on Harbinger; irreversibility elsewhere). Old sponsors still
+require full finality for allowance; see the testnet policy below. Signing stops when
+the account is locked, switched, or its browser closes. Navigating to another page
+within the unlocked app is supported, including while the tab is hidden.
 Incoming requests have a separate approval section at the top of Messages.
 
 Invitations have a signed seven-day lifetime. A funding or network delay longer than
@@ -232,3 +234,47 @@ finality instantaneous. Cancellation consumes private usage for the encrypted no
 Use `npm run test:private-messaging:testnet -- --execute --lifecycle` to extend the
 disposable-account live journey with cancellation before acceptance, a new request in
 the reverse direction, bidirectional messages, and closure of an established channel.
+
+### Faster Harbinger delivery and background connection
+
+The `2026-09-28-messaging-fast-testnet` web release continues polling while an
+unlocked browser tab is hidden. Previously visibility stopped polling and could
+leave the peer waiting indefinitely. Pending work polls every two seconds; idle
+messaging polls every eight seconds. Browser suspension can still delay work,
+and locking still stops signing and hides private state.
+
+On Harbinger only, invitations, acceptances, and messages can be processed after
+three confirmations instead of full irreversibility. The sponsor also permits
+private allowance assignment after three confirmations and advertises this in
+its signed discovery policy as `privateUsageConfirmations: 3`. The web client
+uses the shorter allowance wait only when the sponsor advertises that policy.
+Other networks continue requiring full irreversibility. This changes client and
+sponsor policy, not consensus or contracts. Update both the sponsor and frontend;
+the sponsor health endpoint then reports `messagingFastConfirmation: 1`.
+
+Early confirmation is provisional. A testnet reorganization can remove packets
+or allowance grants. The sender retains exact ciphertext and packet IDs until
+irreversibility and rebroadcasts missing packets without re-encrypting. Receivers
+retain authenticated message IDs and ciphertext hashes, rescan the reversible
+suffix, and never roll back consumed ratchet keys. Final cursors advance only
+over irreversible packets. A missing latest allowance grant retries its saved
+reservation rather than creating another charge. Exhausted grants that still
+exist require a new reservation. Owner proofs, idempotent sponsor assignment,
+finite pool limits, and transaction nonce ordering remain enforced.
+
+This is a testnet latency policy, not a claim of identical settlement safety.
+The sponsor accepts reorganization exposure when assigning from a provisional
+reservation; deep reorgs spanning multiple allowance refills may need recovery.
+Private message text can remain in local history after its chain packet is
+orphaned. Remote closures still wait for irreversibility before deleting ratchet
+secrets. This policy should not be carried to a real-value network without a
+separate review.
+
+Consecutive messages can progress while earlier ciphertext awaits finality.
+`Sent · confirming` means the packet was observed on-chain, not that the recipient
+read it. Reservation submission and allocation have independent retry clocks so
+successful confirmation does not impose another twenty-second retry delay.
+
+Regression coverage includes hidden-tab polling, locking, three-confirmation
+boundaries, strict non-Harbinger finality, burst delivery, reload, replacement
+sequences, unchanged-ciphertext rebroadcast, and orphaned allowance recovery.

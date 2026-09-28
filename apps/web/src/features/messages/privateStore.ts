@@ -59,7 +59,8 @@ export interface LocalMessage {
   text: string;
   mine: boolean;
   timestamp: number;
-  state: "sending" | "sent";
+  state: "sending" | "confirming" | "sent";
+  envelopeHash?: string;
 }
 export interface PrivateChat {
   id: string;
@@ -92,6 +93,7 @@ export interface PrivateOutbox {
   kind?: "close";
   lastAttempt?: number;
   error?: string;
+  observed?: boolean;
 }
 export interface Funding {
   id: string;
@@ -99,6 +101,8 @@ export interface Funding {
   endpoint: string;
   units: number;
   lastAttempt?: number;
+  grantId?: string;
+  lastAllocationAttempt?: number;
 }
 export interface PrivateFile {
   version: 2;
