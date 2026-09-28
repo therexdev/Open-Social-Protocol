@@ -17,6 +17,7 @@ import {
   sealPrivateInvitation,
   signPrivateStatement,
   verifyPrivateStatement,
+  encryptPrivateMessage,
 } from "@osp/sdk";
 import { ABIS } from "@osp/proto";
 import { fixtureDeployment } from "../../../../../packages/sdk/src/testing/fixtures";
@@ -327,6 +328,28 @@ function harness(prepaid = true, fast = false, auto = false, warm = false) {
 }
 
 describe("two-browser private conversations", () => {
+  it("rejects conflicting logical message IDs before committing keys or poisoning saved history", async () => {
+    const h = harness(); const chatId = await h.connect();
+    await h.a.service.send(chatId, "Authentic original"); await h.pump();
+    const before = await h.b.store.edit(async data => structuredClone(data.chats[0]!.ratchet));
+    // An authenticated peer can deliberately encrypt a second, conflicting
+    // plaintext under the original logical ID. Chain validity is not enough.
+    const forged = await h.a.store.edit(async data => {
+      const chat = data.chats[0]!, packetId = toBase64url(randomBytes(32));
+      const encrypted = await encryptPrivateMessage(fromBase64url(data.pickleKey), chat.ratchet!,
+        { ...scope, actor: chat.alias, peer: chat.peerAlias!, packetId }, "Conflicting replacement",
+        { id: chat.messages[0]!.logicalId!, deviceId: data.deviceId, threadId: chatId, sentAt: Date.now() });
+      return { actor: chat.alias, peer: chat.peerAlias!, packet_id: packetId,
+        envelope: toBase64url(encrypted.envelope), content_hash: toBase64url(contentHash(encrypted.envelope)),
+        block: "5", sequence: String(h.packets.length + 1), timestamp: String(Date.now()), txId: "malicious-peer" };
+    });
+    h.packets.push(forged); await h.b.service.sync();
+    expect(h.b.snapshot.error).toContain("conflicting");
+    expect(h.b.snapshot.chats[0]?.messages.map(m => m.text)).toEqual(["Authentic original"]);
+    await h.b.store.edit(async data => expect(data.chats[0]!.ratchet).toEqual(before));
+    h.b.reload(); await h.b.service.load();
+    expect(h.b.snapshot.chats[0]?.messages.map(m => m.text)).toEqual(["Authentic original"]);
+  });
   it("reuses provisional verification without skipping changed packets or final chain checks", async () => {
     const h = harness(true, true);
     h.setLib("1"); h.setHead("5");

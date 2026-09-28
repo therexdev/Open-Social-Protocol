@@ -1457,6 +1457,7 @@ export class PrivateMessagingService {
               const candidate = structuredClone(data);
               const link = candidate.chats.find(c => c.id === chat.id)!;
               const closed = receiveHistoryFrame(candidate, link, opened.text, this.me.account);
+              historyThreads(candidate); // Reject conflicts with native history too.
               data.mirrors = candidate.mirrors;
               chat.syncParts = link.syncParts;
               chat.syncSent = link.syncSent;
@@ -1468,20 +1469,27 @@ export class PrivateMessagingService {
               || (chat.peerDeviceId && opened.metadata.deviceId !== chat.peerDeviceId))) {
               throw new Error("The message belongs to a different conversation or browser");
             }
+            const message = {
+              id: row.packet_id,
+              text: chat.kind ? "" : opened.text,
+              mine: false,
+              timestamp: opened.metadata?.sentAt ?? Number(row.timestamp),
+              state: BigInt(row.block) <= this.scanIrreversible ? "sent" as const : "confirming" as const,
+              envelopeHash: row.content_hash,
+              ...(!chat.kind && opened.metadata && { logicalId: opened.metadata.id, sourceDeviceId: opened.metadata.deviceId }),
+            };
+            if (!chat.kind) {
+              // A peer can authenticate malicious duplicate IDs. Reject that
+              // packet before committing anything that could poison the inbox.
+              const history = historyThreads(data).find(t => t.id === threadId(chat));
+              mergeMessage(history?.messages ?? [], message);
+            }
             if (!chat.kind && opened.metadata) {
               chat.peerDeviceId ??= opened.metadata.deviceId;
               chat.peerSupportsDevices = true;
             }
             chat.ratchet = opened.state;
-            chat.messages.push({
-              id: row.packet_id,
-              text: chat.kind ? "" : opened.text,
-              mine: false,
-              timestamp: opened.metadata?.sentAt ?? Number(row.timestamp),
-              state: BigInt(row.block) <= this.scanIrreversible ? "sent" : "confirming",
-              envelopeHash: row.content_hash,
-              ...(!chat.kind && opened.metadata && { logicalId: opened.metadata.id, sourceDeviceId: opened.metadata.deviceId }),
-            });
+            chat.messages.push(message);
             modified = true;
           }
           if (BigInt(row.block) <= this.scanIrreversible) chat.after = row.sequence;

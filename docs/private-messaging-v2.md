@@ -474,3 +474,15 @@ link requests, duplicate suppression, and linked conversation closure. Run the o
 live journey with `npm run test:private-messaging:testnet -- --execute --devices` to
 exercise seed-only isolation, linking, history copy, and a phone reply using disposable
 test identities against the deployed testnet.
+
+The disposable-account live test passed against the deployed Harbinger RPC, sponsor
+and indexer: the same-account second browser had no history before approval, then
+received both existing messages and sent a reply that appeared exactly once on the
+peer and original desktop. Link-request delivery took 21 seconds, initial history
+copy after approval 84 seconds, and the first phone reply 94 seconds including its
+new independent device-pair connection. These are test-environment measurements,
+not latency guarantees or an instant/offline initial-handshake claim.
+
+Conflicting authenticated logical message IDs are checked against existing native
+and mirrored history before committing a receiving ratchet. A malicious or faulty
+peer cannot use a duplicate ID with different plaintext to poison the saved inbox.
