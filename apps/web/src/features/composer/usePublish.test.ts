@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from "vitest";
-import { AUDIENCE, ProtocolClient, RELATIONSHIP_STATUS, decode, identityFromSeed } from "@osp/sdk";
+import { AUDIENCE, ProtocolClient, RELATIONSHIP_STATUS, decode, identityFromSeed, encryptMedia, toBase64url } from "@osp/sdk";
 import { IndexerClient } from "../../api/indexer";
 import { fakeIndexerFetch, fakeProvider, fixtureDeployment, readResult } from "../../testing/fixtures";
 import { bytesOf } from "../../util/bytes";
@@ -168,6 +168,18 @@ describe("background publication", () => {
     expect(saved.media?.[0]?.url).toBe(media[0]!.url);
     expect(bytesOf(saved.media![0]!.contentHash)).toEqual(media[0]!.contentHash);
     expect(saved.state).toBe("published");
+  });
+  it("persists private image keys in the encrypted draft and resumes them after an interrupted submit", async () => {
+    const session = await openSession(), { protocol,indexer } = chainFor(session.identity.account);
+    const encrypted = encryptMedia(new Uint8Array([1,2,3]));
+    const media = [{ url: "ipfs://bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqw4j4k2pm",mime: "image/jpeg",size: encrypted.ciphertext.length,contentHash: encrypted.contentHash,encryption: { key: toBase64url(encrypted.key),nonce: toBase64url(encrypted.nonce) } }];
+    const draft = newDraft(session.identity.account,{ text: "",audience: AUDIENCE.FRIENDS,mediaUrls: [] });
+    const deps: PublishDeps = { session,protocol,indexer,payment: "self-only",submit: async () => { throw new Error("connection lost"); } };
+    await startPublication(deps,{ draft,media }); await waitForPublication(deps,draft.id);
+    const saved = (await listDrafts(session))[0]!;
+    expect(saved.state).toBe("failed"); expect(saved.media![0]!.encryption).toEqual(media[0]!.encryption);
+    const retry = await planDraft(deps,{ draft: saved });
+    expect(protocol.contracts.decodeOperation(retry.operations.at(-1)!)!.args.media).toEqual([]);
   });
   it("retries the identical private payload after a timeout and holds later posts until the outcome is known", async () => {
     const session = await openSession();

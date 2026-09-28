@@ -7,7 +7,8 @@ import type { PostView } from "../../api/indexer";
 import { useServices } from "../../api/services";
 import { useSettings } from "../../stores/settings";
 import { submitAction } from "../../tx/submit";
-import { bytesOf } from "../../util/bytes";
+import { bytesOf, toBase64url } from "../../util/bytes";
+import { MediaPhoto } from "../../components/MediaPhoto";
 import { formatDateTime, timeAgo } from "../../util/format";
 import { Avatar, Icon } from "../../components/Icon";
 import { AccountLink, Button, Details } from "../../components/ui";
@@ -31,6 +32,7 @@ function MediaList({ content }: { content: OpenedContent }) {
       {content.media.map((item, index) => {
         const url = item.locations?.[0];
         const isImage = (item.mime ?? "").startsWith("image/");
+        if (url?.startsWith("ipfs://") && isImage) return <li key={url} className="media-item"><MediaPhoto location={url} hash={toBase64url(item.content_hash)} mime={item.mime} alt={item.alt_text} encryption={item.mediaKey ? { key: toBase64url(item.mediaKey), nonce: toBase64url(item.nonce) } : undefined}/></li>;
         return (
           <li key={index} className="media-item">
             {url ? (

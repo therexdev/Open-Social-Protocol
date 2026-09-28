@@ -17,9 +17,11 @@ function EndpointsSection() {
   const [rpc, setRpc] = useState(settings.rpcUrls.join("\n"));
   const [indexer, setIndexer] = useState(settings.indexerUrl);
   const [sponsors, setSponsors] = useState(settings.sponsorUrls.join("\n"));
+  const [mediaUpload, setMediaUpload] = useState(settings.mediaUploadUrl ?? "");
+  const [gateways, setGateways] = useState((settings.ipfsGateways ?? []).join("\n"));
   const networks = knownNetworks();
   const save = () => {
-    settings.update({ rpcUrls: parseList(rpc), indexerUrl: indexer.trim(), sponsorUrls: parseList(sponsors) });
+    settings.update({ rpcUrls: parseList(rpc), indexerUrl: indexer.trim(), sponsorUrls: parseList(sponsors), mediaUploadUrl: mediaUpload.trim(), ipfsGateways: parseList(gateways) });
   };
   return (
     <form
@@ -59,6 +61,8 @@ function EndpointsSection() {
           </select>
         )}
       </Field>
+      <Field label="Photo upload service" hint="Leave empty to use your first sponsor's /v1/media endpoint. Any compatible upload service can be used; no provider API keys belong here.">{id => <input id={id} type="url" value={mediaUpload} onChange={e => setMediaUpload(e.target.value)} placeholder="https://service.example.org/v1/media"/>}</Field>
+      <Field label="IPFS gateways (one per line)" hint="Optional. Defaults to ipfs.io, then dweb.link. These read photos; changing gateways does not change posts or their privacy.">{id => <textarea id={id} rows={2} value={gateways} onChange={e => setGateways(e.target.value)} placeholder="https://your-gateway.example"/>}</Field>
       <div className="row">
         <Button type="submit" variant="primary">
           Save endpoints
@@ -70,6 +74,7 @@ function EndpointsSection() {
             setRpc("");
             setIndexer("");
             setSponsors("");
+            setMediaUpload(""); setGateways("");
           }}
         >
           Reset to defaults

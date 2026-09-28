@@ -1,5 +1,5 @@
 /** Text + audience + optional media reference, ending in an explicit confirmation dialog. */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AUDIENCE, LIMITS } from "@osp/sdk";
 import { Button, ConfirmDialog, Field, Notice } from "../../components/ui";
 import { errorMessage } from "../../util/format";
@@ -12,12 +12,18 @@ import { useVault } from "../../vault/context";
 import { bytesOf } from "../../util/bytes";
 import { audienceLabel } from "../feed/PostCard";
 import { Avatar, Icon } from "../../components/Icon";
+import { useServices } from "../../api/services";
+import { useSettings } from "../../stores/settings";
+import { useVaultStore } from "../../vault/context";
+import { preparePhoto, uploadPhoto } from "./uploadPhoto";
+import { MediaPhoto } from "../../components/MediaPhoto";
+import { toBase64url } from "../../util/bytes";
 
 export interface ComposerFormProps {
   /** Existing draft to resume (keeps its attempt id). */
   draft?: DraftRecord;
   replyTo?: string;
-  edit?: DraftRecord["edit"] & { text: string; audience: number };
+  edit?: DraftRecord["edit"] & { text: string; audience: number; media?: MediaAttachment[] };
   defaultAudience?: number;
   compact?: boolean;
   onSubmitted?: (draft: DraftRecord) => void;
@@ -26,16 +32,26 @@ export interface ComposerFormProps {
 
 export function ComposerForm({ draft, replyTo, edit, defaultAudience = AUDIENCE.EVERYONE, compact = false, onSubmitted, onCancel }: ComposerFormProps) {
   const account = useVault((s) => s.account) ?? "";
+  const session = useVault(s => s.session), vault = useVaultStore();
+  const { resolved } = useServices();
+  const uploadOverride = useSettings(s => s.mediaUploadUrl);
+  const photoInput = useRef<HTMLInputElement>(null);
+  const uploadController = useRef<AbortController | undefined>(undefined);
+  const previews = useRef(new Map<string,string>());
+  const [uploadStatus,setUploadStatus] = useState("");
   const can = useCanAct();
   const { start, ready } = usePublish();
   const [text, setText] = useState(draft?.text ?? edit?.text ?? "");
   const [audience, setAudience] = useState<number>(draft?.audience ?? edit?.audience ?? defaultAudience);
   const [mediaUrl, setMediaUrl] = useState("");
-  const [media, setMedia] = useState<MediaAttachment[]>(draft?.media?.map(m => ({ ...m, contentHash: bytesOf(m.contentHash) })) ?? []);
+  const [media, setMedia] = useState<MediaAttachment[]>(draft?.media?.map(m => ({ ...m, contentHash: bytesOf(m.contentHash) })) ?? edit?.media ?? []);
   const [attaching, setAttaching] = useState(false);
   const [error, setError] = useState<string | undefined>();
   const [confirm, setConfirm] = useState<DraftRecord | undefined>();
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => () => { uploadController.current?.abort(); for (const url of previews.current.values()) URL.revokeObjectURL(url); previews.current.clear(); },[session]);
+  useEffect(() => { if (!session) { setMedia([]); setConfirm(undefined); } },[session]);
 
   useEffect(() => {
     if (draft) {
@@ -55,6 +71,33 @@ export function ComposerForm({ draft, replyTo, edit, defaultAudience = AUDIENCE.
   }, [text, media, encrypted]);
   const remaining = LIMITS.maxEnvelopeBytes - bytes;
   const tooLong = remaining < 0;
+
+  const addPhotos = async (files: File[]) => {
+    if (!session || !resolved.deployment || attaching || !files.length) return;
+    if (media.length + files.length > LIMITS.maxMediaRefs) { setError(`Choose at most ${LIMITS.maxMediaRefs - media.length} more photos.`); return; }
+    const controller = new AbortController(); uploadController.current = controller;
+    setAttaching(true); setError(undefined);
+    try {
+      for (let i = 0; i < files.length; i++) {
+        setUploadStatus(`Preparing photo ${i + 1} of ${files.length}…`);
+        const bytes = await preparePhoto(files[i]!);
+        if (controller.signal.aborted || vault.getState().session !== session) return;
+        setUploadStatus(`${encrypted ? "Encrypting and uploading" : "Uploading"} photo ${i + 1} of ${files.length}…`);
+        const endpoint = uploadOverride?.trim() || (resolved.sponsorUrls[0] ? `${resolved.sponsorUrls[0].replace(/\/+$/, "")}/v1/media` : "");
+        const attachment = await uploadPhoto(bytes,{ endpoint, chainId: resolved.deployment.chainId, contract: resolved.deployment.contracts.identity.address, identity: session.identity, private: encrypted, signal: controller.signal });
+        if (controller.signal.aborted || vault.getState().session !== session) return;
+        const previous = previews.current.get(attachment.url); if (previous) URL.revokeObjectURL(previous);
+        previews.current.set(attachment.url,URL.createObjectURL(new Blob([new Uint8Array(bytes)],{ type: "image/jpeg" })));
+        setMedia(current => [...current,attachment]);
+      }
+    } catch (error) { if (!controller.signal.aborted) setError(errorMessage(error)); }
+    finally { setAttaching(false); setUploadStatus(""); }
+  };
+  const removeMedia = (index: number) => {
+    const item = media[index], preview = item && previews.current.get(item.url);
+    if (preview) { URL.revokeObjectURL(preview); previews.current.delete(item!.url); }
+    setMedia(list => list.filter((_,i) => i !== index));
+  };
 
   const attach = async () => {
     setAttaching(true);
@@ -76,8 +119,9 @@ export function ComposerForm({ draft, replyTo, edit, defaultAudience = AUDIENCE.
       setError(can.reason);
       return;
     }
-    if (text.trim().length === 0) {
-      setError("Write something first.");
+    if (attaching) return;
+    if (text.trim().length === 0 && !media.length) {
+      setError("Write something or add a photo first.");
       return;
     }
     setBusy(true);
@@ -101,6 +145,7 @@ export function ComposerForm({ draft, replyTo, edit, defaultAudience = AUDIENCE.
       setConfirm(undefined);
       setText("");
       setMedia([]);
+      for (const url of previews.current.values()) URL.revokeObjectURL(url); previews.current.clear();
       onSubmitted?.(accepted);
     } catch (e) {
       setConfirm(undefined);
@@ -122,7 +167,8 @@ export function ComposerForm({ draft, replyTo, edit, defaultAudience = AUDIENCE.
         void prepare();
       }}
     >
-      <div className="composer-identity"><Avatar account={account}/><div><strong>You</strong><Field label="Who can read it">{id => <select id={id} value={audience} disabled={edit !== undefined || draft?.edit !== undefined} onChange={event => setAudience(Number(event.target.value))}><option value={AUDIENCE.EVERYONE}>Public</option><option value={AUDIENCE.FRIENDS}>Friends</option></select>}</Field></div></div>
+      <div className="composer-identity"><Avatar account={account}/><div><strong>You</strong><Field label="Who can read it">{id => <select id={id} value={audience} disabled={edit !== undefined || draft?.edit !== undefined || attaching || media.length > 0} onChange={event => setAudience(Number(event.target.value))}><option value={AUDIENCE.EVERYONE}>Public</option><option value={AUDIENCE.FRIENDS}>Friends</option></select>}</Field></div></div>
+      {media.length > 0 && <p className="hint">Remove attachments before changing who can see this post.</p>}
       <Field label={edit ? "Edit your post" : replyTo ? "Your reply" : "What's on your mind?"} hint={tooLong ? `${-remaining} bytes over the limit` : `${remaining} bytes left`}>
         {(id) => (
           <textarea
@@ -133,14 +179,25 @@ export function ComposerForm({ draft, replyTo, edit, defaultAudience = AUDIENCE.
             maxLength={LIMITS.maxEnvelopeBytes}
             aria-invalid={tooLong || undefined}
             placeholder={replyTo ? "Write a reply…" : "Write a post…"}
-            required
+            required={!media.length}
           />
         )}
       </Field>
       <details className="composer-privacy"><summary><Icon name={encrypted ? "lock" : "globe"} size={16}/>{encrypted ? "Only your friends can read this post." : "Anyone can read this post."}</summary><p>{encrypted ? friendsExplanation : everyoneExplanation}</p></details>
+      <div className="photo-tools">
+        <input ref={photoInput} className="visually-hidden" type="file" accept="image/jpeg,image/png,image/webp,image/avif,image/heic,image/heif" multiple aria-label="Choose photos" disabled={attaching || !can.ok} onChange={e => { const files = Array.from(e.target.files ?? []); e.target.value = ""; void addPhotos(files); }}/>
+        <Button disabled={attaching || !can.ok || media.length >= LIMITS.maxMediaRefs} onClick={() => photoInput.current?.click()}>Add photos</Button>
+        {uploadStatus && <span role="status">{uploadStatus}</span>}
+        <p className="hint">{encrypted ? "Photos are encrypted on this device before upload." : "Public photos are uploaded to IPFS when selected."} Free storage has limited capacity and is not guaranteed forever.</p>
+      </div>
+      {media.length > 0 && <div className="composer-photos">{media.map((m,i) => <div className="composer-photo" key={`${m.url}:${i}`}>
+        {previews.current.has(m.url) ? <div className="ipfs-photo"><img src={previews.current.get(m.url)} alt={m.altText || "Attached photo"}/></div> : m.url.startsWith("ipfs://") ? <MediaPhoto location={m.url} hash={toBase64url(m.contentHash)} mime={m.mime} encryption={m.encryption} alt={m.altText}/> : <span className="mono">{m.url}</span>}
+        <Field label={`Photo ${i + 1} description (optional)`}>{id => <input id={id} value={m.altText ?? ""} maxLength={160} onChange={e => setMedia(list => list.map((item,j) => j === i ? { ...item,altText: e.target.value } : item))}/>}</Field>
+        <Button variant="ghost" onClick={() => removeMedia(i)}>Remove photo {i + 1}</Button>
+      </div>)}</div>}
       {!compact && (
         <details className="media-attach"><summary>Add media by URL</summary>
-          {encrypted && <Notice>Friends-only posts support text and links. Media attachments by URL remain public at their original host, so attachments are available for Everyone posts.</Notice>}
+          {encrypted && <Notice>Use Add photos for private images. Linked files remain public at their original host.</Notice>}
           <Field label="Attach media by URL (optional)" hint="The file is fetched by your browser to record its fingerprint; the host must allow cross-origin reads. Media itself is not stored on the network.">
             {(id) => (
               <div className="row">
@@ -151,24 +208,12 @@ export function ComposerForm({ draft, replyTo, edit, defaultAudience = AUDIENCE.
               </div>
             )}
           </Field>
-          {media.length > 0 && (
-            <ul className="media-list">
-              {media.map((m, i) => (
-                <li key={i}>
-                  <span className="mono">{m.url}</span> <span className="muted">({m.mime}, {m.size} bytes)</span>{" "}
-                  <Button variant="ghost" onClick={() => setMedia((list) => list.filter((_, j) => j !== i))}>
-                    Remove
-                  </Button>
-                </li>
-              ))}
-            </ul>
-          )}
         </details>
       )}
       {error && <Notice kind="error">{error}</Notice>}
       {!can.ok && <Notice kind="warning">{can.reason}</Notice>}
       <div className="row">
-        <Button type="submit" variant="primary" busy={busy} disabled={!ready || !can.ok || tooLong || text.trim().length === 0}>
+        <Button type="submit" variant="primary" busy={busy} disabled={attaching || !ready || !can.ok || tooLong || (text.trim().length === 0 && !media.length)}>
           {edit ? "Review edit" : replyTo ? "Review reply" : "Review and publish"}
         </Button>
         {onCancel && (

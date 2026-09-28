@@ -6,7 +6,7 @@ import type { PostView } from "../../api/indexer";
 import { useServices } from "../../api/services";
 import { Button, Card, ConfirmDialog, Details, Empty, Notice, Spinner } from "../../components/ui";
 import { submitAction } from "../../tx/submit";
-import { bytesOf } from "../../util/bytes";
+import { bytesOf, toBase64url } from "../../util/bytes";
 import { errorMessage, formatDateTime } from "../../util/format";
 import { useVault } from "../../vault/context";
 import { PendingPosts } from "../composer/PendingPosts";
@@ -22,11 +22,15 @@ function EditDialog({ post, onDone, onCancel }: { post: PostView; onDone: () => 
   const content = usePostContent(post);
   const text = content && (content.status === "plain" || content.status === "decrypted") ? content.content.text : undefined;
   if (text === undefined) return <Notice kind="info">Open the current version first to edit it.</Notice>;
+  const media = content && (content.status === "plain" || content.status === "decrypted") ? content.content.media.map(m => ({
+    url: m.locations[0] ?? "",mime: m.mime,size: Number(m.size),contentHash: m.content_hash,altText: m.alt_text,
+    ...(m.mediaKey && { encryption: { key: toBase64url(m.mediaKey),nonce: toBase64url(m.nonce) } }),
+  })) : [];
   return (
     <Card title="Edit post">
       <p className="muted">Edits publish a new version. The previous version stays in the public history.</p>
       <ComposerForm
-        edit={{ postId: post.postId, previousVersion: post.contentHash, versionNumber: post.versionNumber + 1, text, audience: post.audience }}
+        edit={{ postId: post.postId, previousVersion: post.contentHash, versionNumber: post.versionNumber + 1, text, audience: post.audience, media }}
         defaultAudience={post.audience}
         compact
         onSubmitted={onDone}

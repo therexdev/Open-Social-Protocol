@@ -24,3 +24,4 @@ export * from "./promotion.js";
 
 export * from "./crypto/privateMessaging.js";
 export * from "./privateConfirmation.js";
+export * from "./media.js";

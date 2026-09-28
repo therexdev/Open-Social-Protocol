@@ -7,6 +7,7 @@
  */
 import Fastify, { type FastifyError, type FastifyInstance, type FastifyServerOptions } from "fastify";
 import cors from "@fastify/cors";
+import { registerMediaRoutes } from "./media.js";
 import {
   Provider,
   ProtocolClient,
@@ -470,6 +471,15 @@ export async function createServer(options: ServerOptions): Promise<FastifyInsta
   app.post("/v2/private/allocate", { bodyLimit: 2048 }, async request => service.allocatePrivateUsage(request.body));
 
   app.get("/v1/utilization", async () => service.utilization());
+
+  await registerMediaRoutes(app, {
+    config: options.config.media,
+    dbPath: options.config.dbPath === ":memory:" ? ":memory:" : `${options.config.dbPath}.media`,
+    endpoint: `${options.config.publicUrl}/v1/media`,
+    chainId: options.deployment?.chainId ?? "",
+    contract: options.deployment?.contracts.identity.address ?? "",
+    ownerOf: async account => (await service.client?.reads.identity.get_identity({ account }))?.value?.owner,
+  });
 
   app.addHook("onClose", async () => service.close());
   return app;

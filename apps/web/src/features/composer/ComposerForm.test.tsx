@@ -11,7 +11,9 @@ vi.mock("./usePublish", () => ({ usePublish: () => ({ ...transport, ready: true 
 vi.mock("../session", () => ({ useCanAct: () => ({ ok: true }) }));
 vi.mock("../../vault/context", () => ({
   useVault: (selector: (state: { account: string }) => unknown) => selector({ account: "saved-test-account" }),
+  useVaultStore: () => ({ getState: () => ({ account: "saved-test-account" }) }),
 }));
+vi.mock("../../api/services", () => ({ useServices: () => ({ resolved: { sponsorUrls: [] } }) }));
 
 let root: Root;
 let container: HTMLDivElement;

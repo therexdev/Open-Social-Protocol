@@ -42,7 +42,7 @@ export interface DraftRecord {
   audience: number;
   mediaUrls: string[];
   /** Attachment metadata is encrypted with the draft, so reload/retry preserves it. */
-  media?: Array<{ url: string; mime: string; size: number; contentHash: string; altText?: string }>;
+  media?: Array<{ url: string; mime: string; size: number; contentHash: string; altText?: string; encryption?: { key: string; nonce: string } }>;
   scope?: string;
   publication?: { postId: string; contentHash: string; epoch: number; epochKey?: string; recipients: string[]; txId?: string; operations?: OperationJson[] };
   replyTo?: string;

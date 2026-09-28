@@ -199,3 +199,12 @@ operations are refused by the normal sponsorship endpoints, including explicit a
 The sponsor knows this private mapping. Do not enable request-body logging or expose the
 SQLite database. Other operators can implement the same service without becoming message
 relays. Reservations cannot be transferred to another sponsor after prepayment.
+
+### Optional IPFS photo uploads
+
+The service also supports a replaceable, signed `/v1/media` upload API. Enable Pinata's
+free-tier adapter with `OSP_MEDIA_PROVIDER=pinata` and `OSP_MEDIA_PINATA_JWT_FILE` pointing
+to a permission-600 JWT file, or use `OSP_MEDIA_PROVIDER=kubo` with your own private node.
+Private images are encrypted by the frontend before uploading. Credentials remain on the
+server; the protocol records standard IPFS references. See [portable IPFS photos](../../docs/ipfs-media.md)
+for wire format, limits, pinning/retention, and reverse-proxy configuration.
