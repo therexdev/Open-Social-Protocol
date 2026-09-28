@@ -688,7 +688,7 @@ export class PrivateMessagingService {
     });
     return false;
   }
-  private async verified(row: PrivatePacketView): Promise<boolean> {
+  private async verified(row: PrivatePacketView, irreversible?: string): Promise<boolean> {
     if (!validId(row.packet_id) || !/^(0|[1-9][0-9]{0,19})$/.test(row.sequence))
       throw new Error("Invalid packet record");
     const record = (
@@ -710,19 +710,34 @@ export class PrivateMessagingService {
       !bytesEqual(record.packet_id, fromBase64url(row.packet_id))
     )
       throw new Error("Message could not be verified on chain");
+    const lib = irreversible ?? (await this.protocol.provider.getHeadInfo()).last_irreversible_block;
+    return BigInt(record.block) <= BigInt(lib);
+  }
+  private async *confirmedPackets(rows: PrivatePacketView[]): AsyncGenerator<PrivatePacketView> {
+    if (!rows.length) return;
+    // A recovery scan can contain many unrelated invitations. Reuse a conservative
+    // finality boundary and bound parallel reads instead of two serial RPCs per row.
     const head = await this.protocol.provider.getHeadInfo();
-    return BigInt(record.block) <= BigInt(head.last_irreversible_block);
+    for (let offset = 0; offset < rows.length; offset += 4) {
+      const batch = rows.slice(offset, offset + 4);
+      const results = await Promise.allSettled(batch.map(row => this.verified(row, head.last_irreversible_block)));
+      for (const [index, result] of results.entries()) {
+        this.active();
+        if (result.status === "rejected") throw result.reason;
+        if (!result.value) return;
+        yield batch[index]!;
+      }
+    }
   }
   private async invitations(
     data: PrivateFile,
     save: () => Promise<void>,
   ): Promise<void> {
     const page = await this.indexer.privatePackets(data.inboxAfter);
-    for (const row of page.items) {
+    for await (const row of this.confirmedPackets(page.items)) {
       this.active();
       if (row.peer || BigInt(row.sequence) <= BigInt(data.inboxAfter))
         throw new Error("Invalid invitation page");
-      if (!(await this.verified(row))) break;
       const context = this.context(row.actor, "", row.packet_id),
         bytes = fromBase64url(row.envelope);
       const opened = openPrivateInvitation<Signed<Invitation | Closure>>(

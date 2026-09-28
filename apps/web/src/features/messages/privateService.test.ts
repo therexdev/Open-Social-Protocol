@@ -423,6 +423,23 @@ describe("two-browser private conversations", () => {
     h.b.reload(); await h.pump();
     expect(h.b.snapshot.chats[0]?.status).toBe("closed");
   });
+  it("uses one finality boundary for an inbox batch without advancing past an unconfirmed cancellation", async () => {
+    const h = harness();
+    await h.a.service.enable(); await h.b.service.enable(); await h.pump();
+    const chat = await h.a.service.start(bob.account); await h.a.service.load();
+    await h.a.service.close(chat);
+    for (let i = 0; i < 4; i++) { await h.a.service.load(); await h.a.service.sync(); }
+    expect(h.packets).toHaveLength(2);
+    h.packets[0]!.block = "1";
+    h.setLib("1");
+    const head = vi.spyOn(h.protocol.provider, "getHeadInfo");
+    await h.b.service.sync();
+    expect(head).toHaveBeenCalledTimes(1);
+    expect(h.b.snapshot.chats[0]?.status).toBe("incoming");
+    await h.b.store.edit(async data => expect(data.inboxAfter).toBe(h.packets[0]!.sequence));
+    h.setLib("1000"); await h.pump();
+    expect(h.b.snapshot.chats[0]?.status).toBe("closed");
+  });
   it("reports funding failure on the request and still dispatches while the inbox is unavailable", async () => {
     const h = harness(false);
     await h.a.service.enable(); await h.b.service.enable(); await h.pump();
