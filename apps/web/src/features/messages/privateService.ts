@@ -454,7 +454,7 @@ export class PrivateMessagingService {
       throw new Error("This conversation is not ready yet");
     // Queue locally without a network round trip. Dispatch checks both block
     // directions immediately before submission and keeps rejected packets local.
-    if (data.outbox.filter((p) => p.chatId === chatId && p.peer).length >= 20)
+    if (data.outbox.filter((p) => p.chatId === chatId && p.peer && !p.observed).length >= 20)
       throw new Error("Wait for your pending messages to send");
     const packetId = messageId,
       context = this.context(chat.alias, chat.peerAlias, packetId);

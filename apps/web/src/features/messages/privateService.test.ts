@@ -533,6 +533,18 @@ describe("two-browser private conversations", () => {
     expect(h.a.snapshot.pending).toBe(0);
     expect(h.b.snapshot.chats[0]?.messages.every(m => m.state === "sent")).toBe(true);
   });
+  it("keeps sending beyond twenty observed messages while finality is still pending", async () => {
+    const h = harness(true, true), chat = await h.connect();
+    h.setLib("1"); h.setHead("5");
+    for (let i = 0; i < 25; i++) {
+      await h.a.service.queueMessage(bob.account, `Message ${i + 1}`); await h.pump(2);
+    }
+    expect(h.b.snapshot.chats[0]?.messages).toHaveLength(25);
+    expect(h.a.snapshot.pending).toBe(0);
+    await h.a.store.edit(async data => expect(data.outbox.filter(p => p.peer)).toHaveLength(25));
+    await h.a.store.drafts(drafts => expect(drafts).toHaveLength(0));
+    expect(h.a.snapshot.chats.find(c => c.id === chat)?.error).toBeUndefined();
+  });
   it("rebroadcasts identical ciphertext after a testnet reorg without repeating ratchet decryption", async () => {
     const h = harness(true, true), chat = await h.connect();
     h.setLib("1"); h.setHead("7");
