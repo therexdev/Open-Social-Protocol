@@ -38,9 +38,12 @@ const checks: Array<[string, () => Promise<void>]> = [
     assert.equal(status.chainId, deployment.chainId, "wrong indexer chain");
     assert.equal(status.contracts.messaging, messaging, "wrong messaging address");
     assert.equal(status.features?.privateMessaging, 2, "upgrade indexer first");
+    assert.equal(status.features?.privateUpdates, 1, "upgrade indexer for automatic message wakeups");
     assert.equal(status.healthy, true, "indexer is not caught up/healthy");
     const page = await json(`${indexer}/v2/private/packets?after=0&limit=1`);
     assert(Array.isArray(page.items), "missing shared invitation log");
+    const updates = await json(`${indexer}/v2/private/updates`);
+    assert.match(updates.cursor, /^[a-f0-9]{64}$/, "missing private-message update signal");
   }],
   ["sponsor v2 and private method policy", async () => {
     const health = await json(`${endpoint}/healthz`);

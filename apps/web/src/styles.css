@@ -1086,6 +1086,10 @@ input, textarea { caret-color: var(--accent); }
 .conversation-placeholder h2 { color: var(--text); font-size: 1.2rem; }
 .conversation-placeholder p { font-size: .85rem; margin-bottom: 1.25rem; }
 .private-messages .message-history { flex: 1; min-height: 200px; padding: 1.2rem 0; max-height: 52vh; overscroll-behavior: contain; }
+.message-history-wrap { position: relative; display: flex; flex: 1; min-height: 0; }
+.message-update-status { display: flex; justify-content: space-between; align-items: center; gap: .5rem; }
+.message-update-status > small { font-size: .72rem; }
+.message-new-arrivals { position: absolute; bottom: .75rem; left: 50%; transform: translateX(-50%); white-space: nowrap; box-shadow: 0 4px 18px #0003; }
 .message-bubble { background: #17364c; border-radius: 12px 12px 12px 3px; padding: .8rem 1rem; max-width: 88%; font-size: .9rem; }
 .message-bubble.mine { background: #68d4c2; color: #082e35; border-radius: 12px 12px 3px 12px; }
 .message-bubble.mine .text-link { color: #063e50; }

@@ -1,5 +1,6 @@
 import type { IndexedPostEconomy } from "@osp/sdk";
 import { searchPeople as matchPeople } from "@osp/sdk";
+import { watchPrivateUpdates } from "./privateUpdates";
 /**
  * Typed client for the INDEXER API v1 (see apps/indexer/README.md). Every read the web client
  * performs goes through here; the indexer is a replaceable convenience, never a source of truth.
@@ -274,6 +275,10 @@ export class IndexerClient {
     return this.baseUrl.length > 0;
   }
 
+  watchPrivateUpdates(changed: () => void): () => void {
+    return watchPrivateUpdates(this.baseUrl, this.fetchFn, changed);
+  }
+
   conversations(account: string): Promise<{items: import("@osp/sdk").ConversationRecord[]}> {
     return this.get(`/v1/conversations/${encodeURIComponent(account)}`);
   }
@@ -422,6 +427,7 @@ export class IndexerClient {
     if (!this.configured) throw new IndexerError(0, "not_configured", "No indexer is configured. Add one in Settings.");
     if (!this.fetchFn) throw new IndexerError(0, "no_fetch", "fetch is not available");
     const init: RequestInit = { method: "GET", headers: { accept: "application/json" } };
+    if (path.startsWith("/v2/private/")) { init.cache = "no-store"; init.referrerPolicy = "no-referrer"; }
     if (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function") init.signal = AbortSignal.timeout(this.timeoutMs);
     let response: Response;
     try {

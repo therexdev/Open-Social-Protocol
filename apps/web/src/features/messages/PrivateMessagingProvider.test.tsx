@@ -5,7 +5,7 @@ import { PrivateMessagingProvider } from "./PrivateMessagingProvider";
 const mocks = vi.hoisted(() => {
   const me = { account: "test", seed: new Uint8Array(32) };
   return { me: me as typeof me | undefined, original: me, sync: vi.fn(async () => {}), stop: vi.fn(),
-    services: { protocol: { chainId: "test", deployment: { contracts: { messaging: { address: "contract" } } } }, indexer: {}, resolved: { sponsorUrls: [], payment: "sponsor-only" } },
+    services: { protocol: { chainId: "test", deployment: { contracts: { messaging: { address: "contract" } } } }, indexer: { watchPrivateUpdates: vi.fn((_changed: () => void) => vi.fn()) }, resolved: { sponsorUrls: [], payment: "sponsor-only" } },
     pending: true };
 });
 vi.mock("../session", () => ({ useMe: () => mocks.me }));
@@ -45,4 +45,16 @@ it("continues pending setup while the unlocked browser is hidden and stops on lo
   await act(async () => vi.advanceTimersByTimeAsync(10000));
   expect(mocks.sync).toHaveBeenCalledTimes(stopped);
   expect(mocks.stop).toHaveBeenCalled();
+});
+it("refreshes immediately on an indexer update and cleans up its watch on lock", async () => {
+  const stopWatch = vi.fn();
+  mocks.services.indexer.watchPrivateUpdates.mockReturnValueOnce(stopWatch);
+  container = document.createElement("div"); document.body.append(container); root = createRoot(container);
+  await act(async () => root!.render(<PrivateMessagingProvider>messages</PrivateMessagingProvider>));
+  expect(mocks.services.indexer.watchPrivateUpdates).toHaveBeenCalledTimes(1);
+  const before = mocks.sync.mock.calls.length;
+  await act(async () => mocks.services.indexer.watchPrivateUpdates.mock.calls[0]![0]());
+  expect(mocks.sync).toHaveBeenCalledTimes(before + 1);
+  await act(async () => { mocks.me = undefined; root!.render(<PrivateMessagingProvider>locked</PrivateMessagingProvider>); });
+  expect(stopWatch).toHaveBeenCalledTimes(1);
 });

@@ -150,6 +150,40 @@ can receive messages after coming back online.
   None is a read receipt. Multiple registered browsers show a clear notice that their
   histories are independent.
 
+### Automatic inbox updates (2026-09-28)
+
+The `2026-09-28-messaging-live-updates` release adds a recipient-free long poll at
+`GET /v2/private/updates`. Its opaque cursor changes when the indexed block identity
+changes, including same-height forks and rollbacks. It is only a wakeup signal:
+clients still fetch ciphertext and verify chain commitments. It exposes no account,
+device, or conversation subscription. The server uses one shared 500 ms check of its
+local checkpoint, a 20-second response deadline, disconnect cleanup, and at most 256
+waiting requests. At capacity it asks clients to back off. The normal indexer poll
+interval remains two seconds; there is no extra blockchain poll per subscriber.
+
+Unlocked messaging browsers reconnect automatically, suppress transport-only watch
+errors, and keep normal two/eight-second polling as a fallback. Old indexers can still
+serve packets. Returning to the app or reconnecting the network also triggers sync.
+Wakeups arriving during a sync are coalesced into follow-up work rather than discarded;
+each caller waits at most two passes, with further work scheduled separately.
+
+An exact, already verified provisional packet is cached in memory (bounded to 1024
+entries) rather than reread through RPC on every pass. Changed records always get a
+fresh check. Every final cursor advancement rechecks the commitment, so cached
+provisional data cannot authorize skipping an unverified final record. Unchanged
+invitations and messages no longer rewrite the whole encrypted history per row.
+New receiving ratchets/history still commit atomically before text is displayed.
+Existing conversations receive ahead of slower new-channel preparation, and received
+text is displayed before unrelated background work completes.
+
+The visible conversation follows incoming messages only while near the bottom.
+Reading older messages preserves the scroll position and offers a new-message jump
+button. This is not a read receipt or automatic phone/desktop synchronization.
+
+Deploy the updated indexer and frontend; the sponsor and contracts are unchanged.
+`npm run verify:private-messaging` now checks the indexer `privateUpdates: 1` feature
+and the wakeup endpoint in addition to the existing protocol checks.
+
 ### Next protocol milestone: offline first messages and linked devices
 
 The required behavior is that a sender can establish a session and post the first

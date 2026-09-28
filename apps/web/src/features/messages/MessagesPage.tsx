@@ -34,12 +34,14 @@ export function MessagesPage() {
     [error, setError] = useState(""),
     [chatSearch, setChatSearch] = useState(""),
     [conversationView, setConversationView] = useState<"open" | "closed">("open"),
+    [newMessages, setNewMessages] = useState(0),
     [composing, setComposing] = useState(false),
     [busy, setBusy] = useState(false);
   const account = service?.me.account;
   const history = useRef<HTMLDivElement>(null);
   const followMessages = useRef(true);
   const lastChat = useRef("");
+  const lastMessageCount = useRef(0);
   const requested = params.get("to") ?? "";
   const target = isAddress(requested) && requested !== account ? requested : "";
   const people = useMessagePeople(account, [...snapshot.chats.map(c => c.peer), ...(input ? [input] : [])]);
@@ -64,8 +66,16 @@ export function MessagesPage() {
   const requests = snapshot.autoConnect === false ? snapshot.chats.filter(c => c.status === "incoming") : [];
   useLayoutEffect(() => {
     const node = history.current;
-    if (node && (lastChat.current !== chat?.id || followMessages.current)) node.scrollTop = node.scrollHeight;
+    const switched = lastChat.current !== (chat?.id ?? "");
+    if (switched) followMessages.current = true;
+    if (node && followMessages.current) { node.scrollTop = node.scrollHeight; setNewMessages(0); }
+    else if (!switched && chat) {
+      const received = chat.messages.slice(lastMessageCount.current).filter(message => !message.mine).length;
+      if (received) setNewMessages(count => count + received);
+    }
+    if (switched) setNewMessages(0);
     lastChat.current = chat?.id ?? "";
+    lastMessageCount.current = chat?.messages.length ?? 0;
   }, [chat?.id, chat?.messages.length]);
   const run = async (action: () => Promise<unknown>) => {
     if (busy) return;
@@ -148,7 +158,7 @@ export function MessagesPage() {
                 </Button>)}
                 {visibleChats.length === 0 && <p className="empty">{chatSearch ? "No conversations match that name or address." : conversationView === "closed" ? "No closed conversations." : "No open conversations yet. Send someone a message to get started."}</p>}
               </div>
-              <Button variant="ghost" onClick={() => void service?.sync()}><Icon name="refresh" size={16} />Refresh</Button>
+              <div className="message-update-status"><small className="muted">Updates automatically</small><Button variant="ghost" title="Check for messages now" onClick={() => void service?.sync()}><Icon name="refresh" size={16} />Refresh</Button></div>
             </Card>
           {(composing || (!chat && snapshot.chats.length === 0 && conversationView === "open")) && <Card className="new-message-card conversation-pane" title="New message" actions={<Button variant="ghost" aria-label="Back to conversations" onClick={() => setComposing(false)}><Icon name="close" /></Button>}>
             <form
@@ -209,7 +219,12 @@ export function MessagesPage() {
                   </Notice>
                 )}
                 {chat.closing && !chat.error && <Notice>{chat.progress} This continues in the background while the account is unlocked.</Notice>}
-                <div ref={history} className="message-history" aria-live="polite" onScroll={event => { const node = event.currentTarget; followMessages.current = node.scrollHeight - node.scrollTop - node.clientHeight < 80; }}>
+                <div className="message-history-wrap">
+                <div ref={history} className="message-history" role="log" aria-label="Conversation messages" aria-live="polite" aria-relevant="additions" onScroll={event => {
+                  const node = event.currentTarget;
+                  followMessages.current = node.scrollHeight - node.scrollTop - node.clientHeight < 80;
+                  if (followMessages.current) setNewMessages(0);
+                }}>
                   {chat.messages.map((m) => (
                     <div
                       key={m.id}
@@ -230,12 +245,19 @@ export function MessagesPage() {
                     </div>
                   ))}
                 </div>
+                {newMessages > 0 && <Button className="message-new-arrivals" onClick={() => {
+                  followMessages.current = true;
+                  if (history.current) history.current.scrollTop = history.current.scrollHeight;
+                  setNewMessages(0);
+                }}>{newMessages} new {newMessages === 1 ? "message" : "messages"} ↓</Button>}
+                </div>
                 {chat.status !== "closed" && (
                   <form
                     className="form-stack chat-composer"
                     onSubmit={(e) => {
                       e.preventDefault();
                       void run(async () => {
+                        followMessages.current = true;
                         await service!.queueMessage(chat.peer, text);
                         setText("");
                       });

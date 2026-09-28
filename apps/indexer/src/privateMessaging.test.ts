@@ -50,11 +50,22 @@ describe("private transport indexing", () => {
       });
     try {
       await indexer.syncer!.syncToHead();
+      const update = await indexer.api.inject({ method: "GET", url: "/v2/private/updates" });
+      expect(update.statusCode).toBe(200);
+      expect(update.json().cursor).toMatch(/^[a-f0-9]{64}$/);
+      expect(update.headers["cache-control"]).toBe("no-store");
+      expect((await indexer.api.inject({ method: "GET", url: "/v2/private/updates?cursor=bad" })).statusCode).toBe(400);
+      const waiting = indexer.api.inject({ method: "GET", url: `/v2/private/updates?cursor=${update.json().cursor}` }).then(response => response);
+      await new Promise(resolve => setImmediate(resolve));
+      builder.block([]);
+      await indexer.syncer!.syncToHead();
+      expect((await waiting).json().cursor).not.toBe(update.json().cursor);
       const first = await indexer.api.inject({
         method: "GET",
         url: "/v2/private/packets?limit=1",
       });
       expect(first.statusCode).toBe(200);
+      expect(first.headers["cache-control"]).toBe("no-store");
       expect(first.json().items).toHaveLength(1);
       expect(first.json().items[0].peer).toBe("");
       expect(first.json().more).toBe(true);

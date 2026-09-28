@@ -13,6 +13,7 @@ import type { IndexerConfig } from "./config.js";
 import type { IndexerDb } from "./db.js";
 import * as q from "./queries.js";
 import type { Syncer } from "./sync.js";
+import { PrivateUpdates } from "./privateUpdates.js";
 
 export interface ApiOptions {
   db: IndexerDb;
@@ -120,7 +121,7 @@ export function statusView(options: ApiOptions): Record<string, unknown> {
     ? Object.fromEntries(Object.entries(deployment.contracts).map(([name, entry]) => [name, entry.address]))
     : null;
   return {
-    features: { tokenEconomy: 1, privateMessaging: 2 },
+    features: { tokenEconomy: 1, privateMessaging: 2, privateUpdates: 1 },
     network: config.network,
     chainId: deployment?.chainId ?? null,
     // Chain id the node reports and whether it matches the manifest (null until the first sync step compared them).
@@ -150,6 +151,8 @@ export function statusView(options: ApiOptions): Record<string, unknown> {
 export function buildApi(options: ApiOptions): FastifyInstance {
   const { db, config } = options;
   const app = Fastify({ logger: options.logger ?? false });
+  const privateUpdates = new PrivateUpdates(db);
+  app.addHook("preClose", async () => privateUpdates.close());
 
   app.register(cors, { origin: "*", methods: ["GET", "HEAD", "OPTIONS"] });
 
@@ -198,8 +201,20 @@ export function buildApi(options: ApiOptions): FastifyInstance {
     const page=rows.slice(0,limit);
     return {items:page.map(row=>({...JSON.parse(String(row.data_json)),envelope:toBase64url(row.envelope as Uint8Array),txId:row.tx_id})),nextBefore:rows.length>limit?String(page[page.length-1]!.sequence):null};
   });
+  // A shared wakeup signal, without a profile, device, or conversation subscription.
+  app.get("/v2/private/updates", async (request, reply) => {
+    const after = query(request, "cursor");
+    if (after && !/^[a-f0-9]{64}$/.test(after)) throw new ApiError(400, "invalid_request", "invalid update cursor");
+    const controller = new AbortController();
+    const disconnected = () => controller.abort();
+    reply.raw.once("close", disconnected);
+    reply.header("Cache-Control", "no-store");
+    try { return await privateUpdates.wait(after, controller.signal); }
+    finally { reply.raw.removeListener("close", disconnected); }
+  });
   // One shared invitation log, no recipient-specific inbox identifiers in the URL.
-  app.get("/v2/private/packets", async request => {
+  app.get("/v2/private/packets", async (request, reply) => {
+    reply.header("Cache-Control", "no-store");
     const actor = parseAddress(query(request,"actor"),"actor",false);
     const peer = parseAddress(query(request,"peer"),"peer",false);
     if (!!actor !== !!peer) throw new ApiError(400,"invalid_request","supply both aliases or neither");

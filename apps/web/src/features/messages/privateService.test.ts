@@ -325,6 +325,68 @@ function harness(prepaid = true, fast = false, auto = false, warm = false) {
 }
 
 describe("two-browser private conversations", () => {
+  it("reuses provisional verification without skipping changed packets or final chain checks", async () => {
+    const h = harness(true, true);
+    h.setLib("1"); h.setHead("5");
+    const chat = await h.connect();
+    await h.a.service.send(chat, "Arrived automatically"); await h.pump();
+    const packet = h.packets.find(p => p.peer)!;
+    const original = h.protocol.reads.messaging.get_private_packet;
+    const read = vi.spyOn(h.protocol.reads.messaging, "get_private_packet");
+    await h.b.service.sync(); await h.b.service.sync();
+    const checks = () => read.mock.calls.filter(([args]) => toBase64url(args!.packet_id) === packet.packet_id);
+    expect(checks()).toHaveLength(0);
+    expect(h.b.snapshot.chats[0]!.messages).toHaveLength(1);
+    // A changed indexer row cannot borrow the cached verification of an older row.
+    const list = h.indexer.privatePackets.bind(h.indexer);
+    const index = vi.spyOn(h.indexer, "privatePackets").mockImplementation(async (...args) => {
+      const page = await list(...args);
+      return { ...page, items: page.items.map(p => p.packet_id === packet.packet_id ? { ...p, envelope: toBase64url(new Uint8Array([9])) } : p) };
+    });
+    await h.b.service.sync();
+    expect(checks()).toHaveLength(1);
+    expect(h.b.snapshot.error).toContain("could not be verified");
+    index.mockRestore(); read.mockClear();
+    // At irreversibility the RPC must still prove the record, even if cached.
+    h.setLib("5");
+    read.mockImplementation(async args => toBase64url(args!.packet_id) === packet.packet_id ? { value: undefined } : original(args));
+    await h.b.service.sync();
+    expect(checks()).toHaveLength(1);
+    await h.b.store.edit(async data => expect(data.chats[0]!.after).not.toBe(packet.sequence));
+    read.mockImplementation(original);
+    await h.b.service.sync();
+    await h.b.store.edit(async data => expect(data.chats[0]!.after).toBe(packet.sequence));
+    expect(h.b.snapshot.chats[0]!.messages).toHaveLength(1);
+    expect(h.b.snapshot.chats[0]!.messages[0]!.state).toBe("sent");
+  });
+  it("coalesces an update during sync and displays received text before unrelated background work completes", async () => {
+    const h = harness();
+    const chat = await h.connect();
+    let release!: () => void, entered!: () => void;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    const started = new Promise<void>(resolve => { entered = resolve; });
+    const list = h.indexer.privatePackets.bind(h.indexer);
+    let channelReads = 0;
+    vi.spyOn(h.indexer, "privatePackets").mockImplementation(async (...args) => {
+      const page = await list(...args);
+      if (args[1] && channelReads++ === 0) { entered(); await held; }
+      return page;
+    });
+    const first = h.b.service.sync(); await started;
+    await h.a.service.send(chat, "Wake during a refresh"); await h.a.service.sync();
+    const again = h.b.service.sync();
+    release(); await first; await again;
+    expect(h.b.snapshot.chats[0]!.messages.at(-1)?.text).toBe("Wake during a refresh");
+    expect(channelReads).toBeGreaterThanOrEqual(2);
+    let releaseBackground!: () => void, backgroundEntered!: () => void;
+    const background = new Promise<void>(resolve => { releaseBackground = resolve; });
+    const reached = new Promise<void>(resolve => { backgroundEntered = resolve; });
+    vi.spyOn(h.b.service as any, "warmAllowance").mockImplementationOnce(async () => { backgroundEntered(); await background; });
+    await h.a.service.send(chat, "Show before preparing credits"); await h.a.service.sync();
+    const refreshing = h.b.service.sync(); await reached;
+    try { expect(h.b.snapshot.chats[0]!.messages.at(-1)?.text).toBe("Show before preparing credits"); }
+    finally { releaseBackground(); await refreshing; }
+  });
   it("saves and delivers the first message with no request or acceptance clicks, using two allowances and batched consent", async () => {
     const h = harness(false, true, true);
     h.setLib("1"); h.setHead("7");

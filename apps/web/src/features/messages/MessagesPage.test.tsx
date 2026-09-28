@@ -66,6 +66,21 @@ it("shows pending local messages and names while delivery continues", async () =
   expect(container.textContent).toContain("Sending…");
   expect(container.textContent).toContain("You can leave this page");
 });
+it("keeps older text in view and offers a jump to newly received messages", async () => {
+  enabled(); mocks.value.snapshot.chats = [chat()];
+  await mount(`/messages?to=${bob}`);
+  const history = container.querySelector<HTMLDivElement>(".message-history")!;
+  Object.defineProperties(history, { scrollHeight: { value: 1500, configurable: true }, clientHeight: { value: 400 } });
+  history.scrollTop = 100;
+  await act(async () => history.dispatchEvent(new Event("scroll", { bubbles: true })));
+  mocks.value.snapshot.chats[0].messages.push({ id: "new", text: "Just arrived", mine: false, timestamp: 2, state: "confirming" });
+  await act(async () => root.render(<MemoryRouter initialEntries={[`/messages?to=${bob}`]}><MessagesPage /></MemoryRouter>));
+  expect(history.scrollTop).toBe(100);
+  expect(container.textContent).toContain("Updates automatically");
+  await act(async () => container.querySelector<HTMLButtonElement>(".message-new-arrivals")!.click());
+  expect(history.scrollTop).toBe(1500);
+  expect(container.querySelector(".message-new-arrivals")).toBeNull();
+});
 it("does not claim setup is progressing after a failure and Retry clears a local error", async () => {
   mocks.value.snapshot.enabled = true;
   mocks.value.snapshot.error = "Directory RPC unavailable";

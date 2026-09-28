@@ -79,6 +79,10 @@ export class PrivateMessagingService {
   private queueErrors = new Map<string, string>();
   private warmRetryAt = 0;
   private running = false;
+  private syncAgain = false;
+  private syncTask?: Promise<void>;
+  private scheduledSync?: ReturnType<typeof setTimeout>;
+  private readonly verifiedProvisional = new Map<string, string>();
   private stopped = false;
   private devices: NonNullable<PrivateSnapshot["devices"]> = [];
   private fundingSteps = new Map<string, string>();
@@ -115,6 +119,9 @@ export class PrivateMessagingService {
   }
   stop(): void {
     this.stopped = true;
+    this.syncAgain = false;
+    clearTimeout(this.scheduledSync);
+    this.verifiedProvisional.clear();
   }
   private active(): void {
     this.store.assertActive();
@@ -942,7 +949,21 @@ export class PrivateMessagingService {
     const boundary = privateConfirmationHeight(head, this.protocol.deployment.network === "harbinger" ? 1 : 0).toString();
     for (let offset = 0; offset < rows.length; offset += 4) {
       const batch = rows.slice(offset, offset + 4);
-      const results = await Promise.allSettled(batch.map(row => this.verified(row, boundary)));
+      const results = await Promise.allSettled(batch.map(async row => {
+        const key = `${row.actor}:${row.packet_id}`;
+        const fingerprint = JSON.stringify([row.peer, row.sequence, row.block, row.timestamp, row.content_hash, row.envelope]);
+        // The reversible suffix is scanned repeatedly. Reuse only an exact,
+        // already verified packet until finality; changed rows always hit RPC.
+        // Final cursor advancement ALWAYS gets a fresh chain verification.
+        if (BigInt(row.block) > this.scanIrreversible && BigInt(row.block) <= BigInt(boundary)
+          && this.verifiedProvisional.get(key) === fingerprint) return true;
+        const valid = await this.verified(row, boundary);
+        if (valid && BigInt(row.block) > this.scanIrreversible) {
+          this.verifiedProvisional.set(key, fingerprint);
+          if (this.verifiedProvisional.size > 1024) this.verifiedProvisional.delete(this.verifiedProvisional.keys().next().value!);
+        } else this.verifiedProvisional.delete(key);
+        return valid;
+      }));
       for (const [index, result] of results.entries()) {
         this.active();
         if (result.status === "rejected") throw result.reason;
@@ -959,6 +980,7 @@ export class PrivateMessagingService {
     for (let pageNumber = 0; pageNumber < 4; pageNumber++) {
       const page = await this.indexer.privatePackets(scanAfter);
       for await (const row of this.confirmedPackets(page.items)) {
+        let modified = false;
         this.active();
         if (row.peer || BigInt(row.sequence) <= BigInt(data.inboxAfter))
           throw new Error("Invalid invitation page");
@@ -969,11 +991,14 @@ export class PrivateMessagingService {
           fromBase64url(data.deliverySecret),
           bytes,
         );
-        if (opened?.value?.kind === "invite")
+        if (opened?.value?.kind === "invite") {
+          const count = data.chats.length;
           await this.receiveInvitation(data, opened as Signed<Invitation>, Number(row.timestamp));
-        else if (opened?.value?.kind === "close" && BigInt(row.block) <= this.scanIrreversible)
+          modified = data.chats.length !== count;
+        } else if (opened?.value?.kind === "close" && BigInt(row.block) <= this.scanIrreversible) {
           await this.receiveClosure(data, opened as Signed<Closure>, Number(row.timestamp));
-        else {
+          modified = true;
+        } else {
           for (const chat of data.chats) {
             if (chat.status !== "outgoing" || !chat.returnSecret || !chat.setup)
               continue;
@@ -1025,14 +1050,18 @@ export class PrivateMessagingService {
             delete chat.setup;
             delete chat.returnSecret;
             delete chat.invitation;
+            modified = true;
           }
         }
         // Keep rescanning the reversible suffix. Already processed request IDs
         // are deduplicated; replaced sequences cannot hide a later invitation.
         if (BigInt(row.block) <= this.scanIrreversible) data.inboxAfter = row.sequence;
         scanAfter = row.sequence;
-        await save();
+        // Persist new keys/control state immediately, but don't re-encrypt and
+        // write the entire history for every unrelated/replayed invitation.
+        if (modified) await save();
       }
+      await save();
       if (!page.more || scanAfter !== page.items.at(-1)?.sequence) break;
     }
   }
@@ -1103,7 +1132,8 @@ export class PrivateMessagingService {
     data: PrivateFile,
     save: () => Promise<void>,
   ): Promise<void> {
-    for (const chat of data.chats) {
+    // Existing conversations receive before a new connection can wait on funding.
+    for (const chat of [...data.chats].sort((a, b) => Number(b.status === "ready") - Number(a.status === "ready"))) {
       if (!chat.peerAlias || !chat.ratchet || chat.status === "closed")
         continue;
       try {
@@ -1167,6 +1197,7 @@ export class PrivateMessagingService {
           chat.peerAlias,
         );
         for await (const row of this.confirmedPackets(page.items)) {
+          let modified = false;
           if (
             !(
               (row.actor === chat.alias && row.peer === chat.peerAlias) ||
@@ -1178,7 +1209,10 @@ export class PrivateMessagingService {
           const previous = chat.messages.find(m => m.id === row.packet_id);
           if (previous?.envelopeHash && previous.envelopeHash !== row.content_hash)
             throw new Error("The network returned conflicting ciphertext for a saved message");
-          if (previous && !previous.mine && BigInt(row.block) <= this.scanIrreversible) previous.state = "sent";
+          if (previous && !previous.mine && BigInt(row.block) <= this.scanIrreversible && previous.state !== "sent") {
+            previous.state = "sent";
+            modified = true;
+          }
           if (
             row.actor === chat.peerAlias &&
             !chat.messages.some((m) => m.id === row.packet_id)
@@ -1198,10 +1232,12 @@ export class PrivateMessagingService {
               state: BigInt(row.block) <= this.scanIrreversible ? "sent" : "confirming",
               envelopeHash: row.content_hash,
             });
+            modified = true;
           }
           if (BigInt(row.block) <= this.scanIrreversible) chat.after = row.sequence;
-          await save();
+          if (modified) { await save(); this.snapshot(data); }
         }
+        await save();
       } catch (error) {
         // Keep this chat's cursor/keys intact on failure, but let other chats progress.
         this.error = error instanceof Error ? error.message : String(error);
@@ -1299,8 +1335,26 @@ export class PrivateMessagingService {
     }
   }
   async sync(): Promise<void> {
-    if (this.running || this.stopped) return;
+    if (this.stopped) return;
+    if (this.running) { this.syncAgain = true; return this.syncTask; }
+    clearTimeout(this.scheduledSync);
     this.running = true;
+    this.syncTask = (async () => {
+      // Coalesce bursts, but let callers finish even if a slow connection keeps
+      // receiving wakeups. Any remaining work resumes on the next task.
+      for (let pass = 0; pass < 2; pass++) {
+        this.syncAgain = false;
+        await this.syncOnce();
+        if (!this.syncAgain || this.stopped) break;
+      }
+    })().finally(() => {
+      this.running = false;
+      this.syncTask = undefined;
+      if (this.syncAgain && !this.stopped) this.scheduledSync = setTimeout(() => void this.sync(), 0);
+    });
+    return this.syncTask;
+  }
+  private async syncOnce(): Promise<void> {
     this.syncHead = undefined;
     try {
       await this.store.edit(async (data, save) => {
@@ -1340,7 +1394,6 @@ export class PrivateMessagingService {
       }
     } finally {
       this.syncHead = undefined;
-      this.running = false;
     }
   }
 }
