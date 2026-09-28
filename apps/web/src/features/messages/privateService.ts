@@ -390,8 +390,8 @@ export class PrivateMessagingService {
       const chat = data.chats.find((c) => c.id === chatId);
       if (!chat || chat.status !== "ready" || !chat.ratchet || !chat.peerAlias)
         throw new Error("This conversation is not ready yet");
-      if (!(await this.unblocked(chat.peer)))
-        throw new Error("This conversation is blocked");
+      // Queue locally without a network round trip. Dispatch checks both block
+      // directions immediately before submission and keeps rejected packets local.
       if (data.outbox.filter((p) => p.chatId === chatId && p.peer).length >= 20)
         throw new Error("Wait for your pending messages to send");
       const packetId = id(),

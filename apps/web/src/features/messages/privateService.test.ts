@@ -766,6 +766,21 @@ describe("two-browser private conversations", () => {
       "storage recovered",
     ]);
   });
+  it("queues messages locally while offline and checks blocks before any broadcast", async () => {
+    const h = harness(), chat = await h.connect();
+    const before = h.packets.length;
+    const blocked = vi.spyOn(h.protocol.reads.relationships, "is_blocked").mockRejectedValue(new Error("offline"));
+    await h.a.service.send(chat, "queued offline");
+    await h.a.service.load();
+    expect(h.a.snapshot.chats[0]?.messages[0]?.text).toBe("queued offline");
+    expect(h.a.snapshot.chats[0]?.messages[0]?.state).toBe("sending");
+    expect(h.packets).toHaveLength(before);
+    blocked.mockResolvedValue({ value: true }); await h.pump();
+    expect(h.packets).toHaveLength(before);
+    expect(h.a.snapshot.chats[0]?.error).toContain("blocked");
+    blocked.mockRestore(); await h.pump();
+    expect(h.b.snapshot.chats[0]?.messages.map(m => m.text)).toEqual(["queued offline"]);
+  });
   it("keeps the receiving ratchet until a remote close is irreversible", async () => {
     const h = harness(),
       chat = await h.connect();
