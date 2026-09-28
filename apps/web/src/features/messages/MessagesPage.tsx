@@ -190,7 +190,7 @@ export function MessagesPage() {
                       ? "Your request has been sent. It is waiting for them to accept on their messaging browser."
                       : chat.requestDelivery === "failed"
                         ? "Your request has not been confirmed. Check the error above; the saved request will retry without creating a duplicate."
-                        : <>{chat.progress || "Preparing your encrypted request."} Keep this account unlocked until it says Request sent; you can browse other pages in Open Social. Network confirmation can take several minutes.</>}
+                        : <>{chat.progress || "Preparing your encrypted request."} Keep this account unlocked until it says Request sent; you can browse other pages in Open Social while it finishes.</>}
                   </Notice>
                 )}
                 {chat.status === "accepting" && !chat.error && (

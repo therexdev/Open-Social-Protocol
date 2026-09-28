@@ -273,7 +273,10 @@ separate review.
 Consecutive messages can progress while earlier ciphertext awaits finality.
 `Sent · confirming` means the packet was observed on-chain, not that the recipient
 read it. Reservation submission and allocation have independent retry clocks so
-successful confirmation does not impose another twenty-second retry delay.
+successful confirmation does not impose another twenty-second retry delay. Each
+sync pass reuses one conservative chain head instead of reading it separately
+for every queued packet. Setup progress excludes already-confirmed control packets
+that remain saved only for finality and recovery.
 
 Regression coverage includes hidden-tab polling, locking, three-confirmation
 boundaries, strict non-Harbinger finality, burst delivery, reload, replacement

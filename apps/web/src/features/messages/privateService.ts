@@ -75,6 +75,12 @@ export class PrivateMessagingService {
   private channelSteps = new Map<string, string>();
   private chatErrors = new Map<string, string>();
   private scanIrreversible = 0n;
+  private syncHead: ReturnType<ProtocolClient["provider"]["getHeadInfo"]> | undefined;
+  private head() {
+    // One conservative boundary per pass avoids an RPC round trip per pending
+    // message. A newly mined transaction can advance on the following pass.
+    return this.syncHead ??= this.protocol.provider.getHeadInfo();
+  }
   constructor(
     readonly me: Identity,
     readonly protocol: ProtocolClient,
@@ -104,7 +110,8 @@ export class PrivateMessagingService {
       chats: data.chats.map((c) => {
         const request = data.outbox.find(p => p.chatId === c.id && !p.peer && p.kind !== "close");
         const closing = c.status === "closed" && (c.closeNotice === "needed" || c.closeNotice === "queued" || !!c.closeChannelPending);
-        const pending = request ?? data.outbox.find(p => p.chatId === c.id);
+        const pending = (request && !request.observed ? request : undefined)
+          ?? data.outbox.find(p => p.chatId === c.id && !p.observed);
         const error = c.closeError || pending?.error || this.chatErrors.get(c.id);
         const progress = closing ? "Closed on this browser. Notifying the other messaging browser."
           : pending ? this.fundingSteps.get(pending.actor) ?? (pending.lastAttempt ? "Waiting for the network to confirm delivery." : "Preparing the encrypted request.")
@@ -459,7 +466,7 @@ export class PrivateMessagingService {
           if (!result) throw new Error("Could not check whether the conversation is closed");
           const channel = result.value;
           if (channel?.status === 3) {
-            const head = await this.protocol.provider.getHeadInfo();
+            const head = await this.head();
             if (channel.block && BigInt(channel.block) <= BigInt(head.last_irreversible_block)) chat.closeChannelPending = false;
           } else if (channel && Date.now() - (chat.closeChannelAttempt ?? 0) >= RETRY_MS) {
             chat.closeChannelAttempt = Date.now();
@@ -674,7 +681,7 @@ export class PrivateMessagingService {
     const discovery = await sponsor.discover();
     if (discovery.sponsor !== funding.sponsor)
       throw new Error("The sponsor changed identity; keep this saved reservation for recovery");
-    const head = await this.protocol.provider.getHeadInfo();
+    const head = await this.head();
     const fast = privateConfirmationDepth(this.protocol.deployment.network);
     const depth = fast && discovery.policy.privateUsageConfirmations === fast ? fast : 0;
     const boundary = privateConfirmationHeight(head, depth);
@@ -725,14 +732,14 @@ export class PrivateMessagingService {
       !bytesEqual(record.packet_id, fromBase64url(row.packet_id))
     )
       throw new Error("Message could not be verified on chain");
-    const lib = irreversible ?? (await this.protocol.provider.getHeadInfo()).last_irreversible_block;
+    const lib = irreversible ?? (await this.head()).last_irreversible_block;
     return BigInt(record.block) <= BigInt(lib);
   }
   private async *confirmedPackets(rows: PrivatePacketView[]): AsyncGenerator<PrivatePacketView> {
     if (!rows.length) return;
     // A recovery scan can contain many unrelated invitations. Reuse a conservative
     // finality boundary and bound parallel reads instead of two serial RPCs per row.
-    const head = await this.protocol.provider.getHeadInfo();
+    const head = await this.head();
     this.scanIrreversible = BigInt(head.last_irreversible_block);
     const boundary = privateConfirmationHeight(head, privateConfirmationDepth(this.protocol.deployment.network)).toString();
     for (let offset = 0; offset < rows.length; offset += 4) {
@@ -910,7 +917,7 @@ export class PrivateMessagingService {
         if (!result) throw new Error("Could not check the private connection");
         const c = result.value;
         if (c?.status === 3) {
-          const head = await this.protocol.provider.getHeadInfo();
+          const head = await this.head();
           if (
             c.block &&
             BigInt(c.block) <= BigInt(head.last_irreversible_block)
@@ -1020,7 +1027,7 @@ export class PrivateMessagingService {
           if (existing.peer !== packet.peer || !bytesEqual(existing.content_hash, contentHash(fromBase64url(packet.envelope))))
             throw new Error("Saved packet does not match the chain");
           delete packet.error;
-          const head = await this.protocol.provider.getHeadInfo();
+          const head = await this.head();
           const message = chat.messages.find(m => m.id === packet.id);
           if (BigInt(existing.block) > BigInt(head.last_irreversible_block)) {
             if (BigInt(existing.block) <= privateConfirmationHeight(head, privateConfirmationDepth(this.protocol.deployment.network))) {
@@ -1073,6 +1080,7 @@ export class PrivateMessagingService {
   async sync(): Promise<void> {
     if (this.running || this.stopped) return;
     this.running = true;
+    this.syncHead = undefined;
     try {
       await this.store.edit(async (data, save) => {
         this.error = "";
@@ -1112,6 +1120,7 @@ export class PrivateMessagingService {
           error: this.error,
         });
     } finally {
+      this.syncHead = undefined;
       this.running = false;
     }
   }

@@ -320,7 +320,10 @@ describe("two-browser private conversations", () => {
     expect(h.b.snapshot.chats).toHaveLength(0);
     h.setHead("7"); await h.pump();
     expect(h.b.snapshot.chats[0]?.status).toBe("incoming");
-    await h.b.service.accept(chat); await h.pump(8);
+    await h.b.service.accept(chat);
+    for (let i = 0; i < 3; i++) { await h.b.service.load(); await h.b.service.sync(); }
+    expect(h.b.snapshot.chats[0]?.progress).toContain("other messaging browser");
+    await h.pump(8);
     expect(h.a.snapshot.chats[0]?.status).toBe("ready");
     expect(h.b.snapshot.chats[0]?.status).toBe("ready");
     await h.a.service.send(chat, "first");
@@ -328,6 +331,10 @@ describe("two-browser private conversations", () => {
     await h.pump();
     expect(h.b.snapshot.chats[0]?.messages.map(m => m.text)).toEqual(["first", "second"]);
     expect(h.b.snapshot.chats[0]?.messages.every(m => m.state === "confirming")).toBe(true);
+    const headReads = vi.spyOn(h.protocol.provider, "getHeadInfo");
+    await h.a.service.sync();
+    expect(headReads).toHaveBeenCalledTimes(1);
+    headReads.mockRestore();
     await h.b.store.edit(async data => {
       expect(data.inboxAfter).toBe("0"); expect(data.chats[0]?.after).toBe("0");
     });
