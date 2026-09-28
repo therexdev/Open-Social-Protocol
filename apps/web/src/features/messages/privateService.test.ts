@@ -8,7 +8,13 @@ import {
   type Identity,
   type PrivateDevice,
   type ProtocolClient,
+  ProtocolContracts,
+  decode,
+  encode,
+  type ContractName,
 } from "@osp/sdk";
+import { ABIS } from "@osp/proto";
+import { fixtureDeployment } from "../../../../../packages/sdk/src/testing/fixtures";
 import type { IndexerClient, PrivatePacketView } from "../../api/indexer";
 import { memoryStorage } from "../../vault/storage";
 import { PrivateStore, type ExclusiveLock } from "./privateStore";
@@ -29,7 +35,8 @@ beforeAll(() =>
 );
 const alice = identityFromSeed(new Uint8Array(32).fill(81), 1),
   bob = identityFromSeed(new Uint8Array(32).fill(82), 1);
-const scope = { chainId: "test", contract: "messaging" };
+const deployment = { ...fixtureDeployment(), chainId: "test" };
+const scope = { chainId: "test", contract: deployment.contracts.messaging.address };
 const locks = new Map<string, Promise<unknown>>();
 const lock: ExclusiveLock = async (name, action) => {
   const p = (locks.get(name) ?? Promise.resolve()).catch(() => {}).then(action);
@@ -43,15 +50,17 @@ function harness() {
     operations: any[] = [];
   const pair = (a: string, b: string) => [a, b].sort().join(":");
   let unknown = false,
-    lib = "1000";
+    lib = "1000",
+    directoryDown = false;
   const reads = {
     get_private_status: async () => ({
       version: 2,
       sequence: String(packets.length),
     }),
-    get_private_devices: async ({ account }: any) => ({
-      values: devices.get(account) ?? [],
-    }),
+    get_private_devices: async ({ account }: any) => {
+      if (directoryDown) throw new Error("Directory RPC unavailable");
+      return { values: devices.get(account) ?? [] };
+    },
     get_private_units: async () => ({ units: "100" }),
     get_private_packet: async ({ actor, packet_id }: any) => {
       const p = packets.find(
@@ -73,10 +82,7 @@ function harness() {
   };
   const protocol = {
     chainId: scope.chainId,
-    deployment: {
-      chainId: scope.chainId,
-      contracts: { messaging: { address: scope.contract } },
-    },
+    deployment,
     provider: { getHeadInfo: async () => ({ last_irreversible_block: lib }) },
     reads: {
       messaging: reads,
@@ -147,6 +153,20 @@ function harness() {
       return {};
     },
   } as unknown as ProtocolClient;
+  // Exercise the actual SDK wire reader, including the live RPC's {} reply for
+  // zero-byte Protobuf results. Object-only mocks hid first-browser failures.
+  const rawReads = protocol.reads;
+  protocol.provider.readContract = async call => {
+    const name = (Object.keys(deployment.contracts) as ContractName[])
+      .find(name => deployment.contracts[name].address === call.contract_id)!;
+    const [method, definition] = Object.entries(ABIS[name].methods)
+      .find(([, definition]) => definition.entry_point === call.entry_point)!;
+    const args = decode(definition.argument, call.args ?? "");
+    const result = await (rawReads[name] as any)[method](args);
+    const bytes = encode(definition.return, result);
+    return (bytes.length ? { result: toBase64url(bytes) } : {}) as any;
+  };
+  Object.assign(protocol, { reads: new ProtocolContracts(deployment, protocol.provider).reads });
   const indexer = {
     privatePackets: async (after: string, actor?: string, peer?: string) => ({
       items: packets.filter(
@@ -244,6 +264,7 @@ function harness() {
     operations,
     pump,
     connect,
+    setDirectoryDown: (value: boolean) => { directoryDown = value; },
     setUnknown: () => {
       unknown = true;
     },
@@ -254,6 +275,22 @@ function harness() {
 }
 
 describe("two-browser private conversations", () => {
+  it("registers first-time browsers from an empty wire response and resumes after a real read failure", async () => {
+    const h = harness();
+    h.setDirectoryDown(true);
+    await h.a.service.enable();
+    await h.pump(2);
+    expect(h.a.snapshot.enabled).toBe(true);
+    expect(h.a.snapshot.registered).toBe(false);
+    expect(h.a.snapshot.error).toBe("Directory RPC unavailable");
+    expect(h.operations).toHaveLength(0);
+    h.a.reload();
+    h.setDirectoryDown(false);
+    await h.pump(3);
+    expect(h.a.snapshot.registered).toBe(true);
+    expect(h.a.snapshot.error).toBe("");
+    expect(h.operations.filter(op => op.method === "set_private_device")).toHaveLength(1);
+  });
   it("authenticates a private introduction and exchanges messages without public profile routing", async () => {
     const h = harness(),
       chat = await h.connect();

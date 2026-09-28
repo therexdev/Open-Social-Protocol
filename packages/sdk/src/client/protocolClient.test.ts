@@ -434,7 +434,8 @@ describe("ProtocolClient", () => {
     expect(state?.value?.next_sequence).toBe("9");
     expect(state?.value?.last_publish_at).toBe("0");
     const missing = await client.reads.identity.get_identity({ account: user.getAddress() });
-    expect(missing).toBeUndefined();
+    expect(missing).toEqual({});
+    expect(missing?.value).toBeUndefined();
     const generic = await client.read("publications", "get_author_state", { author: user.getAddress() });
     expect(generic?.value?.post_count).toBe("8");
     expect((await client.verifyChainId()).ok).toBe(true);

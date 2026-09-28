@@ -1,7 +1,12 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
+import { isAddress } from "@osp/sdk";
+import { Avatar } from "../../components/Icon";
 import { AccountLink, Button, Card, Field, Notice } from "../../components/ui";
 import { useCanAct } from "../session";
 import { usePrivateMessaging } from "./PrivateMessagingProvider";
+import { MessageRecipientPicker } from "./MessageRecipientPicker";
+import { useMessagePeople } from "./useMessagePeople";
 
 const labels = {
   incoming: "Message request",
@@ -13,11 +18,27 @@ const labels = {
 export function MessagesPage() {
   const { service, snapshot } = usePrivateMessaging(),
     can = useCanAct();
+  const [params] = useSearchParams();
   const [input, setInput] = useState(""),
     [selected, setSelected] = useState(""),
     [text, setText] = useState(""),
     [error, setError] = useState(""),
+    [chatSearch, setChatSearch] = useState(""),
     [busy, setBusy] = useState(false);
+  const account = service?.me.account;
+  const requested = params.get("to") ?? "";
+  const target = isAddress(requested) && requested !== account ? requested : "";
+  const people = useMessagePeople(account, [...snapshot.chats.map(c => c.peer), ...(input ? [input] : [])]);
+  const linkedChat = snapshot.chats.find(c => c.peer === target && c.status !== "closed")?.id;
+  const existingChat = snapshot.chats.find(c => c.peer === input && c.status !== "closed");
+  useEffect(() => {
+    setInput(target);
+    setSelected(linkedChat ?? "");
+    setText("");
+    setError("");
+  }, [target, linkedChat, account]);
+  const visibleChats = snapshot.chats.filter(c =>
+    `${people.name(c.peer)} ${c.peer}`.toLocaleLowerCase().includes(chatSearch.trim().toLocaleLowerCase()));
   const chat = snapshot.chats.find((c) => c.id === selected);
   const run = async (action: () => Promise<unknown>) => {
     if (busy) return;
@@ -43,7 +64,7 @@ export function MessagesPage() {
       {(error || snapshot.error) && (
         <Notice kind="error">
           {error || snapshot.error}{" "}
-          <Button variant="ghost" onClick={() => void service?.sync()}>
+          <Button variant="ghost" busy={busy} disabled={!service || !can.ok} onClick={() => void run(() => service!.sync())}>
             Retry
           </Button>
         </Notice>
@@ -66,7 +87,7 @@ export function MessagesPage() {
         </Card>
       ) : (
         <>
-          {!snapshot.registered && (
+          {!snapshot.registered && !(error || snapshot.error) && (
             <Notice>
               This browser is being connected. You can continue using Open
               Social while it finishes.
@@ -78,42 +99,38 @@ export function MessagesPage() {
               onSubmit={(e) => {
                 e.preventDefault();
                 void run(async () => {
-                  setSelected(await service!.start(input.trim()));
+                  setSelected(existingChat?.id ?? await service!.start(input.trim()));
                   setText("");
                 });
               }}
             >
-              <Field label="Their account address">
-                {(id) => (
-                  <input
-                    id={id}
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    autoComplete="off"
-                    disabled={busy}
-                  />
-                )}
-              </Field>
+              <MessageRecipientPicker account={account} value={input} onChange={setInput}
+                friends={people.friends} blocked={people.blocked} name={people.name}
+                loading={people.loading} friendsError={people.error}
+                retryFriends={() => void people.refresh()} disabled={busy} />
               <Button
                 type="submit"
                 variant="primary"
                 disabled={
-                  !can.ok || !service || !snapshot.registered || !input.trim()
+                  !can.ok || !service || (!snapshot.registered && !existingChat) || !input
                 }
                 busy={busy}
               >
-                Start private conversation
+                {existingChat ? "Open conversation" : "Start private conversation"}
               </Button>
             </form>
           </Card>
           <div className="messages-grid">
             <Card title="Conversations">
+              {snapshot.chats.length > 0 && <Field label="Search conversations">
+                {id => <input id={id} type="search" placeholder="Search a name or address" value={chatSearch} onChange={event => setChatSearch(event.target.value)} />}
+              </Field>}
               {snapshot.chats.length === 0 ? (
                 <p className="muted">
                   Your message requests and conversations will appear here.
                 </p>
               ) : (
-                snapshot.chats.map((c) => (
+                visibleChats.map((c) => (
                   <Button
                     key={c.id}
                     aria-pressed={c.id === selected}
@@ -124,18 +141,20 @@ export function MessagesPage() {
                       setError("");
                     }}
                   >
-                    <span>{c.peer.slice(0, 10)}…</span>
+                    <Avatar account={c.peer} name={people.name(c.peer)} />
+                    <span className="private-chat-person"><strong>{people.name(c.peer)}</strong><span className="mono muted">{c.peer.slice(0, 8)}…{c.peer.slice(-5)}</span></span>
                     <small>{labels[c.status]}</small>
                   </Button>
                 ))
               )}
+              {snapshot.chats.length > 0 && visibleChats.length === 0 && <p className="muted">No conversations match that name or address.</p>}
               <Button variant="ghost" onClick={() => void service?.sync()}>
                 Refresh
               </Button>
             </Card>
             {chat && (
               <Card
-                title={<AccountLink account={chat.peer} />}
+                title={<AccountLink account={chat.peer} name={people.name(chat.peer)} />}
                 actions={<small className="muted">{labels[chat.status]}</small>}
               >
                 {chat.status === "incoming" && (

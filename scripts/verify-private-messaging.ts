@@ -1,8 +1,8 @@
 // Read-only readiness checks. Never reserves usage, signs, or broadcasts a transaction.
 import assert from "node:assert/strict";
-import { Contract, Provider } from "koilib";
+import { Provider } from "koilib";
 import { ABIS } from "@osp/proto";
-import { SponsorClient } from "@osp/sdk";
+import { ProtocolClient, SponsorClient } from "@osp/sdk";
 import { networkFromArgs, parseArgs, readDeployment } from "./common.ts";
 
 const args = parseArgs(process.argv.slice(2));
@@ -23,9 +23,15 @@ async function json(url: string): Promise<any> {
 const checks: Array<[string, () => Promise<void>]> = [
   ["on-chain private messaging v2", async () => {
     assert.equal(await provider.getChainId(), deployment.chainId, "wrong RPC chain");
-    const contract = new Contract({ id: messaging, abi: ABIS.messaging as never, provider });
-    const { result } = await contract.functions.get_private_status!({});
-    assert.equal(Number((result as any)?.version), 2, "upgrade messaging contract first");
+    const client = new ProtocolClient({ deployment, rpc: provider });
+    const result = await client.reads.messaging.get_private_status({});
+    assert.equal(result?.version, 2, "upgrade messaging contract first");
+    // The contract address has no browser/alias allowance. Check the real SDK
+    // path for empty Protobuf results, as encountered by every first-time user.
+    const devices = await client.reads.messaging.get_private_devices({ account: messaging });
+    assert(Array.isArray(devices?.values), "SDK must decode an empty device directory");
+    const balance = await client.reads.messaging.get_private_units({ account: messaging });
+    assert.equal(typeof balance?.units, "string", "SDK must decode a zero private allowance");
   }],
   ["indexer v2 and shared invitation log", async () => {
     const status = await json(`${indexer}/v1/status`);

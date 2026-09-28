@@ -129,6 +129,7 @@ export class PrivateMessagingService {
         data.inboxAfter = status.sequence;
       }
       await save();
+      this.error = "";
       this.snapshot(data);
     });
     void this.sync();
@@ -178,6 +179,9 @@ export class PrivateMessagingService {
   async start(peer: string): Promise<string> {
     if (!isAddress(peer) || peer === this.me.account)
       throw new Error("Enter another person's account address");
+    const existingId = await this.store.edit(async data =>
+      data.chats.find(c => c.peer === peer && c.status !== "closed")?.id);
+    if (existingId) return existingId;
     if (!(await this.unblocked(peer)))
       throw new Error("This conversation is blocked");
     const devices =

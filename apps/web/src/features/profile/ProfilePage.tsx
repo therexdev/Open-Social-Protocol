@@ -108,7 +108,10 @@ export function ProfilePage() {
                 <Icon name={editing ? "close" : "edit"} size={17}/>{editing ? "Close" : "Edit profile"}
               </Button>
             ) : (
-              <RelationshipActions target={account} graph={graph} onChanged={() => void refresh()} />
+              <div className="profile-contact-actions">
+                {viewer && !graph?.blocked.includes(account) && <Link to={`/messages?to=${encodeURIComponent(account)}`} className="btn btn-primary"><Icon name="message" size={18} />Message</Link>}
+                <RelationshipActions target={account} graph={graph} onChanged={() => void refresh()} />
+              </div>
             )}
           </div>
         </div>
