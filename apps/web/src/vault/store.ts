@@ -250,10 +250,19 @@ export function createVaultStore(options: VaultStoreOptions = {}): VaultStore {
 
       async destroy() {
         const account = get().account;
+        // Stop background publishers/readers before deleting their persisted state.
+        set({ status: "locked", session: undefined });
         await storage.del(VAULT_KEY);
         if (account) {
           await storage.del(`osp.web.keys.${account}`);
           await storage.del(`osp.web.drafts.${account}`);
+          const registry = `osp.private.registry:${account}`;
+          const stores = await storage.get<string[]>(registry) ?? [];
+          for (const name of stores) {
+            await storage.del(name);
+            await storage.del(`${name}:key`);
+          }
+          await storage.del(registry);
         }
         set({ status: "empty", session: undefined, account: undefined, passkeyEnrolled: false });
       },

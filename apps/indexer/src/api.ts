@@ -120,7 +120,7 @@ export function statusView(options: ApiOptions): Record<string, unknown> {
     ? Object.fromEntries(Object.entries(deployment.contracts).map(([name, entry]) => [name, entry.address]))
     : null;
   return {
-    features: { tokenEconomy: 1 },
+    features: { tokenEconomy: 1, privateMessaging: 2 },
     network: config.network,
     chainId: deployment?.chainId ?? null,
     // Chain id the node reports and whether it matches the manifest (null until the first sync step compared them).
@@ -198,6 +198,20 @@ export function buildApi(options: ApiOptions): FastifyInstance {
     const page=rows.slice(0,limit);
     return {items:page.map(row=>({...JSON.parse(String(row.data_json)),envelope:toBase64url(row.envelope as Uint8Array),txId:row.tx_id})),nextBefore:rows.length>limit?String(page[page.length-1]!.sequence):null};
   });
+  // One shared invitation log, no recipient-specific inbox identifiers in the URL.
+  app.get("/v2/private/packets", async request => {
+    const actor = parseAddress(query(request,"actor"),"actor",false);
+    const peer = parseAddress(query(request,"peer"),"peer",false);
+    if (!!actor !== !!peer) throw new ApiError(400,"invalid_request","supply both aliases or neither");
+    const after = query(request,"after") ?? "0", limit = parseLimit(query(request,"limit"),50,100);
+    if (!/^(0|[1-9][0-9]{0,19})$/.test(after)) throw new ApiError(400,"invalid_request","invalid sequence");
+    const filter = actor ? "((actor=? AND peer=?) OR (actor=? AND peer=?))" : "peer=''";
+    const binds = actor ? [actor,peer!,peer!,actor] : [];
+    const rows = db.all(`SELECT * FROM private_packets WHERE ${filter} AND (length(sequence)>length(?) OR (length(sequence)=length(?) AND sequence>?)) ORDER BY length(sequence), sequence LIMIT ?`, ...binds,after,after,after,limit+1);
+    const page = rows.slice(0,limit);
+    return { items: page.map(row=>({...JSON.parse(String(row.data_json)),envelope:toBase64url(row.envelope as Uint8Array),txId:row.tx_id})), more: rows.length>limit };
+  });
+
   app.get("/v1/token/:account/activity", async request => {
     const account=parseAddress(param(request,"account"),"account")!;
     const limit=parseLimit(query(request,"limit"),30,100);
@@ -220,7 +234,7 @@ export function buildApi(options: ApiOptions): FastifyInstance {
   // Every data route requires a deployment.
   app.addHook("onRequest", async (request, reply) => {
     if (config.deployment) return;
-    if (!request.url.startsWith("/v1/") || request.url.startsWith("/v1/status")) return;
+    if ((!request.url.startsWith("/v1/") && !request.url.startsWith("/v2/")) || request.url.startsWith("/v1/status")) return;
     sendError(reply, new ApiError(503, "not_deployed", config.deploymentError ?? `no deployment manifest for network ${config.network}`));
   });
 

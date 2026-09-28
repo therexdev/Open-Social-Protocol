@@ -1,0 +1,175 @@
+import { describe, expect, it } from "vitest";
+import { ABIS } from "@osp/proto";
+import {
+  ProtocolClient,
+  Signer,
+  encode,
+  fromBase64url,
+  randomBytes,
+  signPrivateStatement,
+  toBase64url,
+} from "@osp/sdk";
+import { createServer } from "./server.js";
+import {
+  fakeProvider,
+  fixtureDeployment,
+  testConfig,
+} from "./__tests__/helpers.js";
+const deployment = fixtureDeployment(),
+  signer = Signer.fromSeed("private-payer"),
+  owner = Signer.fromSeed("private-owner"),
+  other = Signer.fromSeed("private-other"),
+  alias = Signer.fromSeed("private-alias").getAddress();
+const scope = {
+  chainId: deployment.chainId,
+  contract: deployment.contracts.messaging.address,
+};
+async function start() {
+  const reservationId = toBase64url(randomBytes(32));
+  let granted: any;
+  let lib = "100";
+  const provider = fakeProvider({
+    onRead(op) {
+      if (op.contract_id === deployment.contracts.identity.address)
+        return encode("identity.get_identity_result", {
+          value: { account: owner.getAddress(), owner: owner.getAddress() },
+        });
+      if (
+        op.entry_point ===
+        ABIS.messaging.methods.get_private_reservation!.entry_point
+      )
+        return encode("messaging.get_private_reservation_result", {
+          value: {
+            account: owner.getAddress(),
+            sponsor: signer.getAddress(),
+            reservation_id: fromBase64url(reservationId),
+            units: 4,
+            block: "50",
+          },
+        });
+      if (
+        op.entry_point === ABIS.messaging.methods.get_private_grant!.entry_point
+      )
+        return encode(
+          "messaging.get_private_grant_result",
+          granted ? { value: granted } : {},
+        );
+      return undefined;
+    },
+  });
+  provider.getHeadInfo = async () => ({
+    head_block_time: "1",
+    head_topology: { height: "100", id: "id", previous: "previous" },
+    head_state_merkle_root: "",
+    last_irreversible_block: lib,
+  });
+  const app = await createServer({
+    config: testConfig({ allowlist: "messaging:allocate_private_usage" }),
+    deployment,
+    signer,
+    provider,
+  });
+  const request = async (actor = alias, proofSigner = owner) => ({
+    reservationId,
+    actor,
+    signature: await signPrivateStatement(
+      scope,
+      "allocate",
+      { reservationId, actor },
+      proofSigner,
+    ),
+  });
+  return {
+    app,
+    provider,
+    request,
+    reservationId,
+    setGranted: (v: any) => {
+      granted = v;
+    },
+    setLib: (v: string) => {
+      lib = v;
+    },
+  };
+}
+describe("private allowance assignments", () => {
+  it("requires owner proof and finality before allocating a prepaid reservation", async () => {
+    const h = await start();
+    try {
+      const stolen = await h.app.inject({
+        method: "POST",
+        url: "/v2/private/allocate",
+        payload: await h.request(alias, other),
+      });
+      expect(stolen.statusCode).toBe(400);
+      expect(h.provider.sent).toHaveLength(0);
+      h.setLib("49");
+      const pending = await h.app.inject({
+        method: "POST",
+        url: "/v2/private/allocate",
+        payload: await h.request(),
+      });
+      expect(pending.statusCode).toBe(503);
+      expect(h.provider.sent).toHaveLength(0);
+      h.setLib("100");
+      const good = await h.app.inject({
+        method: "POST",
+        url: "/v2/private/allocate",
+        payload: await h.request(),
+      });
+      expect(good.statusCode).toBe(200);
+      const grantId = good.json().grantId;
+      expect(grantId).not.toBe(h.reservationId);
+      const client = new ProtocolClient({ deployment, rpc: h.provider }),
+        op = client.contracts.decodeOperation(
+          h.provider.sent[0]!.transaction.operations![0]!,
+        )!;
+      expect(op.method).toBe("allocate_private_usage");
+      expect(op.args.actor).toBe(alias);
+      expect(JSON.stringify(op.args)).not.toContain(owner.getAddress());
+      expect(toBase64url(op.args.grant_id as Uint8Array)).toBe(grantId);
+      h.setGranted({
+        sponsor: signer.getAddress(),
+        actor: alias,
+        grant_id: fromBase64url(grantId),
+        units: 4,
+      });
+      const retry = await h.app.inject({
+        method: "POST",
+        url: "/v2/private/allocate",
+        payload: await h.request(),
+      });
+      expect(retry.json()).toEqual({ grantId, pending: false });
+      expect(h.provider.sent).toHaveLength(1);
+      const rebound = await h.app.inject({
+        method: "POST",
+        url: "/v2/private/allocate",
+        payload: await h.request(other.getAddress()),
+      });
+      expect(rebound.statusCode).toBe(400);
+    } finally {
+      await h.app.close();
+    }
+  });
+  it("never sponsors a caller-supplied allocation, even with an explicit allowlist entry", async () => {
+    const h = await start();
+    try {
+      const client = new ProtocolClient({ deployment, rpc: h.provider });
+      const operation = await client.ops.messaging.allocate_private_usage({
+        sponsor: signer.getAddress(),
+        actor: alias,
+        grant_id: randomBytes(32),
+        units: 20,
+      });
+      const result = await h.app.inject({
+        method: "POST",
+        url: "/v1/prepare",
+        payload: { payee: alias, operations: [operation] },
+      });
+      expect(result.statusCode).toBe(403);
+      expect(h.provider.sent).toHaveLength(0);
+    } finally {
+      await h.app.close();
+    }
+  });
+});

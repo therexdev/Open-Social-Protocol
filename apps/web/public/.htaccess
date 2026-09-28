@@ -33,3 +33,4 @@ RewriteRule . /index.html [L]
   </FilesMatch>
 </IfModule>
 AddType application/manifest+json .webmanifest
+AddType application/wasm .wasm

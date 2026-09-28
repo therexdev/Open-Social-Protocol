@@ -390,3 +390,12 @@ Indexer schema v2 adds conversations, ciphertext history, token accounts and tok
 All are deterministic projections, rebuildable from the canonical log; reads return metadata
 and ciphertext only. Eight-address manifests are required by this client release. A prior
 six-contract deployment must be extended and verified before deploying this frontend.
+
+## Private messaging v2 (testnet upgrade)
+
+The versioned private transport supersedes the seed-recoverable direct-message envelope
+for new conversations. See [private-messaging-v2.md](private-messaging-v2.md) for the
+key lifecycle, encrypted invitation/acceptance handshake, alias authorization, prepaid
+usage pool, and explicit privacy limits. Legacy message methods remain isolated; the
+reference client never falls back to them. `messaging.get_private_status().version == 2`
+is the transport capability check, independent of token-economy versions.

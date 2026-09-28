@@ -121,6 +121,7 @@ function IdentitySection() {
         Your identity file contains the secret that controls this account and decrypts your friends-only posts. Store it somewhere safe and private; anyone
         with it can act as you. It is the way to use the account on another device or in another client.
       </p>
+      <p className="hint">Private message history and messaging keys stay on this browser. They are not included in your identity file.</p>
       <div className="row">
         <Button variant="primary" onClick={exportIdentity} disabled={vault.status !== "unlocked"}>
           Export identity file
@@ -189,7 +190,7 @@ function IdentitySection() {
         {keysForgotten && <Notice kind="success">Cached keys were forgotten.</Notice>}
       </Details>
       <Details summary="Remove this account from this device">
-        <p>Removes the encrypted vault and cached keys from this browser. Without an exported identity file the account cannot be recovered.</p>
+        <p>Removes the encrypted vault, cached keys, and private message history from this browser. Your identity file can restore your account, but cannot restore these messages.</p>
         <Button variant="danger" onClick={() => setConfirmForget(true)}>
           Remove from this device
         </Button>

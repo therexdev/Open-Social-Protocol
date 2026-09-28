@@ -150,6 +150,8 @@ export async function smokeDeploymentRuntime(log: (message: string) => void = co
   assert.equal(messagingDependencies.identity, addresses.identity);
   assert.equal(messagingDependencies.relationships, addresses.relationships);
   assert.equal(messagingDependencies.token, addresses.token);
+  assert.equal((await invoke("messaging", "get_private_status")).version, 2);
+  assert.equal((await invoke("messaging", "get_private_units", { account: admin })).units, "0");
   const config = (await invoke("token", "get_config")).value;
   for (const [key, value] of Object.entries(tokenDependencies)) assert.equal(config[key], value);
   assert.equal(config.resource_version, 2);

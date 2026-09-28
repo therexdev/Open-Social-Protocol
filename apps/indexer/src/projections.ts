@@ -787,7 +787,9 @@ export function applyEvent(db: IndexerDb, event: LogEvent): void {
   switch (event.contract) {
     case "messaging": {
       const d=event.data, v=d.value as Record<string, unknown>;
-      if(event.name === "osp.messaging.conversation_changed" && v) {
+      if(event.name === "osp.messaging.private_packet" && v) {
+        db.run("INSERT INTO private_packets VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(actor,packet_id) DO NOTHING",str(v.actor),str(v.peer),b64(v.packet_id),str(v.sequence),JSON.stringify(toJsonValue(v)),bytes(d.envelope),event.height,event.txId);
+      } else if(event.name === "osp.messaging.conversation_changed" && v) {
         db.run("INSERT INTO conversations VALUES (?,?,?,?) ON CONFLICT(a,b) DO UPDATE SET data_json=excluded.data_json,updated_at=excluded.updated_at",str(v.a),str(v.b),JSON.stringify(toJsonValue(v)),str(v.updated_at));
       } else if(event.name === "osp.messaging.message_sent" && v) {
         db.run("INSERT INTO direct_messages VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(sender,message_id) DO NOTHING",str(v.sender),str(v.recipient),b64(v.message_id),str(v.sequence),JSON.stringify(toJsonValue(v)),bytes(d.envelope),event.height,event.txId);

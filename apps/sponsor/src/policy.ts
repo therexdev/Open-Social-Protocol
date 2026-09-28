@@ -14,7 +14,7 @@ import { CONTRACT_NAMES, type ContractName, type Deployment, type SponsorPolicy 
 export const SPONSORED_CONTRACTS: readonly ContractName[] = ["identity", "relationships", "publications", "communities", "messaging"];
 
 /** Methods that are never sponsored by default (contract-account administration). */
-export const ADMIN_METHODS: ReadonlySet<string> = new Set(["set_identity_contract", "set_relationships_contract", "set_token_contract", "set_dependencies", "init", "set_reward_policy", "activate_recharge", "activate_economy", "grant_test_tokens", "consume"]);
+export const ADMIN_METHODS: ReadonlySet<string> = new Set(["set_identity_contract", "set_relationships_contract", "set_token_contract", "set_dependencies", "init", "set_reward_policy", "activate_recharge", "activate_economy", "grant_test_tokens", "consume", "allocate_private_usage"]);
 
 /**
  * Argument field naming the acting account per method. `null` marks methods anyone may
@@ -22,7 +22,7 @@ export const ADMIN_METHODS: ReadonlySet<string> = new Set(["set_identity_contrac
  * `ACTOR_FIELD_PRIORITY`.
  */
 export const ACTOR_FIELDS: Readonly<Partial<Record<ContractName, Readonly<Record<string, string | null>>>>> = {
-  messaging: { request_conversation: "actor", accept_conversation: "actor", close_conversation: "actor", send_message: "sender" },
+  messaging: { set_private_device: "account", reserve_private_usage: "account", open_private_channel: "actor", close_private_channel: "actor", post_private_packet: "actor", request_conversation: "actor", accept_conversation: "actor", close_conversation: "actor", send_message: "sender" },
   token: { support: "actor", vote: "actor", settle_reward: "actor", promote: "actor", cancel_promotion: "actor", transfer: "from", burn: "from" },
   identity: {
     register: "account",

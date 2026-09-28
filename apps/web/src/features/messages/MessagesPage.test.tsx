@@ -3,45 +3,83 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router-dom";
 import { MessagesPage } from "./MessagesPage";
-
 const mocks = vi.hoisted(() => ({
-  me: { account: "1JcHNmvo2PVNuan8GyBMjW9HdGXV1opsPM" },
-  peer: "1AWc6UmnBoavsW2a4m33N61tPuEeFX5b9U",
-  indexer: { configured: true, conversations: vi.fn(), messages: vi.fn() },
-  protocol: { deployment: { chainId: "test", contracts: { messaging: { address: "messages" } } }, reads: { messaging: { get_conversation: vi.fn() } } },
+  value: {
+    service: { enable: vi.fn(), sync: vi.fn(), send: vi.fn() },
+    snapshot: {
+      enabled: false,
+      registered: false,
+      chats: [] as any[],
+      pending: 0,
+      error: "",
+    },
+  },
 }));
-vi.mock("../../api/services", () => ({ useServices: () => mocks }));
-vi.mock("../session", () => ({ useMe: () => mocks.me, useSubmitContext: () => undefined, useCanAct: () => ({ ok: false }) }));
-vi.mock("./verified", () => ({ openVerifiedMessage: async (_p: unknown, _m: unknown, _peer: unknown, row: unknown) => row }));
-let root: Root;
-let container: HTMLDivElement;
-afterEach(async () => { await act(async () => root?.unmount()); container?.remove(); vi.useRealTimers(); });
-
-it("receives new messages without losing loaded history or resetting the older-page cursor", async () => {
-  vi.useFakeTimers();
-  const conversation = { a: mocks.me.account, b: mocks.peer, status: 2 };
-  mocks.indexer.conversations.mockResolvedValue({ items: [conversation] });
-  mocks.protocol.reads.messaging.get_conversation.mockResolvedValue({ value: conversation });
-  const row = (n: number) => ({ id: String(n), sequence: String(n), text: `message ${n}`, timestamp: "1", sender: mocks.peer });
-  mocks.indexer.messages.mockResolvedValue({ items: [row(3)], nextBefore: "3" });
-  container = document.createElement("div"); root = createRoot(container);
-  await act(async () => root.render(<MemoryRouter><MessagesPage /></MemoryRouter>));
-  const click = async (label: string) => {
-    const button = [...container.querySelectorAll("button")].find(b => b.textContent?.includes(label));
-    expect(button).toBeDefined();
-    await act(async () => button!.click());
+vi.mock("./PrivateMessagingProvider", () => ({
+  usePrivateMessaging: () => mocks.value,
+}));
+vi.mock("../session", () => ({ useCanAct: () => ({ ok: true }) }));
+let root: Root, container: HTMLDivElement;
+afterEach(async () => {
+  await act(async () => root?.unmount());
+  container?.remove();
+  mocks.value.snapshot = {
+    enabled: false,
+    registered: false,
+    chats: [],
+    pending: 0,
+    error: "",
   };
-  await click(mocks.peer.slice(0, 9));
-  mocks.indexer.messages.mockResolvedValueOnce({ items: [row(2)], nextBefore: "2" });
-  await click("Load older messages");
-  mocks.indexer.messages.mockResolvedValue({ items: [row(4), row(3)], nextBefore: "3" });
-  await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
-  expect(container.textContent).toContain("message 2");
-  expect(container.textContent).toContain("message 4");
-  mocks.indexer.messages.mockResolvedValueOnce({ items: [row(1)], nextBefore: null });
-  await click("Load older messages");
-  expect(mocks.indexer.messages).toHaveBeenLastCalledWith(mocks.me.account, mocks.peer, "2");
-  await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
-  expect(container.textContent).toContain("message 1");
-  expect(container.textContent).not.toContain("Load older messages");
+});
+async function mount() {
+  container = document.createElement("div");
+  root = createRoot(container);
+  await act(async () =>
+    root.render(
+      <MemoryRouter>
+        <MessagesPage />
+      </MemoryRouter>,
+    ),
+  );
+}
+it("explains seed recovery does not restore chat history before enabling", async () => {
+  await mount();
+  expect(container.textContent).toContain("cannot restore these messages");
+  const button = [...container.querySelectorAll("button")].find((b) =>
+    b.textContent?.includes("Enable private messages"),
+  )!;
+  await act(async () => button.click());
+  expect(mocks.value.service.enable).toHaveBeenCalled();
+});
+it("shows pending local messages and keeps them visible while delivery continues", async () => {
+  mocks.value.snapshot = {
+    enabled: true,
+    registered: true,
+    pending: 1,
+    error: "",
+    chats: [
+      {
+        id: "chat",
+        peer: "1AWc6UmnBoavsW2a4m33N61tPuEeFX5b9U",
+        status: "ready",
+        createdAt: 1,
+        messages: [
+          {
+            id: "m1",
+            text: "Saved before sending",
+            mine: true,
+            state: "sending",
+            timestamp: 1,
+          },
+        ],
+      },
+    ],
+  };
+  await mount();
+  await act(async () =>
+    container.querySelector<HTMLButtonElement>(".private-chat-choice")!.click(),
+  );
+  expect(container.textContent).toContain("Saved before sending");
+  expect(container.textContent).toContain("Sending…");
+  expect(container.textContent).toContain("You can leave this page");
 });

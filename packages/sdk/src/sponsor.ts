@@ -259,6 +259,11 @@ export class SponsorClient {
     return result;
   }
 
+  /** Off-chain proof only: this payload MUST NOT be included in a chain transaction. */
+  async allocatePrivateUsage(request: { reservationId: string; actor: string; signature: string }): Promise<{ grantId: string; pending: boolean }> {
+    return await this.request("POST", "/v2/private/allocate", request) as { grantId: string; pending: boolean };
+  }
+
   /** `GET /v1/utilization` (aggregate counters). */
   async utilization(): Promise<Record<string, unknown>> {
     return (await this.request("GET", "/v1/utilization")) as Record<string, unknown>;

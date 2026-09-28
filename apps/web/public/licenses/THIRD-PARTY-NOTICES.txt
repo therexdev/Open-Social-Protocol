@@ -1,0 +1,15 @@
+Private messaging cryptography
+
+@towns-protocol/vodozemac 0.1.0
+https://github.com/towns-protocol/vodozemac-bindings
+JavaScript/WebAssembly bindings to Matrix's vodozemac implementation of Olm.
+Licensed under the Apache License, Version 2.0. See vodozemac-apache-2.0.txt.
+The upstream code and WebAssembly binary are distributed without modifications.
+
+vodozemac
+https://github.com/matrix-org/vodozemac
+Copyright 2021 The Matrix.org Foundation C.I.C.
+Licensed under the Apache License, Version 2.0.
+
+These notices describe the messaging dependency. They do not replace the licenses
+of the other packages distributed with Open Social Protocol.

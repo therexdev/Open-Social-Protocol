@@ -17,7 +17,7 @@ import { DatabaseSync, type SQLInputValue, type StatementSync, type StatementRes
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import path from "node:path";
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 /** Every projection table (truncated on replay), in a fixed order. */
 export const PROJECTION_TABLES = [
@@ -39,6 +39,7 @@ export const PROJECTION_TABLES = [
   "user_grants",
   "registry_entries",
   "notifications",
+  "private_packets",
   "conversations",
   "direct_messages",
   "token_accounts",
@@ -334,6 +335,11 @@ const MIGRATIONS: string[] = [
   CREATE TABLE token_epochs (id TEXT PRIMARY KEY, data_json TEXT NOT NULL);
   CREATE TABLE token_promotions (post_id TEXT PRIMARY KEY, author TEXT NOT NULL, slot INTEGER NOT NULL, end_block INTEGER NOT NULL, data_json TEXT NOT NULL);
   CREATE INDEX token_promotions_end ON token_promotions(end_block);
+  `,
+  `
+  CREATE TABLE private_packets (actor TEXT NOT NULL, peer TEXT NOT NULL, packet_id TEXT NOT NULL, sequence TEXT NOT NULL UNIQUE, data_json TEXT NOT NULL, envelope BLOB NOT NULL, height INTEGER NOT NULL, tx_id TEXT NOT NULL, PRIMARY KEY(actor,packet_id));
+  CREATE INDEX private_packets_peer ON private_packets(peer, length(sequence), sequence);
+  CREATE INDEX private_packets_actor ON private_packets(actor, length(sequence), sequence);
   `,
 ];
 

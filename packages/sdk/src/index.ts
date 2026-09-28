@@ -21,3 +21,5 @@ export * from "./crypto/messaging.js";
 
 export * from "./crypto/keyProvenance.js";
 export * from "./promotion.js";
+
+export * from "./crypto/privateMessaging.js";

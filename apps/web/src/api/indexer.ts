@@ -348,6 +348,10 @@ export class IndexerClient {
     return [...people.values()];
   }
 
+  privatePackets(after = "0", actor?: string, peer?: string): Promise<{ items: PrivatePacketView[]; more: boolean }> {
+    return this.get(`/v2/private/packets${qs({ after, actor, peer, limit: 50 })}`);
+  }
+
   graph(account: string): Promise<GraphView> {
     return this.get<GraphView>(`/v1/graph/${encodeURIComponent(account)}`);
   }
@@ -443,3 +447,5 @@ export class IndexerClient {
 }
 
 export interface MessageView {sender:string;recipient:string;message_id:string;content_hash:string;generation:string;sequence:string;timestamp:string;envelope:string;txId:string;}
+
+export interface PrivatePacketView { actor: string; peer: string; packet_id: string; content_hash: string; sequence: string; timestamp: string; block: string; envelope: string; txId: string; }

@@ -185,3 +185,17 @@ src/register.ts  on-chain set_sponsor (self-paid, best effort)
 src/main.ts      entry point
 src/__tests__/   offline fixtures (synthetic deployment, fake provider, inject fetch)
 ```
+
+### Private messaging v2
+
+`POST /v2/private/allocate` accepts `{ reservationId, actor, signature }`. The signature
+is an OSP v2 `allocate` statement from the current owner of a finalized on-chain usage
+reservation. The SQLite quota database stores the single reservation-to-alias assignment;
+back it up and retain it across upgrades. A random grant id is used on-chain, never the
+reservation id or owner proof. The server verifies ownership, finality, sponsor identity,
+and exact amounts, then spends from its conserved prepaid pool. Arbitrary allocation
+operations are refused by the normal sponsorship endpoints, including explicit allowlists.
+
+The sponsor knows this private mapping. Do not enable request-body logging or expose the
+SQLite database. Other operators can implement the same service without becoming message
+relays. Reservations cannot be transferred to another sponsor after prepayment.

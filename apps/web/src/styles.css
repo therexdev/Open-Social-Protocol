@@ -918,3 +918,11 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 .pending-actions p { font-size: .85rem; color: var(--muted); }
 .post-needs-attention { border-color: var(--danger); }
 .economy-saving { color: var(--muted); font-size: .8rem; margin: .4rem 0; }
+
+.private-chat-choice { display: flex; width: 100%; justify-content: space-between; gap: .75rem; margin-bottom: .5rem; text-align: left; }
+.private-chat-choice[aria-pressed="true"] { border-color: var(--accent); background: var(--surface-2); }
+.private-chat-choice small { color: var(--muted); }
+.private-message-details { color: var(--muted); font-size: .85rem; line-height: 1.6; }
+.private-message-details summary { cursor: pointer; }
+.private-messages .message-history { max-height: 55vh; overflow-y: auto; overflow-wrap: anywhere; }
+.private-messages .message-bubble p { white-space: pre-wrap; }

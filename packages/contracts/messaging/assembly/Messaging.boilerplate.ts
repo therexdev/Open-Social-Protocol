@@ -119,4 +119,184 @@ export class Messaging {
 
     return res;
   }
+
+  set_private_device(
+    args: messaging.set_private_device_arguments
+  ): messaging.set_private_device_result {
+    // const account = args.account;
+    // const device_id = args.device_id;
+    // const delivery_key = args.delivery_key;
+    // const label = args.label;
+
+    // YOUR CODE HERE
+
+    const res = new messaging.set_private_device_result();
+
+    return res;
+  }
+
+  get_private_devices(
+    args: messaging.get_private_devices_arguments
+  ): messaging.get_private_devices_result {
+    // const account = args.account;
+
+    // YOUR CODE HERE
+
+    const res = new messaging.get_private_devices_result();
+    // res.values = ;
+
+    return res;
+  }
+
+  reserve_private_usage(
+    args: messaging.reserve_private_usage_arguments
+  ): messaging.reserve_private_usage_result {
+    // const account = args.account;
+    // const sponsor = args.sponsor;
+    // const reservation_id = args.reservation_id;
+    // const units = args.units;
+
+    // YOUR CODE HERE
+
+    const res = new messaging.reserve_private_usage_result();
+
+    return res;
+  }
+
+  get_private_reservation(
+    args: messaging.get_private_reservation_arguments
+  ): messaging.get_private_reservation_result {
+    // const reservation_id = args.reservation_id;
+
+    // YOUR CODE HERE
+
+    const res = new messaging.get_private_reservation_result();
+    // res.value = ;
+
+    return res;
+  }
+
+  allocate_private_usage(
+    args: messaging.allocate_private_usage_arguments
+  ): messaging.allocate_private_usage_result {
+    // const sponsor = args.sponsor;
+    // const actor = args.actor;
+    // const grant_id = args.grant_id;
+    // const units = args.units;
+
+    // YOUR CODE HERE
+
+    const res = new messaging.allocate_private_usage_result();
+
+    return res;
+  }
+
+  get_private_grant(
+    args: messaging.get_private_grant_arguments
+  ): messaging.get_private_grant_result {
+    // const grant_id = args.grant_id;
+
+    // YOUR CODE HERE
+
+    const res = new messaging.get_private_grant_result();
+    // res.value = ;
+
+    return res;
+  }
+
+  get_private_units(
+    args: messaging.get_private_units_arguments
+  ): messaging.get_private_units_result {
+    // const account = args.account;
+    // const pool = args.pool;
+
+    // YOUR CODE HERE
+
+    const res = new messaging.get_private_units_result();
+    // res.units = ;
+
+    return res;
+  }
+
+  open_private_channel(
+    args: messaging.open_private_channel_arguments
+  ): messaging.open_private_channel_result {
+    // const actor = args.actor;
+    // const peer = args.peer;
+
+    // YOUR CODE HERE
+
+    const res = new messaging.open_private_channel_result();
+
+    return res;
+  }
+
+  close_private_channel(
+    args: messaging.close_private_channel_arguments
+  ): messaging.close_private_channel_result {
+    // const actor = args.actor;
+    // const peer = args.peer;
+
+    // YOUR CODE HERE
+
+    const res = new messaging.close_private_channel_result();
+
+    return res;
+  }
+
+  get_private_channel(
+    args: messaging.get_private_channel_arguments
+  ): messaging.get_private_channel_result {
+    // const a = args.a;
+    // const b = args.b;
+
+    // YOUR CODE HERE
+
+    const res = new messaging.get_private_channel_result();
+    // res.value = ;
+
+    return res;
+  }
+
+  post_private_packet(
+    args: messaging.post_private_packet_arguments
+  ): messaging.post_private_packet_result {
+    // const actor = args.actor;
+    // const peer = args.peer;
+    // const packet_id = args.packet_id;
+    // const envelope = args.envelope;
+
+    // YOUR CODE HERE
+
+    const res = new messaging.post_private_packet_result();
+    // res.value = ;
+
+    return res;
+  }
+
+  get_private_packet(
+    args: messaging.get_private_packet_arguments
+  ): messaging.get_private_packet_result {
+    // const actor = args.actor;
+    // const packet_id = args.packet_id;
+
+    // YOUR CODE HERE
+
+    const res = new messaging.get_private_packet_result();
+    // res.value = ;
+
+    return res;
+  }
+
+  get_private_status(
+    args: messaging.get_private_status_arguments
+  ): messaging.get_private_status_result {
+    // YOUR CODE HERE
+
+    const res = new messaging.get_private_status_result();
+    // res.version = ;
+    // res.sequence = ;
+
+    return res;
+  }
 }

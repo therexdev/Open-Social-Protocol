@@ -109,7 +109,13 @@ describe("vault store", () => {
   it("destroy forgets the account", async () => {
     const vault = createVaultStore({ storage, kdf, passkey: unsupportedPasskey });
     await vault.getState().init();
-    await vault.getState().create("correct horse battery");
+    const identity = await vault.getState().create("correct horse battery");
+    const names = ["osp.private.v2:test:messages:" + identity.account, "osp.private.v2:other:messages:" + identity.account];
+    await storage.set(`osp.private.registry:${identity.account}`, names);
+    for (const name of names) {
+      await storage.set(name, { ciphertext: "encrypted history" });
+      await storage.set(`${name}:key`, "device key");
+    }
     await vault.getState().destroy();
     expect(vault.getState().status).toBe("empty");
     expect(storage.map.size).toBe(0);
