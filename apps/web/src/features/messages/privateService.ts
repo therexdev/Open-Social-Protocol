@@ -33,6 +33,7 @@ import {
   validId,
   type Acceptance,
   type AcceptanceEnvelope,
+  type Closure,
   type Invitation,
   type PrivateChat,
   type PrivateFile,
@@ -48,6 +49,9 @@ export interface PrivateSnapshot {
   chats: Array<
     Pick<PrivateChat, "id" | "peer" | "status" | "messages" | "createdAt"> & {
       requestDelivery?: "preparing" | "confirming" | "sent" | "failed";
+      closing?: boolean;
+      progress?: string;
+      error?: string;
     }
   >;
   pending: number;
@@ -65,6 +69,9 @@ export class PrivateMessagingService {
   private running = false;
   private stopped = false;
   private devices: NonNullable<PrivateSnapshot["devices"]> = [];
+  private fundingSteps = new Map<string, string>();
+  private channelSteps = new Map<string, string>();
+  private chatErrors = new Map<string, string>();
   constructor(
     readonly me: Identity,
     readonly protocol: ProtocolClient,
@@ -92,7 +99,14 @@ export class PrivateMessagingService {
       enabled: data.enabled,
       registered: !!data.registered,
       chats: data.chats.map((c) => {
-        const request = data.outbox.find(p => p.chatId === c.id && !p.peer);
+        const request = data.outbox.find(p => p.chatId === c.id && !p.peer && p.kind !== "close");
+        const closing = c.status === "closed" && (c.closeNotice === "needed" || c.closeNotice === "queued" || !!c.closeChannelPending);
+        const pending = request ?? data.outbox.find(p => p.chatId === c.id);
+        const error = c.closeError || pending?.error || this.chatErrors.get(c.id);
+        const progress = closing ? "Closed on this browser. Notifying the other messaging browser."
+          : pending ? this.fundingSteps.get(pending.actor) ?? (pending.lastAttempt ? "Waiting for the network to confirm delivery." : "Preparing the encrypted request.")
+          : c.status === "accepting" ? this.channelSteps.get(c.id) ?? "Checking the private connection."
+          : undefined;
         const requestDelivery = !request ? "sent" : request.error ? "failed"
           : request.lastAttempt ? "confirming" : "preparing";
         return {
@@ -102,6 +116,9 @@ export class PrivateMessagingService {
           messages: structuredClone(c.messages),
           createdAt: c.createdAt,
           ...(c.status === "outgoing" && { requestDelivery }),
+          ...(closing && { closing }),
+          ...(progress && { progress }),
+          ...(error && { error }),
         };
       }),
       pending: data.outbox.length,
@@ -137,7 +154,7 @@ export class PrivateMessagingService {
         data.enabled = true;
         data.registered = false;
         data.inboxAfter = status.sequence;
-        data.inboxValidation = 1;
+        data.inboxValidation = 2;
       }
       await save();
       this.error = "";
@@ -396,45 +413,102 @@ export class PrivateMessagingService {
     });
     void this.sync();
   }
+  private markClosed(data: PrivateFile, chat: PrivateChat): void {
+    chat.status = "closed";
+    chat.closedAt ??= Date.now();
+    delete chat.setup;
+    delete chat.returnSecret;
+    delete chat.ratchet;
+    delete chat.invitation;
+    this.chatErrors.delete(chat.id);
+    // Keep a durable close notification, but never send queued chat messages.
+    data.outbox = data.outbox.filter(p => p.chatId !== chat.id || p.kind === "close");
+  }
   async close(chatId: string): Promise<void> {
     await this.store.edit(async (data, save) => {
-      const chat = data.chats.find((c) => c.id === chatId);
-      if (!chat) return;
-      if (chat.peerAlias) {
-        const existing = (
-          await this.protocol.reads.messaging.get_private_channel({
-            a: chat.alias,
-            b: chat.peerAlias,
-          })
-        )?.value;
-        if (existing && existing.status !== 3) {
-          await this.submit(
-            privateWallet(
-              this.me.seed,
-              this.scope,
-              "conversation",
-              chat.aliasId,
-            ),
-            [
-              await this.protocol.ops.messaging.close_private_channel({
-                actor: chat.alias,
-                peer: chat.peerAlias,
-              }),
-            ],
-            "Closing conversation",
-          );
-        }
-      }
-      chat.status = "closed";
-      delete chat.setup;
-      delete chat.returnSecret;
-      delete chat.ratchet;
-      delete chat.invitation;
-      // Submitted packets may still arrive; never create replacement ciphertext for them.
-      data.outbox = data.outbox.filter((p) => p.chatId !== chatId);
+      const chat = data.chats.find(c => c.id === chatId);
+      if (!chat || chat.status === "closed") return;
+      this.markClosed(data, chat);
+      chat.closeNotice = "needed";
+      chat.closeChannelPending = !!chat.peerAlias;
       await save();
       this.snapshot(data);
     });
+    void this.sync();
+  }
+  private async closures(data: PrivateFile, save: () => Promise<void>): Promise<void> {
+    for (const chat of data.chats) {
+      if (chat.status !== "closed") continue;
+      // Repair requests closed locally by older builds. No chat keys are restored.
+      if (!chat.closeNotice) {
+        chat.closeNotice = "needed";
+        chat.closedAt ??= Date.now();
+        chat.closeChannelPending = !!chat.peerAlias;
+      }
+      if (!chat.closeChannelPending && ["sent", "received"].includes(chat.closeNotice)) continue;
+      delete chat.closeError;
+      try {
+        if (chat.closeChannelPending && chat.peerAlias) {
+          const result = await this.protocol.reads.messaging.get_private_channel({ a: chat.alias, b: chat.peerAlias });
+          if (!result) throw new Error("Could not check whether the conversation is closed");
+          const channel = result.value;
+          if (channel?.status === 3) {
+            const head = await this.protocol.provider.getHeadInfo();
+            if (channel.block && BigInt(channel.block) <= BigInt(head.last_irreversible_block)) chat.closeChannelPending = false;
+          } else if (channel && Date.now() - (chat.closeChannelAttempt ?? 0) >= RETRY_MS) {
+            chat.closeChannelAttempt = Date.now();
+            await save();
+            await this.submit(privateWallet(this.me.seed, this.scope, "conversation", chat.aliasId), [
+              await this.protocol.ops.messaging.close_private_channel({ actor: chat.alias, peer: chat.peerAlias }),
+            ], "Closing conversation");
+          } else if (!channel && ["sent", "received"].includes(chat.closeNotice)) {
+            chat.closeChannelPending = false;
+          }
+        }
+        if (chat.closeNotice === "needed") {
+          const devices = (await this.protocol.reads.messaging.get_private_devices({ account: chat.peer }))?.values;
+          if (!devices?.length) throw new Error("The other person has no messaging browser available to receive the cancellation. It will retry automatically.");
+          const value: Closure = { kind: "close", id: chat.id, from: this.me.account, to: chat.peer, createdAt: chat.closedAt! };
+          const signed: Signed<Closure> = { value, signature: await signPrivateStatement(this.scope, "close", value, this.me.signer) };
+          // Invitations are addressed to a browser; notify every currently registered
+          // browser so acceptance and cancellation work in either direction.
+          const packets = devices.map(device => {
+            const derivationId = id(), packetId = id();
+            const actor = privateWallet(this.me.seed, this.scope, "invitation", derivationId).getAddress();
+            return { id: packetId, actor, derivationId, purpose: "invitation" as const, peer: "", kind: "close" as const,
+              envelope: toBase64url(sealPrivateInvitation(this.context(actor, "", packetId), device.delivery_key, signed)), chatId: chat.id };
+          });
+          data.outbox.push(...packets);
+          chat.closeNotice = "queued";
+          await save();
+        }
+      } catch (error) {
+        chat.closeError = error instanceof Error ? error.message : String(error);
+        this.error = chat.closeError;
+      }
+      this.snapshot(data);
+    }
+  }
+  private async receiveClosure(data: PrivateFile, signed: Signed<Closure>, timestamp: number): Promise<void> {
+    const v = signed.value;
+    if (!validId(v.id) || v.to !== this.me.account || v.from === this.me.account || !isAddress(v.from)
+      || !Number.isSafeInteger(v.createdAt) || v.createdAt > timestamp + 300_000) return;
+    const chat = data.chats.find(c => c.id === v.id);
+    if (chat && chat.peer !== v.from) return;
+    if (!verifyPrivateStatement(this.scope, "close", v, signed.signature, await this.owner(v.from))) return;
+    if (chat) {
+      this.markClosed(data, chat);
+      chat.closeNotice = "received";
+      chat.closeChannelPending = !!chat.peerAlias;
+      delete chat.closeError;
+      data.outbox = data.outbox.filter(p => p.chatId !== chat.id);
+    } else {
+      // A cancellation can arrive before its invitation. Keep only authenticated,
+      // bounded tombstones so that a delayed invitation cannot resurrect it.
+      data.closedRequests = (data.closedRequests ?? []).filter(c => c.expiresAt > Date.now() && !(c.id === v.id && c.peer === v.from));
+      data.closedRequests.push({ id: v.id, peer: v.from, expiresAt: Date.now() + INVITATION_LIFETIME });
+      data.closedRequests = data.closedRequests.slice(-256);
+    }
   }
   private context(
     actor: string,
@@ -500,6 +574,11 @@ export class PrivateMessagingService {
     actor: string,
     unitsToReserve = 4,
   ): Promise<boolean> {
+    const stage = (message: string) => {
+      this.fundingSteps.set(actor, message);
+      this.snapshot(data);
+    };
+    if (!this.fundingSteps.has(actor)) stage("Checking message allowance.");
     const units = (
       await this.protocol.reads.messaging.get_private_units({ account: actor })
     )?.units;
@@ -507,13 +586,16 @@ export class PrivateMessagingService {
       throw new Error("Could not read private message allowance");
     if (BigInt(units) > 0n) {
       delete data.funding[actor];
+      this.fundingSteps.delete(actor);
       return true;
     }
     let funding = data.funding[actor];
     if (!funding) {
+      stage("Connecting to the message sponsor.");
       if (!this.sponsorUrls.length)
         throw new Error("Choose a private messaging sponsor in Settings");
       let chosen: { endpoint: string; sponsor: string } | undefined;
+      let discovered = false;
       for (const endpoint of this.sponsorUrls) {
         try {
           const sponsor = new SponsorClient({
@@ -521,6 +603,7 @@ export class PrivateMessagingService {
             expectedChainId: this.scope.chainId,
           });
           const doc = await sponsor.discover();
+          discovered = true;
           if (
             doc.policy.allowed.some(
               (a) =>
@@ -538,7 +621,9 @@ export class PrivateMessagingService {
         }
       }
       if (!chosen)
-        throw new Error("Your sponsor needs the private messaging update");
+        throw new Error(discovered
+          ? "Your sponsor needs the private messaging update"
+          : "Could not reach a private messaging sponsor. The saved request will retry automatically.");
       funding = { id: id(), ...chosen, units: unitsToReserve };
       data.funding[actor] = funding;
       await save();
@@ -549,6 +634,7 @@ export class PrivateMessagingService {
       })
     )?.value;
     if (!reservation) {
+      stage("Reserving message allowance. Waiting for network confirmation.");
       if (Date.now() - (funding.lastAttempt ?? 0) < RETRY_MS) return false;
       funding.lastAttempt = Date.now();
       await save();
@@ -573,8 +659,11 @@ export class PrivateMessagingService {
     )
       throw new Error("Private usage reservation mismatch");
     const head = await this.protocol.provider.getHeadInfo();
-    if (BigInt(reservation.block) > BigInt(head.last_irreversible_block))
+    if (BigInt(reservation.block) > BigInt(head.last_irreversible_block)) {
+      stage(`Waiting for message allowance to become final (${BigInt(reservation.block) - BigInt(head.last_irreversible_block)} blocks remaining).`);
       return false;
+    }
+    stage("Waiting for the sponsor to activate message allowance.");
     if (Date.now() - (funding.lastAttempt ?? 0) < RETRY_MS) return false;
     const payload = { reservationId: funding.id, actor };
     funding.lastAttempt = Date.now();
@@ -636,13 +725,15 @@ export class PrivateMessagingService {
       if (!(await this.verified(row))) break;
       const context = this.context(row.actor, "", row.packet_id),
         bytes = fromBase64url(row.envelope);
-      const opened = openPrivateInvitation<Signed<Invitation>>(
+      const opened = openPrivateInvitation<Signed<Invitation | Closure>>(
         context,
         fromBase64url(data.deliverySecret),
         bytes,
       );
       if (opened?.value?.kind === "invite")
-        await this.receiveInvitation(data, opened, Number(row.timestamp));
+        await this.receiveInvitation(data, opened as Signed<Invitation>, Number(row.timestamp));
+      else if (opened?.value?.kind === "close")
+        await this.receiveClosure(data, opened as Signed<Closure>, Number(row.timestamp));
       else {
         for (const chat of data.chats) {
           if (chat.status !== "outgoing" || !chat.returnSecret || !chat.setup)
@@ -729,6 +820,7 @@ export class PrivateMessagingService {
       // Older senders sampled the two timestamps separately.
       v.expiresAt - v.createdAt > INVITATION_LIFETIME + 1_000 ||
       data.chats.some((c) => c.id === v.id)
+      || data.closedRequests?.some(c => c.id === v.id && c.peer === v.from && c.expiresAt > Date.now())
     )
       return;
     if (
@@ -771,25 +863,30 @@ export class PrivateMessagingService {
       if (!chat.peerAlias || !chat.ratchet || chat.status === "closed")
         continue;
       try {
-        const c = (
-          await this.protocol.reads.messaging.get_private_channel({
+        this.chatErrors.delete(chat.id);
+        const result = await this.protocol.reads.messaging.get_private_channel({
             a: chat.alias,
             b: chat.peerAlias,
-          })
-        )?.value;
+          });
+        if (!result) throw new Error("Could not check the private connection");
+        const c = result.value;
         if (c?.status === 3) {
           const head = await this.protocol.provider.getHeadInfo();
           if (
             c.block &&
             BigInt(c.block) <= BigInt(head.last_irreversible_block)
           ) {
-            chat.status = "closed";
-            delete chat.ratchet;
+            this.markClosed(data, chat);
+            chat.closeNotice = "received";
+            chat.closeChannelPending = false;
           }
           continue;
         }
         if (!c || (c.status === 1 && c.requester !== chat.alias)) {
+          this.channelSteps.set(chat.id, "Preparing your side of the private connection.");
           if (await this.funded(data, save, chat.alias)) {
+            this.channelSteps.set(chat.id, "Confirming your side of the private connection.");
+            this.snapshot(data);
             await this.submit(
               privateWallet(
                 this.me.seed,
@@ -805,11 +902,15 @@ export class PrivateMessagingService {
               ],
               "Connecting private conversation",
             );
-          }
+          } else this.channelSteps.set(chat.id, this.fundingSteps.get(chat.alias)!);
           continue;
         }
-        if (c.status !== 2) continue;
+        if (c.status !== 2) {
+          this.channelSteps.set(chat.id, "Waiting for the other messaging browser to finish connecting. Both accounts need to be unlocked in their messaging browsers.");
+          continue;
+        }
         chat.status = "ready";
+        this.channelSteps.delete(chat.id);
         if (!(await this.unblocked(chat.peer))) continue;
         const page = await this.indexer.privatePackets(
           chat.after,
@@ -851,6 +952,7 @@ export class PrivateMessagingService {
       } catch (error) {
         // Keep this chat's cursor/keys intact on failure, but let other chats progress.
         this.error = error instanceof Error ? error.message : String(error);
+        this.chatErrors.set(chat.id, this.error);
       }
     }
   }
@@ -858,85 +960,54 @@ export class PrivateMessagingService {
     data: PrivateFile,
     save: () => Promise<void>,
   ): Promise<void> {
-    // One packet per conversation per pass preserves ordering while independent chats progress.
+    // Order chat messages, but let independent device cancellation notices progress.
     const visited = new Set<string>();
     for (const packet of [...data.outbox]) {
-      if (visited.has(packet.chatId)) continue;
-      visited.add(packet.chatId);
+      const orderKey = packet.kind === "close" ? packet.id : packet.chatId;
+      if (visited.has(orderKey)) continue;
+      visited.add(orderKey);
       this.active();
-      const chat = data.chats.find((c) => c.id === packet.chatId);
-      if (!chat || chat.status === "closed") continue;
-      const existing = (
-        await this.protocol.reads.messaging.get_private_packet({
-          actor: packet.actor,
-          packet_id: fromBase64url(packet.id),
-        })
-      )?.value;
-      if (existing) {
-        if (
-          existing.peer !== packet.peer ||
-          !bytesEqual(
-            existing.content_hash,
-            contentHash(fromBase64url(packet.envelope)),
-          )
-        )
-          throw new Error("Saved packet does not match the chain");
-        const head = await this.protocol.provider.getHeadInfo();
-        if (BigInt(existing.block) > BigInt(head.last_irreversible_block))
-          continue;
-        data.outbox = data.outbox.filter((p) => p.id !== packet.id);
-        const message = chat.messages.find((m) => m.id === packet.id);
-        if (message) {
-          message.state = "sent";
-          message.timestamp = Number(existing.timestamp);
-        }
-        await save();
-        continue;
-      }
-      if (packet.peer && chat.status !== "ready") continue;
-      if (!(await this.unblocked(chat.peer))) {
-        packet.error = "This conversation is blocked";
-        continue;
-      }
-      if (
-        !(await this.funded(
-          data,
-          save,
-          packet.actor,
-          packet.purpose === "invitation" ? 1 : 4,
-        ))
-      )
-        continue;
-      if (Date.now() - (packet.lastAttempt ?? 0) < RETRY_MS) continue;
-      const signer = privateWallet(
-        this.me.seed,
-        this.scope,
-        packet.purpose,
-        packet.derivationId,
-      );
-      if (signer.getAddress() !== packet.actor)
-        throw new Error("Saved conversation wallet mismatch");
-      packet.lastAttempt = Date.now();
-      delete packet.error;
-      await save();
+      const chat = data.chats.find(c => c.id === packet.chatId);
+      if (!chat || (chat.status === "closed" && packet.kind !== "close")) continue;
       try {
-        await this.submit(
-          signer,
-          [
-            await this.protocol.ops.messaging.post_private_packet({
-              actor: packet.actor,
-              ...(packet.peer ? { peer: packet.peer } : {}),
-              packet_id: fromBase64url(packet.id),
-              envelope: fromBase64url(packet.envelope),
-            }),
-          ],
-          "Sending private message",
-        );
+        const result = await this.protocol.reads.messaging.get_private_packet({ actor: packet.actor, packet_id: fromBase64url(packet.id) });
+        if (!result) throw new Error("Could not check encrypted message delivery");
+        const existing = result.value;
+        if (existing) {
+          if (existing.peer !== packet.peer || !bytesEqual(existing.content_hash, contentHash(fromBase64url(packet.envelope))))
+            throw new Error("Saved packet does not match the chain");
+          delete packet.error;
+          const head = await this.protocol.provider.getHeadInfo();
+          if (BigInt(existing.block) > BigInt(head.last_irreversible_block)) continue;
+          data.outbox = data.outbox.filter(p => p.id !== packet.id);
+          this.fundingSteps.delete(packet.actor);
+          if (packet.kind === "close" && !data.outbox.some(p => p.chatId === chat.id && p.kind === "close")) chat.closeNotice = "sent";
+          const message = chat.messages.find(m => m.id === packet.id);
+          if (message) { message.state = "sent"; message.timestamp = Number(existing.timestamp); }
+          await save();
+          continue;
+        }
+        if (packet.peer && chat.status !== "ready") continue;
+        if (packet.kind !== "close" && !(await this.unblocked(chat.peer))) throw new Error("This conversation is blocked");
+        delete packet.error;
+        if (!(await this.funded(data, save, packet.actor, packet.purpose === "invitation" ? 1 : 4))) continue;
+        if (Date.now() - (packet.lastAttempt ?? 0) < RETRY_MS) continue;
+        const signer = privateWallet(this.me.seed, this.scope, packet.purpose, packet.derivationId);
+        if (signer.getAddress() !== packet.actor) throw new Error("Saved conversation wallet mismatch");
+        packet.lastAttempt = Date.now();
+        await save();
+        this.snapshot(data);
+        await this.submit(signer, [await this.protocol.ops.messaging.post_private_packet({
+          actor: packet.actor, ...(packet.peer ? { peer: packet.peer } : {}), packet_id: fromBase64url(packet.id), envelope: fromBase64url(packet.envelope),
+        })], packet.kind === "close" ? "Notifying conversation closure" : "Sending private message");
       } catch (error) {
+        // Funding and lookup failures belong to this packet too; one broken
+        // request must not silently stall every newer conversation behind it.
         packet.error = error instanceof Error ? error.message : String(error);
         this.error = packet.error;
-        await save();
       }
+      await save();
+      this.snapshot(data);
     }
   }
   async sync(): Promise<void> {
@@ -947,17 +1018,22 @@ export class PrivateMessagingService {
         this.error = "";
         try {
           if (data.enabled && (await this.ensureDevice(data, save))) {
-            if (data.inboxValidation !== 1) {
-              // Older clients advanced past invitations delayed by more than five
-              // minutes. Recheck once with the corrected signed-lifetime rule.
-              // Existing chat IDs and ratchet state prevent duplicate processing.
+            if (data.inboxValidation !== 2) {
+              // Older clients skipped delayed invitations and did not understand
+              // encrypted cancellations. Rescan once; chat IDs, tombstones, and
+              // ratchet state make this replay safe, including staggered upgrades.
               data.inboxAfter = "0";
-              data.inboxValidation = 1;
+              data.inboxValidation = 2;
               await save();
             }
-            await this.invitations(data, save);
-            await this.channels(data, save);
-            await this.dispatch(data, save);
+            // Receiving can fail independently of sending (for example an
+            // indexer outage). Keep the durable outbox and closures moving.
+            for (const work of [this.invitations, this.closures, this.channels, this.dispatch]) {
+              try { await work.call(this, data, save); }
+              catch (error) { this.error = error instanceof Error ? error.message : String(error); }
+              await save();
+              this.snapshot(data);
+            }
           }
         } catch (error) {
           this.error = error instanceof Error ? error.message : String(error);

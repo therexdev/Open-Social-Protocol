@@ -154,3 +154,21 @@ it("offers incoming requests for approval without first opening a conversation",
   await act(async () => button("Accept request").click());
   expect(mocks.value.service.accept).toHaveBeenCalledWith("chat");
 });
+it("shows the actual setup step and puts sidebar status below the identity", async () => {
+  enabled(); mocks.value.snapshot.chats = [{ ...chat(), status: "accepting", progress: "Waiting for message allowance to become final (42 blocks remaining)." }];
+  await mount();
+  await act(async () => container.querySelector<HTMLButtonElement>(".private-chat-choice")!.click());
+  expect(container.textContent).toContain("42 blocks remaining");
+  expect(container.querySelector(".private-chat-status")?.textContent).toBe("Connecting");
+});
+it("distinguishes a local close from a delivered close and shows errors without a misleading setup notice", async () => {
+  enabled(); mocks.value.snapshot.chats = [{ ...chat(), status: "closed", closing: true, progress: "Closed on this browser. Notifying the other messaging browser." }];
+  await mount();
+  await act(async () => container.querySelector<HTMLButtonElement>(".private-chat-choice")!.click());
+  expect(container.querySelector(".private-chat-status")?.textContent).toContain("notifying peer");
+  expect(container.textContent).toContain("Notifying the other messaging browser.");
+  mocks.value.snapshot.chats[0] = { ...chat(), status: "accepting", error: "Sponsor unavailable" };
+  await act(async () => root.render(<MemoryRouter><MessagesPage /></MemoryRouter>));
+  expect(container.textContent).toContain("Sponsor unavailable");
+  expect(container.textContent).not.toContain("Checking the private connection");
+});

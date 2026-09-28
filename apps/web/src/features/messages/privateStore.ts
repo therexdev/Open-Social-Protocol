@@ -37,6 +37,13 @@ export interface Acceptance {
   alias: string;
   peerAlias: string;
 }
+export interface Closure {
+  kind: "close";
+  id: string;
+  from: string;
+  to: string;
+  createdAt: number;
+}
 export interface Signed<T> {
   value: T;
   signature: string;
@@ -68,6 +75,11 @@ export interface PrivateChat {
   after: string;
   messages: LocalMessage[];
   createdAt: number;
+  closeNotice?: "needed" | "queued" | "sent" | "received";
+  closedAt?: number;
+  closeChannelPending?: boolean;
+  closeChannelAttempt?: number;
+  closeError?: string;
 }
 export interface PrivateOutbox {
   id: string;
@@ -77,6 +89,7 @@ export interface PrivateOutbox {
   peer: string;
   envelope: string;
   chatId: string;
+  kind?: "close";
   lastAttempt?: number;
   error?: string;
 }
@@ -97,10 +110,11 @@ export interface PrivateFile {
   registered?: boolean;
   deviceAttempt?: number;
   inboxAfter: string;
-  inboxValidation?: 1;
+  inboxValidation?: 1 | 2;
   chats: PrivateChat[];
   outbox: PrivateOutbox[];
   funding: Record<string, Funding>;
+  closedRequests?: Array<{ id: string; peer: string; expiresAt: number }>;
 }
 export type ExclusiveLock = <T>(
   name: string,

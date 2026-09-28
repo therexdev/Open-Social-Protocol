@@ -18,6 +18,8 @@ const labels = {
   closed: "Closed",
 };
 function chatLabel(chat: PrivateSnapshot["chats"][number]): string {
+  if (chat.error) return "Needs attention";
+  if (chat.closing) return "Closing · notifying peer";
   if (chat.status !== "outgoing") return labels[chat.status];
   return { preparing: "Preparing request", confirming: "Confirming request", sent: "Request sent", failed: "Request needs attention" }[chat.requestDelivery ?? "preparing"];
 }
@@ -158,7 +160,7 @@ export function MessagesPage() {
                   >
                     <Avatar account={c.peer} name={people.name(c.peer)} />
                     <span className="private-chat-person"><strong>{people.name(c.peer)}</strong><span className="mono muted">{c.peer.slice(0, 8)}…{c.peer.slice(-5)}</span></span>
-                    <small>{chatLabel(c)}</small>
+                    <small className="private-chat-status">{chatLabel(c)}</small>
                   </Button>
                 ))
               )}
@@ -181,20 +183,22 @@ export function MessagesPage() {
                     Accept message request
                   </Button>
                 )}
-                {chat.status === "outgoing" && (
+                {chat.error && <Notice kind="error">{chat.error}</Notice>}
+                {chat.status === "outgoing" && !chat.error && (
                   <Notice>
                     {chat.requestDelivery === "sent"
                       ? "Your request has been sent. It is waiting for them to accept on their messaging browser."
                       : chat.requestDelivery === "failed"
                         ? "Your request has not been confirmed. Check the error above; the saved request will retry without creating a duplicate."
-                        : "Your request is still being prepared and confirmed. The first private request can take a few minutes. Keep this account unlocked until it says Request sent; you can browse other pages in Open Social."}
+                        : <>{chat.progress || "Preparing your encrypted request."} Keep this account unlocked until it says Request sent; you can browse other pages in Open Social. Network confirmation can take several minutes.</>}
                   </Notice>
                 )}
-                {chat.status === "accepting" && (
+                {chat.status === "accepting" && !chat.error && (
                   <Notice>
-                    Setting up your private conversation in the background.
+                    {chat.progress || "Checking the private connection."}
                   </Notice>
                 )}
+                {chat.closing && !chat.error && <Notice>{chat.progress} Keep this account unlocked until the notice is sent.</Notice>}
                 <div className="message-history" aria-live="polite">
                   {chat.messages.map((m) => (
                     <div

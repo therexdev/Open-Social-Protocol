@@ -13,6 +13,9 @@ import {
   encode,
   type ContractName,
   SponsorClient,
+  randomBytes,
+  sealPrivateInvitation,
+  signPrivateStatement,
   verifyPrivateStatement,
 } from "@osp/sdk";
 import { ABIS } from "@osp/proto";
@@ -294,6 +297,7 @@ function harness(prepaid = true) {
       units.set(actor, reservation.units);
     },
     setDirectoryDown: (value: boolean) => { directoryDown = value; },
+    protocol, indexer, devices,
     setUnknown: () => {
       unknown = true;
     },
@@ -304,6 +308,131 @@ function harness(prepaid = true) {
 }
 
 describe("two-browser private conversations", () => {
+  it.each(["sender", "recipient"])("delivers %s cancellation before a channel exists", async side => {
+    const h = harness();
+    await h.a.service.enable(); await h.b.service.enable(); await h.pump();
+    const chat = await h.a.service.start(bob.account);
+    await h.pump();
+    expect(h.b.snapshot.chats[0]?.status).toBe("incoming");
+    await (side === "sender" ? h.a : h.b).service.close(chat);
+    await h.pump();
+    expect(h.a.snapshot.chats[0]?.status).toBe("closed");
+    expect(h.b.snapshot.chats[0]?.status).toBe("closed");
+    expect(h.a.snapshot.pending + h.b.snapshot.pending).toBe(0);
+  });
+  it("repairs a locally closed legacy request without closing a new request to the same person", async () => {
+    const h = harness();
+    await h.a.service.enable(); await h.b.service.enable(); await h.pump();
+    const old = await h.a.service.start(bob.account); await h.pump();
+    await h.a.store.edit(async data => {
+      data.chats[0]!.status = "closed";
+      delete data.chats[0]!.setup; delete data.chats[0]!.returnSecret;
+      delete data.chats[0]!.invitation;
+      data.outbox = [];
+    });
+    h.a.reload();
+    const fresh = await h.a.service.start(bob.account);
+    expect(fresh).not.toBe(old);
+    await h.pump(8);
+    expect(h.b.snapshot.chats.find(c => c.id === old)?.status).toBe("closed");
+    expect(h.b.snapshot.chats.find(c => c.id === fresh)?.status).toBe("incoming");
+    await h.b.service.accept(fresh); await h.pump(8);
+    expect(h.a.snapshot.chats.find(c => c.id === fresh)?.status).toBe("ready");
+    expect(h.b.snapshot.chats.find(c => c.id === fresh)?.status).toBe("ready");
+  });
+  it("cancels during acceptance, ignores a late acceptance, then connects in the reverse direction", async () => {
+    const h = harness();
+    await h.a.service.enable(); await h.b.service.enable(); await h.pump();
+    const old = await h.a.service.start(bob.account); await h.pump();
+    await h.b.service.accept(old); await h.b.service.load();
+    await h.a.service.close(old); await h.pump(8);
+    expect(h.a.snapshot.chats[0]?.status).toBe("closed");
+    expect(h.b.snapshot.chats[0]?.status).toBe("closed");
+    const fresh = await h.b.service.start(alice.account); await h.pump();
+    await h.a.service.accept(fresh); await h.pump(8);
+    await h.b.service.send(fresh, "new conversation"); await h.pump();
+    expect(h.a.snapshot.chats.find(c => c.id === fresh)?.messages[0]?.text).toBe("new conversation");
+    await h.a.store.edit(async data => {
+      const closed = data.chats.find(c => c.id === old)!;
+      expect(closed.ratchet).toBeUndefined(); expect(closed.setup).toBeUndefined();
+      expect(closed.returnSecret).toBeUndefined(); expect(closed.invitation).toBeUndefined();
+    });
+  });
+  it("does not resurrect an invitation delivered after its cancellation", async () => {
+    const h = harness();
+    await h.a.service.enable(); await h.b.service.enable(); await h.pump();
+    await h.a.service.start(bob.account); await h.a.service.load();
+    const chat = h.a.snapshot.chats[0]!.id;
+    await h.a.service.close(chat);
+    for (let i = 0; i < 4; i++) { await h.a.service.load(); await h.a.service.sync(); }
+    expect(h.packets).toHaveLength(2);
+    h.packets.reverse().forEach((packet, i) => { packet.sequence = String(i + 1); });
+    await h.pump();
+    expect(h.b.snapshot.chats).toHaveLength(0);
+    await h.b.store.edit(async data => expect(data.closedRequests?.[0]?.id).toBe(chat));
+  });
+  it("persists close notices through an unknown broadcast and reload without duplicates", async () => {
+    const h = harness();
+    await h.a.service.enable(); await h.b.service.enable(); await h.pump();
+    const chat = await h.a.service.start(bob.account); await h.pump();
+    h.setUnknown();
+    await h.b.service.close(chat); await h.b.service.load();
+    h.b.reload(); await h.b.service.close(chat); await h.pump(6);
+    expect(h.packets).toHaveLength(2);
+    expect(h.b.snapshot.chats[0]?.closing).toBeUndefined();
+    expect(h.a.snapshot.chats[0]?.status).toBe("closed");
+    expect(fromBase64url(h.packets[1]!.envelope).length).toBe(4168);
+    expect(h.packets[1]!.peer).toBe("");
+  });
+  it("notifies every registered peer browser without exposing the public recipient", async () => {
+    const h = harness();
+    await h.a.service.enable(); await h.b.service.enable(); await h.pump();
+    const chat = await h.a.service.start(bob.account); await h.pump();
+    const device = h.devices.get(bob.account)![0]!;
+    h.devices.get(bob.account)!.push({ ...device, device_id: randomBytes(32) });
+    await h.a.service.close(chat); await h.pump(6);
+    expect(h.packets).toHaveLength(3);
+    expect(h.packets.slice(1).every(p => !p.peer && fromBase64url(p.envelope).length === 4168)).toBe(true);
+    expect(h.a.snapshot.pending).toBe(0);
+    expect(h.b.snapshot.chats[0]?.status).toBe("closed");
+  });
+  it("rejects a forged cancellation even when encrypted to the right browser", async () => {
+    const h = harness();
+    await h.a.service.enable(); await h.b.service.enable(); await h.pump();
+    const chat = await h.a.service.start(bob.account); await h.pump();
+    const device = h.devices.get(bob.account)![0]!;
+    const packetId = toBase64url(randomBytes(32));
+    const value = { kind: "close", id: chat, from: alice.account, to: bob.account, createdAt: Date.now() };
+    const envelope = sealPrivateInvitation({ ...scope, actor: bob.account, peer: "", packetId }, device.delivery_key,
+      { value, signature: await signPrivateStatement(scope, "close", value, bob.signer) });
+    h.packets.push({ actor: bob.account, peer: "", packet_id: packetId, envelope: toBase64url(envelope), content_hash: toBase64url(contentHash(envelope)),
+      sequence: String(h.packets.length + 1), timestamp: String(Date.now()), block: "5", txId: "forged" });
+    await h.pump();
+    expect(h.b.snapshot.chats[0]?.status).toBe("incoming");
+  });
+  it("rescans a cancellation skipped by an older browser during a staggered upgrade", async () => {
+    const h = harness();
+    await h.a.service.enable(); await h.b.service.enable(); await h.pump();
+    const chat = await h.a.service.start(bob.account); await h.pump();
+    await h.a.service.close(chat);
+    for (let i = 0; i < 4; i++) { await h.a.service.load(); await h.a.service.sync(); }
+    await h.b.store.edit(async data => {
+      data.inboxAfter = h.packets.at(-1)!.sequence;
+      data.inboxValidation = 1;
+    });
+    h.b.reload(); await h.pump();
+    expect(h.b.snapshot.chats[0]?.status).toBe("closed");
+  });
+  it("reports funding failure on the request and still dispatches while the inbox is unavailable", async () => {
+    const h = harness(false);
+    await h.a.service.enable(); await h.b.service.enable(); await h.pump();
+    const discovery = vi.spyOn(SponsorClient.prototype, "discover").mockRejectedValue(new Error("offline"));
+    vi.spyOn(h.indexer, "privatePackets").mockRejectedValue(new Error("Indexer offline"));
+    await h.a.service.start(bob.account); await h.a.service.load();
+    expect(h.a.snapshot.chats[0]?.requestDelivery).toBe("failed");
+    expect(h.a.snapshot.chats[0]?.error).toContain("sponsor");
+    expect(discovery).toHaveBeenCalled();
+  });
   it("accepts with two allowance reservations without reusing an unmined account nonce", async () => {
     let now = Date.now();
     vi.spyOn(Date, "now").mockImplementation(() => now);

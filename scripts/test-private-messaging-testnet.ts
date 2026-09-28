@@ -60,7 +60,7 @@ const browsers = [0, 1].map(index => {
   let last = "";
   const service = new PrivateMessagingService(me, client, indexer, store, [sponsor], "sponsor-only", next => {
     snapshot = next;
-    const summary = JSON.stringify({ enabled: next.enabled, registered: next.registered, chats: next.chats.map(c => ({ status: c.status, delivery: c.requestDelivery, messages: c.messages.length })), pending: next.pending, error: next.error });
+    const summary = JSON.stringify({ enabled: next.enabled, registered: next.registered, chats: next.chats.map(c => ({ status: c.status, delivery: c.requestDelivery, closing: c.closing, progress: c.progress, error: c.error, messages: c.messages.length })), pending: next.pending, error: next.error });
     if (summary !== last) { console.log(`BROWSER ${index + 1}`, summary); last = summary; }
   });
   return { me, service, store, get snapshot() { return snapshot; } };
@@ -100,6 +100,12 @@ try {
     await browser.service.enable();
   }));
   await until("both messaging browsers enabled", () => browsers.every(d => d.snapshot.registered), 180_000);
+  if (process.argv.includes("--lifecycle")) {
+    const cancelled = await b!.service.start(a!.me.account);
+    await until("reverse request delivered", () => a!.snapshot.chats.some(c => c.id === cancelled && c.status === "incoming"));
+    await a!.service.close(cancelled);
+    await until("pending request cancellation reaches both browsers", () => browsers.every(d => d.snapshot.chats.some(c => c.id === cancelled && c.status === "closed")));
+  }
   const chat = await a!.service.start(b!.me.account);
   await until("recipient sees request", () => b!.snapshot.chats.some(c => c.id === chat && c.status === "incoming"));
   await b!.service.accept(chat);
@@ -109,4 +115,9 @@ try {
   await b!.service.send(chat, "Live test: reply from the second browser");
   await until("sender decrypts reply", () => !!a!.snapshot.chats.find(c => c.id === chat)?.messages.some(m => !m.mine && m.text === "Live test: reply from the second browser"));
   console.log("PASS live request, acceptance, and bidirectional encrypted messages");
+  if (process.argv.includes("--lifecycle")) {
+    await b!.service.close(chat);
+    await until("connected conversation closes on both browsers", () => browsers.every(d => d.snapshot.chats.some(c => c.id === chat && c.status === "closed")));
+    console.log("PASS live cancellation, reverse request, connection, messages, and closure");
+  }
 } finally { browsers.forEach(browser => browser.service.stop()); }

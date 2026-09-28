@@ -206,3 +206,29 @@ At preparation time the live indexer and sponsor did not advertise v2; the direc
 RPC readiness request timed out from this environment. No contract or hosted service
 has been deployed by this change. Deployment credentials and Vultr access are not
 available in this workspace.
+
+### Request cancellation and setup recovery
+
+The messaging-lifecycle web release fixes cancellation before a shared channel exists.
+It sends a signed `close` control statement inside the existing fixed-size encrypted
+invitation envelope to each registered peer browser. The public packet has no peer
+profile address. Established alias channels are also closed on-chain. This uses the
+existing v2 contract, sponsor, and indexer; no redeployment is needed.
+
+Local closure deletes setup and ratchet secrets and removes queued chat packets. The
+close notice remains durable until confirmed, and the UI distinguishes local closure
+from pending remote notification. It checks the request ID and authenticated peer, so
+a late cancellation cannot close a newer conversation. Authenticated tombstones suppress
+invitations that arrive after cancellation. Previously closed local records queue a
+repair notice, and browsers upgrading later rescan the invitation log once to recover
+close notices skipped by older clients. Both browsers must install the web update.
+
+Sending, receiving, and closing now recover independently from network errors.
+Allowance reservation, finality (remaining blocks), sponsor allocation, and connection
+progress are visible, with errors attached to the affected request. Setup still needs
+network confirmation and the relevant unlocked browsers; this does not make testnet
+finality instantaneous. Cancellation consumes private usage for the encrypted notice.
+
+Use `npm run test:private-messaging:testnet -- --execute --lifecycle` to extend the
+disposable-account live journey with cancellation before acceptance, a new request in
+the reverse direction, bidirectional messages, and closure of an established channel.
