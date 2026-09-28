@@ -7,14 +7,19 @@ import { useCanAct } from "../session";
 import { usePrivateMessaging } from "./PrivateMessagingProvider";
 import { MessageRecipientPicker } from "./MessageRecipientPicker";
 import { useMessagePeople } from "./useMessagePeople";
+import type { PrivateSnapshot } from "./privateService";
 
 const labels = {
   incoming: "Message request",
-  outgoing: "Request sent",
+  outgoing: "Preparing request",
   accepting: "Connecting",
   ready: "Connected",
   closed: "Closed",
 };
+function chatLabel(chat: PrivateSnapshot["chats"][number]): string {
+  if (chat.status !== "outgoing") return labels[chat.status];
+  return { preparing: "Preparing request", confirming: "Confirming request", sent: "Request sent", failed: "Request needs attention" }[chat.requestDelivery ?? "preparing"];
+}
 export function MessagesPage() {
   const { service, snapshot } = usePrivateMessaging(),
     can = useCanAct();
@@ -40,6 +45,7 @@ export function MessagesPage() {
   const visibleChats = snapshot.chats.filter(c =>
     `${people.name(c.peer)} ${c.peer}`.toLocaleLowerCase().includes(chatSearch.trim().toLocaleLowerCase()));
   const chat = snapshot.chats.find((c) => c.id === selected);
+  const requests = snapshot.chats.filter(c => c.status === "incoming");
   const run = async (action: () => Promise<unknown>) => {
     if (busy) return;
     setBusy(true);
@@ -93,6 +99,14 @@ export function MessagesPage() {
               Social while it finishes.
             </Notice>
           )}
+          {requests.length > 0 && <Card title={`Message requests (${requests.length})`}>
+            <ul className="list">{requests.map(request => <li key={request.id} className="message-request-row">
+              <Avatar account={request.peer} name={people.name(request.peer)} />
+              <div className="message-person-copy"><AccountLink account={request.peer} name={people.name(request.peer)} /><small className="mono muted">{request.peer}</small></div>
+              <Button variant="primary" disabled={!can.ok || !service} busy={busy} onClick={() => void run(async () => { await service!.accept(request.id); setSelected(request.id); setText(""); })}>Accept request</Button>
+              <Button variant="ghost" onClick={() => { setSelected(request.id); setText(""); }}>View</Button>
+            </li>)}</ul>
+          </Card>}
           <Card title="Start a conversation">
             <form
               className="form-stack"
@@ -143,7 +157,7 @@ export function MessagesPage() {
                   >
                     <Avatar account={c.peer} name={people.name(c.peer)} />
                     <span className="private-chat-person"><strong>{people.name(c.peer)}</strong><span className="mono muted">{c.peer.slice(0, 8)}…{c.peer.slice(-5)}</span></span>
-                    <small>{labels[c.status]}</small>
+                    <small>{chatLabel(c)}</small>
                   </Button>
                 ))
               )}
@@ -155,7 +169,7 @@ export function MessagesPage() {
             {chat && (
               <Card
                 title={<AccountLink account={chat.peer} name={people.name(chat.peer)} />}
-                actions={<small className="muted">{labels[chat.status]}</small>}
+                actions={<small className="muted">{chatLabel(chat)}</small>}
               >
                 {chat.status === "incoming" && (
                   <Button
@@ -168,8 +182,11 @@ export function MessagesPage() {
                 )}
                 {chat.status === "outgoing" && (
                   <Notice>
-                    Your encrypted request is being delivered. Messages become
-                    available after they accept.
+                    {chat.requestDelivery === "sent"
+                      ? "Your request has been sent. It is waiting for them to accept on their messaging browser."
+                      : chat.requestDelivery === "failed"
+                        ? "Your request has not been confirmed. Check the error above; the saved request will retry without creating a duplicate."
+                        : "Your request is still being prepared and confirmed. The first private request can take a few minutes. Keep this account unlocked until it says Request sent; you can browse other pages in Open Social."}
                   </Notice>
                 )}
                 {chat.status === "accepting" && (
@@ -247,7 +264,8 @@ export function MessagesPage() {
           {snapshot.pending} encrypted{" "}
           {snapshot.pending === 1 ? "message is" : "messages are"} sending in
           the background. You can leave this page; delivery resumes when this
-          browser is online and unlocked.
+          account is online and unlocked in this browser. Switching accounts or
+          closing the browser pauses unfinished delivery.
         </p>
       )}
       <details className="private-message-details">

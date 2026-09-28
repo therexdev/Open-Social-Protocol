@@ -46,7 +46,9 @@ export interface PrivateSnapshot {
   enabled: boolean;
   registered: boolean;
   chats: Array<
-    Pick<PrivateChat, "id" | "peer" | "status" | "messages" | "createdAt">
+    Pick<PrivateChat, "id" | "peer" | "status" | "messages" | "createdAt"> & {
+      requestDelivery?: "preparing" | "confirming" | "sent" | "failed";
+    }
   >;
   pending: number;
   error: string;
@@ -89,13 +91,19 @@ export class PrivateMessagingService {
     this.changed({
       enabled: data.enabled,
       registered: !!data.registered,
-      chats: data.chats.map((c) => ({
-        id: c.id,
-        peer: c.peer,
-        status: c.status,
-        messages: structuredClone(c.messages),
-        createdAt: c.createdAt,
-      })),
+      chats: data.chats.map((c) => {
+        const request = data.outbox.find(p => p.chatId === c.id && !p.peer);
+        const requestDelivery = !request ? "sent" : request.error ? "failed"
+          : request.lastAttempt ? "confirming" : "preparing";
+        return {
+          id: c.id,
+          peer: c.peer,
+          status: c.status,
+          messages: structuredClone(c.messages),
+          createdAt: c.createdAt,
+          ...(c.status === "outgoing" && { requestDelivery }),
+        };
+      }),
       pending: data.outbox.length,
       error: this.error,
       devices: this.devices,
@@ -127,6 +135,7 @@ export class PrivateMessagingService {
         data.enabled = true;
         data.registered = false;
         data.inboxAfter = status.sequence;
+        data.inboxValidation = 1;
       }
       await save();
       this.error = "";
@@ -222,6 +231,7 @@ export class PrivateMessagingService {
       );
       const setup = await createRatchetSetup(fromBase64url(data.pickleKey)),
         reply = x25519KeyPair();
+      const createdAt = Date.now();
       const value: Invitation = {
         kind: "invite",
         id: channelId,
@@ -232,8 +242,8 @@ export class PrivateMessagingService {
         identityKey: setup.identityKey,
         oneTimeKey: setup.oneTimeKey,
         returnKey: toBase64url(reply.publicKey),
-        createdAt: Date.now(),
-        expiresAt: Date.now() + INVITATION_LIFETIME,
+        createdAt,
+        expiresAt: createdAt + INVITATION_LIFETIME,
       };
       const signed: Signed<Invitation> = {
         value,
@@ -707,9 +717,15 @@ export class PrivateMessagingService {
       typeof v.oneTimeKey !== "string" ||
       !Number.isSafeInteger(v.createdAt) ||
       !Number.isSafeInteger(v.expiresAt) ||
-      Math.abs(v.createdAt - timestamp) > 300_000 ||
+      // A saved request may legitimately wait for funding/finality or an offline
+      // browser. Its signed lifetime is seven days, not five minutes. Reject
+      // future-dated and expired invitations, but do not discard delayed ones.
+      v.createdAt > timestamp + 300_000 ||
+      v.expiresAt <= v.createdAt ||
+      v.expiresAt <= timestamp ||
       v.expiresAt <= Date.now() ||
-      v.expiresAt - v.createdAt > INVITATION_LIFETIME ||
+      // Older senders sampled the two timestamps separately.
+      v.expiresAt - v.createdAt > INVITATION_LIFETIME + 1_000 ||
       data.chats.some((c) => c.id === v.id)
     )
       return;
@@ -929,6 +945,14 @@ export class PrivateMessagingService {
         this.error = "";
         try {
           if (data.enabled && (await this.ensureDevice(data, save))) {
+            if (data.inboxValidation !== 1) {
+              // Older clients advanced past invitations delayed by more than five
+              // minutes. Recheck once with the corrected signed-lifetime rule.
+              // Existing chat IDs and ratchet state prevent duplicate processing.
+              data.inboxAfter = "0";
+              data.inboxValidation = 1;
+              await save();
+            }
             await this.invitations(data, save);
             await this.channels(data, save);
             await this.dispatch(data, save);

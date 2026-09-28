@@ -97,6 +97,7 @@ export interface PrivateFile {
   registered?: boolean;
   deviceAttempt?: number;
   inboxAfter: string;
+  inboxValidation?: 1;
   chats: PrivateChat[];
   outbox: PrivateOutbox[];
   funding: Record<string, Funding>;

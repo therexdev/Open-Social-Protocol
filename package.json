@@ -36,7 +36,8 @@
     "test:token-v2": "tsc -p research/token-v2/tsconfig.json && node --import tsx --test scripts/token-v2-model.test.ts",
     "simulate:token-v2": "node --import tsx scripts/simulate-token-v2.ts",
     "verify:testnet": "node --import tsx scripts/verify-deployment.ts --network harbinger",
-    "verify:private-messaging": "node --import tsx scripts/verify-private-messaging.ts --network harbinger"
+    "verify:private-messaging": "node --import tsx scripts/verify-private-messaging.ts --network harbinger",
+    "test:private-messaging:testnet": "tsc -p scripts/tsconfig.web-tests.json && node --import tsx scripts/test-private-messaging-testnet.ts"
   },
   "devDependencies": {
     "tsx": "^4.20.0",

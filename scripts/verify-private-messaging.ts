@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { Provider } from "koilib";
 import { ABIS } from "@osp/proto";
-import { ProtocolClient, SponsorClient } from "@osp/sdk";
+import { loadDeployment, ProtocolClient, SponsorClient } from "@osp/sdk";
 import { networkFromArgs, parseArgs, readDeployment } from "./common.ts";
 
 const args = parseArgs(process.argv.slice(2));
@@ -23,7 +23,7 @@ async function json(url: string): Promise<any> {
 const checks: Array<[string, () => Promise<void>]> = [
   ["on-chain private messaging v2", async () => {
     assert.equal(await provider.getChainId(), deployment.chainId, "wrong RPC chain");
-    const client = new ProtocolClient({ deployment, rpc: provider });
+    const client = new ProtocolClient({ deployment: loadDeployment(deployment), rpc: provider });
     const result = await client.reads.messaging.get_private_status({});
     assert.equal(result?.version, 2, "upgrade messaging contract first");
     // The contract address has no browser/alias allowance. Check the real SDK

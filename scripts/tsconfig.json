@@ -11,6 +11,7 @@
     "*.ts"
   ],
   "exclude": [
-    "test-product-testnet.ts"
+    "test-product-testnet.ts",
+    "test-private-messaging-testnet.ts"
   ]
 }

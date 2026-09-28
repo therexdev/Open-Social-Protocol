@@ -1,5 +1,5 @@
 import { webcrypto } from "node:crypto";
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   contentHash,
   fromBase64url,
@@ -12,6 +12,8 @@ import {
   decode,
   encode,
   type ContractName,
+  SponsorClient,
+  verifyPrivateStatement,
 } from "@osp/sdk";
 import { ABIS } from "@osp/proto";
 import { fixtureDeployment } from "../../../../../packages/sdk/src/testing/fixtures";
@@ -33,6 +35,7 @@ beforeAll(() =>
     configurable: true,
   }),
 );
+afterEach(() => vi.restoreAllMocks());
 const alice = identityFromSeed(new Uint8Array(32).fill(81), 1),
   bob = identityFromSeed(new Uint8Array(32).fill(82), 1);
 const deployment = { ...fixtureDeployment(), chainId: "test" };
@@ -43,11 +46,13 @@ const lock: ExclusiveLock = async (name, action) => {
   locks.set(name, p);
   return p;
 };
-function harness() {
+function harness(prepaid = true) {
   const devices = new Map<string, PrivateDevice[]>(),
     channels = new Map<string, any>(),
     packets: PrivatePacketView[] = [],
-    operations: any[] = [];
+    operations: any[] = [],
+    units = new Map<string, number>(),
+    reservations = new Map<string, any>();
   const pair = (a: string, b: string) => [a, b].sort().join(":");
   let unknown = false,
     lib = "1000",
@@ -61,7 +66,8 @@ function harness() {
       if (directoryDown) throw new Error("Directory RPC unavailable");
       return { values: devices.get(account) ?? [] };
     },
-    get_private_units: async () => ({ units: "100" }),
+    get_private_units: async ({ account }: any) => ({ units: String(units.get(account) ?? (prepaid ? 100 : 0)) }),
+    get_private_reservation: async ({ reservation_id }: any) => ({ value: reservations.get(toBase64url(reservation_id)) }),
     get_private_packet: async ({ actor, packet_id }: any) => {
       const p = packets.find(
         (p) => p.actor === actor && p.packet_id === toBase64url(packet_id),
@@ -103,6 +109,10 @@ function harness() {
       for (const op of ops) {
         const a = op.args;
         operations.push({ ...op, signer: signer.getAddress() });
+        if (op.method === "reserve_private_usage") {
+          const key = toBase64url(a.reservation_id);
+          if (!reservations.has(key)) reservations.set(key, { ...a, block: "5" });
+        }
         if (op.method === "set_private_device")
           devices.set(a.account, [
             {
@@ -204,7 +214,7 @@ function harness() {
         protocol,
         indexer,
         store,
-        [],
+        prepaid ? [] : ["https://sponsor.test"],
         "sponsor-only",
         (s) => {
           snapshot = s;
@@ -264,6 +274,13 @@ function harness() {
     operations,
     pump,
     connect,
+    reservations,
+    allocate: (reservationId: string, actor: string, signature: string) => {
+      const reservation = reservations.get(reservationId);
+      expect(reservation).toBeDefined();
+      expect(verifyPrivateStatement(scope, "allocate", { reservationId, actor }, signature, reservation.account)).toBe(true);
+      units.set(actor, reservation.units);
+    },
     setDirectoryDown: (value: boolean) => { directoryDown = value; },
     setUnknown: () => {
       unknown = true;
@@ -275,6 +292,74 @@ function harness() {
 }
 
 describe("two-browser private conversations", () => {
+  it.each(["expired", "future-dated"] as const)("does not surface a correctly signed but %s invitation", async scenario => {
+    let now = Date.now();
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    const h = harness();
+    await h.a.service.enable(); await h.b.service.enable(); await h.pump();
+    await h.a.service.start(bob.account);
+    // Publish without letting the receiving browser scan yet.
+    for (let i = 0; i < 3; i++) { await h.a.service.load(); await h.a.service.sync(); }
+    expect(h.packets).toHaveLength(1);
+    if (scenario === "expired") now += 8 * 86_400_000;
+    else h.packets[0]!.timestamp = String(now - 6 * 60_000);
+    await h.pump(2);
+    expect(h.b.snapshot.chats).toHaveLength(0);
+    expect(h.b.snapshot.error).toBe("");
+  });
+  it("delivers a saved request after a long funding wait without another reservation", async () => {
+    let now = Date.now();
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    const h = harness(false);
+    const sponsor = deployment.contracts.sponsorship.address;
+    vi.spyOn(SponsorClient.prototype, "discover").mockResolvedValue({
+      sponsor, policy: { allowed: [{ contract: scope.contract, entryPoints: [ABIS.messaging.methods.reserve_private_usage!.entry_point] }] },
+    } as any);
+    const allocate = vi.spyOn(SponsorClient.prototype, "allocatePrivateUsage").mockImplementation(async payload => {
+      h.allocate(payload.reservationId, payload.actor, payload.signature);
+      return { grantId: "grant", pending: true };
+    });
+    await h.a.service.enable(); await h.b.service.enable(); await h.pump();
+    h.setLib("1");
+    const chat = await h.a.service.start(bob.account);
+    await h.pump(2);
+    expect(h.a.snapshot.chats[0]?.requestDelivery).toBe("preparing");
+    expect(h.b.snapshot.chats).toHaveLength(0);
+    expect(h.reservations.size).toBe(1);
+    expect(allocate).not.toHaveBeenCalled();
+    now += 10 * 60_000;
+    h.a.reload();
+    h.setLib("1000");
+    await h.pump(8);
+    expect(h.a.snapshot.error).toBe(""); expect(h.b.snapshot.error).toBe("");
+    expect(h.b.snapshot.chats[0]?.id).toBe(chat);
+    expect(h.b.snapshot.chats[0]?.status).toBe("incoming");
+    expect(h.a.snapshot.chats[0]?.requestDelivery).toBe("sent");
+    expect(h.reservations.size).toBe(1);
+    expect(allocate).toHaveBeenCalledTimes(1);
+    expect(h.operations.filter(o => o.method === "reserve_private_usage")).toHaveLength(1);
+    expect(h.packets).toHaveLength(1);
+    // Upgrade a recipient whose old client already skipped this delayed request.
+    await h.b.store.edit(async data => {
+      data.chats = [];
+      delete data.inboxValidation;
+      data.inboxAfter = h.packets[0]!.sequence;
+    });
+    h.b.reload();
+    await h.pump(2);
+    expect(h.b.snapshot.chats).toHaveLength(1);
+    expect(h.b.snapshot.chats[0]?.id).toBe(chat);
+    await h.b.service.accept(chat);
+    for (let i = 0; i < 6; i++) {
+      now += 60_000;
+      await h.pump(3);
+    }
+    expect(h.a.snapshot.chats[0]?.status).toBe("ready");
+    expect(h.b.snapshot.chats[0]?.status).toBe("ready");
+    await h.a.service.send(chat, "After a delayed invitation");
+    await h.pump();
+    expect(h.b.snapshot.chats[0]?.messages[0]?.text).toBe("After a delayed invitation");
+  });
   it("registers first-time browsers from an empty wire response and resumes after a real read failure", async () => {
     const h = harness();
     h.setDirectoryDown(true);

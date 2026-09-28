@@ -66,6 +66,19 @@ the chain commitment; persist the advanced ratchet and local history atomically.
 advance state on authentication failure, clear pending state on an uncertain broadcast,
 or reconstruct/reuse a message key. Cross-tab operations require an exclusive browser lock.
 
+An outgoing request is locally saved before it is delivered. Show **Preparing request**
+while reserving/allocating allowance, **Confirming request** after attempting publication,
+and **Request sent** only after its exact packet is irreversible. Preparing the first
+request can take several minutes; signing stops when the account is locked, switched,
+or its browser closes. Navigating to another page within the unlocked app is supported.
+Incoming requests have a separate approval section at the top of Messages.
+
+Invitations have a signed seven-day lifetime. A funding or network delay longer than
+five minutes must not invalidate them. Reject expired or future-dated requests, and
+verify the signature, intended device, and block permissions as before. Updated clients
+rescan the shared invitation log once to recover valid requests skipped by older clients;
+existing chat IDs and ratchet state prevent duplicates.
+
 Local state uses a device-generated, non-extractable WebCrypto AES key in IndexedDB,
 combined with the account unlock secret. Account exports omit it. No seed-encrypted copy
 of the ratchet or message history is retained. Storage failures stop the operation.
@@ -142,6 +155,18 @@ messaging entry points remain isolated for older clients; this web client uses v
    installed PWAs before testing.
 
 ### Two-browser acceptance test
+
+An opt-in live integration journey exercises the actual web messaging service against
+the deployed Harbinger contracts, sponsor, and indexer:
+
+```bash
+npm run test:private-messaging:testnet -- --execute
+```
+
+It creates two disposable test identities, enables their devices, reserves and allocates
+real usage, delivers/accepts a request, and verifies decrypted messages both ways. It never
+uses a tester's seed or writes private material. It consumes testnet sponsor Mana and may
+take several minutes per finality stage. This supplements the browser checks below.
 
 Use two separate browser profiles and two test identities. Enable private messages
 on each browser, send and accept a request, and exchange several messages both ways.

@@ -953,4 +953,6 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 .private-chat-choice > .avatar { width: 2.1rem; height: 2.1rem; font-size: .75rem; flex-shrink: 0; }
 .private-chat-choice > small { flex-shrink: 0; font-size: .7rem; }
 .profile-contact-actions { display: grid; gap: .75rem; justify-items: start; }
+.message-request-row { display: flex; flex-wrap: wrap; align-items: center; gap: .65rem; padding-block: .75rem; }
+.message-request-row .message-person-copy { min-width: 9rem; }
 @media (max-width: 600px) { .message-recipient-input { gap: .2rem; } .message-recipient-input input { font-size: 1rem; padding-inline: .3rem; } }

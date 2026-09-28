@@ -9,7 +9,7 @@ const bob = "1WhPkYjyS1ChEKmbxNAyFUHLuRVQCjNMF";
 const other = "16HVcW9kHPJYd8CgAwdw7smZuU1nqiNzAN";
 const mocks = vi.hoisted(() => ({
   value: {
-    service: { me: { account: "1EiR6tc8jtVK6boR5w1chjq17XEXXHiNk4" }, enable: vi.fn(), sync: vi.fn(), send: vi.fn(), start: vi.fn() },
+    service: { me: { account: "1EiR6tc8jtVK6boR5w1chjq17XEXXHiNk4" }, enable: vi.fn(), sync: vi.fn(), send: vi.fn(), start: vi.fn(), accept: vi.fn() },
     snapshot: { enabled: false, registered: false, chats: [] as any[], pending: 0, error: "" },
   },
   search: vi.fn(), friends: [] as string[], names: {} as Record<string, string>,
@@ -134,4 +134,23 @@ it("filters existing conversations by nickname or address", async () => {
   expect(container.querySelectorAll(".private-chat-choice")).toHaveLength(0);
   await type('input[type="search"]', bob);
   expect(container.querySelectorAll(".private-chat-choice")).toHaveLength(1);
+});
+
+it("shows request preparation until the chain confirms delivery", async () => {
+  enabled(); mocks.value.snapshot.chats = [{ ...chat(), status: "outgoing", requestDelivery: "preparing", messages: [] }];
+  await mount();
+  expect(container.querySelector(".private-chat-choice")?.textContent).toContain("Preparing request");
+  expect(container.querySelector(".private-chat-choice")?.textContent).not.toContain("Request sent");
+  await act(async () => container.querySelector<HTMLButtonElement>(".private-chat-choice")!.click());
+  expect(container.textContent).toContain("Keep this account unlocked");
+  mocks.value.snapshot.chats[0].requestDelivery = "sent";
+  await act(async () => root.render(<MemoryRouter><MessagesPage /></MemoryRouter>));
+  expect(container.querySelector(".private-chat-choice")?.textContent).toContain("Request sent");
+});
+it("offers incoming requests for approval without first opening a conversation", async () => {
+  enabled(); mocks.value.snapshot.chats = [{ ...chat(), status: "incoming", messages: [] }];
+  await mount();
+  expect(container.textContent).toContain("Message requests (1)");
+  await act(async () => button("Accept request").click());
+  expect(mocks.value.service.accept).toHaveBeenCalledWith("chat");
 });
