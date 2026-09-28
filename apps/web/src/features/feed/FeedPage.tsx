@@ -10,8 +10,10 @@ import { useSwipeTabs } from "../../components/useSwipeTabs";
 import { usePublishing } from "../composer/PublishingProvider";
 import { PendingPosts } from "../composer/PendingPosts";
 import { PromotedFeed } from "../tokens/PromotedFeed";
+import { QuickComposer } from "../../components/QuickComposer";
+import { useProfileName } from "../profile/useProfileName";
 
-type Tab = "public" | "friends";
+type Tab = "all" | "public" | "friends";
 
 export function usePagedPosts(load: (cursor?: string) => Promise<{ items: PostView[]; nextCursor: string | null }>, deps: unknown[]) {
   const version = useRef(0);
@@ -85,7 +87,7 @@ function FeedPanel({ scope, viewer, active }: { scope: Tab; viewer: string | und
     return indexer.feed({ scope, ...(viewer && { viewer }), ...(cursor && { cursor }), limit: 20 });
   }, [indexer, scope, viewer]);
   const publishing = usePublishing();
-  const pending = publishing.posts.filter(d => !d.replyTo && (scope === "friends" || d.audience === 0));
+  const pending = publishing.posts.filter(d => !d.replyTo && (scope !== "public" || d.audience === 0));
   const hasPending = pending.length > 0;
   useEffect(() => {
     if (!active || !hasPending) return;
@@ -93,7 +95,7 @@ function FeedPanel({ scope, viewer, active }: { scope: Tab; viewer: string | und
     const timer = window.setInterval(refresh, 3000);
     return () => window.clearInterval(timer);
   }, [active, hasPending, feed.refresh]);
-  return <section hidden={!active} role="tabpanel" id={`feed-${scope}`} aria-label={scope === "public" ? "Everyone" : "Friends"} className="feed-panel">
+  return <section hidden={!active} role="tabpanel" id={`feed-${scope}`} aria-label={scope === "all" ? "All posts" : scope === "public" ? "Public" : "Friends"} className="feed-panel">
     {scope === "friends" && !viewer && <Notice kind="info">Unlock your account to see posts from your friends.</Notice>}
     {feed.error && <Notice kind="error">{feed.error}</Notice>}
     {!indexer.configured && <Empty>Configure an indexer in Settings to load posts.</Empty>}
@@ -110,16 +112,20 @@ export function FeedPage() {
   const status = useVault(s => s.status);
   const viewer = status === "unlocked" ? account : undefined;
   const [params, setParams] = useSearchParams();
-  const tab: Tab = params.get("feed") === "friends" ? "friends" : "public";
+  const tab: Tab = params.get("feed") === "friends" ? "friends" : params.get("feed") === "public" ? "public" : "all";
+  const name = useProfileName(account ?? "");
+  const options: Tab[] = ["all", "public", "friends"];
+  const [visited, setVisited] = useState<Tab[]>([tab]);
+  useEffect(() => { setVisited(previous => previous.includes(tab) ? previous : [...previous, tab]); }, [tab]);
   const [direction, setDirection] = useState(1);
-  const changeTab = (next: Tab) => { setDirection(next === "friends" ? 1 : -1); setParams(next === "friends" ? { feed: "friends" } : {}, { replace: true }); };
-  const swipe = useSwipeTabs(direction => changeTab(direction === 1 ? "friends" : "public"));
+  const changeTab = (next: Tab) => { setDirection(options.indexOf(next) > options.indexOf(tab) ? 1 : -1); setParams(next === "all" ? {} : { feed: next }, { replace: true }); };
+  const swipe = useSwipeTabs(direction => { const next = options[options.indexOf(tab) + direction]; if (next) changeTab(next); });
   return <div className="page feed-page">
-    <div className="page-header"><div><p className="eyebrow">YOUR DAILY CONNECTION</p><h1>Feed</h1><p className="page-subtitle">A little closer to your people.</p></div><Link to="/compose" className="btn btn-primary"><Icon name="plus"/> New post</Link></div>
-    <div className="feed-tabs"><Tabs<Tab> value={tab} label="Feed scope" onChange={changeTab} options={[{ value: "public", label: <><Icon name="globe" size={18}/> Everyone</> }, { value: "friends", label: <><Icon name="people" size={18}/> Friends</> }]} /><span className="feed-sort">Latest posts</span></div>
+    <div className="page-header feed-heading"><div><h1>Your <span>people.</span><br className="hero-break"/> Your world.</h1><p className="page-subtitle">Real connections. Conversations that belong to you.</p></div><Link to="/compose" className="btn btn-primary mobile-compose" aria-label="New post"><Icon name="plus"/></Link></div>
+    <div className="feed-tabs"><Tabs<Tab> value={tab} label="Feed scope" onChange={changeTab} options={[{ value: "all", label: "All posts" }, { value: "public", label: <><Icon name="globe" size={17}/> Public</> }, { value: "friends", label: <><Icon name="lock" size={17}/> Friends</> }]} /><span className="feed-sort">Most recent</span></div>
+    <QuickComposer account={account} name={name}/>
     <div className="feed-panels" style={{ "--feed-enter": `${direction * 12}px` } as CSSProperties} {...swipe} key={viewer ?? "locked"}>
-      <FeedPanel scope="public" viewer={viewer} active={tab === "public"}/>
-      <FeedPanel scope="friends" viewer={viewer} active={tab === "friends"}/>
+      {options.filter(scope => visited.includes(scope) || scope === tab).map(scope => <FeedPanel key={scope} scope={scope} viewer={viewer} active={tab === scope}/>)}
     </div>
   </div>;
 }

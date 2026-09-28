@@ -9,6 +9,7 @@ import { ComposerForm } from "./ComposerForm";
 import { listDrafts, removeDraft, subscribeDrafts } from "./drafts";
 import { usePublish } from "./usePublish";
 import { errorMessage } from "../../util/format";
+import { Icon } from "../../components/Icon";
 
 export function ComposerPage() {
   const session = useSession();
@@ -49,13 +50,13 @@ export function ComposerPage() {
   };
 
   return (
-    <div className="page">
-      <h1>New post</h1>
+    <div className="page composer-page">
+      <div className="page-header"><div><h1>Create a post</h1><p className="page-subtitle">A thought, a moment, a conversation.</p></div><Button variant="ghost" aria-label="Back to feed" onClick={() => navigate("/")}><Icon name="close"/></Button></div>
       <Card>
         <ComposerForm
           key={resume?.id ?? "new"}
           draft={resume}
-          defaultAudience={AUDIENCE.EVERYONE}
+          defaultAudience={params.get("audience") === "friends" ? AUDIENCE.FRIENDS : AUDIENCE.EVERYONE}
           onSubmitted={(draft) => {
             void reload();
             navigate(draft.audience === AUDIENCE.FRIENDS ? "/?feed=friends" : "/");
@@ -63,7 +64,7 @@ export function ComposerPage() {
           onCancel={resume ? () => { setResume(undefined); setParams({}); } : undefined}
         />
       </Card>
-      <Card title="Unsent drafts">
+      <details className="drafts-panel"><summary>Unsent drafts {drafts.length > 0 && `(${drafts.length})`}</summary><Card>
         {error && <Notice kind="error">{error}</Notice>}
         {drafts.length === 0 ? (
           <Empty>Drafts that could not be sent are kept here, encrypted on this device, so a retry never creates a duplicate post.</Empty>
@@ -105,7 +106,7 @@ export function ComposerPage() {
             ))}
           </ul>
         )}
-      </Card>
+      </Card></details>
     </div>
   );
 }

@@ -152,11 +152,11 @@ export function OpenedPostCard({ post, onChanged, expanded = false, content }: P
   }
 
   return (
-    <article className="post" aria-label={`Post by ${name}`}>
+    <article className={`post post-${audience === AUDIENCE.EVERYONE ? "public" : "friends"}`} aria-label={`Post by ${name}`}>
       <header className="post-header">
         <Link to={`/u/${post.author}`} tabIndex={-1} aria-hidden="true"><Avatar account={post.author} name={name}/></Link>
         <div className="post-heading"><AccountLink account={post.author} name={name} className="post-author"/><span className="post-meta"><time dateTime={new Date(Number(post.createdAt) || 0).toISOString()} title={formatDateTime(post.createdAt)}>{timeAgo(post.createdAt)}</time>{post.versionNumber > 1 && !deleted && <span> · edited</span>}</span></div>
-        <span className={`chip chip-${audience === AUDIENCE.EVERYONE ? "public" : "friends"}`}><Icon name={audience === AUDIENCE.EVERYONE ? "globe" : "lock"} size={13}/>{audienceLabel(audience)}</span>
+        <span className={`chip chip-${audience === AUDIENCE.EVERYONE ? "public" : "friends"}`}><Icon name={audience === AUDIENCE.EVERYONE ? "globe" : "lock"} size={13}/>{audience === AUDIENCE.EVERYONE ? "Public" : audienceLabel(audience)}</span>
       </header>
       {post.labels.length > 0 && (
         <div className="labels" aria-label="Community labels">

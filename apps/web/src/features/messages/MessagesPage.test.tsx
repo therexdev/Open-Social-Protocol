@@ -43,6 +43,10 @@ async function type(selector: string, value: string) {
     input.dispatchEvent(new Event("input", { bubbles: true }));
   });
 }
+async function view(value: "open" | "closed") {
+  const select = container.querySelector<HTMLSelectElement>('select[aria-label="Conversation view"]')!;
+  await act(async () => { select.value = value; select.dispatchEvent(new Event("change", { bubbles: true })); });
+}
 function chat(peer = bob) {
   return { id: "chat", peer, status: "ready", createdAt: 1,
     messages: [{ id: "m1", text: "Saved before sending", mine: true, state: "sending", timestamp: 1 }] };
@@ -75,7 +79,7 @@ it("opens a friend's existing chat from a profile link without creating a reques
   enabled(); mocks.value.snapshot.chats = [chat()];
   await mount(`/messages?to=${bob}`);
   expect(container.textContent).toContain("Saved before sending");
-  await act(async () => button("Open conversation").click());
+  expect(container.querySelector(".chat-composer")).not.toBeNull();
   expect(mocks.value.service.start).not.toHaveBeenCalled();
 });
 it("preserves a profile recipient through browser setup without auto-sending", async () => {
@@ -167,11 +171,14 @@ it("shows the actual setup step and puts sidebar status below the identity", asy
 it("distinguishes a local close from a delivered close and shows errors without a misleading setup notice", async () => {
   enabled(); mocks.value.snapshot.chats = [{ ...chat(), status: "closed", closing: true, progress: "Closed on this browser. Notifying the other messaging browser." }];
   await mount();
+  await view("closed");
   await act(async () => container.querySelector<HTMLButtonElement>(".private-chat-choice")!.click());
   expect(container.querySelector(".private-chat-status")?.textContent).toContain("notifying peer");
   expect(container.textContent).toContain("Notifying the other messaging browser.");
   mocks.value.snapshot.chats[0] = { ...chat(), status: "accepting", error: "Sponsor unavailable" };
   await act(async () => root.render(<MemoryRouter><MessagesPage /></MemoryRouter>));
+  await view("open");
+  await act(async () => container.querySelector<HTMLButtonElement>(".private-chat-choice")!.click());
   expect(container.textContent).toContain("Sponsor unavailable");
   expect(container.textContent).not.toContain("Checking the private connection");
 });
@@ -183,6 +190,42 @@ it("lets people compose while connecting and hides approval controls by default"
   await act(async () => container.querySelector<HTMLButtonElement>(".private-chat-choice")!.click());
   expect(button("Accept message request")).toBeUndefined();
   const fields = container.querySelectorAll<HTMLTextAreaElement>("textarea");
-  expect(fields).toHaveLength(2);
-  expect(fields[1]?.disabled).toBe(false);
+  expect(fields).toHaveLength(1);
+  expect(fields[0]?.disabled).toBe(false);
+});
+
+it("defaults to open conversations and keeps closed history read-only behind the dropdown", async () => {
+  enabled(); mocks.value.snapshot.chats = [chat(), { ...chat(other), id: "archived", status: "closed", messages: [{ id: "old", text: "Archived message", mine: false, timestamp: 1, state: "sent" }] }];
+  await mount();
+  expect(container.querySelectorAll(".private-chat-choice")).toHaveLength(1);
+  expect(container.textContent).not.toContain("Archived message");
+  await view("closed");
+  expect(container.querySelectorAll(".private-chat-choice")).toHaveLength(1);
+  await act(async () => container.querySelector<HTMLButtonElement>(".private-chat-choice")!.click());
+  expect(container.querySelector(".message-history")?.textContent).toContain("Archived message");
+  expect(container.querySelector(".chat-composer")).toBeNull();
+  expect(button("Close conversation")).toBeUndefined();
+  await view("open");
+  expect(container.querySelector(".message-history")).toBeNull();
+  expect(container.querySelectorAll(".private-chat-choice")).toHaveLength(1);
+});
+
+it("removes a newly closed chat from the open inbox and clears its compose pane", async () => {
+  enabled(); mocks.value.snapshot.chats = [chat()]; await mount();
+  await act(async () => container.querySelector<HTMLButtonElement>(".private-chat-choice")!.click());
+  expect(container.querySelector(".chat-composer")).not.toBeNull();
+  mocks.value.snapshot.chats = [{ ...chat(), status: "closed" }];
+  await act(async () => root.render(<MemoryRouter><MessagesPage /></MemoryRouter>));
+  expect(container.querySelector(".private-chat-choice")).toBeNull();
+  expect(container.querySelector(".chat-composer")).toBeNull();
+  await view("closed");
+  expect(container.querySelectorAll(".private-chat-choice")).toHaveLength(1);
+});
+
+it("a new message returns from the closed archive to the open inbox", async () => {
+  enabled(); mocks.value.snapshot.chats = [{ ...chat(), status: "closed" }]; await mount();
+  await view("closed");
+  await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="New message"]')!.click());
+  expect(container.querySelector<HTMLSelectElement>('select[aria-label="Conversation view"]')?.value).toBe("open");
+  expect(container.querySelector('[role="combobox"]')).not.toBeNull();
 });

@@ -11,6 +11,7 @@ import { useCanAct } from "../session";
 import { useVault } from "../../vault/context";
 import { bytesOf } from "../../util/bytes";
 import { audienceLabel } from "../feed/PostCard";
+import { Avatar, Icon } from "../../components/Icon";
 
 export interface ComposerFormProps {
   /** Existing draft to resume (keeps its attempt id). */
@@ -121,6 +122,7 @@ export function ComposerForm({ draft, replyTo, edit, defaultAudience = AUDIENCE.
         void prepare();
       }}
     >
+      <div className="composer-identity"><Avatar account={account}/><div><strong>You</strong><Field label="Who can read it">{id => <select id={id} value={audience} disabled={edit !== undefined || draft?.edit !== undefined} onChange={event => setAudience(Number(event.target.value))}><option value={AUDIENCE.EVERYONE}>Public</option><option value={AUDIENCE.FRIENDS}>Friends</option></select>}</Field></div></div>
       <Field label={edit ? "Edit your post" : replyTo ? "Your reply" : "What's on your mind?"} hint={tooLong ? `${-remaining} bytes over the limit` : `${remaining} bytes left`}>
         {(id) => (
           <textarea
@@ -135,25 +137,9 @@ export function ComposerForm({ draft, replyTo, edit, defaultAudience = AUDIENCE.
           />
         )}
       </Field>
-      <fieldset className="audience">
-        <legend>Who can read it</legend>
-        <label className={`radio ${audience === AUDIENCE.EVERYONE ? "selected" : ""}`.trim()}>
-          <input type="radio" name="audience" value={AUDIENCE.EVERYONE} checked={audience === AUDIENCE.EVERYONE} onChange={() => setAudience(AUDIENCE.EVERYONE)} disabled={(edit !== undefined || draft?.edit !== undefined) && (edit?.audience ?? draft?.audience) !== AUDIENCE.EVERYONE} />
-          <span>
-            <strong>Everyone</strong>
-            <small>{everyoneExplanation}</small>
-          </span>
-        </label>
-        <label className={`radio ${audience === AUDIENCE.FRIENDS ? "selected" : ""}`.trim()}>
-          <input type="radio" name="audience" value={AUDIENCE.FRIENDS} checked={audience === AUDIENCE.FRIENDS} onChange={() => setAudience(AUDIENCE.FRIENDS)} disabled={(edit !== undefined || draft?.edit !== undefined) && (edit?.audience ?? draft?.audience) !== AUDIENCE.FRIENDS} />
-          <span>
-            <strong>Friends</strong>
-            <small>{friendsExplanation}</small>
-          </span>
-        </label>
-      </fieldset>
+      <details className="composer-privacy"><summary><Icon name={encrypted ? "lock" : "globe"} size={16}/>{encrypted ? "Only your friends can read this post." : "Anyone can read this post."}</summary><p>{encrypted ? friendsExplanation : everyoneExplanation}</p></details>
       {!compact && (
-        <div className="media-attach">
+        <details className="media-attach"><summary>Add media by URL</summary>
           {encrypted && <Notice>Friends-only posts support text and links. Media attachments by URL remain public at their original host, so attachments are available for Everyone posts.</Notice>}
           <Field label="Attach media by URL (optional)" hint="The file is fetched by your browser to record its fingerprint; the host must allow cross-origin reads. Media itself is not stored on the network.">
             {(id) => (
@@ -177,7 +163,7 @@ export function ComposerForm({ draft, replyTo, edit, defaultAudience = AUDIENCE.
               ))}
             </ul>
           )}
-        </div>
+        </details>
       )}
       {error && <Notice kind="error">{error}</Notice>}
       {!can.ok && <Notice kind="warning">{can.reason}</Notice>}

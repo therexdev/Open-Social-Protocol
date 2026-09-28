@@ -9,6 +9,7 @@ import { errorMessage } from "../../util/format";
 import { useVault } from "../../vault/context";
 import { Devices } from "./Devices";
 import { RecoveryContacts } from "./RecoveryContacts";
+import { Icon, type IconName } from "../../components/Icon";
 
 function EndpointsSection() {
   const settings = useSettings();
@@ -240,12 +241,23 @@ export function SettingsPage() {
   const account = useVault((s) => s.account);
   const status = useVault((s) => s.status);
   const { resolved } = useServices();
+  const [section, setSection] = useState("account");
+  const sections: { value: string; label: string; icon: IconName; detail: string }[] = [
+    { value: "account", label: "Account & security", icon: "profile", detail: "Your identity, backups, and account protection." },
+    { value: "connections", label: "Privacy & connections", icon: "lock", detail: "Manage your friends, private conversations, and blocked accounts." },
+    { value: "devices", label: "Devices & recovery", icon: "shield", detail: "Connected devices and people you trust." },
+    { value: "network", label: "Network & endpoints", icon: "globe", detail: "Choose the services that connect you to the protocol." },
+    { value: "about", label: "About Open Social", icon: "info", detail: "An open protocol. A social experience that belongs to you." },
+  ];
   return (
-    <div className="page">
-      <h1>Settings</h1>
+    <div className="page settings-page">
+      <div className="page-header"><div><h1>Settings</h1><p className="page-subtitle">Make this space your own.</p></div></div>
+      <div className="settings-layout"><nav className="settings-nav" aria-label="Settings categories">{sections.map(item => <button key={item.value} className={`nav-item${section === item.value ? " active" : ""}`} aria-current={section === item.value ? "page" : undefined} onClick={() => setSection(item.value)}><Icon name={item.icon} size={20}/>{item.label}</button>)}</nav><div className="settings-content"><p className="settings-description">{sections.find(item => item.value === section)?.detail}</p>
+      <section hidden={section !== "network"} aria-label="Network settings">
       <Card title="Network and endpoints">
         <EndpointsSection />
       </Card>
+      </section><section hidden={section !== "account"} aria-label="Account settings">
       <Card title="Your account">
         {status === "unlocked" ? (
           <IdentitySection />
@@ -259,6 +271,7 @@ export function SettingsPage() {
           </p>
         )}
       </Card>
+      </section><section hidden={section !== "connections"} aria-label="Privacy settings"><Card title="Privacy & connections"><Link className="setting-link" to="/friends"><Icon name="people"/><span><strong>Friends & blocked accounts</strong><small>Choose who you connect with and share private posts with.</small></span><Icon name="arrow" size={18}/></Link><Link className="setting-link" to="/messages"><Icon name="message"/><span><strong>Private messaging</strong><small>Automatic connections, message history, and messaging browsers.</small></span><Icon name="arrow" size={18}/></Link><p className="hint">Choose Public or Friends each time you post. Public posts can be read by anyone; friends-only posts are encrypted.</p></Card></section><section hidden={section !== "devices"} aria-label="Device settings" className="stack">
       {account && status === "unlocked" && resolved.deployed && (
         <>
           <Card title="Recovery contacts">
@@ -274,9 +287,12 @@ export function SettingsPage() {
           <p className="muted">Available once the protocol contracts are deployed on {resolved.network}.</p>
         </Card>
       )}
+      {status !== "unlocked" && <Card><p>Unlock your account to manage devices and recovery contacts.</p><Link className="btn" to="/welcome" state={{ from: "/settings" }}>Go to unlock</Link></Card>}
+      </section><section hidden={section !== "about"} aria-label="About settings">
       <Card title="About and decentralization">
         <AboutSection />
       </Card>
+      </section></div></div>
     </div>
   );
 }

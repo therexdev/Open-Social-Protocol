@@ -16,6 +16,7 @@ import { PostCard } from "../feed/PostCard";
 import { usePagedPosts } from "../feed/FeedPage";
 import { usePostContent } from "../feed/usePostContent";
 import { useCanAct, useSubmitContext } from "../session";
+import { Icon } from "../../components/Icon";
 
 function EditDialog({ post, onDone, onCancel }: { post: PostView; onDone: () => void; onCancel: () => void }) {
   const content = usePostContent(post);
@@ -115,10 +116,8 @@ export function PostPage() {
   const mine = post !== undefined && account !== undefined && post.author === account;
 
   return (
-    <div className="page">
-      <p>
-        <Link to="/">← Feed</Link>
-      </p>
+    <div className="page post-page">
+      <Link className="back-link" to="/"><Icon name="back" size={18}/>Back to feed</Link>
       {loading && <Spinner />}
       {waiting && <Notice>This post has not appeared in the feed service yet. Checking automatically… <Button onClick={() => void load()} disabled={loading}>Check now</Button></Notice>}
       {error && <Notice kind="error">{error} <Button onClick={() => void load()} disabled={loading}>Retry</Button></Notice>}
@@ -166,7 +165,7 @@ export function PostPage() {
               </ol>
             </Details>
           )}
-          <Card title="Replies" actions={can.ok && post.state !== LIFECYCLE.DELETED ? <Button onClick={() => setReplying((v) => !v)}>{replying ? "Close" : "Reply"}</Button> : undefined}>
+          <Card className="replies-card" title="Replies" actions={can.ok && post.state !== LIFECYCLE.DELETED ? <Button onClick={() => setReplying((v) => !v)}>{replying ? "Close" : "Reply"}</Button> : undefined}>
             {replying && (
               <ComposerForm
                 replyTo={post.postId}

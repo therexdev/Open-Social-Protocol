@@ -4,7 +4,8 @@ import { Link, useParams } from "react-router-dom";
 import { useServices } from "../../api/services";
 import { buildProfileDocument, PROFILE_URI_MAX_CHARS } from "../../api/profiles";
 import { Avatar, Icon } from "../../components/Icon";
-import { Button, Card, CopyButton, Empty, Field, Notice, Spinner } from "../../components/ui";
+import { Button, Card, CopyButton, Empty, Field, Notice, Spinner, Tabs } from "../../components/ui";
+import { QuickComposer } from "../../components/QuickComposer";
 import { useProfiles } from "../../stores/profiles";
 import { submitAction } from "../../tx/submit";
 import { shortAddress } from "../../util/format";
@@ -76,22 +77,23 @@ export function ProfilePage() {
   const can = useCanAct();
   const { graph, refresh } = useGraph(viewer);
   const [editing, setEditing] = useState(false);
+  const [tab, setTab] = useState<"posts" | "about">("posts");
   const posts = usePagedPosts((cursor) => indexer.accountPosts(account, { ...(cursor && { cursor }), ...(viewer && { viewer }), limit: 20 }), [indexer, account, viewer]);
   const mine = me === account;
   const view = info?.view;
 
   useEffect(() => {
     setEditing(false);
+    setTab("posts");
   }, [account]);
 
   return (
-    <div className="page">
+    <div className="page profile-page">
       <Card className="profile-card">
-        <div className="profile-cover"><span>YOUR PEOPLE. YOUR POSTS. YOURS.</span></div>
+        <div className="profile-cover" aria-hidden="true"><span>Your people. Your world.</span></div>
         <div className="profile-header">
           <div className="profile-identity">
             <Avatar account={account} name={info?.displayName} large/>
-            {mine && <span className="eyebrow">YOUR PROFILE</span>}
             <h1>{info?.displayName || shortAddress(account)}</h1>
             <p className="mono muted address">
               {account} <CopyButton text={account} label="Copy address" />
@@ -117,7 +119,10 @@ export function ProfilePage() {
         </div>
         {editing && mine && <ProfileEditor account={account} name={info?.displayName ?? ""} bio={info?.bio ?? ""} onDone={() => setEditing(false)} />}
       </Card>
-      <div className="page-header"><h2>{mine ? "Your posts" : "Posts"}</h2>{mine && <Link to="/compose" className="btn btn-ghost"><Icon name="plus" size={18}/>New post</Link>}</div>
+      <Tabs value={tab} onChange={setTab} label="Profile views" options={[{ value: "posts", label: "Posts" }, { value: "about", label: "About" }]}/>
+      {tab === "about" && <Card title={`About ${info?.displayName || shortAddress(account)}`}><p className="profile-about-bio">{info?.bio || "No bio added yet."}</p><p className="hint">Account address</p><p className="mono address">{account}</p><CopyButton text={account} label="Copy address"/></Card>}
+      <section className="stack" hidden={tab !== "posts"} aria-label={mine ? "Your posts" : "Posts"}>
+      {mine && <QuickComposer account={account} name={info?.displayName}/>}
       {posts.error && <Notice kind="error">{posts.error} <Button onClick={() => void posts.refresh()}>Retry loading posts</Button></Notice>}
       {!posts.loading && !posts.error && posts.items.length === 0 && <Empty>No posts yet.</Empty>}
       <div className="post-list">
@@ -131,6 +136,7 @@ export function ProfilePage() {
           Load more
         </Button>
       )}
+      </section>
     </div>
   );
 }
