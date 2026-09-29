@@ -84,6 +84,15 @@ node dist/main.js [options]
 Storage is `node:sqlite` (Node 22, built in; the `start`/`dev` scripts pass `--experimental-sqlite`,
 which is accepted on every 22.x release). WAL mode is enabled for file databases.
 
+Private-message wakeups: `GET /v2/private/updates` returns `{cursor}` immediately.
+Repeating it with `?cursor=<the previous cursor>` waits up to 20 seconds for a new
+indexed block or fork, then returns the current cursor. It is an account-independent
+signal, not proof of delivery. Clients still fetch and verify private packets. Responses
+are `no-store`; reverse proxies should allow at least 25 seconds for this route. The
+server caps waiting requests and may return `retryAfterMs`. Clients retain ordinary
+polling if this optional endpoint is unavailable. `/v1/status` advertises
+`features.privateUpdates: 1`.
+
 ## Storage layout
 
 Authoritative log (never derived):

@@ -1,0 +1,1663 @@
+import {
+  acceptRatchet,
+  bytesEqual,
+  contentHash,
+  createRatchetSetup,
+  decryptPrivateMessage,
+  encryptPrivateMessage,
+  finishRatchet,
+  fromBase64url,
+  isAddress,
+  openPrivateInvitation,
+  privateWallet,
+  privateConfirmationDepth,
+  privateConfirmationHeight,
+  randomBytes,
+  sealPrivateInvitation,
+  signPrivateStatement,
+  SponsorClient,
+  toBase64url,
+  verifyPrivateStatement,
+  x25519KeyPair,
+  type Identity,
+  type OperationJson,
+  type PrivatePacketContext,
+  type PrivateScope,
+  type ProtocolClient,
+  type PrivateDevice,
+  type SignerInterface,
+  PRIVATE_MESSAGE_LIMIT,
+  utf8,
+} from "@osp/sdk";
+import { ABIS } from "@osp/proto";
+import type { IndexerClient, PrivatePacketView } from "../../api/indexer";
+import { submitAction } from "../../tx/submit";
+import type { PaymentPreference } from "../../stores/settings";
+import {
+  PrivateStore,
+  validId,
+  type Acceptance,
+  type AcceptanceEnvelope,
+  type Closure,
+  type Invitation,
+  type PrivateChat,
+  type PrivateFile,
+  type QueuedPrivateMessage,
+  type Signed,
+} from "./privateStore";
+import { encodeHistoryFrames, historyRecords, historyThreads, mergeMessage, receiveHistoryFrame, recordHash, recordKey, threadId } from "./deviceSync";
+
+const id = () => toBase64url(randomBytes(32));
+const INVITATION_LIFETIME = 7 * 86_400_000;
+const RETRY_MS = 20_000;
+export interface PrivateSnapshot {
+  enabled: boolean;
+  registered: boolean;
+  autoConnect?: boolean;
+  prepareInAdvance?: boolean;
+  preparingAllowance?: boolean;
+  syncingBrowsers?: boolean;
+  chats: Array<
+    Pick<PrivateChat, "id" | "peer" | "status" | "messages" | "createdAt"> & {
+      requestDelivery?: "preparing" | "confirming" | "sent" | "failed";
+      closing?: boolean;
+      progress?: string;
+      error?: string;
+      synced?: boolean;
+    }
+  >;
+  pending: number;
+  error: string;
+  devices?: Array<{
+    id: string;
+    label: string;
+    current: boolean;
+    updatedAt: string;
+  }>;
+  links?: Array<{ id: string; deviceId: string; status: PrivateChat["status"]; progress?: string; error?: string; pending: number }>;
+  deviceId?: string;
+}
+export class PrivateMessagingService {
+  readonly scope: PrivateScope;
+  private error = "";
+  private queued: QueuedPrivateMessage[] = [];
+  private lastSnapshot: PrivateSnapshot = { enabled: false, registered: false, chats: [], pending: 0, error: "" };
+  private queueErrors = new Map<string, string>();
+  private warmRetryAt = 0;
+  private running = false;
+  private syncAgain = false;
+  private syncTask?: Promise<void>;
+  private scheduledSync?: ReturnType<typeof setTimeout>;
+  private readonly verifiedProvisional = new Map<string, string>();
+  private stopped = false;
+  private devices: NonNullable<PrivateSnapshot["devices"]> = [];
+  private directory: PrivateDevice[] = [];
+  private peerDirectories = new Map<string, PrivateDevice[]>();
+  private fundingSteps = new Map<string, string>();
+  private channelSteps = new Map<string, string>();
+  private chatErrors = new Map<string, string>();
+  private scanIrreversible = 0n;
+  private syncHead: ReturnType<ProtocolClient["provider"]["getHeadInfo"]> | undefined;
+  private sponsors = new Map<string, { client: SponsorClient; expiresAt: number }>();
+  private sponsor(endpoint: string): SponsorClient {
+    const cached = this.sponsors.get(endpoint);
+    if (cached && cached.expiresAt > Date.now()) return cached.client;
+    const client = new SponsorClient({ endpoint, expectedChainId: this.scope.chainId });
+    this.sponsors.set(endpoint, { client, expiresAt: Date.now() + 60_000 });
+    return client;
+  }
+  private head() {
+    // One conservative boundary per pass avoids an RPC round trip per pending
+    // message. A newly mined transaction can advance on the following pass.
+    return this.syncHead ??= this.protocol.provider.getHeadInfo();
+  }
+  constructor(
+    readonly me: Identity,
+    readonly protocol: ProtocolClient,
+    readonly indexer: IndexerClient,
+    readonly store: PrivateStore,
+    readonly sponsorUrls: string[],
+    readonly payment: PaymentPreference,
+    readonly changed: (snapshot: PrivateSnapshot) => void,
+  ) {
+    this.scope = {
+      chainId: protocol.chainId,
+      contract: protocol.deployment.contracts.messaging.address,
+    };
+  }
+  stop(): void {
+    this.stopped = true;
+    this.syncAgain = false;
+    clearTimeout(this.scheduledSync);
+    this.verifiedProvisional.clear();
+  }
+  private active(): void {
+    this.store.assertActive();
+    if (this.stopped) throw new Error("Messaging session closed");
+  }
+  private snapshot(data: PrivateFile): void {
+    if (this.stopped) return;
+    const native = data.chats.filter(c => !c.kind);
+    const histories = historyThreads(data);
+    this.lastSnapshot = {
+      enabled: data.enabled,
+      autoConnect: data.autoConnect !== false,
+      prepareInAdvance: data.prepareInAdvance !== false,
+      preparingAllowance: data.enabled && !!data.registered && !!data.spareAliasId && !data.spareAliasReady
+        && data.prepareInAdvance !== false && Date.now() >= this.warmRetryAt,
+      registered: !!data.registered,
+      syncingBrowsers: !!data.deliveries?.length || data.chats.some(c => c.kind && c.syncApproved && c.status !== "closed"
+        && (c.status !== "ready" || !!c.syncBatch || data.outbox.some(p => p.chatId === c.id && !p.observed))),
+      deviceId: data.deviceId,
+      links: data.chats.filter(c => c.kind === "device-link" && c.peerDeviceId).map(c => ({
+        id: c.id, deviceId: c.peerDeviceId!, status: c.status,
+        progress: this.channelSteps.get(c.id) ?? this.fundingSteps.get(c.alias),
+        error: this.chatErrors.get(c.id) ?? data.outbox.find(p => p.chatId === c.id && p.error)?.error,
+        pending: data.outbox.filter(p => p.chatId === c.id && !p.observed).length,
+      })),
+      chats: histories.map(history => {
+        const routes = native.filter(c => threadId(c) === history.id);
+        const c = routes.find(c => c.status === "ready") ?? routes.find(c => c.status !== "closed") ?? routes[0];
+        if (!c || (c.routeOnlyClosed && history.closedAt === undefined)) return { id: history.id, peer: history.peer, status: history.closedAt === undefined ? "ready" as const : "closed" as const,
+          messages: structuredClone(history.messages), createdAt: history.createdAt, synced: true };
+        const request = data.outbox.find(p => p.chatId === c.id && !p.peer && p.kind !== "close");
+        const closing = c.status === "closed" && (c.closeNotice === "needed"
+          || (c.closeNotice === "queued" && data.outbox.some(p => p.chatId === c.id && p.kind === "close" && !p.observed))
+          || (!!c.closeChannelPending && !c.closeChannelObserved));
+        const pending = (request && !request.observed ? request : undefined)
+          ?? data.outbox.find(p => p.chatId === c.id && !p.observed);
+        const error = c.closeError || pending?.error || this.chatErrors.get(c.id);
+        const progress = closing ? "Closed on this browser. Notifying the other messaging browser."
+          : pending ? this.fundingSteps.get(pending.actor) ?? (pending.lastAttempt ? "Waiting for the network to confirm delivery." : "Preparing the encrypted request.")
+          : c.status === "accepting" ? this.channelSteps.get(c.id) ?? "Checking the private connection."
+          : undefined;
+        const requestDelivery = !request || request.observed ? "sent" : request.error ? "failed"
+          : request.lastAttempt ? "confirming" : "preparing";
+        return {
+          id: history.id,
+          peer: c.peer,
+          status: history.closedAt === undefined ? c.status : "closed" as const,
+          messages: structuredClone(history.messages),
+          createdAt: history.createdAt,
+          ...(c.status === "outgoing" && { requestDelivery }),
+          ...(closing && { closing }),
+          ...(progress && { progress }),
+          ...(error && { error }),
+        };
+      }),
+      // Control packets and already observed ciphertext are not unsent messages.
+      // Keep recovery records until finality without a minutes-long sending badge.
+      pending: data.outbox.filter(p => p.peer && !p.kind && !p.observed).length,
+      error: this.error,
+      devices: this.devices,
+    };
+    this.emit();
+  }
+  private emit(): void {
+    if (this.stopped) return;
+    const value = structuredClone(this.lastSnapshot);
+    for (const draft of this.queued) {
+      if (value.chats.some(c => c.messages.some(m => m.id === draft.id))) continue;
+      let chat = value.chats.find(c => c.id === draft.chatId)
+        ?? value.chats.find(c => c.peer === draft.peer && c.status !== "closed");
+      if (!chat) {
+        chat = { id: `pending:${draft.peer}`, peer: draft.peer, status: "outgoing", messages: [], createdAt: draft.createdAt,
+          progress: "Preparing your encrypted conversation in the background." };
+        value.chats.unshift(chat);
+      }
+      chat.messages.push({ id: draft.id, text: draft.text, mine: true, timestamp: draft.createdAt, state: chat.status === "closed" ? "not-sent" : "queued" });
+      chat.error = this.queueErrors.get(draft.peer) || chat.error;
+      if (chat.status !== "closed") value.pending++;
+    }
+    this.changed(value);
+  }
+  async queueMessage(peer: string, text: string, requestedThread?: string): Promise<void> {
+    this.active();
+    if (!isAddress(peer) || peer === this.me.account) throw new Error("Choose another person to message");
+    if (!text.trim() || utf8(text).length > PRIVATE_MESSAGE_LIMIT) throw new Error(`Message must contain 1–${PRIVATE_MESSAGE_LIMIT} UTF-8 bytes`);
+    const chatId = this.lastSnapshot.chats.find(c => c.peer === peer && c.status !== "closed" && (!requestedThread || c.id === requestedThread))?.id;
+    if (requestedThread && !chatId) throw new Error("This conversation is closed");
+    this.queued = await this.store.drafts(drafts => {
+      if (drafts.filter(d => d.peer === peer).length >= 20) throw new Error("Wait for your pending messages to send");
+      drafts.push({ id: id(), peer, chatId, text, createdAt: Date.now() });
+      return structuredClone(drafts);
+    });
+    this.queueErrors.delete(peer);
+    this.emit();
+    void this.sync();
+  }
+  async setAutoConnect(value: boolean): Promise<void> {
+    await this.store.edit(async (data, save) => { data.autoConnect = value; await save(); this.snapshot(data); });
+    void this.sync();
+  }
+  async setPrepareInAdvance(value: boolean): Promise<void> {
+    await this.store.edit(async (data, save) => { data.prepareInAdvance = value; await save(); this.snapshot(data); });
+    void this.sync();
+  }
+  async load(): Promise<void> {
+    await this.store.edit(async (data) => this.snapshot(data));
+    this.queued = await this.store.drafts(drafts => structuredClone(drafts));
+    this.emit();
+  }
+  private async submit(
+    signer: SignerInterface,
+    operations: OperationJson[],
+    label: string,
+    waitForReceipt = true,
+  ): Promise<void> {
+    this.active();
+    await submitAction(
+      { client: this.protocol, signer, payment: this.payment },
+      operations,
+      // Profile reservations must hold the shared account queue until inclusion.
+      // Alias packets reconcile their exact chain commitment before the next
+      // packet can send, so they need not block inbox reads on a receipt wait.
+      { label, quietProgress: true, waitForReceipt, beforeSubmit: async () => this.active() },
+    );
+  }
+  async enable(): Promise<void> {
+    const status = await this.protocol.reads.messaging.get_private_status({});
+    if (status?.version !== 2)
+      throw new Error(
+        "The messaging upgrade is not available on this network yet.",
+      );
+    await this.store.edit(async (data, save) => {
+      if (!data.enabled) {
+        data.enabled = true;
+        data.registered = false;
+        // The head's sequence is reversible. A fast-mode browser must not skip
+        // a future invitation if a reorg reuses a sequence below that head.
+        data.inboxAfter = privateConfirmationDepth(this.protocol.deployment.network) ? "0" : status.sequence;
+        data.inboxValidation = 2;
+      }
+      await save();
+      this.error = "";
+      this.snapshot(data);
+    });
+    void this.sync();
+  }
+  async revokeDevice(deviceId: string): Promise<void> {
+    if (!validId(deviceId)) throw new Error("Invalid messaging browser");
+    await this.store.edit(async (data, save) => {
+      await this.submit(
+        this.me.signer,
+        [
+          await this.protocol.ops.messaging.set_private_device({
+            account: this.me.account,
+            device_id: fromBase64url(deviceId),
+          }),
+        ],
+        "Removing messaging browser",
+      );
+      if (deviceId === data.deviceId) {
+        data.enabled = false;
+        data.registered = false;
+      }
+      this.devices = this.devices.filter((d) => d.id !== deviceId);
+      this.directory = this.directory.filter(d => toBase64url(d.device_id) !== deviceId);
+      for (const link of data.chats.filter(c => c.kind && (c.peerDeviceId === deviceId || deviceId === data.deviceId))) {
+        this.markClosed(data, link);
+        link.closeNotice = "received";
+      }
+      await save();
+      this.snapshot(data);
+    });
+  }
+  private async unblocked(peer: string): Promise<boolean> {
+    const [a, b] = await Promise.all([
+      this.protocol.reads.relationships.is_blocked({
+        actor: this.me.account,
+        target: peer,
+      }),
+      this.protocol.reads.relationships.is_blocked({
+        actor: peer,
+        target: this.me.account,
+      }),
+    ]);
+    if (!a || !b) throw new Error("Could not verify messaging permissions");
+    return !a.value && !b.value;
+  }
+  private async owner(account: string): Promise<string> {
+    const identity = (
+      await this.protocol.reads.identity.get_identity({ account })
+    )?.value;
+    return identity?.owner ?? "";
+  }
+  async start(peer: string): Promise<string> {
+    const result = await this.store.edit((data, save) => this.startInFile(data, save, peer));
+    void this.sync();
+    return result;
+  }
+  async linkDevice(deviceId: string): Promise<void> {
+    if (!validId(deviceId)) throw new Error("Choose a registered messaging browser");
+    await this.store.edit((data, save) => this.startInFile(data, save, this.me.account, { deviceId, deviceLink: true }));
+    void this.sync();
+  }
+  private linkCurrent(chat: PrivateChat): boolean {
+    return chat.kind === "device-link" && !!this.directory.find(d => toBase64url(d.device_id) === chat.peerDeviceId && toBase64url(d.delivery_key) === chat.peerDeliveryKey);
+  }
+  private async recipientDevices(peer: string): Promise<PrivateDevice[]> {
+    const cached = this.peerDirectories.get(peer);
+    if (cached) return cached;
+    const devices = (await this.protocol.reads.messaging.get_private_devices({ account: peer }))?.values;
+    if (!devices) throw new Error("Could not read the messaging device directory");
+    this.peerDirectories.set(peer, devices);
+    return devices;
+  }
+  private async routeCurrent(chat: PrivateChat): Promise<boolean> {
+    if (chat.kind) return !!chat.syncApproved && this.linkCurrent(chat);
+    if (!chat.peerDeviceId) return true; // Preserve existing, pre-device-routing chats.
+    return (await this.recipientDevices(chat.peer)).some(d => toBase64url(d.device_id) === chat.peerDeviceId
+      && (!chat.peerDeliveryKey || toBase64url(d.delivery_key) === chat.peerDeliveryKey));
+  }
+  private async startInFile(data: PrivateFile, save: () => Promise<void>, peer: string,
+    options: { deviceId?: string; threadId?: string; deviceLink?: boolean } = {}): Promise<string> {
+    if (!isAddress(peer) || (peer === this.me.account) !== !!options.deviceLink)
+      throw new Error("Enter another person's account address");
+    if (options.deviceLink && (!options.deviceId || options.deviceId === data.deviceId)) throw new Error("Choose your other browser");
+    const matches = (c: PrivateChat) => c.peer === peer && c.status !== "closed" && !!c.kind === !!options.deviceLink
+      && (!options.deviceId || c.peerDeviceId === options.deviceId) && (!options.threadId || threadId(c) === options.threadId);
+    const existingId = data.chats.find(matches)?.id;
+    if (existingId) return existingId;
+    if (!options.deviceLink && !(await this.unblocked(peer)))
+      throw new Error("This conversation is blocked");
+    const devices =
+      (
+        await this.protocol.reads.messaging.get_private_devices({
+          account: peer,
+        })
+      )?.values ?? [];
+    const device = [...devices].filter(d => !options.deviceId || toBase64url(d.device_id) === options.deviceId).sort((a, b) =>
+      Number(BigInt(b.updated_at) - BigInt(a.updated_at)),
+    )[0];
+    if (!device)
+      throw new Error(
+        "This person needs to enable private messaging on their browser first",
+      );
+    if (!data.registered)
+      throw new Error("Finish enabling this browser first");
+    const existing = data.chats.find(matches);
+    if (existing) return existing.id;
+    const channelId = id(),
+      aliasId = data.spareAliasId ?? id(),
+      packetId = id();
+    const wallet = privateWallet(
+      this.me.seed,
+      this.scope,
+      "conversation",
+      aliasId,
+    );
+    const setup = await createRatchetSetup(fromBase64url(data.pickleKey)),
+      reply = x25519KeyPair();
+    const createdAt = Date.now();
+    const value: Invitation = {
+      kind: "invite",
+      id: channelId,
+      from: this.me.account,
+      to: peer,
+      deviceId: toBase64url(device.device_id),
+      alias: wallet.getAddress(),
+      identityKey: setup.identityKey,
+      oneTimeKey: setup.oneTimeKey,
+      returnKey: toBase64url(reply.publicKey),
+      createdAt,
+      expiresAt: createdAt + INVITATION_LIFETIME,
+      fromDeviceId: data.deviceId,
+      threadId: options.threadId ?? channelId,
+      ...(options.deviceLink && { deviceLink: true }),
+    };
+    const signed: Signed<Invitation> = {
+      value,
+      signature: await signPrivateStatement(
+        this.scope,
+        "invite",
+        value,
+        this.me.signer,
+      ),
+    };
+    const context = this.context(wallet.getAddress(), "", packetId);
+    const envelope = sealPrivateInvitation(
+      context,
+      device.delivery_key,
+      signed,
+    );
+    data.chats.push({
+      id: channelId,
+      peer,
+      aliasId,
+      alias: wallet.getAddress(),
+      status: "outgoing",
+      setup,
+      returnSecret: toBase64url(reply.secretKey),
+      after: "0",
+      messages: [],
+      createdAt: Date.now(),
+      invitation: value,
+      peerDeviceId: toBase64url(device.device_id),
+      peerDeliveryKey: toBase64url(device.delivery_key),
+      threadId: value.threadId,
+      ...(options.deviceLink && { kind: "device-link", syncApproved: true }),
+    });
+    reply.secretKey.fill(0);
+    data.outbox.push({
+      id: packetId,
+      actor: wallet.getAddress(),
+      derivationId: aliasId,
+      purpose: "conversation",
+      peer: "",
+      envelope: toBase64url(envelope),
+      chatId: channelId,
+    });
+    delete data.spareAliasId;
+    delete data.spareAliasReady;
+    await save();
+    this.snapshot(data);
+    return channelId;
+  }
+  async accept(chatId: string): Promise<void> {
+    await this.store.edit(async (data, save) => {
+      const chat = data.chats.find(c => c.id === chatId);
+      if (chat?.kind === "device-link") { chat.syncApproved = true; await save(); }
+      await this.acceptInFile(data, save, chatId);
+    });
+    void this.sync();
+  }
+  private async acceptInFile(data: PrivateFile, save: () => Promise<void>, chatId: string): Promise<void> {
+    const chat = data.chats.find((c) => c.id === chatId);
+    if (!chat || chat.status !== "incoming" || !chat.invitation)
+      throw new Error("Message request is no longer available");
+    if (chat.kind === "device-link" && (!chat.syncApproved || !this.linkCurrent(chat))) throw new Error("Approve a currently registered browser before linking");
+    if (!chat.kind && !(await this.unblocked(chat.peer)))
+      throw new Error("This conversation is blocked");
+    if (chat.invitation.expiresAt < Date.now())
+      throw new Error(
+        "This request has expired. Ask them to send a new request.",
+      );
+    const aliasId = data.spareAliasId ?? chat.aliasId;
+    const alias = privateWallet(this.me.seed, this.scope, "conversation", aliasId).getAddress();
+    const value: Acceptance = {
+      kind: "accept",
+      id: chat.id,
+      from: this.me.account,
+      to: chat.peer,
+      alias,
+      peerAlias: chat.peerAlias!,
+      deviceId: data.deviceId,
+      threadId: threadId(chat),
+      ...(chat.kind === "device-link" && { deviceLink: true }),
+    };
+    const signed: Signed<Acceptance> = {
+      value,
+      signature: await signPrivateStatement(
+        this.scope,
+        "accept",
+        value,
+        this.me.signer,
+      ),
+    };
+    const accepted = await acceptRatchet(
+      fromBase64url(data.pickleKey),
+      chat.invitation,
+      signed,
+    );
+    const packetId = id();
+    const reply: AcceptanceEnvelope = {
+      kind: "accept",
+      id: chat.id,
+      identityKey: accepted.identityKey,
+      wire: accepted.wire,
+    };
+    const envelope = sealPrivateInvitation(
+      this.context(alias, "", packetId),
+      fromBase64url(chat.invitation.returnKey),
+      reply,
+    );
+    chat.aliasId = aliasId;
+    chat.alias = alias;
+    chat.ratchet = accepted.state;
+    chat.status = "accepting";
+    delete chat.invitation;
+    data.outbox.push({
+      id: packetId,
+      actor: chat.alias,
+      derivationId: chat.aliasId,
+      purpose: "conversation",
+      peer: "",
+      envelope: toBase64url(envelope),
+      chatId: chat.id,
+    });
+    delete data.spareAliasId;
+    delete data.spareAliasReady;
+    await save();
+    this.snapshot(data);
+  }
+  async send(chatId: string, text: string): Promise<void> {
+    await this.store.edit((data, save) => this.sendInFile(data, save, chatId, text, id()));
+    void this.sync();
+  }
+  private async sendInFile(data: PrivateFile, save: () => Promise<void>, chatId: string, text: string, messageId: string,
+    options: { logicalId?: string; sentAt?: number; copy?: boolean } = {}): Promise<void> {
+    const chat = data.chats.find((c) => c.id === chatId);
+    if (!chat || chat.status === "closed" || !chat.ratchet || !chat.peerAlias)
+      throw new Error("This conversation is not ready yet");
+    // Queue locally without a network round trip. Dispatch checks both block
+    // directions immediately before submission and keeps rejected packets local.
+    if (data.outbox.filter((p) => p.chatId === chatId && p.peer && !p.observed).length >= 20)
+      throw new Error("Wait for your pending messages to send");
+    const packetId = messageId,
+      context = this.context(chat.alias, chat.peerAlias, packetId);
+    const sentAt = options.sentAt ?? Date.now();
+    const encrypted = await encryptPrivateMessage(
+      fromBase64url(data.pickleKey),
+      chat.ratchet,
+      context,
+      text,
+      chat.kind ? undefined : { id: options.logicalId ?? messageId, deviceId: data.deviceId, threadId: threadId(chat), sentAt },
+    );
+    chat.ratchet = encrypted.state;
+    chat.messages.push({
+      id: packetId,
+      text: chat.kind ? "" : text,
+      mine: true,
+      timestamp: sentAt,
+      state: "sending",
+      envelopeHash: toBase64url(contentHash(encrypted.envelope)),
+      ...(!chat.kind && { logicalId: options.logicalId ?? messageId, sourceDeviceId: data.deviceId }),
+    });
+    data.outbox.push({
+      id: packetId,
+      actor: chat.alias,
+      derivationId: chat.aliasId,
+      purpose: "conversation",
+      peer: chat.peerAlias,
+      envelope: toBase64url(encrypted.envelope),
+      chatId,
+      ...(chat.kind && { kind: "sync" }),
+      ...(options.copy && { kind: "copy" }),
+    });
+    // This is the commit point. No packet may be submitted before it succeeds.
+    await save();
+    this.snapshot(data);
+  }
+  private async prepareQueued(data: PrivateFile, save: () => Promise<void>): Promise<void> {
+    this.queued = await this.store.drafts(drafts => structuredClone(drafts));
+    if (data.autoConnect !== false) {
+      // One active conversation per peer avoids paying for repeated introductions.
+      for (const chat of data.chats.filter(c => !c.kind && c.status === "incoming")) {
+        const existing = data.chats.find(c => !c.kind && c !== chat && c.peer === chat.peer && c.status !== "closed" && c.status !== "incoming"
+          && (!chat.peerDeviceId || !c.peerDeviceId || chat.peerDeviceId === c.peerDeviceId)
+          && (c.status === "outgoing" || threadId(c) === threadId(chat)));
+        if (existing) {
+          if (existing.status !== "outgoing") {
+            // New device pairs are separate ratchets. A legacy conversation has
+            // no device id, so it cannot suppress a new device's introduction.
+            if (!chat.peerDeviceId || existing.peerDeviceId === chat.peerDeviceId) continue;
+          } else {
+          // Simultaneous first messages choose the same introduction on both
+          // browsers. Move only unsent drafts; never move an advanced ratchet.
+          const loser = this.me.account < chat.peer ? chat : existing;
+          const winner = loser === chat ? existing : chat;
+          this.markClosed(data, loser);
+          loser.closeNotice = "received";
+          loser.supersededBy = winner.id;
+          await save();
+          this.queued = await this.store.drafts(drafts => {
+            for (const draft of drafts) if (draft.chatId === loser.id) draft.chatId = winner.id;
+            return structuredClone(drafts);
+          });
+          if (loser === chat) continue;
+          }
+        }
+        try { await this.acceptInFile(data, save, chat.id); }
+        catch (error) { this.chatErrors.set(chat.id, error instanceof Error ? error.message : String(error)); }
+      }
+    }
+    for (const draft of [...this.queued]) {
+      try {
+        if (data.chats.some(c => c.messages.some(m => m.id === draft.id))) {
+          await this.removeDraft(draft.id);
+          continue;
+        }
+        let chat = data.chats.find(c => !c.kind && c.peer === draft.peer && c.status !== "closed" && (!draft.chatId || threadId(c) === draft.chatId || c.id === draft.chatId));
+        const previous = data.chats.find(c => c.id === draft.chatId);
+        if (previous?.supersededBy) {
+          const winner = data.chats.find(c => c.id === previous.supersededBy && c.peer === draft.peer);
+          if (!winner) throw new Error("Could not restore the merged conversation");
+          draft.chatId = winner.id;
+          this.queued = await this.store.drafts(drafts => {
+            const saved = drafts.find(d => d.id === draft.id);
+            if (saved) saved.chatId = winner.id;
+            return structuredClone(drafts);
+          });
+        }
+        const closed = draft.chatId && (data.mirrors?.find(c => c.id === draft.chatId && c.closedAt !== undefined)
+          ?? data.chats.find(c => c.id === draft.chatId && c.status === "closed" && !c.routeOnlyClosed));
+        if (closed) {
+          closed.messages.push({ id: draft.id, text: draft.text, mine: true, timestamp: draft.createdAt, state: "not-sent" });
+          await save();
+          await this.removeDraft(draft.id);
+          continue;
+        }
+        if (!chat) {
+          const chatId = await this.startInFile(data, save, draft.peer, draft.chatId && !draft.chatId.startsWith("pending:") ? { threadId: draft.chatId } : {});
+          chat = data.chats.find(c => c.id === chatId)!;
+        }
+        if (!draft.chatId) {
+          const chatId = threadId(chat);
+          this.queued = await this.store.drafts(drafts => {
+            const saved = drafts.find(d => d.id === draft.id);
+            if (saved) saved.chatId = chatId;
+            return structuredClone(drafts);
+          });
+        }
+        if (chat.status === "incoming") await this.acceptInFile(data, save, chat.id);
+        if (!chat.ratchet || !chat.peerAlias) continue;
+        // A crash after committing the ratchet but before clearing the queue
+        // must never encrypt this message a second time.
+        if (!data.chats.some(c => c.messages.some(m => m.id === draft.id))) {
+          // Capture recipient devices before committing the primary copy. A
+          // second device may finish setup later without blocking the first.
+          const devices = (await this.protocol.reads.messaging.get_private_devices({ account: draft.peer }))?.values;
+          if (!devices) throw new Error("Could not check recipient messaging browsers");
+          const targets = chat.peerSupportsDevices && chat.peerDeviceId
+            ? devices.filter(d => toBase64url(d.device_id) !== chat!.peerDeviceId).map(d => ({ deviceId: toBase64url(d.device_id), packetId: id() })) : [];
+          if (targets.length && !data.deliveries?.some(d => d.id === draft.id)) {
+            if ((data.deliveries?.length ?? 0) >= 500) throw new Error("Some recipient browsers have not caught up. Pending copies are saved; try again after they reconnect.");
+            (data.deliveries ??= []).push({ id: draft.id, peer: draft.peer, threadId: threadId(chat), text: draft.text, createdAt: draft.createdAt, targets });
+          }
+          await this.sendInFile(data, save, chat.id, draft.text, draft.id, { sentAt: draft.createdAt });
+        }
+        await save();
+        await this.removeDraft(draft.id);
+        this.queueErrors.delete(draft.peer);
+      } catch (error) { this.queueErrors.set(draft.peer, error instanceof Error ? error.message : String(error)); }
+    }
+  }
+  private async removeDraft(id: string): Promise<void> {
+    this.queued = await this.store.drafts(drafts => {
+      const index = drafts.findIndex(d => d.id === id);
+      if (index >= 0) drafts.splice(index, 1);
+      return structuredClone(drafts);
+    });
+  }
+  /** Separate sessions per recipient browser. A sleeping secondary browser must
+   * not block delivery to the active one or share its live ratchet state. */
+  private async prepareCopies(data: PrivateFile, save: () => Promise<void>): Promise<void> {
+    let prepared = 0;
+    for (const job of [...(data.deliveries ?? [])]) {
+      if (historyThreads(data).some(t => t.id === job.threadId && t.closedAt !== undefined)) {
+        data.deliveries = data.deliveries!.filter(d => d !== job);
+        continue;
+      }
+      if (!(await this.unblocked(job.peer))) continue;
+      const devices = await this.recipientDevices(job.peer);
+      job.targets = job.targets.filter(t => devices.some(d => toBase64url(d.device_id) === t.deviceId));
+      for (const target of [...job.targets]) {
+        if (prepared >= 4) break;
+        let route = data.chats.find(c => !c.kind && c.peer === job.peer && threadId(c) === job.threadId
+          && c.peerDeviceId === target.deviceId && c.status !== "closed");
+        if (!route) {
+          const routeId = await this.startInFile(data, save, job.peer, { deviceId: target.deviceId, threadId: job.threadId });
+          route = data.chats.find(c => c.id === routeId)!;
+          prepared++;
+        }
+        if (!route.ratchet || !route.peerAlias || !(await this.routeCurrent(route))) continue;
+        if (!route.messages.some(m => m.id === target.packetId)) {
+          if (data.outbox.filter(p => p.chatId === route!.id && p.peer && !p.observed).length >= 20) continue;
+          await this.sendInFile(data, save, route.id, job.text, target.packetId, { logicalId: job.id, sentAt: job.createdAt, copy: true });
+          prepared++;
+        }
+        job.targets = job.targets.filter(t => t !== target);
+        await save();
+      }
+      if (!job.targets.length) data.deliveries = data.deliveries!.filter(d => d !== job);
+    }
+  }
+  private async shareHistory(data: PrivateFile, save: () => Promise<void>): Promise<void> {
+    const links = data.chats.filter(c => c.kind === "device-link" && c.status === "ready" && c.syncApproved && this.linkCurrent(c));
+    if (!links.length) return;
+    const records = historyRecords(data);
+    for (const link of links) {
+      if (data.outbox.some(p => p.chatId === link.id && p.peer && !p.observed)) continue;
+      if (!link.syncBatch) {
+        const changed = records.filter(r => link.syncSent?.[recordKey(r)] !== recordHash(r));
+        if (!changed.length) continue;
+        // Bound each turn so copying old history does not starve ordinary traffic.
+        const batch = changed.slice(0, 4);
+        link.syncBatch = { frames: encodeHistoryFrames(batch).map(text => ({ id: id(), text })),
+          records: batch.map(r => ({ key: recordKey(r), hash: recordHash(r) })) };
+        await save();
+      }
+      // Persist the frame IDs BEFORE encrypting. A crash after advancing the
+      // ratchet resumes this exact batch without duplicate encryption or gaps.
+      const remaining = link.syncBatch.frames.filter(frame => !link.messages.some(m => m.id === frame.id));
+      for (const frame of remaining.slice(0, 4)) await this.sendInFile(data, save, link.id, frame.text, frame.id);
+      if (remaining.length > 4) continue;
+      for (const record of link.syncBatch.records) (link.syncSent ??= {})[record.key] = record.hash;
+      delete link.syncBatch;
+      await save();
+    }
+  }
+  private closeThread(data: PrivateFile, root: string, peer: string, timestamp: number, notify: boolean): void {
+    let mirror = (data.mirrors ??= []).find(t => t.id === root);
+    if (mirror && mirror.peer !== peer) throw new Error("Conflicting conversation closure");
+    if (!mirror) {
+      mirror = { id: root, peer, createdAt: data.chats.find(c => !c.kind && threadId(c) === root)?.createdAt ?? timestamp, messages: [] };
+      data.mirrors.push(mirror);
+    }
+    mirror.closedAt = Math.min(mirror.closedAt ?? timestamp, timestamp);
+    for (const route of data.chats.filter(c => !c.kind && threadId(c) === root && c.peer === peer)) {
+      if (route.status === "closed" && !route.routeOnlyClosed) continue;
+      this.markClosed(data, route);
+      delete route.routeOnlyClosed;
+      route.closeNotice = notify ? "needed" : "received";
+      route.closeChannelPending = !!route.peerAlias;
+    }
+    data.deliveries = data.deliveries?.filter(d => d.threadId !== root);
+  }
+  private markClosed(data: PrivateFile, chat: PrivateChat): void {
+    chat.status = "closed";
+    chat.closedAt ??= Date.now();
+    delete chat.setup;
+    delete chat.returnSecret;
+    delete chat.ratchet;
+    delete chat.invitation;
+    delete chat.syncBatch;
+    delete chat.syncParts;
+    // An attempted broadcast may have succeeded even if its receipt was lost.
+    // Only never-encrypted drafts can truthfully be labelled "not sent".
+    for (const message of chat.messages) if (message.mine && ["sending", "submitted"].includes(message.state)) message.state = "stopped";
+    this.chatErrors.delete(chat.id);
+    // Keep a durable close notification, but never send queued chat messages.
+    data.outbox = data.outbox.filter(p => p.chatId !== chat.id || p.kind === "close");
+  }
+  async close(chatId: string): Promise<void> {
+    await this.store.edit(async (data, save) => {
+      // A pending placeholder can become a real conversation while close waits
+      // for the sync lock. Resolve it again inside that lock before cancelling.
+      const peer = chatId.startsWith("pending:") ? chatId.slice(8) : undefined;
+      let chat = data.chats.find(c => c.id === chatId || (!c.kind && threadId(c) === chatId) || (peer && c.peer === peer && c.status !== "closed"));
+      const mirror = data.mirrors?.find(t => t.id === chatId);
+      const drafts = await this.store.drafts(drafts => structuredClone(drafts.filter(d =>
+        d.chatId === chatId || (d.peer === (chat?.peer ?? peer) && (!d.chatId || d.chatId === chat?.id || d.chatId.startsWith("pending:"))))));
+      if (!chat && peer) chat = data.chats.find(c => c.peer === peer && c.status === "closed"
+        && drafts.some(d => c.messages.some(m => m.id === d.id)));
+      // A request may still be only a local placeholder. Archive its text too,
+      // without creating a network request solely to cancel it.
+      if (!chat && drafts.length && peer && isAddress(peer)) {
+        const aliasId = id();
+        chat = { id: id(), peer, aliasId, alias: privateWallet(this.me.seed, this.scope, "conversation", aliasId).getAddress(),
+          status: "closed", closeNotice: "sent", after: "0", createdAt: drafts[0]!.createdAt, messages: [] };
+        data.chats.push(chat);
+      }
+      if (!chat && mirror) {
+        for (const draft of drafts) mergeMessage(mirror.messages, { id: draft.id, text: draft.text, mine: true, timestamp: draft.createdAt, state: "not-sent" });
+        this.closeThread(data, mirror.id, mirror.peer, Date.now(), true);
+        await save();
+        for (const draft of drafts) await this.removeDraft(draft.id);
+        this.snapshot(data);
+        return;
+      }
+      if (!chat) { this.snapshot(data); return; }
+      for (const draft of drafts) if (!chat.messages.some(m => m.id === draft.id))
+        chat.messages.push({ id: draft.id, text: draft.text, mine: true, timestamp: draft.createdAt, state: "not-sent" });
+      if (chat.status !== "closed") {
+        if (!chat.kind) this.closeThread(data, threadId(chat), chat.peer, Date.now(), true);
+        else {
+          this.markClosed(data, chat);
+          chat.closeNotice = "needed";
+          chat.closeChannelPending = !!chat.peerAlias;
+        }
+      }
+      // Commit the archive before removing drafts. A crash between these two
+      // writes is deduplicated by message ID, never lost or sent after closing.
+      await save();
+      const archived = new Set(drafts.map(d => d.id));
+      this.queued = await this.store.drafts(drafts => {
+        for (let i = drafts.length - 1; i >= 0; i--) if (archived.has(drafts[i]!.id)) drafts.splice(i, 1);
+        return structuredClone(drafts);
+      });
+      this.snapshot(data);
+    });
+    void this.sync();
+  }
+  private async closures(data: PrivateFile, save: () => Promise<void>): Promise<void> {
+    for (const chat of data.chats) {
+      if (chat.status !== "closed") continue;
+      // Repair requests closed locally by older builds. No chat keys are restored.
+      if (!chat.closeNotice) {
+        chat.closeNotice = "needed";
+        chat.closedAt ??= Date.now();
+        chat.closeChannelPending = !!chat.peerAlias;
+      }
+      if (!chat.closeChannelPending && ["sent", "received"].includes(chat.closeNotice)) continue;
+      delete chat.closeError;
+      try {
+        if (chat.closeChannelPending && chat.peerAlias) {
+          const result = await this.protocol.reads.messaging.get_private_channel({ a: chat.alias, b: chat.peerAlias });
+          if (!result) throw new Error("Could not check whether the conversation is closed");
+          const channel = result.value;
+          if (channel?.status !== 3) delete chat.closeChannelObserved;
+          if (channel?.status === 3) {
+            const head = await this.head();
+            chat.closeChannelObserved = !!channel.block && BigInt(channel.block) <= privateConfirmationHeight(head, this.protocol.deployment.network === "harbinger" ? 1 : 0);
+            if (channel.block && BigInt(channel.block) <= BigInt(head.last_irreversible_block)) chat.closeChannelPending = false;
+          } else if (channel && Date.now() - (chat.closeChannelAttempt ?? 0) >= RETRY_MS) {
+            chat.closeChannelAttempt = Date.now();
+            await save();
+            await this.submit(privateWallet(this.me.seed, this.scope, "conversation", chat.aliasId), [
+              await this.protocol.ops.messaging.close_private_channel({ actor: chat.alias, peer: chat.peerAlias }),
+            ], "Closing conversation");
+          } else if (!channel && ["sent", "received"].includes(chat.closeNotice)) {
+            chat.closeChannelPending = false;
+          }
+        }
+        if (chat.closeNotice === "needed") {
+          const available = (await this.protocol.reads.messaging.get_private_devices({ account: chat.peer }))?.values;
+          const devices = available?.filter(d => !chat.kind || toBase64url(d.device_id) === chat.peerDeviceId);
+          if (!devices?.length) throw new Error("The other person has no messaging browser available to receive the cancellation. It will retry automatically.");
+          const value: Closure = { kind: "close", id: chat.id, from: this.me.account, to: chat.peer, createdAt: chat.closedAt!,
+            ...(!chat.kind && !chat.routeOnlyClosed && { threadId: threadId(chat) }) };
+          const signed: Signed<Closure> = { value, signature: await signPrivateStatement(this.scope, "close", value, this.me.signer) };
+          // Invitations are addressed to a browser; notify every currently registered
+          // browser so acceptance and cancellation work in either direction.
+          const packets = devices.map(device => {
+            const derivationId = chat.aliasId, packetId = id(), actor = chat.alias;
+            return { id: packetId, actor, derivationId, purpose: "conversation" as const, peer: "", kind: "close" as const,
+              envelope: toBase64url(sealPrivateInvitation(this.context(actor, "", packetId), device.delivery_key, signed)), chatId: chat.id };
+          });
+          data.outbox.push(...packets);
+          chat.closeNotice = "queued";
+          await save();
+        }
+      } catch (error) {
+        chat.closeError = error instanceof Error ? error.message : String(error);
+        this.error = chat.closeError;
+      }
+      this.snapshot(data);
+    }
+  }
+  private async receiveClosure(data: PrivateFile, signed: Signed<Closure>, timestamp: number): Promise<void> {
+    const v = signed.value;
+    if (!validId(v.id) || v.to !== this.me.account || !isAddress(v.from) || (v.threadId !== undefined && !validId(v.threadId))
+      || !Number.isSafeInteger(v.createdAt) || v.createdAt > timestamp + 300_000) return;
+    const chat = data.chats.find(c => c.id === v.id);
+    if (chat && chat.peer !== v.from) return;
+    if (v.from === this.me.account && chat?.kind !== "device-link") return;
+    if (!verifyPrivateStatement(this.scope, "close", v, signed.signature, await this.owner(v.from))) return;
+    if (chat) {
+      if (!chat.kind) this.closeThread(data, v.threadId ?? threadId(chat), chat.peer, v.createdAt, false);
+      this.markClosed(data, chat);
+      chat.closeNotice = "received";
+      chat.closeChannelPending = !!chat.peerAlias;
+      delete chat.closeError;
+      data.outbox = data.outbox.filter(p => p.chatId !== chat.id);
+    } else {
+      if (v.threadId && historyThreads(data).some(t => t.id === v.threadId && t.peer === v.from)) this.closeThread(data, v.threadId, v.from, v.createdAt, false);
+      // A cancellation can arrive before its invitation. Keep only authenticated,
+      // bounded tombstones so that a delayed invitation cannot resurrect it.
+      data.closedRequests = (data.closedRequests ?? []).filter(c => c.expiresAt > Date.now() && !(c.id === v.id && c.peer === v.from));
+      data.closedRequests.push({ id: v.id, peer: v.from, expiresAt: Date.now() + INVITATION_LIFETIME });
+      if (v.threadId && v.threadId !== v.id) data.closedRequests.push({ id: v.threadId, peer: v.from, expiresAt: Date.now() + INVITATION_LIFETIME });
+      data.closedRequests = data.closedRequests.slice(-256);
+    }
+  }
+  private context(
+    actor: string,
+    peer: string,
+    packetId: string,
+  ): PrivatePacketContext {
+    return { ...this.scope, actor, peer, packetId };
+  }
+  private async ensureDevice(
+    data: PrivateFile,
+    save: () => Promise<void>,
+  ): Promise<boolean> {
+    const devices = (
+      await this.protocol.reads.messaging.get_private_devices({
+        account: this.me.account,
+      })
+    )?.values;
+    if (!devices)
+      throw new Error("Could not read the messaging device directory");
+    this.directory = devices;
+    for (const link of data.chats.filter(c => c.kind && c.status !== "closed" && !this.linkCurrent(c))) {
+      this.markClosed(data, link);
+      link.closeNotice = "received";
+    }
+    this.devices = devices.map((d) => ({
+      id: toBase64url(d.device_id),
+      label: d.label,
+      current: toBase64url(d.device_id) === data.deviceId,
+      updatedAt: d.updated_at,
+    }));
+    const found = devices.find(
+      (d) =>
+        toBase64url(d.device_id) === data.deviceId &&
+        toBase64url(d.delivery_key) === data.deliveryPublic,
+    );
+    if (found) {
+      data.registered = true;
+      return true;
+    }
+    if (data.registered) {
+      data.enabled = false;
+      data.registered = false;
+      for (const link of data.chats.filter(c => c.kind && c.status !== "closed")) {
+        this.markClosed(data, link);
+        link.closeNotice = "received";
+      }
+      throw new Error(
+        "This messaging browser was revoked. Enable it again to receive new requests.",
+      );
+    }
+    if (Date.now() - (data.deviceAttempt ?? 0) >= RETRY_MS) {
+      data.deviceAttempt = Date.now();
+      await save();
+      await this.submit(
+        this.me.signer,
+        [
+          await this.protocol.ops.messaging.set_private_device({
+            account: this.me.account,
+            device_id: fromBase64url(data.deviceId),
+            delivery_key: fromBase64url(data.deliveryPublic),
+            label: "Web browser",
+          }),
+        ],
+        "Enabling private messages",
+      );
+    }
+    return false;
+  }
+  private async funded(
+    data: PrivateFile,
+    save: () => Promise<void>,
+    actor: string,
+    unitsToReserve = 4,
+    minimum = 1,
+  ): Promise<boolean> {
+    const stage = (message: string) => {
+      this.fundingSteps.set(actor, message);
+      this.snapshot(data);
+    };
+    if (!this.fundingSteps.has(actor)) stage("Checking message allowance.");
+    const units = (
+      await this.protocol.reads.messaging.get_private_units({ account: actor })
+    )?.units;
+    if (units === undefined)
+      throw new Error("Could not read private message allowance");
+    if (BigInt(units) >= BigInt(minimum)) {
+      this.fundingSteps.delete(actor);
+      return true;
+    }
+    let funding = data.funding[actor];
+    if (funding?.grantId) {
+      const grant = await this.protocol.reads.messaging.get_private_grant({ grant_id: fromBase64url(funding.grantId) });
+      if (!grant) throw new Error("Could not check message allowance delivery");
+      // An extant, insufficient grant needs a new reservation. An orphaned grant
+      // retries its original reservation/id instead of charging a second time.
+      if (grant.value) { delete data.funding[actor]; funding = undefined; }
+    }
+    if (!funding) {
+      stage("Connecting to the message sponsor.");
+      if (!this.sponsorUrls.length)
+        throw new Error("Choose a private messaging sponsor in Settings");
+      let chosen: { endpoint: string; sponsor: string } | undefined;
+      let discovered = false;
+      for (const endpoint of this.sponsorUrls) {
+        try {
+          const sponsor = this.sponsor(endpoint);
+          const doc = await sponsor.discover();
+          discovered = true;
+          if (
+            doc.policy.allowed.some(
+              (a) =>
+                a.contract === this.scope.contract &&
+                a.entryPoints.includes(
+                  ABIS.messaging.methods.reserve_private_usage!.entry_point,
+                ),
+            )
+          ) {
+            chosen = { endpoint, sponsor: doc.sponsor };
+            break;
+          }
+        } catch {
+          /* Try the next configured sponsor before reserving anything. */
+        }
+      }
+      if (!chosen)
+        throw new Error(discovered
+          ? "Your sponsor needs the private messaging update"
+          : "Could not reach a private messaging sponsor. The saved request will retry automatically.");
+      funding = { id: id(), ...chosen, units: unitsToReserve };
+      data.funding[actor] = funding;
+      await save();
+    }
+    const reservation = (
+      await this.protocol.reads.messaging.get_private_reservation({
+        reservation_id: fromBase64url(funding.id),
+      })
+    )?.value;
+    if (!reservation) {
+      stage("Reserving message allowance. Waiting for network confirmation.");
+      if (Date.now() - (funding.lastAttempt ?? 0) < RETRY_MS) return false;
+      funding.lastAttempt = Date.now();
+      await save();
+      await this.submit(
+        this.me.signer,
+        [
+          await this.protocol.ops.messaging.reserve_private_usage({
+            account: this.me.account,
+            sponsor: funding.sponsor,
+            reservation_id: fromBase64url(funding.id),
+            units: funding.units,
+          }),
+        ],
+        "Preparing message allowance",
+      );
+      return false;
+    }
+    if (
+      reservation.account !== this.me.account ||
+      reservation.sponsor !== funding.sponsor ||
+      reservation.units !== funding.units
+    )
+      throw new Error("Private usage reservation mismatch");
+    const sponsor = this.sponsor(funding.endpoint);
+    const discovery = await sponsor.discover();
+    if (discovery.sponsor !== funding.sponsor)
+      throw new Error("The sponsor changed identity; keep this saved reservation for recovery");
+    const head = await this.head();
+    const fast = privateConfirmationDepth(this.protocol.deployment.network);
+    const depth = fast && discovery.policy.privateUsageConfirmations === fast ? fast : 0;
+    const boundary = privateConfirmationHeight(head, depth);
+    if (BigInt(reservation.block) > boundary) {
+      stage(depth
+        ? `Confirming message allowance (${BigInt(reservation.block) - boundary} blocks remaining).`
+        : `Waiting for message allowance to become final (${BigInt(reservation.block) - boundary} blocks remaining).${fast ? " This sponsor still needs the faster messaging update." : ""}`);
+      return false;
+    }
+    stage("Waiting for the sponsor to activate message allowance.");
+    if (Date.now() - (funding.lastAllocationAttempt ?? 0) < RETRY_MS) return false;
+    const payload = { reservationId: funding.id, actor };
+    funding.lastAllocationAttempt = Date.now();
+    await save();
+    const grant = await sponsor.allocatePrivateUsage({
+      ...payload,
+      signature: await signPrivateStatement(
+        this.scope,
+        "allocate",
+        payload,
+        this.me.signer,
+      ),
+    });
+    funding.grantId = grant.grantId;
+    await save();
+    return false;
+  }
+  private async warmAllowance(data: PrivateFile, save: () => Promise<void>): Promise<void> {
+    if (data.prepareInAdvance === false || data.spareAliasReady || !this.sponsorUrls.length || Date.now() < this.warmRetryAt
+      || this.queued.length || data.outbox.some(p => !p.observed)
+      || data.chats.some(c => c.status !== "closed" && c.status !== "ready")
+      // Do not let optional replenishment compete with an active exchange.
+      || data.chats.some(c => c.status === "ready" && Date.now() - Math.max(c.createdAt, c.messages.at(-1)?.timestamp ?? 0) < 60_000)) return;
+    // At most one unused conversation wallet. It never signs a peer's traffic
+    // until claimed, and its persisted reservation is reused after a restart.
+    data.spareAliasId ??= id();
+    await save();
+    const actor = privateWallet(this.me.seed, this.scope, "conversation", data.spareAliasId).getAddress();
+    try { data.spareAliasReady = await this.funded(data, save, actor, 4, 4); }
+    catch { this.warmRetryAt = Date.now() + 60_000; /* Preparation must not interrupt an existing conversation. */ }
+  }
+  private async verified(row: PrivatePacketView, irreversible?: string): Promise<boolean> {
+    if (!validId(row.packet_id) || !/^(0|[1-9][0-9]{0,19})$/.test(row.sequence))
+      throw new Error("Invalid packet record");
+    const record = (
+      await this.protocol.reads.messaging.get_private_packet({
+        actor: row.actor,
+        packet_id: fromBase64url(row.packet_id),
+      })
+    )?.value;
+    if (
+      !record ||
+      record.actor !== row.actor ||
+      record.peer !== row.peer ||
+      record.sequence !== row.sequence ||
+      record.block !== row.block ||
+      record.timestamp !== row.timestamp ||
+      !bytesEqual(
+        record.content_hash,
+        contentHash(fromBase64url(row.envelope)),
+      ) ||
+      !bytesEqual(record.packet_id, fromBase64url(row.packet_id))
+    )
+      throw new Error("Message could not be verified on chain");
+    const lib = irreversible ?? (await this.head()).last_irreversible_block;
+    return BigInt(record.block) <= BigInt(lib);
+  }
+  private async *confirmedPackets(rows: PrivatePacketView[]): AsyncGenerator<PrivatePacketView> {
+    if (!rows.length) return;
+    // A recovery scan can contain many unrelated invitations. Reuse a conservative
+    // finality boundary and bound parallel reads instead of two serial RPCs per row.
+    const head = await this.head();
+    this.scanIrreversible = BigInt(head.last_irreversible_block);
+    // On testnet, authenticated packets can be displayed at inclusion. Their
+    // ciphertext and cursors remain recoverable until full irreversibility.
+    const boundary = privateConfirmationHeight(head, this.protocol.deployment.network === "harbinger" ? 1 : 0).toString();
+    for (let offset = 0; offset < rows.length; offset += 4) {
+      const batch = rows.slice(offset, offset + 4);
+      const results = await Promise.allSettled(batch.map(async row => {
+        const key = `${row.actor}:${row.packet_id}`;
+        const fingerprint = JSON.stringify([row.peer, row.sequence, row.block, row.timestamp, row.content_hash, row.envelope]);
+        // The reversible suffix is scanned repeatedly. Reuse only an exact,
+        // already verified packet until finality; changed rows always hit RPC.
+        // Final cursor advancement ALWAYS gets a fresh chain verification.
+        if (BigInt(row.block) > this.scanIrreversible && BigInt(row.block) <= BigInt(boundary)
+          && this.verifiedProvisional.get(key) === fingerprint) return true;
+        const valid = await this.verified(row, boundary);
+        if (valid && BigInt(row.block) > this.scanIrreversible) {
+          this.verifiedProvisional.set(key, fingerprint);
+          if (this.verifiedProvisional.size > 1024) this.verifiedProvisional.delete(this.verifiedProvisional.keys().next().value!);
+        } else this.verifiedProvisional.delete(key);
+        return valid;
+      }));
+      for (const [index, result] of results.entries()) {
+        this.active();
+        if (result.status === "rejected") throw result.reason;
+        if (!result.value) return;
+        yield batch[index]!;
+      }
+    }
+  }
+  private async invitations(
+    data: PrivateFile,
+    save: () => Promise<void>,
+  ): Promise<void> {
+    let scanAfter = data.inboxAfter;
+    for (let pageNumber = 0; pageNumber < 4; pageNumber++) {
+      const page = await this.indexer.privatePackets(scanAfter);
+      for await (const row of this.confirmedPackets(page.items)) {
+        let modified = false;
+        this.active();
+        if (row.peer || BigInt(row.sequence) <= BigInt(data.inboxAfter))
+          throw new Error("Invalid invitation page");
+        const context = this.context(row.actor, "", row.packet_id),
+          bytes = fromBase64url(row.envelope);
+        const opened = openPrivateInvitation<Signed<Invitation | Closure>>(
+          context,
+          fromBase64url(data.deliverySecret),
+          bytes,
+        );
+        if (opened?.value?.kind === "invite") {
+          const count = data.chats.length;
+          await this.receiveInvitation(data, opened as Signed<Invitation>, Number(row.timestamp));
+          modified = data.chats.length !== count;
+        } else if (opened?.value?.kind === "close" && BigInt(row.block) <= this.scanIrreversible) {
+          await this.receiveClosure(data, opened as Signed<Closure>, Number(row.timestamp));
+          modified = true;
+        } else {
+          for (const chat of data.chats) {
+            if (chat.status !== "outgoing" || !chat.returnSecret || !chat.setup)
+              continue;
+            const reply = openPrivateInvitation<AcceptanceEnvelope>(
+              context,
+              fromBase64url(chat.returnSecret),
+              bytes,
+            );
+            if (reply?.kind !== "accept" || reply.id !== chat.id) continue;
+            let accepted: Awaited<
+              ReturnType<typeof finishRatchet<Signed<Acceptance>>>
+            >;
+            try {
+              accepted = await finishRatchet<Signed<Acceptance>>(
+                fromBase64url(data.pickleKey),
+                chat.setup.account,
+                reply.identityKey,
+                reply.wire,
+              );
+            } catch {
+              continue;
+            }
+            const value = accepted.payload?.value;
+            if (
+              !value ||
+              value.kind !== "accept" ||
+              value.id !== chat.id ||
+              value.from !== chat.peer ||
+              value.to !== this.me.account ||
+              value.peerAlias !== chat.alias ||
+              !isAddress(value.alias)
+              || (value.deviceId !== undefined && (!validId(value.deviceId) || (chat.peerDeviceId && value.deviceId !== chat.peerDeviceId)))
+              || (value.threadId !== undefined && value.threadId !== threadId(chat))
+              || (chat.kind === "device-link" && (value.deviceLink !== true || value.deviceId !== chat.peerDeviceId || !chat.syncApproved || !this.linkCurrent(chat)))
+            )
+              continue;
+            // A temporary RPC failure must leave this packet unread, not discard the acceptance.
+            if (
+              !verifyPrivateStatement(
+                this.scope,
+                "accept",
+                value,
+                accepted.payload.signature,
+                await this.owner(chat.peer),
+              ) ||
+              (!chat.kind && !(await this.unblocked(chat.peer)))
+            )
+              continue;
+            chat.peerAlias = value.alias;
+            chat.ratchet = accepted.state;
+            chat.status = "accepting";
+            chat.peerDeviceId ??= value.deviceId;
+            chat.peerSupportsDevices = !!value.deviceId && !!value.threadId;
+            delete chat.setup;
+            delete chat.returnSecret;
+            delete chat.invitation;
+            modified = true;
+          }
+        }
+        // Keep rescanning the reversible suffix. Already processed request IDs
+        // are deduplicated; replaced sequences cannot hide a later invitation.
+        if (BigInt(row.block) <= this.scanIrreversible) data.inboxAfter = row.sequence;
+        scanAfter = row.sequence;
+        // Persist new keys/control state immediately, but don't re-encrypt and
+        // write the entire history for every unrelated/replayed invitation.
+        if (modified) await save();
+      }
+      await save();
+      if (!page.more || scanAfter !== page.items.at(-1)?.sequence) break;
+    }
+  }
+  private async receiveInvitation(
+    data: PrivateFile,
+    signed: Signed<Invitation>,
+    timestamp: number,
+  ): Promise<void> {
+    const v = signed.value;
+    if (
+      !validId(v.id) ||
+      v.to !== this.me.account ||
+      ((v.from === this.me.account) !== (v.deviceLink === true)) ||
+      !isAddress(v.from) ||
+      !isAddress(v.alias) ||
+      v.deviceId !== data.deviceId ||
+      !validId(v.returnKey) ||
+      (v.fromDeviceId !== undefined && (!validId(v.fromDeviceId) || (v.deviceLink && v.fromDeviceId === data.deviceId))) ||
+      (v.threadId !== undefined && !validId(v.threadId)) ||
+      (v.deviceLink && !v.fromDeviceId) ||
+      typeof v.identityKey !== "string" ||
+      typeof v.oneTimeKey !== "string" ||
+      !Number.isSafeInteger(v.createdAt) ||
+      !Number.isSafeInteger(v.expiresAt) ||
+      // A saved request may legitimately wait for funding/finality or an offline
+      // browser. Its signed lifetime is seven days, not five minutes. Reject
+      // future-dated and expired invitations, but do not discard delayed ones.
+      v.createdAt > timestamp + 300_000 ||
+      v.expiresAt <= v.createdAt ||
+      v.expiresAt <= timestamp ||
+      v.expiresAt <= Date.now() ||
+      // Older senders sampled the two timestamps separately.
+      v.expiresAt - v.createdAt > INVITATION_LIFETIME + 1_000 ||
+      data.chats.some((c) => c.id === v.id)
+      || data.closedRequests?.some(c => (c.id === v.id || c.id === v.threadId) && c.peer === v.from && c.expiresAt > Date.now())
+    )
+      return;
+    if (
+      !verifyPrivateStatement(
+        this.scope,
+        "invite",
+        v,
+        signed.signature,
+        await this.owner(v.from),
+      ) ||
+      (!v.deviceLink && !(await this.unblocked(v.from)))
+    )
+      return;
+    const sourceDevice = v.deviceLink ? this.directory.find(d => toBase64url(d.device_id) === v.fromDeviceId) : undefined;
+    if (v.deviceLink && !sourceDevice) return;
+    if (v.deviceLink) {
+      const existing = data.chats.find(c => c.kind && c.peerDeviceId === v.fromDeviceId && c.status !== "closed");
+      if (existing) {
+        if (existing.status !== "outgoing" || existing.id < v.id) return;
+        // Both browsers clicked Link: keep the same request at each end. The
+        // incoming winner still needs code comparison and explicit approval.
+        this.markClosed(data, existing);
+        existing.closeNotice = "received";
+      }
+    }
+    if (!v.deviceLink && data.mirrors?.some(t => t.id === (v.threadId ?? v.id) && t.peer === v.from && t.closedAt !== undefined)) return;
+    if (data.chats.filter((c) => c.status === "incoming").length >= 100) return;
+    const aliasId = id(),
+      alias = privateWallet(
+        this.me.seed,
+        this.scope,
+        "conversation",
+        aliasId,
+      ).getAddress();
+    data.chats.push({
+      id: v.id,
+      peer: v.from,
+      aliasId,
+      alias,
+      peerAlias: v.alias,
+      status: "incoming",
+      invitation: v,
+      after: "0",
+      messages: [],
+      createdAt: timestamp,
+      peerDeviceId: v.fromDeviceId,
+      peerSupportsDevices: !!v.fromDeviceId && !!v.threadId,
+      threadId: v.threadId ?? v.id,
+      ...(v.deviceLink && { kind: "device-link", peerDeliveryKey: toBase64url(sourceDevice!.delivery_key) }),
+    });
+  }
+  private async channels(
+    data: PrivateFile,
+    save: () => Promise<void>,
+  ): Promise<void> {
+    // Existing conversations receive before a new connection can wait on funding.
+    for (const chat of [...data.chats].sort((a, b) => Number(b.status === "ready") - Number(a.status === "ready"))) {
+      if (!chat.peerAlias || !chat.ratchet || chat.status === "closed")
+        continue;
+      try {
+        this.chatErrors.delete(chat.id);
+        if (!(await this.routeCurrent(chat))) {
+          this.markClosed(data, chat);
+          chat.routeOnlyClosed = true;
+          chat.closeNotice = "received";
+          continue;
+        }
+        const result = await this.protocol.reads.messaging.get_private_channel({
+            a: chat.alias,
+            b: chat.peerAlias,
+          });
+        if (!result) throw new Error("Could not check the private connection");
+        const c = result.value;
+        if (c?.status === 3) {
+          const head = await this.head();
+          if (
+            c.block &&
+            BigInt(c.block) <= BigInt(head.last_irreversible_block)
+          ) {
+            this.markClosed(data, chat);
+            chat.closeNotice = "received";
+            chat.closeChannelPending = false;
+          }
+          continue;
+        }
+        if (!c || (c.status === 1 && c.requester !== chat.alias)) {
+          if (!chat.kind && !(await this.unblocked(chat.peer))) continue;
+          // Let dispatch combine consent with its first packet in one atomic
+          // transaction. Older introduction wallets still use the separate path.
+          if (data.outbox.some(p => p.chatId === chat.id && p.actor === chat.alias && p.kind !== "close" && !p.observed
+            && (!p.peer || c?.status === 1))) continue;
+          this.channelSteps.set(chat.id, "Preparing your side of the private connection.");
+          if (await this.funded(data, save, chat.alias)) {
+            this.channelSteps.set(chat.id, "Confirming your side of the private connection.");
+            this.snapshot(data);
+            await this.submit(
+              privateWallet(
+                this.me.seed,
+                this.scope,
+                "conversation",
+                chat.aliasId,
+              ),
+              [
+                await this.protocol.ops.messaging.open_private_channel({
+                  actor: chat.alias,
+                  peer: chat.peerAlias,
+                }),
+              ],
+              "Connecting private conversation",
+            );
+          } else this.channelSteps.set(chat.id, this.fundingSteps.get(chat.alias)!);
+          continue;
+        }
+        if (c.status !== 2) {
+          this.channelSteps.set(chat.id, "Your side is ready. Waiting for the other account to finish confirming the connection.");
+          continue;
+        }
+        chat.status = "ready";
+        this.channelSteps.delete(chat.id);
+        if (!chat.kind && !(await this.unblocked(chat.peer))) continue;
+        const page = await this.indexer.privatePackets(
+          chat.after,
+          chat.alias,
+          chat.peerAlias,
+        );
+        for await (const row of this.confirmedPackets(page.items)) {
+          let modified = false;
+          if (
+            !(
+              (row.actor === chat.alias && row.peer === chat.peerAlias) ||
+              (row.actor === chat.peerAlias && row.peer === chat.alias)
+            ) ||
+            BigInt(row.sequence) <= BigInt(chat.after)
+          )
+            throw new Error("Invalid conversation packet page");
+          const previous = chat.messages.find(m => m.id === row.packet_id);
+          if (previous?.envelopeHash && previous.envelopeHash !== row.content_hash)
+            throw new Error("The network returned conflicting ciphertext for a saved message");
+          if (previous && !previous.mine && BigInt(row.block) <= this.scanIrreversible && previous.state !== "sent") {
+            previous.state = "sent";
+            modified = true;
+          }
+          if (
+            row.actor === chat.peerAlias &&
+            !chat.messages.some((m) => m.id === row.packet_id)
+          ) {
+            const opened = await decryptPrivateMessage(
+              fromBase64url(data.pickleKey),
+              chat.ratchet!,
+              this.context(row.actor, row.peer, row.packet_id),
+              fromBase64url(row.envelope),
+            );
+            if (chat.kind) {
+              // Validate all records on a copy before advancing keys. A bad
+              // authenticated frame must not partially commit history.
+              const candidate = structuredClone(data);
+              const link = candidate.chats.find(c => c.id === chat.id)!;
+              const closed = receiveHistoryFrame(candidate, link, opened.text, this.me.account);
+              historyThreads(candidate); // Reject conflicts with native history too.
+              data.mirrors = candidate.mirrors;
+              chat.syncParts = link.syncParts;
+              chat.syncSent = link.syncSent;
+              for (const root of closed) {
+                const mirror = data.mirrors!.find(t => t.id === root)!;
+                this.closeThread(data, root, mirror.peer, mirror.closedAt!, true);
+              }
+            } else if (opened.metadata && (opened.metadata.threadId !== threadId(chat)
+              || (chat.peerDeviceId && opened.metadata.deviceId !== chat.peerDeviceId))) {
+              throw new Error("The message belongs to a different conversation or browser");
+            }
+            const message = {
+              id: row.packet_id,
+              text: chat.kind ? "" : opened.text,
+              mine: false,
+              timestamp: opened.metadata?.sentAt ?? Number(row.timestamp),
+              state: BigInt(row.block) <= this.scanIrreversible ? "sent" as const : "confirming" as const,
+              envelopeHash: row.content_hash,
+              ...(!chat.kind && opened.metadata && { logicalId: opened.metadata.id, sourceDeviceId: opened.metadata.deviceId }),
+            };
+            if (!chat.kind) {
+              // A peer can authenticate malicious duplicate IDs. Reject that
+              // packet before committing anything that could poison the inbox.
+              const history = historyThreads(data).find(t => t.id === threadId(chat));
+              mergeMessage(history?.messages ?? [], message);
+            }
+            if (!chat.kind && opened.metadata) {
+              chat.peerDeviceId ??= opened.metadata.deviceId;
+              chat.peerSupportsDevices = true;
+            }
+            chat.ratchet = opened.state;
+            chat.messages.push(message);
+            modified = true;
+          }
+          if (BigInt(row.block) <= this.scanIrreversible) chat.after = row.sequence;
+          if (modified) { await save(); this.snapshot(data); }
+        }
+        await save();
+      } catch (error) {
+        // Keep this chat's cursor/keys intact on failure, but let other chats progress.
+        this.error = error instanceof Error ? error.message : String(error);
+        this.chatErrors.set(chat.id, this.error);
+      }
+    }
+  }
+  private async dispatch(
+    data: PrivateFile,
+    save: () => Promise<void>,
+  ): Promise<void> {
+    // One unobserved transaction per alias. Close notices can now reuse that
+    // alias too, so ordering by packet ID would race its account nonce.
+    const visited = new Set<string>();
+    for (const packet of [...data.outbox]) {
+      const orderKey = packet.actor;
+      if (visited.has(orderKey)) continue;
+      visited.add(orderKey);
+      this.active();
+      const chat = data.chats.find(c => c.id === packet.chatId);
+      if (!chat || (chat.status === "closed" && packet.kind !== "close")) continue;
+      try {
+        const result = await this.protocol.reads.messaging.get_private_packet({ actor: packet.actor, packet_id: fromBase64url(packet.id) });
+        if (!result) throw new Error("Could not check encrypted message delivery");
+        const existing = result.value;
+        if (existing) {
+          if (existing.peer !== packet.peer || !bytesEqual(existing.content_hash, contentHash(fromBase64url(packet.envelope))))
+            throw new Error("Saved packet does not match the chain");
+          delete packet.error;
+          const head = await this.head();
+          const message = chat.messages.find(m => m.id === packet.id);
+          if (BigInt(existing.block) > BigInt(head.last_irreversible_block)) {
+            if (BigInt(existing.block) <= privateConfirmationHeight(head, this.protocol.deployment.network === "harbinger" ? 1 : 0)) {
+              packet.observed = true;
+              if (message) message.state = "confirming";
+            }
+            // Retain this exact ciphertext for reorg recovery, but do not make
+            // every later message wait for its predecessor's full finality.
+            visited.delete(orderKey);
+            continue;
+          }
+          data.outbox = data.outbox.filter(p => p.id !== packet.id);
+          this.fundingSteps.delete(packet.actor);
+          if (packet.kind === "close" && !data.outbox.some(p => p.chatId === chat.id && p.kind === "close")) chat.closeNotice = "sent";
+          if (message) { message.state = "sent"; if (!message.logicalId) message.timestamp = Number(existing.timestamp); }
+          await save();
+          visited.delete(orderKey);
+          continue;
+        }
+        if (packet.observed) {
+          delete packet.observed;
+          delete packet.submitted;
+          delete packet.lastAttempt;
+          const message = chat.messages.find(m => m.id === packet.id);
+          if (message) message.state = "sending";
+          await save();
+        }
+        if (packet.kind !== "close") {
+          // Introductions initiate trust; history/message packets require an
+          // approved, still-registered destination on every submission attempt.
+          if ((packet.peer || chat.status !== "outgoing") && !(await this.routeCurrent(chat))) continue;
+          if (!chat.kind && !(await this.unblocked(chat.peer))) throw new Error("This conversation is blocked");
+        }
+        let open = false;
+        if (chat.peerAlias && packet.actor === chat.alias && packet.kind !== "close") {
+          const result = await this.protocol.reads.messaging.get_private_channel({ a: chat.alias, b: chat.peerAlias });
+          if (!result) throw new Error("Could not check the private connection");
+          const channel = result.value;
+          if (channel?.status === 3) continue;
+          open = !channel || (channel.status === 1 && channel.requester !== chat.alias);
+          // A message can accompany our consent only if their consent is already
+          // on chain. The contract checks this again atomically when executing.
+          if (packet.peer && channel?.status !== 2 && !(channel?.status === 1 && open)) continue;
+        } else if (packet.peer && chat.status !== "ready") continue;
+        delete packet.error;
+        if (!(await this.funded(data, save, packet.actor, packet.purpose === "invitation" ? 1 : 4, open ? 2 : 1))) continue;
+        if (Date.now() - (packet.lastAttempt ?? 0) < RETRY_MS) continue;
+        const signer = privateWallet(this.me.seed, this.scope, packet.purpose, packet.derivationId);
+        if (signer.getAddress() !== packet.actor) throw new Error("Saved conversation wallet mismatch");
+        packet.lastAttempt = Date.now();
+        await save();
+        this.snapshot(data);
+        const operations: OperationJson[] = [];
+        if (open) operations.push(await this.protocol.ops.messaging.open_private_channel({ actor: chat.alias, peer: chat.peerAlias! }));
+        operations.push(await this.protocol.ops.messaging.post_private_packet({
+          actor: packet.actor, ...(packet.peer ? { peer: packet.peer } : {}), packet_id: fromBase64url(packet.id), envelope: fromBase64url(packet.envelope),
+        }));
+        await this.submit(signer, operations, packet.kind === "close" ? "Notifying conversation closure" : "Sending private message", false);
+        packet.submitted = true;
+        const message = chat.messages.find(m => m.id === packet.id);
+        if (message) message.state = "submitted";
+      } catch (error) {
+        // Funding and lookup failures belong to this packet too; one broken
+        // request must not silently stall every newer conversation behind it.
+        packet.error = error instanceof Error ? error.message : String(error);
+        this.error = packet.error;
+      }
+      await save();
+      this.snapshot(data);
+    }
+  }
+  async sync(): Promise<void> {
+    if (this.stopped) return;
+    if (this.running) { this.syncAgain = true; return this.syncTask; }
+    clearTimeout(this.scheduledSync);
+    this.running = true;
+    this.syncTask = (async () => {
+      // Coalesce bursts, but let callers finish even if a slow connection keeps
+      // receiving wakeups. Any remaining work resumes on the next task.
+      for (let pass = 0; pass < 2; pass++) {
+        this.syncAgain = false;
+        await this.syncOnce();
+        if (!this.syncAgain || this.stopped) break;
+      }
+    })().finally(() => {
+      this.running = false;
+      this.syncTask = undefined;
+      if (this.syncAgain && !this.stopped) this.scheduledSync = setTimeout(() => void this.sync(), 0);
+    });
+    return this.syncTask;
+  }
+  private async syncOnce(): Promise<void> {
+    this.syncHead = undefined;
+    this.peerDirectories.clear();
+    try {
+      await this.store.edit(async (data, save) => {
+        this.error = "";
+        try {
+          if (data.enabled && (await this.ensureDevice(data, save))) {
+            if (data.inboxValidation !== 2) {
+              // Older clients skipped delayed invitations and did not understand
+              // encrypted cancellations. Rescan once; chat IDs, tombstones, and
+              // ratchet state make this replay safe, including staggered upgrades.
+              data.inboxAfter = "0";
+              data.inboxValidation = 2;
+              await save();
+            }
+            // Receiving can fail independently of sending (for example an
+            // indexer outage). Keep the durable outbox and closures moving.
+            for (const work of [this.invitations, this.prepareQueued, this.channels, this.prepareCopies, this.shareHistory, this.dispatch, this.closures, this.warmAllowance]) {
+              try { await work.call(this, data, save); }
+              catch (error) { this.error = error instanceof Error ? error.message : String(error); }
+              await save();
+              this.snapshot(data);
+            }
+          }
+        } catch (error) {
+          this.error = error instanceof Error ? error.message : String(error);
+        }
+        await save();
+        this.snapshot(data);
+      });
+    } catch (error) {
+      this.error = error instanceof Error ? error.message : String(error);
+      if (!this.stopped) {
+        // A failed read/write must not replace saved conversations with an
+        // empty, disabled inbox. Never emit plaintext after the vault locks.
+        try { this.active(); this.lastSnapshot.error = this.error; this.emit(); }
+        catch { /* The provider clears the snapshot when the session locks. */ }
+      }
+    } finally {
+      this.syncHead = undefined;
+    }
+  }
+}

@@ -1,6 +1,9 @@
 import type { CSSProperties } from "react";
 
 const paths = {
+  back: "M20 12H4m6-6-6 6 6 6",
+  send: "m22 2-7 20-4-9-9-4zm0 0L11 13",
+  compass: "M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0m-6-4-3 7-7 3 3-7z",
   up: "M12 20V4m-6 6 6-6 6 6",
   down: "M12 4v16m-6-6 6 6 6-6",
   home: "m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z",

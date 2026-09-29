@@ -27,6 +27,8 @@ import {
   type PublishArgs,
   type Recipient,
   type Rng,
+  wrapMediaKey,
+  ipfsCid,
 } from "@osp/sdk";
 import type { KeySource, KeyStore, KeyVerifier } from "../../api/keystore";
 import { bytesOf, fromHex, toBase64url } from "../../util/bytes";
@@ -92,6 +94,8 @@ export interface MediaAttachment {
   /** sha256 of the fetched bytes. */
   contentHash: Uint8Array;
   altText?: string;
+  /** Local-only secret material. Persisted only in the encrypted draft, never outer refs. */
+  encryption?: { key: string; nonce: string };
 }
 
 export interface PublishPlan {
@@ -123,7 +127,7 @@ export function estimateEnvelopeBytes(content: Content, encrypted: boolean): num
   return encrypted ? plain + 16 + 24 + 48 + 24 + 16 : plain + 8;
 }
 
-export function buildContent(input: Pick<PublishInput, "text" | "media" | "lang" | "createdAt">): Content {
+export function buildContent(input: Pick<PublishInput, "text" | "media" | "lang" | "createdAt">, contentKey?: Uint8Array): Content {
   const content: Content = { version: 1, text: input.text, mime: "text/plain" };
   if (input.lang) content.lang = input.lang;
   if (input.createdAt) content.created_at = String(input.createdAt);
@@ -134,6 +138,7 @@ export function buildContent(input: Pick<PublishInput, "text" | "media" | "lang"
       size: String(m.size),
       locations: [m.url],
       ...(m.altText && { alt_text: m.altText }),
+      ...(m.encryption && { nonce: bytesOf(m.encryption.nonce), wrapped_key: contentKey ? wrapMediaKey(bytesOf(m.encryption.key), contentKey, m.contentHash) : new Uint8Array(73) }),
     }));
   }
   return content;
@@ -195,9 +200,17 @@ export async function currentEpoch(chain: PublishChain, account: string): Promis
 export async function buildPublishPlan(input: PublishInput): Promise<PublishPlan> {
   const attemptId = typeof input.attemptId === "string" ? fromHex(input.attemptId) : input.attemptId;
   const key = idempotencyKey(input.me.account, attemptId);
-  const content = buildContent(input);
-  if (!content.text || content.text.trim().length === 0) throw new PublishError("Write something first.");
-  if (input.audience === AUDIENCE.FRIENDS && input.media?.length) throw new PublishError("Linked media files are public at their original host. Remove the attachment or choose Everyone. Private media uploads are not supported yet.");
+  const contentKey = input.audience === AUDIENCE.FRIENDS ? newEpochKey(input.rng) : undefined;
+  for (const media of input.media ?? []) {
+    if (input.audience === AUDIENCE.FRIENDS && !media.encryption) throw new PublishError("Linked media files are public at their original host. Remove the attachment and upload the photo again with Friends selected.");
+    if (input.audience === AUDIENCE.EVERYONE && media.encryption) throw new PublishError("Remove private photos before changing this post to Public.");
+    if (media.encryption) {
+      if (!media.url.startsWith("ipfs://") || bytesOf(media.encryption.key).length !== 32 || bytesOf(media.encryption.nonce).length !== 24) throw new PublishError("Invalid encrypted photo attachment");
+      ipfsCid(media.url);
+    }
+  }
+  const content = buildContent(input, contentKey);
+  if (!content.text?.trim() && !input.media?.length) throw new PublishError("Write something or add a photo first.");
   if ((input.media?.length ?? 0) > LIMITS.maxMediaRefs) throw new PublishError(`At most ${LIMITS.maxMediaRefs} media attachments per post.`);
   const operations: OperationJson[] = [];
   const isEdit = input.edit !== undefined;
@@ -248,7 +261,7 @@ export async function buildPublishPlan(input: PublishInput): Promise<PublishPlan
     epoch,
     versionNumber,
   };
-  const encrypted = input.audience === AUDIENCE.FRIENDS ? encryptContent({ content, aad, epochKey, ...(input.rng && { rng: input.rng }) }) : encryptContent({ content, aad });
+  const encrypted = input.audience === AUDIENCE.FRIENDS ? encryptContent({ content, aad, epochKey, contentKey, ...(input.rng && { rng: input.rng }) }) : encryptContent({ content, aad });
   const envelope = encrypted.bytes;
   if (envelope.length > LIMITS.maxEnvelopeBytes) {
     throw new PublishError(`This post is ${envelope.length} bytes; the limit is ${LIMITS.maxEnvelopeBytes}. Shorten it or remove attachments.`);
@@ -276,7 +289,7 @@ export async function buildPublishPlan(input: PublishInput): Promise<PublishPlan
       epoch,
       envelope,
       content_hash: hash,
-      ...(input.media && input.media.length > 0 && { media: mediaRefs(input.media) }),
+      ...(input.audience === AUDIENCE.EVERYONE && input.media?.length && { media: mediaRefs(input.media) }),
       ...(input.replyTo && { reply_to: bytesOf(input.replyTo) }),
       idempotency_key: key,
     }),

@@ -608,7 +608,7 @@ export interface RegistryReadMethods {
 // Method tables
 // ---------------------------------------------------------------------------
 
-export interface ConversationRecord { a: string; b: string; requester: string; status: number; generation: string; sequence: string; updated_at: string; }
+export interface ConversationRecord { block?: string; a: string; b: string; requester: string; status: number; generation: string; sequence: string; updated_at: string; }
 export interface DirectMessageRecord { sender: string; recipient: string; message_id: Uint8Array; content_hash: Uint8Array; generation: string; sequence: string; timestamp: string; }
 export interface ConversationArgs { actor: Address; peer: Address; device?: Address; generation: U64; }
 export interface TokenAccount {
@@ -617,7 +617,17 @@ export interface TokenAccount {
   transferable?: string; locked?: string; recharge_blocks?: string; ticks_per_unit?: string;
 }
 export interface TokenConfig { identity: string; relationships: string; publications: string; messaging: string; reward_amount: string; daily_reward_cap: string; recipient_daily_cap: string; supply: string; resource_version?: number; activation_block?: string; activation_time?: string; economy_version?: number; }
+export interface PrivateDevice { device_id: Bytes; delivery_key: Bytes; label: string; updated_at: string; }
+export interface PrivateReservation { block: string; account: string; sponsor: string; reservation_id: Bytes; units: number; }
+export interface PrivateGrant { sponsor: string; actor: string; grant_id: Bytes; units: number; }
+export interface PrivatePacket { block: string; actor: string; peer: string; packet_id: Bytes; content_hash: Bytes; sequence: string; timestamp: string; }
 export interface MessagingWriteMethods {
+  set_private_device: { account: Address; device_id: Bytes; delivery_key?: Bytes; label?: string };
+  reserve_private_usage: { account: Address; sponsor: Address; reservation_id: Bytes; units: number };
+  allocate_private_usage: { sponsor: Address; actor: Address; grant_id: Bytes; units: number };
+  open_private_channel: { actor: Address; peer: Address };
+  close_private_channel: { actor: Address; peer: Address };
+  post_private_packet: { actor: Address; peer?: Address; packet_id: Bytes; envelope: Bytes };
   set_dependencies: { identity: Address; relationships: Address; token: Address };
   request_conversation: ConversationArgs;
   accept_conversation: ConversationArgs;
@@ -625,6 +635,13 @@ export interface MessagingWriteMethods {
   send_message: { sender: Address; recipient: Address; device?: Address; message_id: Bytes; generation: U64; envelope: Bytes };
 }
 export interface MessagingReadMethods {
+  get_private_devices: [AccountArgs, ValuesResult<PrivateDevice>];
+  get_private_reservation: [{ reservation_id: Bytes }, ValueResult<PrivateReservation>];
+  get_private_grant: [{ grant_id: Bytes }, ValueResult<PrivateGrant>];
+  get_private_units: [{ account: Address; pool?: boolean }, { units: string }];
+  get_private_channel: [{ a: Address; b: Address }, ValueResult<ConversationRecord>];
+  get_private_packet: [{ actor: Address; packet_id: Bytes }, ValueResult<PrivatePacket>];
+  get_private_status: [Record<string, never>, { version: number; sequence: string }];
   get_dependencies: [Record<string, never>, { identity: string; relationships: string; token: string }];
   get_conversation: [{ a: Address; b: Address }, ValueResult<ConversationRecord>];
   get_message: [{ sender: Address; message_id: Bytes }, ValueResult<DirectMessageRecord>];
@@ -973,6 +990,8 @@ export interface AdminChangedEvent {
 
 /** Event payload types keyed by full event name. */
 export interface EventPayloads {
+  "osp.messaging.private_packet": { value: PrivatePacket; envelope: Bytes };
+  "osp.messaging.private_channel": { value: ConversationRecord };
   "osp.token.economy_activated": { value: EconomyConfig };
   "osp.token.test_tokens_granted": { account: string; value: string; cumulative: string; timestamp: string };
   "osp.token.voted": { actor: string; value: PostReward; vote: Ballot; epoch: RewardEpoch; timestamp: string };

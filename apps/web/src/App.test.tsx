@@ -216,7 +216,7 @@ describe("App", () => {
     vault.getState().lock();
     const calls: string[] = [];
     const { container } = await render("/", vault, deployedServices(calls));
-    expect(calls.some((c) => c.includes("scope=public"))).toBe(true);
+    expect(calls.some((c) => c.includes("scope=all"))).toBe(true);
     const friendsTab = [...container.querySelectorAll("button[role='tab']")].find((b) => b.textContent?.trim() === "Friends") as HTMLButtonElement;
     await act(async () => {
       friendsTab.click();
@@ -242,9 +242,9 @@ it("takes an unlocked account to its own profile from /me", async () => {
   await vault.getState().init();
   const identity = await vault.getState().create("correct horse battery");
   const { container } = await render("/me", vault, deployedServices([]));
-  expect(container.querySelector("main")!.textContent).toContain("YOUR PROFILE");
+  expect(container.querySelector("main")!.textContent).toContain("Edit profile");
   expect(container.querySelector("main")!.textContent).toContain(identity.account);
-  expect(container.querySelector("main a[href='/compose']")).not.toBeNull();
+  expect(container.querySelector("main a[href^='/compose']")).not.toBeNull();
 });
 it("offers nickname search without making visitors create an account first", async () => {
   const { container } = await render("/people");
@@ -257,9 +257,14 @@ it("keeps loaded feed panels mounted during repeated scope changes", async () =>
   await vault.getState().create("correct horse battery");
   const calls: string[] = [];
   const { container } = await render("/", vault, deployedServices(calls));
+  // Panels load on first visit, then stay mounted when changing scopes.
+  for (const index of [1, 2]) await act(async () => { (container.querySelectorAll("button[role='tab']")[index] as HTMLButtonElement).click(); });
+  const allPanel = container.querySelector("#feed-all");
   const publicPanel = container.querySelector("#feed-public");
   const friendsPanel = container.querySelector("#feed-friends");
-  for (let i = 0; i < 10; i++) await act(async () => { (container.querySelectorAll("button[role='tab']")[i % 2 ? 0 : 1] as HTMLButtonElement).click(); });
+  for (let i = 0; i < 12; i++) await act(async () => { (container.querySelectorAll("button[role='tab']")[i % 3] as HTMLButtonElement).click(); });
+  expect(container.querySelector("#feed-all")).toBe(allPanel);
+  expect(calls.filter(call => call.includes("/v1/feed") && call.includes("scope=all"))).toHaveLength(1);
   expect(container.querySelector("#feed-public")).toBe(publicPanel);
   expect(container.querySelector("#feed-friends")).toBe(friendsPanel);
   expect(calls.filter(call => call.includes("/v1/feed") && call.includes("scope=public"))).toHaveLength(1);

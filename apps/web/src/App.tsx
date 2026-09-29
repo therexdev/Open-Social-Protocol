@@ -9,6 +9,7 @@ import { Spinner } from "./components/ui";
 import { ComposerPage } from "./features/composer/ComposerPage";
 import { PublishingProvider } from "./features/composer/PublishingProvider";
 import { FeedPage } from "./features/feed/FeedPage";
+import { HashtagPage } from "./features/feed/HashtagPage";
 import { FriendsPage } from "./features/friends/FriendsPage";
 import { NotificationsPage } from "./features/notifications/NotificationsPage";
 import { OnboardingPage } from "./features/onboarding/OnboardingPage";
@@ -17,6 +18,7 @@ import { PostPage } from "./features/post/PostPage";
 import { ProfilePage } from "./features/profile/ProfilePage";
 import { RecoveryPage } from "./features/recovery/RecoveryPage";
 import { MessagesPage } from "./features/messages/MessagesPage";
+import { PrivateMessagingProvider } from "./features/messages/PrivateMessagingProvider";
 import { TokensPage } from "./features/tokens/TokensPage";
 import { SettingsPage } from "./features/settings/SettingsPage";
 import { useAccount } from "./stores/account";
@@ -88,6 +90,7 @@ export function AppRoutes() {
     <Routes>
       <Route path="/about" element={<AboutPage />} />
       <Route path="/people" element={<PeoplePage />} />
+      <Route path="/tags/:tag" element={<Optional><HashtagPage /></Optional>} />
       <Route path="/me" element={<RequireAccount><OwnProfile /></RequireAccount>} />
       <Route path="/welcome" element={<OnboardingPage />} />
       <Route path="/recover" element={<RecoveryPage />} />
@@ -162,10 +165,12 @@ export function App({ vault = defaultVault, settings, services }: AppProps) {
     <VaultProvider store={vault}>
       <ServicesProvider {...(settings && { store: settings })} {...(services && { factory: services })}>
         <PublishingProvider>
+        <PrivateMessagingProvider>
           <AccountEffects />
           <Layout>
             <AppRoutes />
           </Layout>
+        </PrivateMessagingProvider>
         </PublishingProvider>
       </ServicesProvider>
     </VaultProvider>

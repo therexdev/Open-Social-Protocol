@@ -1,0 +1,153 @@
+/** Opt-in live private-messaging journey. Uses new disposable TEST identities only.
+ * node --import tsx scripts/test-private-messaging-testnet.ts --execute
+ * Never pass a user's seed. No private material is printed or written by this script.
+ */
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { ProtocolClient, Provider, identityFromSeed, randomBytes, loadDeployment } from "@osp/sdk";
+import { IndexerClient } from "../apps/web/src/api/indexer.ts";
+import { PrivateStore, type ExclusiveLock } from "../apps/web/src/features/messages/privateStore.ts";
+import { PrivateMessagingService, type PrivateSnapshot } from "../apps/web/src/features/messages/privateService.ts";
+import { memoryStorage } from "../apps/web/src/vault/storage.ts";
+import { useToasts } from "../apps/web/src/stores/toasts.ts";
+assert.equal(process.argv[2], "--execute", "Explicit --execute required; this test submits testnet transactions");
+const deployment = loadDeployment(readFileSync(new URL("../deployments/harbinger.json", import.meta.url), "utf8"));
+assert.equal(deployment.network, "harbinger");
+const nativeFetch = globalThis.fetch;
+// Optional curl transport for environments whose Node proxy cannot reach the RPC.
+if (process.env.OSP_TEST_CURL === "1") globalThis.fetch = (async (input: any, init: any = {}) => {
+  const url = String(input);
+  if (!/^https?:/.test(url)) return nativeFetch(input, init);
+  return new Promise<Response>((resolve, reject) => {
+    const headers = new Headers(init.headers);
+    const args = ["-sS", "--max-time", "25", "-w", "\n%{http_code}", "-X", init.method ?? "GET"];
+    headers.forEach((value, key) => args.push("-H", `${key}: ${value}`));
+    if (init.body !== undefined) args.push("--data-binary", "@-");
+    args.push(url);
+    const child = spawn("curl", args, { stdio: ["pipe", "pipe", "pipe"] });
+    let output = "", error = "";
+    child.stdout.on("data", chunk => { output += chunk; });
+    child.stderr.on("data", chunk => { error += chunk; });
+    child.on("error", reject);
+    child.on("close", code => {
+      if (code) { reject(new Error(error || `curl ${code}`)); return; }
+      const split = output.lastIndexOf("\n");
+      resolve(new Response(output.slice(0, split), { status: Number(output.slice(split + 1)), headers: { "content-type": "application/json" } }));
+    });
+    child.stdin.end(init.body ?? "");
+  });
+}) as typeof fetch;
+const provider = new Provider(deployment.rpc);
+if (process.env.OSP_TEST_CURL === "1" || process.env.OSP_TEST_FETCH === "1") provider.call = async <T>(method: string, params: any): Promise<T> => {
+  const response = await fetch(deployment.rpc[0]!, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) });
+  const body = await response.json() as any;
+  if (body.error) throw new Error(JSON.stringify(body.error));
+  return body.result;
+};
+const sponsor = "https://social-sponsor.usekoinos.com";
+const client = new ProtocolClient({ rpc: provider, deployment, sponsors: [sponsor] });
+const indexer = new IndexerClient({ baseUrl: "https://social-api.usekoinos.com" });
+const locks = new Map<string, Promise<unknown>>();
+const lock: ExclusiveLock = (name, action) => {
+  const next = (locks.get(name) ?? Promise.resolve()).catch(() => {}).then(action);
+  locks.set(name, next); return next;
+};
+function browser(me = identityFromSeed(randomBytes(32)), index = 0) {
+  const store = new PrivateStore(me.account, me.seed, { chainId: client.chainId, contract: deployment.contracts.messaging.address }, () => true, memoryStorage(), lock);
+  let snapshot: PrivateSnapshot = { enabled: false, registered: false, chats: [], pending: 0, error: "" };
+  let last = "";
+  const service = new PrivateMessagingService(me, client, indexer, store, [sponsor], "sponsor-only", next => {
+    snapshot = next;
+    const summary = JSON.stringify({ enabled: next.enabled, registered: next.registered, chats: next.chats.map(c => ({ status: c.status, delivery: c.requestDelivery, closing: c.closing, progress: c.progress, error: c.error, messages: c.messages.length })), pending: next.pending, error: next.error });
+    if (summary !== last) { console.log(`BROWSER ${index + 1}`, summary); last = summary; }
+  });
+  return { me, service, store, get snapshot() { return snapshot; } };
+}
+const browsers = [browser(undefined, 0), browser(undefined, 1)];
+const [a, b] = browsers;
+let lastError = "";
+useToasts.subscribe(state => {
+  const failure = [...state.toasts].reverse().find(t => t.kind === "error");
+  if (failure && failure.id !== lastError) { lastError = failure.id; console.log("SUBMISSION ERROR", failure.title, failure.message, failure.details); }
+});
+async function until(label: string, ready: () => boolean, timeout = 1_200_000) {
+  console.log("WAIT", label);
+  const started = Date.now();
+  const deadline = started + timeout;
+  let lastReport = 0;
+  let observedAt: number | undefined;
+  const observer = setInterval(() => { if (ready()) observedAt ??= Date.now(); }, 10);
+  try {
+    while (!ready()) {
+      assert(Date.now() < deadline, `Timed out: ${label}`);
+      // Independent browsers poll concurrently in the product. Serializing them
+      // here adds an artificial round trip for every network read in the handshake.
+      await Promise.all(browsers.map(async browser => {
+        await browser.service.load(); await browser.service.sync();
+      }));
+      if (Date.now() - lastReport > 30_000) {
+        for (const [index, browser] of browsers.entries()) await browser.store.edit(async data => {
+          console.log("DELIVERY", index + 1, { funding: Object.values(data.funding).map(f => ({ units: f.units, lastAttempt: f.lastAttempt })), outbox: data.outbox.map(p => ({ peer: !!p.peer, attempted: !!p.lastAttempt, error: p.error })) });
+        });
+        lastReport = Date.now();
+      }
+      if (!ready()) await new Promise(resolve => setTimeout(resolve, 5_000));
+    }
+  } finally { clearInterval(observer); }
+  console.log("PASS", label, { elapsedSeconds: Math.round(((observedAt ?? Date.now()) - started) / 1000) });
+}
+try {
+  assert.equal(await provider.getChainId(), deployment.chainId);
+  await Promise.all(browsers.map(async browser => {
+    console.log("REGISTER disposable account", browser.me.account);
+    await client.submit({ signer: browser.me.signer, selfPayFallback: false, waitForReceipt: true, operations: [await client.ops.identity.register({ account: browser.me.account, encryption_key: browser.me.encryption.publicKey, key_version: 1 })] });
+    await browser.service.enable();
+  }));
+  await until("both messaging browsers enabled", () => browsers.every(d => d.snapshot.registered), 180_000);
+  if (process.argv.includes("--lifecycle")) {
+    await a!.service.setAutoConnect(false);
+    const cancelled = await b!.service.start(a!.me.account);
+    await until("reverse request delivered", () => a!.snapshot.chats.some(c => c.id === cancelled && c.status === "incoming"));
+    await a!.service.close(cancelled);
+    await until("pending request cancellation reaches both browsers", () => browsers.every(d => d.snapshot.chats.some(c => c.id === cancelled && c.status === "closed")));
+    await a!.service.setAutoConnect(true);
+  }
+  if (process.argv.includes("--warm")) {
+    await until("both browsers have prepared allowance", () => browsers.every(d => d.snapshot.preparingAllowance === false), 240_000);
+    for (const browser of browsers) await browser.store.edit(async data => assert(data.spareAliasReady));
+  }
+  const queuedAt = Date.now();
+  await a!.service.queueMessage(b!.me.account, "Live test: hello from the first browser");
+  console.log("PASS first message saved locally", { elapsedMs: Date.now() - queuedAt });
+  await until("recipient decrypts first message without approval", () => b!.snapshot.chats.some(c => c.messages.some(m => !m.mine && m.text === "Live test: hello from the first browser")));
+  const chat = b!.snapshot.chats.find(c => c.messages.some(m => m.text === "Live test: hello from the first browser"))!.id;
+  assert(browsers.every(d => d.snapshot.chats.some(c => c.id === chat && c.status === "ready")));
+  await b!.service.queueMessage(a!.me.account, "Live test: reply from the second browser");
+  await until("sender decrypts reply", () => !!a!.snapshot.chats.find(c => c.id === chat)?.messages.some(m => !m.mine && m.text === "Live test: reply from the second browser"));
+  console.log("PASS automatic connection and bidirectional encrypted messages");
+  if (process.argv.includes("--devices")) {
+    const phone = browser(a!.me, 2);
+    browsers.push(phone);
+    await phone.service.enable();
+    await until("third browser enabled", () => phone.snapshot.registered, 180_000);
+    assert.equal(phone.snapshot.chats.length, 0, "Seed alone must not restore history");
+    await a!.service.linkDevice(phone.snapshot.deviceId!);
+    await until("explicit device link request arrives", () => phone.snapshot.links?.some(l => l.status === "incoming") === true, 300_000);
+    const request = phone.snapshot.links!.find(l => l.status === "incoming")!;
+    assert.equal(a!.snapshot.links!.find(l => l.status === "outgoing")!.id, request.id);
+    assert.equal(phone.snapshot.chats.length, 0, "Automatic conversation acceptance must not approve a device link");
+    await phone.service.accept(request.id);
+    await until("phone decrypts existing desktop history", () => phone.snapshot.chats.some(c => c.id === chat && c.messages.length === 2), 300_000);
+    await phone.service.queueMessage(b!.me.account, "Live test: reply from linked phone", chat);
+    await until("phone reply reaches peer and desktop exactly once", () => [a!, b!, phone].every(d =>
+      d.snapshot.chats.find(c => c.id === chat)?.messages.filter(m => m.text === "Live test: reply from linked phone").length === 1), 300_000);
+    console.log("PASS explicit device linking, history copy and independent phone reply on testnet");
+  }
+
+  if (process.argv.includes("--lifecycle")) {
+    await b!.service.close(chat);
+    await until("connected conversation closes on both browsers", () => browsers.every(d => d.snapshot.chats.some(c => c.id === chat && c.status === "closed")));
+    console.log("PASS live cancellation, reverse request, connection, messages, and closure");
+  }
+} finally { browsers.forEach(browser => browser.service.stop()); }

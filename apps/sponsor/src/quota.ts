@@ -8,7 +8,7 @@
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { SPONSOR_ERROR_CATEGORIES, type SponsorErrorCategory } from "@osp/sdk";
+import { randomBytes, toBase64url, SPONSOR_ERROR_CATEGORIES, type SponsorErrorCategory } from "@osp/sdk";
 
 export interface QuotaLimits {
   dailyOps: number;
@@ -129,7 +129,21 @@ export class QuotaStore {
         value INTEGER NOT NULL DEFAULT 0,
         PRIMARY KEY (day, key)
       );
+      CREATE TABLE IF NOT EXISTS private_allocations (
+        scope TEXT NOT NULL, reservation TEXT NOT NULL, actor TEXT NOT NULL,
+        grant_id TEXT NOT NULL, PRIMARY KEY(scope, reservation)
+      );
     `);
+  }
+
+  /** Durable single assignment. The random public grant id must not reveal the reservation. */
+  assignPrivateUsage(scope: string, reservation: string, actor: string): string {
+    return this.transaction(() => {
+      this.db.prepare("INSERT OR IGNORE INTO private_allocations VALUES (?,?,?,?)").run(scope, reservation, actor, toBase64url(randomBytes(32)));
+      const row = this.db.prepare("SELECT actor,grant_id FROM private_allocations WHERE scope=? AND reservation=?").get(scope,reservation) as { actor: string; grant_id: string };
+      if (row.actor !== actor) throw new Error("Reservation already assigned to a different wallet");
+      return row.grant_id;
+    });
   }
 
   /** Ops already counted for `user` on the UTC day of `at`. */

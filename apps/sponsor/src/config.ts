@@ -8,6 +8,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadDeployment, type Deployment } from "@osp/sdk";
+import { loadMediaConfig, type MediaConfig } from "./media.js";
 
 /** Reported by `/healthz` and the discovery document. */
 export const SPONSOR_VERSION = "0.1.0";
@@ -27,6 +28,7 @@ export const DEFAULTS = {
 } as const;
 
 export interface SponsorConfig {
+  media?: MediaConfig;
   /** Deployment network name (`deployments/<network>.json`). */
   network: string;
   /** RPC override (`OSP_RPC`, comma separated); defaults to the deployment's list. */
@@ -114,6 +116,7 @@ export function loadConfig(env: Env = process.env): SponsorConfig {
   const dailyOps = integer(env, "OSP_SPONSOR_DAILY_OPS", DEFAULTS.dailyOps, 1);
   const burstOps = integer(env, "OSP_SPONSOR_BURST_OPS", DEFAULTS.burstOps, 1);
   return {
+    media: loadMediaConfig(env),
     network,
     rpc,
     wif: text(env, "OSP_SPONSOR_WIF"),

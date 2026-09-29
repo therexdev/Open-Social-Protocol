@@ -17,6 +17,9 @@ export interface Settings {
   indexerUrl: string;
   /** Empty: use VITE_OSP_SPONSOR_URL, then the deployment's sponsors. */
   sponsorUrls: string[];
+  /** Replaceable IPFS adapter; empty uses the first sponsor's /v1/media endpoint. */
+  mediaUploadUrl?: string;
+  ipfsGateways?: string[];
   payment: PaymentPreference;
   autoLockMinutes: number;
   /** Everyone-audience posts from accounts you muted (client only). */
@@ -36,6 +39,8 @@ export function defaultSettings(env: EnvDefaults = ENV): Settings {
     rpcUrls: [],
     indexerUrl: "",
     sponsorUrls: [],
+    mediaUploadUrl: "",
+    ipfsGateways: [],
     payment: "sponsor-then-self",
     autoLockMinutes: 15,
     muted: [],
@@ -54,6 +59,8 @@ function sanitize(raw: unknown, defaults: Settings): Settings {
     rpcUrls: strings(r.rpcUrls),
     indexerUrl: typeof r.indexerUrl === "string" ? r.indexerUrl : "",
     sponsorUrls: strings(r.sponsorUrls),
+    mediaUploadUrl: typeof r.mediaUploadUrl === "string" ? r.mediaUploadUrl : "",
+    ipfsGateways: strings(r.ipfsGateways),
     payment: validPayment,
     autoLockMinutes: autoLock,
     muted: strings(r.muted),
@@ -90,6 +97,8 @@ export function createSettingsStore(options: SettingsStoreOptions = {}): Setting
     rpcUrls: state.rpcUrls,
     indexerUrl: state.indexerUrl,
     sponsorUrls: state.sponsorUrls,
+    mediaUploadUrl: state.mediaUploadUrl,
+    ipfsGateways: state.ipfsGateways,
     payment: state.payment,
     autoLockMinutes: state.autoLockMinutes,
     muted: state.muted,

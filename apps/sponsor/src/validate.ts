@@ -160,6 +160,7 @@ function inspectOperations(operations: unknown, payee: string, ctx: ValidationCo
     if (decoded.method !== allowed.method || decoded.contract !== allowed.contract) {
       throw new SponsorRefusal("method_not_allowed", `operation ${index}: entry point resolves to ${decoded.contract}.${decoded.method}`);
     }
+    if (decoded.contract === "messaging" && decoded.method === "allocate_private_usage") throw new SponsorRefusal("method_not_allowed", "Private allocations require the authenticated allocation endpoint");
     const args = decoded.args as Record<string, unknown>;
     const field = actorField(decoded.contract, decoded.method, args);
     let actor: string | undefined;

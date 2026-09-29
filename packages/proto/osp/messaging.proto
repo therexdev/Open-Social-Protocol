@@ -9,6 +9,7 @@ message conversation_record {
   uint64 generation = 5 [jstype = JS_STRING];
   uint64 sequence = 6 [jstype = JS_STRING];
   uint64 updated_at = 7 [jstype = JS_STRING];
+  uint64 block = 8 [jstype = JS_STRING];
 }
 message message_record {
   bytes sender = 1 [(koinos.btype) = ADDRESS];
@@ -112,3 +113,108 @@ message message_sent_event {
   bytes envelope = 2;
   uint64 timestamp = 3 [jstype = JS_STRING];
 }
+
+// V2: profile ids appear only in the directory and batch reservations.
+message private_device {
+  bytes device_id = 1;
+  bytes delivery_key = 2;
+  string label = 3;
+  uint64 updated_at = 4 [jstype = JS_STRING];
+}
+// @description Publish or revoke a browser's independent delivery public key
+// @read-only false
+message set_private_device_arguments {
+  bytes account = 1 [(koinos.btype) = ADDRESS];
+  bytes device_id = 2;
+  bytes delivery_key = 3;
+  string label = 4;
+}
+message set_private_device_result {}
+// @description Read active private messaging browsers
+// @read-only true
+message get_private_devices_arguments { bytes account = 1 [(koinos.btype) = ADDRESS]; }
+message get_private_devices_result { repeated private_device values = 1; }
+message private_reservation {
+  uint64 block = 5 [jstype = JS_STRING];
+  bytes account = 1 [(koinos.btype) = ADDRESS];
+  bytes sponsor = 2 [(koinos.btype) = ADDRESS];
+  bytes reservation_id = 3;
+  uint32 units = 4;
+}
+// @description Prepay a batch of usage units into a sponsor pool without an alias
+// @read-only false
+message reserve_private_usage_arguments {
+  bytes account = 1 [(koinos.btype) = ADDRESS];
+  bytes sponsor = 2 [(koinos.btype) = ADDRESS];
+  bytes reservation_id = 3;
+  uint32 units = 4;
+}
+message reserve_private_usage_result {}
+// @description Read a batch reservation
+// @read-only true
+message get_private_reservation_arguments { bytes reservation_id = 1; }
+message get_private_reservation_result { private_reservation value = 1; }
+message private_units { uint64 units = 1 [jstype = JS_STRING]; }
+message private_grant {
+  bytes sponsor = 1 [(koinos.btype) = ADDRESS];
+  bytes actor = 2 [(koinos.btype) = ADDRESS];
+  bytes grant_id = 3;
+  uint32 units = 4;
+}
+// @description Allocate from a sponsor pool using an unrelated grant id
+// @read-only false
+message allocate_private_usage_arguments {
+  bytes sponsor = 1 [(koinos.btype) = ADDRESS];
+  bytes actor = 2 [(koinos.btype) = ADDRESS];
+  bytes grant_id = 3;
+  uint32 units = 4;
+}
+message allocate_private_usage_result {}
+// @description Read a private allocation for idempotent retry
+// @read-only true
+message get_private_grant_arguments { bytes grant_id = 1; }
+message get_private_grant_result { private_grant value = 1; }
+// @description Read an alias allowance or sponsor pool
+// @read-only true
+message get_private_units_arguments { bytes account = 1 [(koinos.btype) = ADDRESS]; bool pool = 2; }
+message get_private_units_result { uint64 units = 1 [jstype = JS_STRING]; }
+// @description Register one side of a two-party alias channel
+// @read-only false
+message open_private_channel_arguments { bytes actor = 1 [(koinos.btype) = ADDRESS]; bytes peer = 2 [(koinos.btype) = ADDRESS]; }
+message open_private_channel_result {}
+// @description Close a channel permanently; use new aliases for a new session
+// @read-only false
+message close_private_channel_arguments { bytes actor = 1 [(koinos.btype) = ADDRESS]; bytes peer = 2 [(koinos.btype) = ADDRESS]; }
+message close_private_channel_result {}
+// @description Read an alias channel
+// @read-only true
+message get_private_channel_arguments { bytes a = 1 [(koinos.btype) = ADDRESS]; bytes b = 2 [(koinos.btype) = ADDRESS]; }
+message get_private_channel_result { conversation_record value = 1; }
+message private_packet {
+  uint64 block = 7 [jstype = JS_STRING];
+  bytes actor = 1 [(koinos.btype) = ADDRESS];
+  bytes peer = 2 [(koinos.btype) = ADDRESS];
+  bytes packet_id = 3;
+  bytes content_hash = 4;
+  uint64 sequence = 5 [jstype = JS_STRING];
+  uint64 timestamp = 6 [jstype = JS_STRING];
+}
+// @description Post an opaque invitation (empty peer) or ratcheted channel packet
+// @read-only false
+message post_private_packet_arguments {
+  bytes actor = 1 [(koinos.btype) = ADDRESS];
+  bytes peer = 2 [(koinos.btype) = ADDRESS];
+  bytes packet_id = 3;
+  bytes envelope = 4;
+}
+message post_private_packet_result { private_packet value = 1; }
+// @description Read an opaque packet commitment
+// @read-only true
+message get_private_packet_arguments { bytes actor = 1 [(koinos.btype) = ADDRESS]; bytes packet_id = 2; }
+message get_private_packet_result { private_packet value = 1; }
+// @description Read the private transport version and latest log sequence
+// @read-only true
+message get_private_status_arguments {}
+message get_private_status_result { uint32 version = 1; uint64 sequence = 2 [jstype = JS_STRING]; }
+message private_packet_event { private_packet value = 1; bytes envelope = 2; }
+message private_channel_event { conversation_record value = 1; }

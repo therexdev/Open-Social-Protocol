@@ -58,8 +58,13 @@ try {
   for (let i = 0; i < 20 && !doc.body.textContent.includes("No people found"); i++) await settle();
   assert.ok(doc.body.textContent.includes("No people found"), "Shipped app could not render its indexer response");
   // Inspect the effective sponsor through the real Settings UI, not a replacement resolver.
-  doc.querySelector('.desktop-nav a[href="/settings"]').click();
+  doc.querySelector('.sidebar a[href="/settings"]').click();
   for (let i = 0; i < 20 && !doc.body.textContent.includes("Network and endpoints"); i++) await settle();
+  const networkCategory = [...doc.querySelectorAll('.settings-nav button')].find(button => button.textContent.includes("Network & endpoints"));
+  assert.ok(networkCategory, "Settings navigation has no network category");
+  networkCategory.click();
+  for (let i = 0; i < 20 && doc.querySelector('section[aria-label="Network settings"]')?.hidden; i++) await settle();
+  assert.equal(doc.querySelector('section[aria-label="Network settings"]')?.hidden, false, "Network settings did not open");
   const hint = [...doc.querySelectorAll(".field")].find(field => field.querySelector("label")?.textContent.includes("Sponsors"))?.querySelector(".hint")?.textContent;
   assert.ok(hint && !hint.includes("none") && hint.includes("http"), "Release has no sponsor configured");
   assert.deepEqual(errors, [], "Shipped app encountered runtime errors");

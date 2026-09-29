@@ -135,21 +135,22 @@ export function OnboardingPage() {
   }
 
   return (
-    <div className="page narrow onboarding-page">
-      {mode === "choose" && <div className="welcome-intro"><BrandMark/><p className="eyebrow">YOUR PEOPLE. YOUR POSTS. YOURS.</p></div>}
-      <h1>Welcome to Open Social</h1>
-      {from !== "/" && <p className="muted">After setting up your account you will return to the page you opened.</p>}
+    <div className={`page onboarding-page${mode === "choose" ? " welcome-page" : " narrow"}`}>
+      {mode === "choose" ? <div className="welcome-hero"><p className="eyebrow">A SOCIAL WORLD THAT BELONGS TO YOU</p><h1>Your <span>people.</span><br/>Your world.</h1><p>Share freely. Connect privately.<br/>Take your identity and friendships with you.</p><div className="welcome-values"><span><Icon name="globe"/>Open by design</span><span><Icon name="lock"/>Private by choice</span><span><Icon name="people"/>Built for people</span></div><Link to="/about">Discover the Open Social protocol <Icon name="arrow" size={18}/></Link></div> : <h1>Welcome to Open Social</h1>}
+      {from !== "/" && mode !== "choose" && <p className="muted">After setting up your account you will return to the page you opened.</p>}
       {mode === "choose" && (
         <Card className="welcome-card">
-          <h2>A fresh start. A lasting connection.</h2>
+          <BrandMark/><h2>Welcome to Open Social</h2>
+          {from !== "/" && <p className="muted">After setting up your account you will return to the page you opened.</p>}
           <p>Make yourself at home. Share with everyone or just your friends, and keep the same account and connections across compatible apps.</p>
           <div className="row">
             <Button variant="primary" onClick={() => setMode("create")}>
               <Icon name="plus"/> Create an account
             </Button>
-            <Button onClick={() => setMode("import")}>I have an identity file</Button>
+            <Button onClick={() => setMode("import")}>Sign in with an identity file</Button>
             <Link className="btn btn-ghost" to="/about">How Open Social works <Icon name="arrow" size={17}/></Link>
           </div>
+          <p className="welcome-fine-print">Your account. Your connections.<br/>An open network, without starting over.</p>
         </Card>
       )}
       {(mode === "create" || mode === "import") && (

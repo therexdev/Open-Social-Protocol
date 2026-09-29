@@ -7,7 +7,8 @@ import type { PostView } from "../../api/indexer";
 import { useServices } from "../../api/services";
 import { useSettings } from "../../stores/settings";
 import { submitAction } from "../../tx/submit";
-import { bytesOf } from "../../util/bytes";
+import { bytesOf, toBase64url } from "../../util/bytes";
+import { MediaPhoto } from "../../components/MediaPhoto";
 import { formatDateTime, timeAgo } from "../../util/format";
 import { Avatar, Icon } from "../../components/Icon";
 import { AccountLink, Button, Details } from "../../components/ui";
@@ -15,6 +16,7 @@ import { useProfileName } from "../profile/useProfileName";
 import { useCanAct, useSubmitContext } from "../session";
 import { usePostContent } from "./usePostContent";
 import type { OpenedContent, PostContent } from "../../api/decrypt";
+import { RichText } from "../../components/RichText";
 
 export function audienceLabel(audience: number): string {
   if (audience === AUDIENCE.EVERYONE) return "Everyone";
@@ -30,6 +32,7 @@ function MediaList({ content }: { content: OpenedContent }) {
       {content.media.map((item, index) => {
         const url = item.locations?.[0];
         const isImage = (item.mime ?? "").startsWith("image/");
+        if (url?.startsWith("ipfs://") && isImage) return <li key={url} className="media-item"><MediaPhoto location={url} hash={toBase64url(item.content_hash)} mime={item.mime} alt={item.alt_text} encryption={item.mediaKey ? { key: toBase64url(item.mediaKey), nonce: toBase64url(item.nonce) } : undefined}/></li>;
         return (
           <li key={index} className="media-item">
             {url ? (
@@ -63,7 +66,7 @@ export function PostBody({ content }: { content: PostContent | undefined }) {
     case "decrypted":
       return (
         <div className="post-body">
-          <p className="post-text">{content.content.text}</p>
+          <p className="post-text"><RichText text={content.content.text}/></p>
           <MediaList content={content.content} />
         </div>
       );
@@ -98,9 +101,14 @@ export interface PostCardProps {
   expanded?: boolean;
 }
 
-export function PostCard({ post, onChanged, expanded = false }: PostCardProps) {
+export function PostCard(props: PostCardProps) {
+  const content = usePostContent(props.post);
+  return <OpenedPostCard {...props} content={content}/>;
+}
+
+/** Reuse verified, locally opened content when a tag result has already read it. */
+export function OpenedPostCard({ post, onChanged, expanded = false, content }: PostCardProps & { content: PostContent | undefined }) {
   const name = useProfileName(post.author);
-  const content = usePostContent(post);
   // A plaintext envelope is by definition an everyone post, whatever the indexer's audience field says.
   const audience = content?.status === "plain" ? AUDIENCE.EVERYONE : post.audience;
   const can = useCanAct();
@@ -146,11 +154,11 @@ export function PostCard({ post, onChanged, expanded = false }: PostCardProps) {
   }
 
   return (
-    <article className="post" aria-label={`Post by ${name}`}>
+    <article className={`post post-${audience === AUDIENCE.EVERYONE ? "public" : "friends"}`} aria-label={`Post by ${name}`}>
       <header className="post-header">
         <Link to={`/u/${post.author}`} tabIndex={-1} aria-hidden="true"><Avatar account={post.author} name={name}/></Link>
         <div className="post-heading"><AccountLink account={post.author} name={name} className="post-author"/><span className="post-meta"><time dateTime={new Date(Number(post.createdAt) || 0).toISOString()} title={formatDateTime(post.createdAt)}>{timeAgo(post.createdAt)}</time>{post.versionNumber > 1 && !deleted && <span> · edited</span>}</span></div>
-        <span className={`chip chip-${audience === AUDIENCE.EVERYONE ? "public" : "friends"}`}><Icon name={audience === AUDIENCE.EVERYONE ? "globe" : "lock"} size={13}/>{audienceLabel(audience)}</span>
+        <span className={`chip chip-${audience === AUDIENCE.EVERYONE ? "public" : "friends"}`}><Icon name={audience === AUDIENCE.EVERYONE ? "globe" : "lock"} size={13}/>{audience === AUDIENCE.EVERYONE ? "Public" : audienceLabel(audience)}</span>
       </header>
       {post.labels.length > 0 && (
         <div className="labels" aria-label="Community labels">

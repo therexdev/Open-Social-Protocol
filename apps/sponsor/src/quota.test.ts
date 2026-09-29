@@ -147,6 +147,7 @@ describe("QuotaStore", () => {
     const first = new QuotaStore({ path, limits, now: () => noon });
     first.recordAccepted("alice", { ops: 4, rcUsed: "7" });
     first.recordRefusal("too_large");
+    const grant = first.assignPrivateUsage("test:messaging:sponsor", "reservation", "alias");
     first.close();
     const second = new QuotaStore({ path, limits, now: () => noon + 1_000 });
     cleanups.push(() => second.close());
@@ -154,5 +155,7 @@ describe("QuotaStore", () => {
     expect(second.check("alice", 2).ok).toBe(false);
     expect(second.burstOps("alice")).toBe(0);
     expect(second.utilization().today.refused.too_large).toBe(1);
+    expect(second.assignPrivateUsage("test:messaging:sponsor", "reservation", "alias")).toBe(grant);
+    expect(() => second.assignPrivateUsage("test:messaging:sponsor", "reservation", "another-alias")).toThrow();
   });
 });

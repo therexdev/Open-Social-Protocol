@@ -2,7 +2,7 @@
  * Opening PostViews: plaintext (everyone) directly, friends-only through the key store.
  * Decryption happens on the device; a missing key is a normal state, not an error.
  */
-import { LIFECYCLE, SUITE, bytesEqual, contentHash, decodeEnvelope, decryptContent, type AadInput, type Envelope, type MediaItem, type ProtocolClient } from "@osp/sdk";
+import { LIFECYCLE, SUITE, bytesEqual, contentHash, decodeEnvelope, decryptContent, unwrapContentKey, unwrapMediaKey, type AadInput, type Envelope, type MediaItem, type ProtocolClient } from "@osp/sdk";
 import { bytesOf } from "../util/bytes";
 import type { KeyResolverIdentity, KeySource, KeyStore, KeyVerifier } from "./keystore";
 import type { PostView } from "./indexer";
@@ -14,7 +14,7 @@ export interface OpenedContent {
   lang: string;
   created_at: string;
   external_ref: string;
-  media: Required<MediaItem>[];
+  media: (Required<MediaItem> & { mediaKey?: Uint8Array })[];
 }
 
 export type PostContent =
@@ -34,7 +34,13 @@ export interface OpenContext {
 
 function tryDecrypt(envelope: Envelope, epochKey: Uint8Array, aad: AadInput): OpenedContent | undefined {
   try {
-    return decryptContent({ envelope, epochKey, aad }) as OpenedContent;
+    const content = decryptContent({ envelope, epochKey, aad }) as OpenedContent;
+    if (content.media.some(m => m.wrapped_key?.length)) {
+      const key = unwrapContentKey(envelope, epochKey, aad);
+      try { content.media = content.media.map(m => m.wrapped_key?.length ? { ...m, mediaKey: unwrapMediaKey(m.wrapped_key, key, m.content_hash) } : m); }
+      finally { key.fill(0); }
+    }
+    return content;
   } catch {
     return undefined;
   }

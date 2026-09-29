@@ -42,7 +42,7 @@ export interface DraftRecord {
   audience: number;
   mediaUrls: string[];
   /** Attachment metadata is encrypted with the draft, so reload/retry preserves it. */
-  media?: Array<{ url: string; mime: string; size: number; contentHash: string; altText?: string }>;
+  media?: Array<{ url: string; mime: string; size: number; contentHash: string; altText?: string; encryption?: { key: string; nonce: string } }>;
   scope?: string;
   publication?: { postId: string; contentHash: string; epoch: number; epochKey?: string; recipients: string[]; txId?: string; operations?: OperationJson[] };
   replyTo?: string;
@@ -250,10 +250,20 @@ export function createVaultStore(options: VaultStoreOptions = {}): VaultStore {
 
       async destroy() {
         const account = get().account;
+        // Stop background publishers/readers before deleting their persisted state.
+        set({ status: "locked", session: undefined });
         await storage.del(VAULT_KEY);
         if (account) {
           await storage.del(`osp.web.keys.${account}`);
           await storage.del(`osp.web.drafts.${account}`);
+          const registry = `osp.private.registry:${account}`;
+          const stores = await storage.get<string[]>(registry) ?? [];
+          for (const name of stores) {
+            await storage.del(name);
+            await storage.del(`${name}:key`);
+            await storage.del(`${name}:drafts`);
+          }
+          await storage.del(registry);
         }
         set({ status: "empty", session: undefined, account: undefined, passkeyEnrolled: false });
       },

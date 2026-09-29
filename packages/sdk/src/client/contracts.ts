@@ -20,7 +20,7 @@ export interface AbiMethod {
 
 /** `ops.<contract>.<method>(args)` builds an unsigned `call_contract` operation. */
 export type OperationBuilders<M> = { [K in keyof M]: (args: M[K]) => Promise<OperationJson> };
-/** `reads.<contract>.<method>(args)` calls a read-only method; `undefined` when the node returns nothing. */
+/** `reads.<contract>.<method>(args)` decodes successful reads, including empty Protobuf messages. */
 export type ReadCallers<M> = {
   [K in keyof M]: M[K] extends [infer A, infer R] ? (args?: A) => Promise<R | undefined> : never;
 };
@@ -113,9 +113,16 @@ export class ProtocolContracts {
     const operation = await this.operation(name, method, args);
     const call = operation.call_contract;
     if (!call) throw new ContractError("koilib did not return a call_contract operation");
-    const { result } = await this.provider.readContract(call);
-    if (!result) return undefined;
-    return decode<T>(def.return, fromBase64url(result));
+    const response = await this.provider.readContract(call);
+    // A successful read of default values has zero Protobuf bytes. Koinos JSON
+    // omits that empty bytes field entirely ({}); this is not a failed read.
+    // Decode it so empty lists, false booleans and zero balances keep their types.
+    // Transport/contract failures still reject, and malformed replies fail closed.
+    if (!response || typeof response !== "object" || Array.isArray(response) ||
+        (response.result !== undefined && typeof response.result !== "string")) {
+      throw new ContractError(`invalid response for ${name}.${method}`);
+    }
+    return decode<T>(def.return, fromBase64url(response.result ?? ""));
   }
 
   /** Decodes a `call_contract` operation addressed to a protocol contract; undefined otherwise. */

@@ -29,6 +29,7 @@
     "@noble/hashes": "^2.0.0",
     "@osp/proto": "0.1.0",
     "@scure/base": "^2.0.0",
+    "@towns-protocol/vodozemac": "0.1.0",
     "koilib": "^9.4.0",
     "protobufjs": "^7.5.0"
   },

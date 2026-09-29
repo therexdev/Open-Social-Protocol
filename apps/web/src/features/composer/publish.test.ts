@@ -18,6 +18,12 @@ import {
   toBase64url,
   toHex,
   type Identity,
+  encryptMedia,
+  openMedia,
+  unwrapMediaKey,
+  unwrapContentKey,
+  decodeEnvelope,
+  utf8,
 } from "@osp/sdk";
 import { KeyStore } from "../../api/keystore";
 import { chainKeyVerifier } from "../../api/keyProvenance";
@@ -25,6 +31,8 @@ import { IndexerClient, type SealedKeyView } from "../../api/indexer";
 import { decodeCallArgs, fakeBlockReceipt, fakeIndexerFetch, fakeProvider, fixtureDeployment, readResult, type FakeProviderOptions } from "../../testing/fixtures";
 import { bytesOf } from "../../util/bytes";
 import { buildPublishPlan, findExistingPost } from "./publish";
+import { openPost } from "../../api/decrypt";
+import type { PostView } from "../../api/indexer";
 
 const seed = (label: string) => new Uint8Array(32).map((_, i) => (label.charCodeAt(i % label.length) * 7 + i) & 0xff);
 const me = identityFromSeed(seed("me"));
@@ -359,4 +367,37 @@ describe("buildPublishPlan", () => {
     const { chain, indexer } = setup();
     await expect(buildPublishPlan({ chain, indexer, me, keys: new KeyStore(), text: "x".repeat(5000), audience: AUDIENCE.EVERYONE, attemptId: new Uint8Array(16) })).rejects.toThrow(/limit/);
   });
+});
+
+it("publishes a photo-only encrypted post: only authorized friends can locate and decrypt the image", async () => {
+  const { chain,indexer } = setup({ epoch: 4 });
+  const source = utf8("private photo pixels"), encrypted = encryptMedia(source);
+  const attachment = { url: "ipfs://bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqw4j4k2pm",mime: "image/jpeg",size: encrypted.ciphertext.length,contentHash: encrypted.contentHash,altText: "Private caption",encryption: { key: toBase64url(encrypted.key),nonce: toBase64url(encrypted.nonce) } };
+  const input = { chain,indexer,me,keys: new KeyStore(),text: "",audience: AUDIENCE.FRIENDS,attemptId: new Uint8Array(16).fill(19),media: [attachment] } as const;
+  const plan = await buildPublishPlan({ ...input,media: [...input.media] });
+  const args = chain.contracts.decodeOperation(plan.operations.at(-1)!)!.args;
+  expect(args.media).toEqual([]);
+  const wire = args.envelope as Uint8Array;
+  expect(new TextDecoder().decode(wire)).not.toContain(attachment.url);
+  expect(new TextDecoder().decode(wire)).not.toContain(attachment.altText);
+  const set = parseKeyPackageSet(chain.contracts.decodeOperation(plan.operations[0]!)!.args.packages as Uint8Array);
+  const epochKey = openEpochKeyFromSet(set,alice.account,alice.encryption.secretKey)!;
+  expect(openEpochKeyFromSet(set,mallory.account,mallory.encryption.secretKey)).toBeUndefined();
+  const post = { postId: toBase64url(plan.postId),contentHash: toBase64url(plan.contentHash),envelope: toBase64url(wire),author: me.account,audience: 1,audienceId: "",epoch: 4,versionNumber: 1,state: 0 } as PostView;
+  const friendKeys = new KeyStore(); await friendKeys.put(ref(4),epochKey);
+  const opened = await openPost(post,{ chainId: chain.chainId,keys: friendKeys,me: alice });
+  expect(opened.status).toBe("decrypted");
+  if (opened.status !== "decrypted") throw new Error("Could not decrypt");
+  const photo = opened.content.media[0]!;
+  expect(photo.locations).toEqual([attachment.url]);
+  expect(openMedia(encrypted.ciphertext,photo.content_hash,{ key: photo.mediaKey!,nonce: photo.nonce })).toEqual(source);
+  expect((await openPost(post,{ chainId: chain.chainId,keys: new KeyStore(),me: mallory })).status).toBe("no-key");
+  // The same stored ciphertext can survive an edit, with a new content key and wrapped image key.
+  const edited = await buildPublishPlan({ ...input,media: [...input.media],text: "Updated caption",edit: { postId: post.postId,previousVersion: post.contentHash,versionNumber: 2 } });
+  const envelope = decodeEnvelope(chain.contracts.decodeOperation(edited.operations.at(-1)!)!.args.envelope as Uint8Array);
+  const aad = { chainId: chain.chainId,author: me.account,audience: 1,epoch: 4,versionNumber: 2,postId: plan.postId };
+  const body = decryptContent({ envelope,epochKey: edited.epochKey,aad });
+  const key = unwrapMediaKey(body.media[0]!.wrapped_key,unwrapContentKey(envelope,edited.epochKey!,aad),body.media[0]!.content_hash);
+  expect(openMedia(encrypted.ciphertext,body.media[0]!.content_hash,{ key,nonce: body.media[0]!.nonce })).toEqual(source);
+  await expect(buildPublishPlan({ ...input,media: [...input.media],audience: AUDIENCE.EVERYONE })).rejects.toThrow(/private photos/);
 });

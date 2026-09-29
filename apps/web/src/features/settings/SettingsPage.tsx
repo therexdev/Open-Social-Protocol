@@ -9,6 +9,7 @@ import { errorMessage } from "../../util/format";
 import { useVault } from "../../vault/context";
 import { Devices } from "./Devices";
 import { RecoveryContacts } from "./RecoveryContacts";
+import { Icon, type IconName } from "../../components/Icon";
 
 function EndpointsSection() {
   const settings = useSettings();
@@ -16,9 +17,11 @@ function EndpointsSection() {
   const [rpc, setRpc] = useState(settings.rpcUrls.join("\n"));
   const [indexer, setIndexer] = useState(settings.indexerUrl);
   const [sponsors, setSponsors] = useState(settings.sponsorUrls.join("\n"));
+  const [mediaUpload, setMediaUpload] = useState(settings.mediaUploadUrl ?? "");
+  const [gateways, setGateways] = useState((settings.ipfsGateways ?? []).join("\n"));
   const networks = knownNetworks();
   const save = () => {
-    settings.update({ rpcUrls: parseList(rpc), indexerUrl: indexer.trim(), sponsorUrls: parseList(sponsors) });
+    settings.update({ rpcUrls: parseList(rpc), indexerUrl: indexer.trim(), sponsorUrls: parseList(sponsors), mediaUploadUrl: mediaUpload.trim(), ipfsGateways: parseList(gateways) });
   };
   return (
     <form
@@ -58,6 +61,8 @@ function EndpointsSection() {
           </select>
         )}
       </Field>
+      <Field label="Photo upload service" hint="Leave empty to use your first sponsor's /v1/media endpoint. Any compatible upload service can be used; no provider API keys belong here.">{id => <input id={id} type="url" value={mediaUpload} onChange={e => setMediaUpload(e.target.value)} placeholder="https://service.example.org/v1/media"/>}</Field>
+      <Field label="IPFS gateways (one per line)" hint="Optional. Defaults to ipfs.io, then dweb.link. These read photos; changing gateways does not change posts or their privacy.">{id => <textarea id={id} rows={2} value={gateways} onChange={e => setGateways(e.target.value)} placeholder="https://your-gateway.example"/>}</Field>
       <div className="row">
         <Button type="submit" variant="primary">
           Save endpoints
@@ -69,6 +74,7 @@ function EndpointsSection() {
             setRpc("");
             setIndexer("");
             setSponsors("");
+            setMediaUpload(""); setGateways("");
           }}
         >
           Reset to defaults
@@ -121,6 +127,7 @@ function IdentitySection() {
         Your identity file contains the secret that controls this account and decrypts your friends-only posts. Store it somewhere safe and private; anyone
         with it can act as you. It is the way to use the account on another device or in another client.
       </p>
+      <p className="hint">Private message history and messaging keys stay on this browser. They are not included in your identity file.</p>
       <div className="row">
         <Button variant="primary" onClick={exportIdentity} disabled={vault.status !== "unlocked"}>
           Export identity file
@@ -189,7 +196,7 @@ function IdentitySection() {
         {keysForgotten && <Notice kind="success">Cached keys were forgotten.</Notice>}
       </Details>
       <Details summary="Remove this account from this device">
-        <p>Removes the encrypted vault and cached keys from this browser. Without an exported identity file the account cannot be recovered.</p>
+        <p>Removes the encrypted vault, cached keys, and private message history from this browser. Your identity file can restore your account, but cannot restore these messages.</p>
         <Button variant="danger" onClick={() => setConfirmForget(true)}>
           Remove from this device
         </Button>
@@ -239,12 +246,23 @@ export function SettingsPage() {
   const account = useVault((s) => s.account);
   const status = useVault((s) => s.status);
   const { resolved } = useServices();
+  const [section, setSection] = useState("account");
+  const sections: { value: string; label: string; icon: IconName; detail: string }[] = [
+    { value: "account", label: "Account & security", icon: "profile", detail: "Your identity, backups, and account protection." },
+    { value: "connections", label: "Privacy & connections", icon: "lock", detail: "Manage your friends, private conversations, and blocked accounts." },
+    { value: "devices", label: "Devices & recovery", icon: "shield", detail: "Connected devices and people you trust." },
+    { value: "network", label: "Network & endpoints", icon: "globe", detail: "Choose the services that connect you to the protocol." },
+    { value: "about", label: "About Open Social", icon: "info", detail: "An open protocol. A social experience that belongs to you." },
+  ];
   return (
-    <div className="page">
-      <h1>Settings</h1>
+    <div className="page settings-page">
+      <div className="page-header"><div><h1>Settings</h1><p className="page-subtitle">Make this space your own.</p></div></div>
+      <div className="settings-layout"><nav className="settings-nav" aria-label="Settings categories">{sections.map(item => <button key={item.value} className={`nav-item${section === item.value ? " active" : ""}`} aria-current={section === item.value ? "page" : undefined} onClick={() => setSection(item.value)}><Icon name={item.icon} size={20}/>{item.label}</button>)}</nav><div className="settings-content"><p className="settings-description">{sections.find(item => item.value === section)?.detail}</p>
+      <section hidden={section !== "network"} aria-label="Network settings">
       <Card title="Network and endpoints">
         <EndpointsSection />
       </Card>
+      </section><section hidden={section !== "account"} aria-label="Account settings">
       <Card title="Your account">
         {status === "unlocked" ? (
           <IdentitySection />
@@ -258,6 +276,7 @@ export function SettingsPage() {
           </p>
         )}
       </Card>
+      </section><section hidden={section !== "connections"} aria-label="Privacy settings"><Card title="Privacy & connections"><Link className="setting-link" to="/friends"><Icon name="people"/><span><strong>Friends & blocked accounts</strong><small>Choose who you connect with and share private posts with.</small></span><Icon name="arrow" size={18}/></Link><Link className="setting-link" to="/messages"><Icon name="message"/><span><strong>Private messaging</strong><small>Automatic connections, message history, and messaging browsers.</small></span><Icon name="arrow" size={18}/></Link><p className="hint">Choose Public or Friends each time you post. Public posts can be read by anyone; friends-only posts are encrypted.</p></Card></section><section hidden={section !== "devices"} aria-label="Device settings" className="stack">
       {account && status === "unlocked" && resolved.deployed && (
         <>
           <Card title="Recovery contacts">
@@ -273,9 +292,12 @@ export function SettingsPage() {
           <p className="muted">Available once the protocol contracts are deployed on {resolved.network}.</p>
         </Card>
       )}
+      {status !== "unlocked" && <Card><p>Unlock your account to manage devices and recovery contacts.</p><Link className="btn" to="/welcome" state={{ from: "/settings" }}>Go to unlock</Link></Card>}
+      </section><section hidden={section !== "about"} aria-label="About settings">
       <Card title="About and decentralization">
         <AboutSection />
       </Card>
+      </section></div></div>
     </div>
   );
 }

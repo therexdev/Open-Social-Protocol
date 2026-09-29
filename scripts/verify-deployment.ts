@@ -56,6 +56,7 @@ async function main(): Promise<void> {
   for (const name of ["publications", "relationships"] as const) check((await read(name,"get_token_contract"))?.value === token, `${name} usage limits wired`);
   const messages = await read("messaging", "get_dependencies");
   check(messages?.identity === identity && messages?.relationships === relationships && messages?.token === token, "messaging dependencies wired");
+  check(Number((await read("messaging", "get_private_status"))?.version) === 2, "private messaging v2 active");
   const economy = (await read("token", "get_config"))?.value as Record<string,unknown> | undefined;
   check(economy?.identity === identity && economy?.relationships === relationships && economy?.publications === deployment.contracts.publications?.address && economy?.messaging === deployment.contracts.messaging?.address, "token dependencies wired");
   check(Number(economy?.resource_version) === 2, "token resource policy v2 active");

@@ -7,7 +7,8 @@ import { useAccount } from "../stores/account";
 import { useVault } from "../vault/context";
 import { useNotificationsBadge } from "../features/notifications/badge";
 import { FriendKeySync } from "../features/friends/FriendKeySync";
-import { Avatar, BrandMark, Icon, type IconName } from "./Icon";
+import { Avatar, Icon, type IconName } from "./Icon";
+import { SocialRail } from "./SocialRail";
 import { Button } from "./ui";
 import { useSwipeTabs } from "./useSwipeTabs";
 import { InstallButton, PwaStatus } from "../pwa/PwaControls";
@@ -51,10 +52,10 @@ function RegistrationBanner() {
 
 const primary = [
   { to: "/", label: "Feed", icon: "home" },
-  { to: "/people", label: "Find people", icon: "search" },
+  { to: "/people", label: "Explore", icon: "compass" },
   { to: "/friends", label: "Friends", icon: "people" },
   { to: "/messages", label: "Messages", icon: "message" },
-  { to: "/me", label: "Your profile", icon: "profile" },
+  { to: "/me", label: "Profile", icon: "profile" },
 ] as const;
 const secondary = [
   { to: "/notifications", label: "Activity", icon: "bell" },
@@ -71,10 +72,12 @@ export function Layout({ children }: { children: ReactNode }) {
   const lock = useVault((s) => s.lock);
   const unread = useNotificationsBadge();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [wide, setWide] = useState(() => window.matchMedia?.("(min-width: 1251px)").matches ?? false);
+  useEffect(() => { const query = window.matchMedia?.("(min-width: 1251px)"); if (!query) return; const changed = () => setWide(query.matches); query.addEventListener("change", changed); return () => query.removeEventListener("change", changed); }, []);
   const menu = useRef<HTMLDialogElement>(null);
   const name = useProfileName(account ?? "");
   const ownProfile = account ? `/u/${account}` : "/me";
-  const mobilePages = ["/", "/friends", "/messages", ownProfile];
+  const mobilePages = ["/", "/people", "/friends", "/messages", ownProfile];
   const swipe = useSwipeTabs(direction => {
     if (!window.matchMedia("(max-width: 760px)").matches) return;
     const index = mobilePages.indexOf(location.pathname);
@@ -99,17 +102,18 @@ export function Layout({ children }: { children: ReactNode }) {
     return <NavLink key={item.to} to={profile ? ownProfile : item.to} end={item.to === "/"} className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}><span className="nav-icon"><Icon name={item.icon} size={22} />{item.to === "/notifications" && unread > 0 && <span className="badge" aria-label={`${unread} new`}>{unread > 99 ? "99+" : unread}</span>}</span><span>{mobile && profile ? "Profile" : item.label}</span></NavLink>;
   };
   const lockControl = status === "unlocked" ? <Button variant="ghost" onClick={lock}><Icon name="lock"/> Lock account</Button> : status === "locked" ? <Link className="btn btn-ghost" to="/welcome" state={{ from: `${location.pathname}${location.search}${location.hash}` }}><Icon name="lock"/> Unlock account</Link> : <Link className="btn btn-primary" to="/welcome">Get started <Icon name="arrow" /></Link>;
-  return <div className="app">
+  const fullWidth = ["/messages", "/settings", "/welcome", "/compose"].includes(location.pathname);
+  return <div className={`app${fullWidth ? " app-wide" : ""}${location.pathname === "/compose" ? " app-composing" : ""}`}>
     <a className="skip-link" href="#main">Skip to content</a>
     <aside className="sidebar">
-      <Link to="/" className="brand" aria-label={`${APP_NAME} home`}><BrandMark/><span>Open<span className="brand-light"> Social</span></span></Link>
-      <span className="sidebar-caption">A LITTLE MORE HUMAN.</span>
-      <nav className="desktop-nav" aria-label="Primary">{primary.map(item => navItem(item))}<div className="nav-divider"/>{secondary.map(item => navItem(item))}</nav>
-      <div className="sidebar-bottom"><InstallButton/>{account && <Link className="sidebar-profile" to={ownProfile}><Avatar account={account} name={name}/><span><strong>{name}</strong><small>Your account</small></span><Icon name="arrow" size={17}/></Link>}{lockControl}</div>
+      <Link to="/" className="brand" aria-label={`${APP_NAME} home`}><span>Open<span className="brand-light"> Social</span></span></Link>
+      <nav className="desktop-nav" aria-label="Primary">{primary.map(item => navItem(item))}</nav>
+      <section className="sidebar-topics"><h2>Topics</h2><form onSubmit={event => { event.preventDefault(); const value = String(new FormData(event.currentTarget).get("tag") ?? "").trim().replace(/^#/, ""); if (value) navigate(`/tags/${encodeURIComponent(value)}`); }}><Icon name="search" size={16}/><input name="tag" aria-label="Search hashtags" placeholder="Search topics" maxLength={64}/></form>{["community", "technology", "art", "photography"].map(tag => <Link key={tag} to={`/tags/${tag}`}># <span>{tag}</span></Link>)}</section>
+      <div className="sidebar-bottom">{navItem(secondary[2])}<button className="nav-item" onClick={() => setMenuOpen(true)}><Icon name="more" size={22}/>More</button><Link className="btn btn-primary create-post" to="/compose"><Icon name="plus" size={19}/>Create a post</Link>{account && <Link className="sidebar-profile" to={ownProfile}><Avatar account={account} name={name}/><span><strong>{name}</strong><small>Your account</small></span></Link>}</div>
     </aside>
     <div className="app-workspace">
       <header className="topbar">
-        <Link to="/" className="brand mobile-brand" aria-label="Open Social home"><BrandMark/><span>Open Social</span></Link>
+        <Link to="/" className="brand mobile-brand" aria-label="Open Social home"><span>Open<span className="brand-light"> Social</span></span></Link>
         <form className="header-search" role="search" onSubmit={event => { event.preventDefault(); const data = new FormData(event.currentTarget); navigate(`/people?q=${encodeURIComponent(String(data.get("q") ?? ""))}`); }}><Icon name="search"/><input name="q" aria-label="Find people by nickname" placeholder="Find your people…" maxLength={64}/><button type="submit" aria-label="Search people"><Icon name="arrow" size={18}/></button></form>
         <div className="topbar-actions">{status === "locked" && <Link className="btn btn-ghost header-unlock" to="/welcome" state={{ from: `${location.pathname}${location.search}${location.hash}` }}>Unlock</Link>}<Link className="icon-button mobile-search" to="/people" aria-label="Find people"><Icon name="search"/></Link><Link className="icon-button notification-link" to="/notifications" aria-label={unread ? `Activity, ${unread} new` : "Activity"}><Icon name="bell"/>{unread > 0 && <span className="notification-dot"/>}</Link>{account && <Link className="header-avatar" to={ownProfile} aria-label="Your profile"><Avatar account={account} name={name}/></Link>}</div>
       </header>
@@ -119,14 +123,11 @@ export function Layout({ children }: { children: ReactNode }) {
           <FriendKeySync/>
           <div key={location.pathname} className="route-content">{children}</div>
         </main>
-        <aside className="right-rail" aria-label="Discover Open Social">
-          <div className="rail-intro"><span className="eyebrow">SOCIAL, ON YOUR TERMS</span><h2>Your people.<br/>Your posts.<br/><span>Yours.</span></h2><p>A place to connect, without starting over when you change apps.</p><Link to="/about">Meet Open Social <Icon name="arrow" size={17}/></Link></div>
-          <div className="rail-card"><span className="feature-icon"><Icon name="people"/></span><h3>Good conversations start with people.</h3><p>Find friends by nickname and make this space your own.</p><Link className="btn" to="/people">Find people <Icon name="arrow" size={17}/></Link></div>
-          <div className="rail-footer"><Link to="/about">About the protocol</Link><Link to="/settings">Settings</Link><span>Built to be open.</span></div>
-        </aside>
+        {wide && !fullWidth && <SocialRail/>}
       </div>
     </div>
-    <nav className="mobile-nav" aria-label="Mobile navigation">{primary.filter(item => item.to !== "/people").map(item => navItem(item, true))}<button type="button" className={`nav-item${menuOpen ? " active" : ""}`} onClick={() => setMenuOpen(true)} aria-haspopup="dialog" aria-expanded={menuOpen}><Icon name="more" size={22}/><span>More</span></button></nav>
+    <button type="button" className="icon-button mobile-more" aria-label="More menu" onClick={() => setMenuOpen(true)} aria-haspopup="dialog" aria-expanded={menuOpen}><Icon name="more"/></button>
+    <nav className="mobile-nav" aria-label="Mobile navigation">{primary.map(item => navItem(item, true))}</nav>
     <dialog ref={menu} className="dialog more-menu" aria-labelledby="more-menu-title" onCancel={() => setMenuOpen(false)} onClose={() => setMenuOpen(false)}><div className="page-header"><h2 id="more-menu-title">More to explore</h2><Button variant="ghost" aria-label="Close menu" onClick={() => setMenuOpen(false)}><Icon name="close"/></Button></div><nav aria-label="More navigation">{navItem(primary[1])}{secondary.map(item => navItem(item))}</nav><div className="menu-footer"><InstallButton/>{lockControl}</div></dialog>
     <Toasts/>
   </div>;

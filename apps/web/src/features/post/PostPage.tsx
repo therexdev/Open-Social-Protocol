@@ -6,7 +6,7 @@ import type { PostView } from "../../api/indexer";
 import { useServices } from "../../api/services";
 import { Button, Card, ConfirmDialog, Details, Empty, Notice, Spinner } from "../../components/ui";
 import { submitAction } from "../../tx/submit";
-import { bytesOf } from "../../util/bytes";
+import { bytesOf, toBase64url } from "../../util/bytes";
 import { errorMessage, formatDateTime } from "../../util/format";
 import { useVault } from "../../vault/context";
 import { PendingPosts } from "../composer/PendingPosts";
@@ -16,16 +16,21 @@ import { PostCard } from "../feed/PostCard";
 import { usePagedPosts } from "../feed/FeedPage";
 import { usePostContent } from "../feed/usePostContent";
 import { useCanAct, useSubmitContext } from "../session";
+import { Icon } from "../../components/Icon";
 
 function EditDialog({ post, onDone, onCancel }: { post: PostView; onDone: () => void; onCancel: () => void }) {
   const content = usePostContent(post);
   const text = content && (content.status === "plain" || content.status === "decrypted") ? content.content.text : undefined;
   if (text === undefined) return <Notice kind="info">Open the current version first to edit it.</Notice>;
+  const media = content && (content.status === "plain" || content.status === "decrypted") ? content.content.media.map(m => ({
+    url: m.locations[0] ?? "",mime: m.mime,size: Number(m.size),contentHash: m.content_hash,altText: m.alt_text,
+    ...(m.mediaKey && { encryption: { key: toBase64url(m.mediaKey),nonce: toBase64url(m.nonce) } }),
+  })) : [];
   return (
     <Card title="Edit post">
       <p className="muted">Edits publish a new version. The previous version stays in the public history.</p>
       <ComposerForm
-        edit={{ postId: post.postId, previousVersion: post.contentHash, versionNumber: post.versionNumber + 1, text, audience: post.audience }}
+        edit={{ postId: post.postId, previousVersion: post.contentHash, versionNumber: post.versionNumber + 1, text, audience: post.audience, media }}
         defaultAudience={post.audience}
         compact
         onSubmitted={onDone}
@@ -115,10 +120,8 @@ export function PostPage() {
   const mine = post !== undefined && account !== undefined && post.author === account;
 
   return (
-    <div className="page">
-      <p>
-        <Link to="/">← Feed</Link>
-      </p>
+    <div className="page post-page">
+      <Link className="back-link" to="/"><Icon name="back" size={18}/>Back to feed</Link>
       {loading && <Spinner />}
       {waiting && <Notice>This post has not appeared in the feed service yet. Checking automatically… <Button onClick={() => void load()} disabled={loading}>Check now</Button></Notice>}
       {error && <Notice kind="error">{error} <Button onClick={() => void load()} disabled={loading}>Retry</Button></Notice>}
@@ -166,7 +169,7 @@ export function PostPage() {
               </ol>
             </Details>
           )}
-          <Card title="Replies" actions={can.ok && post.state !== LIFECYCLE.DELETED ? <Button onClick={() => setReplying((v) => !v)}>{replying ? "Close" : "Reply"}</Button> : undefined}>
+          <Card className="replies-card" title="Replies" actions={can.ok && post.state !== LIFECYCLE.DELETED ? <Button onClick={() => setReplying((v) => !v)}>{replying ? "Close" : "Reply"}</Button> : undefined}>
             {replying && (
               <ComposerForm
                 replyTo={post.postId}

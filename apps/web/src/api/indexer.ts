@@ -1,5 +1,6 @@
 import type { IndexedPostEconomy } from "@osp/sdk";
 import { searchPeople as matchPeople } from "@osp/sdk";
+import { watchPrivateUpdates } from "./privateUpdates";
 /**
  * Typed client for the INDEXER API v1 (see apps/indexer/README.md). Every read the web client
  * performs goes through here; the indexer is a replaceable convenience, never a source of truth.
@@ -274,6 +275,10 @@ export class IndexerClient {
     return this.baseUrl.length > 0;
   }
 
+  watchPrivateUpdates(changed: () => void): () => void {
+    return watchPrivateUpdates(this.baseUrl, this.fetchFn, changed);
+  }
+
   conversations(account: string): Promise<{items: import("@osp/sdk").ConversationRecord[]}> {
     return this.get(`/v1/conversations/${encodeURIComponent(account)}`);
   }
@@ -348,6 +353,10 @@ export class IndexerClient {
     return [...people.values()];
   }
 
+  privatePackets(after = "0", actor?: string, peer?: string): Promise<{ items: PrivatePacketView[]; more: boolean }> {
+    return this.get(`/v2/private/packets${qs({ after, actor, peer, limit: 50 })}`);
+  }
+
   graph(account: string): Promise<GraphView> {
     return this.get<GraphView>(`/v1/graph/${encodeURIComponent(account)}`);
   }
@@ -418,6 +427,7 @@ export class IndexerClient {
     if (!this.configured) throw new IndexerError(0, "not_configured", "No indexer is configured. Add one in Settings.");
     if (!this.fetchFn) throw new IndexerError(0, "no_fetch", "fetch is not available");
     const init: RequestInit = { method: "GET", headers: { accept: "application/json" } };
+    if (path.startsWith("/v2/private/")) { init.cache = "no-store"; init.referrerPolicy = "no-referrer"; }
     if (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function") init.signal = AbortSignal.timeout(this.timeoutMs);
     let response: Response;
     try {
@@ -443,3 +453,5 @@ export class IndexerClient {
 }
 
 export interface MessageView {sender:string;recipient:string;message_id:string;content_hash:string;generation:string;sequence:string;timestamp:string;envelope:string;txId:string;}
+
+export interface PrivatePacketView { actor: string; peer: string; packet_id: string; content_hash: string; sequence: string; timestamp: string; block: string; envelope: string; txId: string; }
