@@ -142,3 +142,16 @@ photo-only encrypted publications, friend versus unrelated readers, caption edit
 revoking private blob URLs on lock. A live Pinata round trip requires the operator's own
 free API key and is a separate deployment check; offline tests do not establish live
 provider availability.
+
+## Mobile photo preparation
+
+The frontend reads a selected file into memory before decoding it and retains the file
+picker selection until processing finishes. It identifies supported formats from the
+file bytes, because mobile document providers can supply blank or incorrect MIME types.
+It tries `createImageBitmap` first, then a memory-backed data URL with image load events;
+it does not require `HTMLImageElement.decode()` or file-backed blob URLs. File-access
+failures are reported separately from unsupported/corrupt image data. Locking the
+account cancels preparation; decoded bitmaps and canvas buffers are released afterward.
+HEIC still requires browser codec support. Output remains a resized JPEG with metadata
+removed, and friends-only files are encrypted before upload. No server or contract
+update is required for this frontend compatibility fix.

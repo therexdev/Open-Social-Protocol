@@ -80,7 +80,7 @@ export function ComposerForm({ draft, replyTo, edit, defaultAudience = AUDIENCE.
     try {
       for (let i = 0; i < files.length; i++) {
         setUploadStatus(`Preparing photo ${i + 1} of ${files.length}…`);
-        const bytes = await preparePhoto(files[i]!);
+        const bytes = await preparePhoto(files[i]!, controller.signal);
         if (controller.signal.aborted || vault.getState().session !== session) return;
         setUploadStatus(`${encrypted ? "Encrypting and uploading" : "Uploading"} photo ${i + 1} of ${files.length}…`);
         const endpoint = uploadOverride?.trim() || (resolved.sponsorUrls[0] ? `${resolved.sponsorUrls[0].replace(/\/+$/, "")}/v1/media` : "");
@@ -185,7 +185,7 @@ export function ComposerForm({ draft, replyTo, edit, defaultAudience = AUDIENCE.
       </Field>
       <details className="composer-privacy"><summary><Icon name={encrypted ? "lock" : "globe"} size={16}/>{encrypted ? "Only your friends can read this post." : "Anyone can read this post."}</summary><p>{encrypted ? friendsExplanation : everyoneExplanation}</p></details>
       <div className="photo-tools">
-        <input ref={photoInput} className="visually-hidden" type="file" accept="image/jpeg,image/png,image/webp,image/avif,image/heic,image/heif" multiple aria-label="Choose photos" disabled={attaching || !can.ok} onChange={e => { const files = Array.from(e.target.files ?? []); e.target.value = ""; void addPhotos(files); }}/>
+        <input ref={photoInput} className="visually-hidden" type="file" accept="image/jpeg,image/png,image/webp,image/avif,image/heic,image/heif" multiple aria-label="Choose photos" disabled={attaching || !can.ok} onChange={e => { const input = e.currentTarget; const files = Array.from(input.files ?? []); void addPhotos(files).finally(() => { input.value = ""; }); }}/>
         <Button disabled={attaching || !can.ok || media.length >= LIMITS.maxMediaRefs} onClick={() => photoInput.current?.click()}>Add photos</Button>
         {uploadStatus && <span role="status">{uploadStatus}</span>}
         <p className="hint">{encrypted ? "Photos are encrypted on this device before upload." : "Public photos are uploaded to IPFS when selected."} Free storage has limited capacity and is not guaranteed forever.</p>

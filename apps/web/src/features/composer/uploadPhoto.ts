@@ -1,30 +1,7 @@
 import { MAX_IMAGE_BYTES, contentHash, encryptMedia, ipfsCid, signMediaUpload, toBase64url, utf8, type Identity, type MediaUploadStatement } from "@osp/sdk";
 import type { MediaAttachment } from "./publish";
 
-/** Re-encode locally: strips EXIF/GPS, bounds dimensions and avoids serving active image formats. */
-export async function preparePhoto(file: File): Promise<Uint8Array> {
-  if (!/^image\/(jpeg|png|webp|avif|heic|heif)$/.test(file.type)) throw new Error("Choose a JPEG, PNG, WebP, AVIF, or HEIC photo. Animated files and SVG are not supported.");
-  if (file.size > 20 * 1024 * 1024) throw new Error("Choose a photo smaller than 20 MB.");
-  const url = URL.createObjectURL(file), image = new Image();
-  try {
-    image.src = url;
-    try { await image.decode(); } catch { throw new Error("This browser cannot open that photo. Save it as JPEG or PNG and try again."); }
-    if (!image.naturalWidth || !image.naturalHeight || image.naturalWidth * image.naturalHeight > 50_000_000) throw new Error("This photo's dimensions are too large. Resize it first.");
-    const canvas = document.createElement("canvas");
-    const context = canvas.getContext("2d");
-    if (!context) throw new Error("Photo processing is unavailable in this browser.");
-    for (const [longest,quality] of [[2048,0.86],[2048,0.72],[1536,0.82],[1536,0.65],[1024,0.72]] as const) {
-      const scale = Math.min(1, longest / Math.max(image.naturalWidth,image.naturalHeight));
-      canvas.width = Math.max(1, Math.round(image.naturalWidth * scale)); canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
-      context.fillStyle = "#ffffff"; context.fillRect(0,0,canvas.width,canvas.height);
-      context.drawImage(image,0,0,canvas.width,canvas.height);
-      const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve,"image/jpeg",quality));
-      // Keep the pilot fast and compatible with common reverse proxies' 1 MiB default.
-      if (blob && blob.size <= 900_000) return new Uint8Array(await blob.arrayBuffer());
-    }
-    throw new Error("This photo is still too large after resizing. Choose a smaller image.");
-  } finally { URL.revokeObjectURL(url); }
-}
+export { preparePhoto } from "./preparePhoto";
 
 export async function uploadPhoto(bytes: Uint8Array, options: {
   endpoint: string; chainId: string; contract: string; identity: Identity; private: boolean;
