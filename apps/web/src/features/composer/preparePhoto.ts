@@ -1,6 +1,14 @@
+import { readMediaResponse } from "@osp/sdk";
+
 const MAX_SOURCE_BYTES = 20 * 1024 * 1024;
 const cancelled = () => new Error("Photo upload cancelled");
-const unreadable = () => new Error("The browser could not read this file. Save the photo to this device, then select it again.");
+export class PhotoReadError extends Error {
+  constructor(reason = "empty file") {
+    super(`The browser could not read this photo (${reason}). Try Choose from files, or save a local copy and select it again.`);
+    this.name = "PhotoReadError";
+  }
+}
+const unreadable = (reason?: string) => new PhotoReadError(reason);
 
 function readFile(blob: Blob, asDataUrl: boolean, signal?: AbortSignal): Promise<ArrayBuffer | string> {
   return new Promise((resolve, reject) => {
@@ -8,15 +16,40 @@ function readFile(blob: Blob, asDataUrl: boolean, signal?: AbortSignal): Promise
     const cleanup = () => { clearTimeout(timer); signal?.removeEventListener("abort", abort); reader.onload = reader.onerror = reader.onabort = null; };
     const fail = (error: Error) => { cleanup(); reader.abort(); reject(error); };
     const abort = () => fail(cancelled());
-    const timer = setTimeout(() => fail(unreadable()), 20_000);
+    const timer = setTimeout(() => fail(unreadable("file read timed out")), 20_000);
     reader.onload = () => { const result = reader.result; cleanup(); result === null ? reject(unreadable()) : resolve(result); };
-    reader.onerror = () => fail(unreadable());
+    reader.onerror = () => fail(unreadable(reader.error?.name ?? "file access failed"));
     reader.onabort = () => fail(cancelled());
     signal?.addEventListener("abort", abort, { once: true });
     if (signal?.aborted) { abort(); return; }
     try { asDataUrl ? reader.readAsDataURL(blob) : reader.readAsArrayBuffer(blob); }
-    catch { fail(unreadable()); }
+    catch (error) { fail(unreadable(error instanceof Error ? error.name : "file access failed")); }
   });
+}
+
+/** Stream first; mobile document providers do not always expose a reliable size
+ * or support FileReader on the returned handle. All reads stay local and bounded. */
+export async function readPhotoSource(file: File, signal?: AbortSignal): Promise<Uint8Array> {
+  if (signal?.aborted) throw cancelled();
+  if (file.size > MAX_SOURCE_BYTES) throw new Error("Choose a photo smaller than 20 MB.");
+  if (typeof file.stream === "function") {
+    const controller = new AbortController(), abort = () => controller.abort();
+    const timer = setTimeout(abort, 8_000);
+    signal?.addEventListener("abort", abort, { once: true });
+    try {
+      const bytes = await readMediaResponse(new Response(file.stream()), MAX_SOURCE_BYTES, controller.signal);
+      if (bytes.length) return bytes;
+    } catch (error) {
+      if (signal?.aborted) throw cancelled();
+      if (error instanceof Error && error.message === "Image is too large") throw new Error("Choose a photo smaller than 20 MB.");
+      // Try FileReader if streaming is unsupported or the provider fails a read.
+    } finally { clearTimeout(timer); signal?.removeEventListener("abort", abort); controller.abort(); }
+  }
+  const bytes = new Uint8Array(await readFile(file, false, signal) as ArrayBuffer);
+  if (!bytes.length) throw unreadable();
+  if (bytes.length > MAX_SOURCE_BYTES) throw new Error("Choose a photo smaller than 20 MB.");
+  // A stale/zero size from a document provider must not reject successfully read bytes.
+  return bytes;
 }
 
 // Android document providers can supply a blank or incorrect MIME type. Use the
@@ -77,12 +110,9 @@ async function decodePhoto(blob: Blob, signal?: AbortSignal): Promise<DecodedPho
 /** Read locally and re-encode: strips metadata and bounds dimensions/upload size. */
 export async function preparePhoto(file: File, signal?: AbortSignal): Promise<Uint8Array> {
   if (signal?.aborted) throw cancelled();
-  if (file.size > MAX_SOURCE_BYTES) throw new Error("Choose a photo smaller than 20 MB.");
-  if (!file.size) throw unreadable();
-  const bytes = new Uint8Array(await readFile(file, false, signal) as ArrayBuffer);
-  if (!bytes.length || bytes.length !== file.size) throw unreadable();
+  const bytes = await readPhotoSource(file, signal);
   const mime = photoMime(bytes);
-  const image = await decodePhoto(new Blob([bytes], { type: mime }), signal);
+  const image = await decodePhoto(new Blob([new Uint8Array(bytes)], { type: mime }), signal);
   const canvas = document.createElement("canvas");
   try {
     if (!image.width || !image.height || image.width * image.height > 50_000_000) throw new Error("This photo's dimensions are too large. Resize it first.");

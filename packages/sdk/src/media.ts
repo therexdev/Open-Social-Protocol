@@ -8,7 +8,7 @@ import { randomBytes, type Rng } from "./crypto/keys.js";
 
 export const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
 export const IMAGE_MIMES = ["image/jpeg", "image/png", "image/webp", "image/avif"] as const;
-export const DEFAULT_IPFS_GATEWAYS = ["https://ipfs.io", "https://dweb.link"];
+export const DEFAULT_IPFS_GATEWAYS = ["https://gateway.pinata.cloud", "https://ipfs.io", "https://dweb.link"];
 const FILE_AAD = utf8("osp/media/file/v1");
 const WRAP_AAD = utf8("osp/media/key/v1");
 
@@ -73,50 +73,89 @@ export function verifyMediaUpload(statement: MediaUploadStatement, signature: st
 }
 
 /** A bounded streaming read: a malicious gateway cannot make the client buffer an unbounded file. */
-export async function readMediaResponse(response: Response, maxBytes = MAX_IMAGE_BYTES): Promise<Uint8Array> {
+export async function readMediaResponse(response: Response, maxBytes = MAX_IMAGE_BYTES, signal?: AbortSignal): Promise<Uint8Array> {
   const length = Number(response.headers.get("content-length"));
   if (length > maxBytes) { await response.body?.cancel(); throw new Error("Image is too large"); }
   if (!response.body) throw new Error("Image response has no body");
   const reader = response.body.getReader(), chunks: Uint8Array[] = [];
   let size = 0;
+  const abort = () => { void reader.cancel().catch(() => undefined); };
+  signal?.addEventListener("abort", abort, { once: true });
   try {
     while (true) {
+      if (signal?.aborted) throw new Error("Image loading cancelled");
       const { done, value } = await reader.read();
+      if (signal?.aborted) throw new Error("Image loading cancelled");
       if (done) break;
       size += value.length;
       if (size > maxBytes) throw new Error("Image is too large");
       chunks.push(value);
     }
-  } finally { await reader.cancel().catch(() => undefined); reader.releaseLock(); }
+  } finally { signal?.removeEventListener("abort", abort); void reader.cancel().catch(() => undefined); reader.releaseLock(); }
   const out = new Uint8Array(size);
   let offset = 0;
   for (const chunk of chunks) { out.set(chunk,offset); offset += chunk.length; }
   return out;
 }
 
-/** Gateway URLs are local preferences; only the ipfs:// CID is part of the post. */
+/** Gateway URLs are local preferences; only the ipfs:// CID is part of the post.
+ * Start a fallback after 750 ms instead of waiting for a slow gateway's timeout.
+ * The whole operation has a hard deadline, including stalled response bodies.
+ */
 export async function fetchIpfsMedia(location: string, hash: Uint8Array, options: {
   gateways?: string[]; fetch?: typeof fetch; signal?: AbortSignal; maxBytes?: number;
 } = {}): Promise<Uint8Array> {
   const cid = ipfsCid(location), fetchFn = options.fetch ?? fetch;
-  let last: unknown;
+  if (options.signal?.aborted) throw new Error("Image loading cancelled");
+  const urls: string[] = [];
   for (const base of options.gateways?.length ? options.gateways : DEFAULT_IPFS_GATEWAYS) {
-    if (options.signal?.aborted) throw new Error("Image loading cancelled");
     let url: URL;
     try { url = new URL(base); } catch { continue; }
     if (url.username || url.password || url.search || url.hash) continue;
     if (url.protocol !== "https:" && !(url.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname))) continue;
-    const controller = new AbortController(), abort = () => controller.abort();
-    const timer = setTimeout(abort, 15_000);
-    options.signal?.addEventListener("abort", abort, { once: true });
-    try {
-      const response = await fetchFn(`${base.replace(/\/+$/, "").replace(/\/ipfs$/, "")}/ipfs/${cid}`, { signal: controller.signal, credentials: "omit", referrerPolicy: "no-referrer", cache: "no-store" });
-      if (!response.ok) throw new Error(`Gateway returned ${response.status}`);
-      const bytes = await readMediaResponse(response, options.maxBytes);
-      if (!bytesEqual(sha256(bytes), hash)) throw new Error("Image does not match its published fingerprint");
-      return bytes;
-    } catch (error) { last = error; }
-    finally { clearTimeout(timer); options.signal?.removeEventListener("abort", abort); }
+    const target = `${url.href.replace(/\/+$/, "").replace(/\/ipfs$/, "")}/ipfs/${cid}`;
+    if (!urls.includes(target)) urls.push(target);
+    if (urls.length === 3) break;
   }
-  throw new Error(`Photo unavailable from your IPFS gateways. ${last instanceof Error ? last.message : "Try another gateway in Settings."}`);
+  if (!urls.length) throw new Error("No usable IPFS gateway is configured. Check Settings.");
+  return new Promise((resolve, reject) => {
+    const controllers: AbortController[] = [];
+    let settled = false, next = 0, failed = 0;
+    let hedge: ReturnType<typeof setTimeout> | undefined;
+    const cleanup = () => {
+      settled = true; clearTimeout(deadline); clearTimeout(hedge);
+      options.signal?.removeEventListener("abort", abort);
+      for (const controller of controllers) controller.abort();
+    };
+    const abort = () => { if (!settled) { cleanup(); reject(new Error("Image loading cancelled")); } };
+    const deadline = setTimeout(() => {
+      if (!settled) { cleanup(); reject(new Error("Photo loading timed out. Retry the photo or choose another IPFS gateway in Settings.")); }
+    }, 18_000);
+    const launch = () => {
+      if (settled || next >= urls.length) return;
+      clearTimeout(hedge);
+      const target = urls[next++]!, controller = new AbortController();
+      controllers.push(controller);
+      if (next < urls.length) hedge = setTimeout(launch, 750);
+      void (async () => {
+        const response = await fetchFn(target, { signal: controller.signal, credentials: "omit", referrerPolicy: "no-referrer", cache: "no-store" });
+        if (controller.signal.aborted || !response.ok) {
+          void response.body?.cancel().catch(() => undefined);
+          throw new Error(`Gateway returned ${response.status}`);
+        }
+        const bytes = await readMediaResponse(response, options.maxBytes, controller.signal);
+        if (!bytesEqual(sha256(bytes), hash)) throw new Error("Image does not match its published fingerprint");
+        return bytes;
+      })().then(bytes => {
+        if (!settled) { cleanup(); resolve(bytes); }
+      }, () => {
+        if (settled) return;
+        failed++;
+        if (failed === urls.length) { cleanup(); reject(new Error("Photo unavailable from your IPFS gateways. Retry the photo or choose another gateway in Settings.")); }
+        else launch();
+      });
+    };
+    options.signal?.addEventListener("abort", abort, { once: true });
+    if (options.signal?.aborted) abort(); else launch();
+  });
 }

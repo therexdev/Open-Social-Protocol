@@ -1,5 +1,6 @@
 import { MAX_IMAGE_BYTES, contentHash, encryptMedia, ipfsCid, signMediaUpload, toBase64url, utf8, type Identity, type MediaUploadStatement } from "@osp/sdk";
 import type { MediaAttachment } from "./publish";
+import { rememberMediaBytes } from "../../api/mediaCache";
 
 export { preparePhoto } from "./preparePhoto";
 
@@ -30,6 +31,7 @@ export async function uploadPhoto(bytes: Uint8Array, options: {
     if (!response.ok) throw new Error(result.error?.message || "Photo upload failed. Your post has not been published.");
     if (!result.url?.startsWith("ipfs://") || result.hash !== proof.hash || result.size !== uploaded.length) throw new Error("The storage service returned an invalid photo receipt");
     ipfsCid(result.url);
+    rememberMediaBytes(result.url, proof.hash, uploaded);
     return { url: result.url, mime: "image/jpeg", size: uploaded.length, contentHash: hash,
       ...(encrypted && { encryption: { key: toBase64url(encrypted.key), nonce: toBase64url(encrypted.nonce) } }) };
   } catch (error) {

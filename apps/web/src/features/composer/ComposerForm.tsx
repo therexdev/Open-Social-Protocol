@@ -16,6 +16,7 @@ import { useServices } from "../../api/services";
 import { useSettings } from "../../stores/settings";
 import { useVaultStore } from "../../vault/context";
 import { preparePhoto, uploadPhoto } from "./uploadPhoto";
+import { PhotoReadError } from "./preparePhoto";
 import { MediaPhoto } from "../../components/MediaPhoto";
 import { toBase64url } from "../../util/bytes";
 
@@ -36,9 +37,11 @@ export function ComposerForm({ draft, replyTo, edit, defaultAudience = AUDIENCE.
   const { resolved } = useServices();
   const uploadOverride = useSettings(s => s.mediaUploadUrl);
   const photoInput = useRef<HTMLInputElement>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
   const uploadController = useRef<AbortController | undefined>(undefined);
   const previews = useRef(new Map<string,string>());
   const [uploadStatus,setUploadStatus] = useState("");
+  const [fileReadFailed,setFileReadFailed] = useState(false);
   const can = useCanAct();
   const { start, ready } = usePublish();
   const [text, setText] = useState(draft?.text ?? edit?.text ?? "");
@@ -76,7 +79,7 @@ export function ComposerForm({ draft, replyTo, edit, defaultAudience = AUDIENCE.
     if (!session || !resolved.deployment || attaching || !files.length) return;
     if (media.length + files.length > LIMITS.maxMediaRefs) { setError(`Choose at most ${LIMITS.maxMediaRefs - media.length} more photos.`); return; }
     const controller = new AbortController(); uploadController.current = controller;
-    setAttaching(true); setError(undefined);
+    setAttaching(true); setError(undefined); setFileReadFailed(false);
     try {
       for (let i = 0; i < files.length; i++) {
         setUploadStatus(`Preparing photo ${i + 1} of ${files.length}…`);
@@ -90,7 +93,7 @@ export function ComposerForm({ draft, replyTo, edit, defaultAudience = AUDIENCE.
         previews.current.set(attachment.url,URL.createObjectURL(new Blob([new Uint8Array(bytes)],{ type: "image/jpeg" })));
         setMedia(current => [...current,attachment]);
       }
-    } catch (error) { if (!controller.signal.aborted) setError(errorMessage(error)); }
+    } catch (error) { if (!controller.signal.aborted) { setError(errorMessage(error)); setFileReadFailed(error instanceof PhotoReadError); } }
     finally { setAttaching(false); setUploadStatus(""); }
   };
   const removeMedia = (index: number) => {
@@ -185,8 +188,10 @@ export function ComposerForm({ draft, replyTo, edit, defaultAudience = AUDIENCE.
       </Field>
       <details className="composer-privacy"><summary><Icon name={encrypted ? "lock" : "globe"} size={16}/>{encrypted ? "Only your friends can read this post." : "Anyone can read this post."}</summary><p>{encrypted ? friendsExplanation : everyoneExplanation}</p></details>
       <div className="photo-tools">
-        <input ref={photoInput} className="visually-hidden" type="file" accept="image/jpeg,image/png,image/webp,image/avif,image/heic,image/heif" multiple aria-label="Choose photos" disabled={attaching || !can.ok} onChange={e => { const input = e.currentTarget; const files = Array.from(input.files ?? []); void addPhotos(files).finally(() => { input.value = ""; }); }}/>
+        <input ref={photoInput} className="visually-hidden" type="file" accept="image/*" multiple aria-label="Choose photos" disabled={attaching || !can.ok} onChange={e => { const input = e.currentTarget; const files = Array.from(input.files ?? []); void addPhotos(files).finally(() => { input.value = ""; }); }}/>
+        <input ref={fileInput} className="visually-hidden" type="file" multiple aria-label="Choose photo files" disabled={attaching || !can.ok} onChange={e => { const input = e.currentTarget; const files = Array.from(input.files ?? []); void addPhotos(files).finally(() => { input.value = ""; }); }}/>
         <Button disabled={attaching || !can.ok || media.length >= LIMITS.maxMediaRefs} onClick={() => photoInput.current?.click()}>Add photos</Button>
+        {fileReadFailed && <Button variant="ghost" disabled={attaching || !can.ok} onClick={() => fileInput.current?.click()}>Choose from files</Button>}
         {uploadStatus && <span role="status">{uploadStatus}</span>}
         <p className="hint">{encrypted ? "Photos are encrypted on this device before upload." : "Public photos are uploaded to IPFS when selected."} Free storage has limited capacity and is not guaranteed forever.</p>
       </div>

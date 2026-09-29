@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { preparePhoto } from "./preparePhoto";
+import { preparePhoto, readPhotoSource } from "./preparePhoto";
 
 const jpeg = new Uint8Array([255, 216, 255, 224, 0, 16, 74, 70, 73, 70]);
 const png = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
@@ -51,7 +51,7 @@ describe("mobile photo preparation", () => {
   });
   it("reports unreadable files separately from unsupported codecs", async () => {
     vi.spyOn(FileReader.prototype, "readAsArrayBuffer").mockImplementation(function(this: FileReader) { this.dispatchEvent(new ProgressEvent("error")); });
-    await expect(preparePhoto(new File([jpeg], "photo.jpg"))).rejects.toThrow(/could not read this file/);
+    await expect(preparePhoto(new File([jpeg], "photo.jpg"))).rejects.toThrow(/could not read this photo/);
     expect(bitmap).not.toHaveBeenCalled();
   });
   it("reports an actual decoder failure after both decoding routes fail", async () => {
@@ -85,5 +85,28 @@ describe("mobile photo preparation", () => {
     const controller = new AbortController(); controller.abort();
     await expect(preparePhoto(new File([jpeg], "photo.jpg"), controller.signal)).rejects.toThrow(/cancelled/);
     expect(bitmap).not.toHaveBeenCalled();
+  });
+  it.each([0, 1, 99999])("accepts readable bytes when a document provider reports a stale size of %s", async size => {
+    const file = new File([jpeg], "robot.jpg", { type: "image/jpeg" });
+    Object.defineProperty(file, "size", { value: size });
+    expect(await readPhotoSource(file)).toEqual(jpeg);
+  });
+  it("reads through a bounded stream when FileReader cannot open the selected file", async () => {
+    const file = new File([jpeg], "robot.jpg");
+    Object.defineProperty(file, "stream", { value: () => new ReadableStream({ start(c) { c.enqueue(jpeg); c.close(); } }) });
+    vi.spyOn(FileReader.prototype, "readAsArrayBuffer").mockImplementation(() => { throw new DOMException("No access", "NotReadableError"); });
+    expect(await readPhotoSource(file)).toEqual(jpeg);
+  });
+  it("falls back to FileReader when the document provider stream fails", async () => {
+    const file = new File([jpeg], "robot.jpg");
+    Object.defineProperty(file, "stream", { value: () => new ReadableStream({ start(c) { c.error(new Error("provider failed")); } }) });
+    expect(await readPhotoSource(file)).toEqual(jpeg);
+  });
+  it("limits streamed bytes even if the file's reported size is zero", async () => {
+    const file = new File([], "large.jpg");
+    const cancel = vi.fn();
+    Object.defineProperty(file, "stream", { value: () => new ReadableStream({ start(c) { c.enqueue(new Uint8Array(20 * 1024 * 1024 + 1)); }, cancel }) });
+    await expect(readPhotoSource(file)).rejects.toThrow(/20 MB/);
+    expect(cancel).toHaveBeenCalledOnce();
   });
 });

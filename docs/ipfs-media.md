@@ -155,3 +155,33 @@ account cancels preparation; decoded bitmaps and canvas buffers are released aft
 HEIC still requires browser codec support. Output remains a resized JPEG with metadata
 removed, and friends-only files are encrypted before upload. No server or contract
 update is required for this frontend compatibility fix.
+
+## Photo delivery and mobile file access
+
+The default gateway order is Pinata, ipfs.io, then dweb.link. These are replaceable
+client preferences, never protocol-owned hosts. A second gateway starts after 750 ms
+if the first has not returned verified bytes; at most three configured gateways are
+tried. The first matching fingerprint wins and cancels remaining requests. An
+18-second overall deadline includes response-body stalls and produces a Retry photo
+action instead of leaving a permanent placeholder.
+
+A five-minute, 12 MiB memory-only cache retains recent verified uploads/downloads.
+For friends-only photos it stores ciphertext only, never the decrypted image or keys.
+This preserves a newly published photo when its composer preview becomes an indexed
+post or reply. Decrypted object URLs are still revoked on lock/unmount.
+
+File selection now requests the native image picker with image/*; byte-level format
+validation still excludes active formats. Reading tries a size-bounded stream first
+and FileReader second, and accepts successfully read bytes even when a document
+provider reports zero or stale file size. Failure preserves the browser error name
+and offers Choose from files as another local picker route. OS-level denial of both
+read routes requires selecting an accessible local copy; no file bytes are uploaded
+until local preparation and (for friends-only photos) encryption succeed.
+
+Verification for the September 29 update included fetching the already-published
+public reply photo by its on-chain CID and matching its fingerprint, displaying it
+in a mobile WebKit test, simulated stalled/corrupt gateways, retry recovery, unknown
+file sizes, FileReader/stream fallback, and public/private local upload flows. The
+original robot file handle on the reporting phone was not available to reproduce
+an OS-level access denial. This is a frontend update; no sponsor or contract changes
+are required.

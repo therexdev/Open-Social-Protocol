@@ -3,6 +3,7 @@ import { IMAGE_MIMES, fetchIpfsMedia, openMedia, fromBase64url } from "@osp/sdk"
 import { useSettings } from "../stores/settings";
 import { useVault } from "../vault/context";
 import { Button } from "./ui";
+import { cachedMediaBytes, rememberMediaBytes } from "../api/mediaCache";
 
 export interface MediaPhotoProps { location: string; hash: string; mime: string; alt?: string; encryption?: { key: string; nonce: string } }
 /** Only verified raster bytes become a blob URL. Private URLs are revoked on lock/unmount. */
@@ -27,7 +28,9 @@ export function MediaPhoto({ location, hash, mime, alt = "Attached photo", encry
     void (async () => {
       try {
         if (!(IMAGE_MIMES as readonly string[]).includes(mime)) throw new Error("Unsupported photo format");
-        const bytes = await fetchIpfsMedia(location,fromBase64url(hash),{ gateways, signal: controller.signal });
+        const bytes = cachedMediaBytes(location, hash) ?? await fetchIpfsMedia(location,fromBase64url(hash),{ gateways, signal: controller.signal });
+        if (controller.signal.aborted) return;
+        rememberMediaBytes(location, hash, bytes);
         const plain = openMedia(bytes,fromBase64url(hash),encryption ? { key: fromBase64url(encryption.key), nonce: fromBase64url(encryption.nonce) } : undefined);
         if (controller.signal.aborted) return;
         objectUrl = URL.createObjectURL(new Blob([new Uint8Array(plain)],{ type: mime }));
