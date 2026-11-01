@@ -513,6 +513,16 @@ function applyPublications(db: IndexerDb, event: LogEvent): void {
       );
       return;
     }
+    case "osp.publications.poll_created":
+    case "osp.publications.poll_answered": {
+      const postId = b64(d.post_id);
+      db.run("INSERT INTO polls(post_id,data_json) VALUES (?,?) ON CONFLICT(post_id) DO UPDATE SET data_json=excluded.data_json", postId, JSON.stringify(d.poll));
+      if (event.name === "osp.publications.poll_answered") {
+        const ballot = d.ballot as Record<string, unknown>;
+        db.run("INSERT INTO poll_ballots(post_id,actor,option) VALUES (?,?,?) ON CONFLICT(post_id,actor) DO UPDATE SET option=excluded.option", postId, str(d.actor), num(ballot.option));
+      }
+      break;
+    }
     case "osp.publications.reaction": {
       const actor = str(d.actor);
       const postId = b64(d.post_id);

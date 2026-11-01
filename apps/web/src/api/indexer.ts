@@ -96,6 +96,7 @@ export interface LabelView {
 }
 
 export interface PostView {
+  poll?: import("@osp/sdk").PollRecord;
   economy?: IndexedPostEconomy;
   promoted?: { nonce: string; opportunity: string };
   postId: string;

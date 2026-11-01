@@ -39,6 +39,7 @@ export interface LabelView {
 }
 
 export interface PostView {
+  poll?: import("@osp/sdk").PollRecord;
   economy?: IndexedPostEconomy;
   promoted?: { nonce: string; opportunity: string };
   postId: string;
@@ -213,6 +214,10 @@ function postView(db: IndexerDb, row: PostRow, viewer?: string): PostView {
     versions,
     labels: labelsForPost(db, row.post_id),
     economy: postEconomy(db, row.post_id, viewer),
+    ...(!redacted && (() => {
+      const poll = db.get<{ data_json: string }>("SELECT data_json FROM polls WHERE post_id = ?", row.post_id);
+      return poll ? { poll: JSON.parse(poll.data_json) } : {};
+    })()),
   };
 }
 

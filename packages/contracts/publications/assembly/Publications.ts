@@ -68,6 +68,67 @@ const MAX_LIFECYCLE_STATE: i32 = <i32>publications.lifecycle_state.superseded;
 const MAX_OUTCOME_STATE: i32 = <i32>publications.outcome_state.reconcile_required;
 
 export class Publications {
+  polls: Storage.Map<Uint8Array, publications.poll_record> = new Storage.Map<Uint8Array, publications.poll_record>(System.getContractId(), 5, publications.poll_record.decode, publications.poll_record.encode, null);
+  pollBallots: Storage.Map<Uint8Array, publications.poll_ballot> = new Storage.Map<Uint8Array, publications.poll_ballot>(System.getContractId(), 6, publications.poll_ballot.decode, publications.poll_ballot.encode, null);
+
+  validatePoll(p: publications.poll_definition): void {
+    System.require(p.question != null && p.question!.trim().length > 0 && p.question!.length <= 500, "poll question must contain 1-500 characters");
+    System.require(p.options.length >= 2 && p.options.length <= 8, "poll requires 2-8 options");
+    for (let i = 0; i < p.options.length; i++) {
+      System.require(p.options[i].trim().length > 0 && p.options[i].length <= 120, "poll options must contain 1-120 characters");
+      for (let j = 0; j < i; j++) System.require(p.options[i].trim().toLowerCase() != p.options[j].trim().toLowerCase(), "duplicate poll option");
+    }
+    const now = Util.now();
+    System.require(p.closes_at >= now + 300000 && p.closes_at <= now + 2592000000, "poll must close in 5 minutes to 30 days");
+  }
+
+  // Integer square root: deterministic on-chain, bounded work and no floating point.
+  engagement(n: u32): u64 {
+    const value = <u64>n * 62500;
+    let lo: u64 = 0, hi: u64 = 250000;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) / 2;
+      if (mid * mid <= value) lo = mid; else hi = mid - 1;
+    }
+    return lo;
+  }
+
+  answer_poll(args: publications.answer_poll_arguments): publications.answer_poll_result {
+    const actor = Util.requireAddress(args.actor, "actor"), id = this.requireHash(args.post_id, "post_id");
+    Actor.requireAuthorized(this.identityContract(), actor, args.device, Capability.REACT);
+    const post = this.posts.get(id), poll = this.polls.get(id);
+    System.require(post != null && post!.state == publications.lifecycle_state.active && poll != null, "active poll not found");
+    System.require(Util.now() < poll!.definition!.closes_at, "poll is closed");
+    System.require(args.option < <u32>poll!.counts.length, "invalid poll option");
+    const own = Arrays.equal(actor, post!.author!);
+    if (!own) {
+      System.require(!this.isBlocked(post!.author!, actor) && !this.isBlocked(actor, post!.author!), "poll participation blocked");
+    }
+    const key = Util.concat([id, actor]), previous = this.pollBallots.get(key);
+    if (previous != null) {
+      System.require(previous.option != args.option, "answer already selected");
+      poll!.counts[previous.option]--;
+    } else {
+      System.require(poll!.participants < 1000000, "poll capacity reached");
+      poll!.participants++;
+      if (!own) poll!.engagement_participants++;
+    }
+    this.consume(actor);
+    poll!.counts[args.option]++;
+    poll!.engagement_milli = this.engagement(poll!.engagement_participants);
+    const ballot = new publications.poll_ballot(args.option);
+    this.pollBallots.put(key, ballot);
+    this.polls.put(id, poll!);
+    System.event("osp.publications.poll_answered", Protobuf.encode(new publications.poll_answered_event(id, actor, ballot, poll, Util.now()), publications.poll_answered_event.encode), [actor, post!.author!]);
+    return new publications.answer_poll_result();
+  }
+
+  get_poll(args: publications.get_poll_arguments): publications.get_poll_result {
+    const id = this.requireHash(args.post_id, "post_id");
+    const ballot: publications.poll_ballot | null = Util.isEmpty(args.viewer) ? null : this.pollBallots.get(Util.concat([id, Util.requireAddress(args.viewer, "viewer")]));
+    return new publications.get_poll_result(this.polls.get(id), ballot, Util.now());
+  }
+
   usage: Storage.Obj<publications.get_token_contract_result> = new Storage.Obj<publications.get_token_contract_result>(System.getContractId(), 20, publications.get_token_contract_result.decode, publications.get_token_contract_result.encode, null);
   set_token_contract(args: publications.set_token_contract_arguments): publications.set_token_contract_result {
     System.requireAuthority(authority.authorization_type.contract_call, System.getContractId());
@@ -327,6 +388,11 @@ export class Publications {
     // comment whether or not the caller repeats reply_to, so a device holding
     // only PUBLISH can never rewrite one (ADR 0003 bounded-damage model).
     const isFirstVersion = Util.isEmpty(args.previous_version);
+    if (args.poll != null) {
+      System.require(isFirstVersion && args.audience == publications.audience_kind.everyone && requestedReplyTo == null, "polls require a new public top-level post");
+      this.validatePoll(args.poll!);
+    }
+    System.require(isFirstVersion || !this.polls.has(postId), "poll question and options are immutable; create a new poll");
     let existing: publications.post_record | null = null;
     let capability: u32 = Capability.PUBLISH;
     if (isFirstVersion) {
@@ -443,6 +509,12 @@ export class Publications {
       Protobuf.encode(ev, publications.published_event.encode),
       impacted
     );
+    if (args.poll != null) {
+      const counts = new Array<u32>(args.poll!.options.length);
+      const poll = new publications.poll_record(args.poll, counts);
+      this.polls.put(postId, poll);
+      System.event("osp.publications.poll_created", Protobuf.encode(new publications.poll_created_event(postId, poll), publications.poll_created_event.encode), [author]);
+    }
     return new publications.publish_result();
   }
 

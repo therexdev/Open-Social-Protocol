@@ -641,6 +641,14 @@ export namespace publications {
         writer.uint32(106);
         writer.bytes(unique_name_device);
       }
+
+      const unique_name_poll = message.poll;
+      if (unique_name_poll !== null) {
+        writer.uint32(114);
+        writer.fork();
+        poll_definition.encode(unique_name_poll, writer);
+        writer.ldelim();
+      }
     }
 
     static decode(reader: Reader, length: i32): publish_arguments {
@@ -702,6 +710,10 @@ export namespace publications {
             message.device = reader.bytes();
             break;
 
+          case 14:
+            message.poll = poll_definition.decode(reader, reader.uint32());
+            break;
+
           default:
             reader.skipType(tag & 7);
             break;
@@ -724,6 +736,7 @@ export namespace publications {
     reply_to: Uint8Array | null;
     idempotency_key: Uint8Array | null;
     device: Uint8Array | null;
+    poll: poll_definition | null;
 
     constructor(
       author: Uint8Array | null = null,
@@ -738,7 +751,8 @@ export namespace publications {
       media: Array<media_ref> = [],
       reply_to: Uint8Array | null = null,
       idempotency_key: Uint8Array | null = null,
-      device: Uint8Array | null = null
+      device: Uint8Array | null = null,
+      poll: poll_definition | null = null
     ) {
       this.author = author;
       this.post_id = post_id;
@@ -753,6 +767,7 @@ export namespace publications {
       this.reply_to = reply_to;
       this.idempotency_key = idempotency_key;
       this.device = device;
+      this.poll = poll;
     }
   }
 
@@ -2440,6 +2455,575 @@ export namespace publications {
 
     constructor(value: Uint8Array | null = null) {
       this.value = value;
+    }
+  }
+
+  export class poll_definition {
+    static encode(message: poll_definition, writer: Writer): void {
+      const unique_name_question = message.question;
+      if (unique_name_question !== null) {
+        writer.uint32(10);
+        writer.string(unique_name_question);
+      }
+
+      const unique_name_options = message.options;
+      if (unique_name_options.length !== 0) {
+        for (let i = 0; i < unique_name_options.length; ++i) {
+          writer.uint32(18);
+          writer.string(unique_name_options[i]);
+        }
+      }
+
+      if (message.closes_at != 0) {
+        writer.uint32(24);
+        writer.uint64(message.closes_at);
+      }
+    }
+
+    static decode(reader: Reader, length: i32): poll_definition {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new poll_definition();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1:
+            message.question = reader.string();
+            break;
+
+          case 2:
+            message.options.push(reader.string());
+            break;
+
+          case 3:
+            message.closes_at = reader.uint64();
+            break;
+
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    question: string | null;
+    options: Array<string>;
+    closes_at: u64;
+
+    constructor(
+      question: string | null = null,
+      options: Array<string> = [],
+      closes_at: u64 = 0
+    ) {
+      this.question = question;
+      this.options = options;
+      this.closes_at = closes_at;
+    }
+  }
+
+  export class poll_record {
+    static encode(message: poll_record, writer: Writer): void {
+      const unique_name_definition = message.definition;
+      if (unique_name_definition !== null) {
+        writer.uint32(10);
+        writer.fork();
+        poll_definition.encode(unique_name_definition, writer);
+        writer.ldelim();
+      }
+
+      const unique_name_counts = message.counts;
+      if (unique_name_counts.length !== 0) {
+        for (let i = 0; i < unique_name_counts.length; ++i) {
+          writer.uint32(16);
+          writer.uint32(unique_name_counts[i]);
+        }
+      }
+
+      if (message.participants != 0) {
+        writer.uint32(24);
+        writer.uint32(message.participants);
+      }
+
+      if (message.engagement_participants != 0) {
+        writer.uint32(32);
+        writer.uint32(message.engagement_participants);
+      }
+
+      if (message.engagement_milli != 0) {
+        writer.uint32(40);
+        writer.uint64(message.engagement_milli);
+      }
+    }
+
+    static decode(reader: Reader, length: i32): poll_record {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new poll_record();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1:
+            message.definition = poll_definition.decode(
+              reader,
+              reader.uint32()
+            );
+            break;
+
+          case 2:
+            if ((tag & 7) == 2) {
+              const packedLength = reader.uint32();
+              assert(reader.ptr <= end && <usize>packedLength <= end - reader.ptr);
+              const packedEnd = reader.ptr + packedLength;
+              while (reader.ptr < packedEnd) {
+                message.counts.push(reader.uint32());
+              }
+              assert(reader.ptr == packedEnd);
+            } else {
+              assert((tag & 7) == 0);
+              message.counts.push(reader.uint32());
+            }
+            break;
+
+          case 3:
+            message.participants = reader.uint32();
+            break;
+
+          case 4:
+            message.engagement_participants = reader.uint32();
+            break;
+
+          case 5:
+            message.engagement_milli = reader.uint64();
+            break;
+
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    definition: poll_definition | null;
+    counts: Array<u32>;
+    participants: u32;
+    engagement_participants: u32;
+    engagement_milli: u64;
+
+    constructor(
+      definition: poll_definition | null = null,
+      counts: Array<u32> = [],
+      participants: u32 = 0,
+      engagement_participants: u32 = 0,
+      engagement_milli: u64 = 0
+    ) {
+      this.definition = definition;
+      this.counts = counts;
+      this.participants = participants;
+      this.engagement_participants = engagement_participants;
+      this.engagement_milli = engagement_milli;
+    }
+  }
+
+  @unmanaged
+  export class poll_ballot {
+    static encode(message: poll_ballot, writer: Writer): void {
+      if (message.option != 0) {
+        writer.uint32(8);
+        writer.uint32(message.option);
+      }
+    }
+
+    static decode(reader: Reader, length: i32): poll_ballot {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new poll_ballot();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1:
+            message.option = reader.uint32();
+            break;
+
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    option: u32;
+
+    constructor(option: u32 = 0) {
+      this.option = option;
+    }
+  }
+
+  export class answer_poll_arguments {
+    static encode(message: answer_poll_arguments, writer: Writer): void {
+      const unique_name_actor = message.actor;
+      if (unique_name_actor !== null) {
+        writer.uint32(10);
+        writer.bytes(unique_name_actor);
+      }
+
+      const unique_name_post_id = message.post_id;
+      if (unique_name_post_id !== null) {
+        writer.uint32(18);
+        writer.bytes(unique_name_post_id);
+      }
+
+      if (message.option != 0) {
+        writer.uint32(24);
+        writer.uint32(message.option);
+      }
+
+      const unique_name_device = message.device;
+      if (unique_name_device !== null) {
+        writer.uint32(34);
+        writer.bytes(unique_name_device);
+      }
+    }
+
+    static decode(reader: Reader, length: i32): answer_poll_arguments {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new answer_poll_arguments();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1:
+            message.actor = reader.bytes();
+            break;
+
+          case 2:
+            message.post_id = reader.bytes();
+            break;
+
+          case 3:
+            message.option = reader.uint32();
+            break;
+
+          case 4:
+            message.device = reader.bytes();
+            break;
+
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    actor: Uint8Array | null;
+    post_id: Uint8Array | null;
+    option: u32;
+    device: Uint8Array | null;
+
+    constructor(
+      actor: Uint8Array | null = null,
+      post_id: Uint8Array | null = null,
+      option: u32 = 0,
+      device: Uint8Array | null = null
+    ) {
+      this.actor = actor;
+      this.post_id = post_id;
+      this.option = option;
+      this.device = device;
+    }
+  }
+
+  @unmanaged
+  export class answer_poll_result {
+    static encode(message: answer_poll_result, writer: Writer): void {}
+
+    static decode(reader: Reader, length: i32): answer_poll_result {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new answer_poll_result();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    constructor() {}
+  }
+
+  export class get_poll_arguments {
+    static encode(message: get_poll_arguments, writer: Writer): void {
+      const unique_name_post_id = message.post_id;
+      if (unique_name_post_id !== null) {
+        writer.uint32(10);
+        writer.bytes(unique_name_post_id);
+      }
+
+      const unique_name_viewer = message.viewer;
+      if (unique_name_viewer !== null) {
+        writer.uint32(18);
+        writer.bytes(unique_name_viewer);
+      }
+    }
+
+    static decode(reader: Reader, length: i32): get_poll_arguments {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new get_poll_arguments();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1:
+            message.post_id = reader.bytes();
+            break;
+
+          case 2:
+            message.viewer = reader.bytes();
+            break;
+
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    post_id: Uint8Array | null;
+    viewer: Uint8Array | null;
+
+    constructor(
+      post_id: Uint8Array | null = null,
+      viewer: Uint8Array | null = null
+    ) {
+      this.post_id = post_id;
+      this.viewer = viewer;
+    }
+  }
+
+  export class get_poll_result {
+    static encode(message: get_poll_result, writer: Writer): void {
+      const unique_name_value = message.value;
+      if (unique_name_value !== null) {
+        writer.uint32(10);
+        writer.fork();
+        poll_record.encode(unique_name_value, writer);
+        writer.ldelim();
+      }
+
+      const unique_name_ballot = message.ballot;
+      if (unique_name_ballot !== null) {
+        writer.uint32(18);
+        writer.fork();
+        poll_ballot.encode(unique_name_ballot, writer);
+        writer.ldelim();
+      }
+
+      if (message.now != 0) {
+        writer.uint32(24);
+        writer.uint64(message.now);
+      }
+    }
+
+    static decode(reader: Reader, length: i32): get_poll_result {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new get_poll_result();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1:
+            message.value = poll_record.decode(reader, reader.uint32());
+            break;
+
+          case 2:
+            message.ballot = poll_ballot.decode(reader, reader.uint32());
+            break;
+
+          case 3:
+            message.now = reader.uint64();
+            break;
+
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    value: poll_record | null;
+    ballot: poll_ballot | null;
+    now: u64;
+
+    constructor(
+      value: poll_record | null = null,
+      ballot: poll_ballot | null = null,
+      now: u64 = 0
+    ) {
+      this.value = value;
+      this.ballot = ballot;
+      this.now = now;
+    }
+  }
+
+  export class poll_created_event {
+    static encode(message: poll_created_event, writer: Writer): void {
+      const unique_name_post_id = message.post_id;
+      if (unique_name_post_id !== null) {
+        writer.uint32(10);
+        writer.bytes(unique_name_post_id);
+      }
+
+      const unique_name_poll = message.poll;
+      if (unique_name_poll !== null) {
+        writer.uint32(18);
+        writer.fork();
+        poll_record.encode(unique_name_poll, writer);
+        writer.ldelim();
+      }
+    }
+
+    static decode(reader: Reader, length: i32): poll_created_event {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new poll_created_event();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1:
+            message.post_id = reader.bytes();
+            break;
+
+          case 2:
+            message.poll = poll_record.decode(reader, reader.uint32());
+            break;
+
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    post_id: Uint8Array | null;
+    poll: poll_record | null;
+
+    constructor(
+      post_id: Uint8Array | null = null,
+      poll: poll_record | null = null
+    ) {
+      this.post_id = post_id;
+      this.poll = poll;
+    }
+  }
+
+  export class poll_answered_event {
+    static encode(message: poll_answered_event, writer: Writer): void {
+      const unique_name_post_id = message.post_id;
+      if (unique_name_post_id !== null) {
+        writer.uint32(10);
+        writer.bytes(unique_name_post_id);
+      }
+
+      const unique_name_actor = message.actor;
+      if (unique_name_actor !== null) {
+        writer.uint32(18);
+        writer.bytes(unique_name_actor);
+      }
+
+      const unique_name_ballot = message.ballot;
+      if (unique_name_ballot !== null) {
+        writer.uint32(26);
+        writer.fork();
+        poll_ballot.encode(unique_name_ballot, writer);
+        writer.ldelim();
+      }
+
+      const unique_name_poll = message.poll;
+      if (unique_name_poll !== null) {
+        writer.uint32(34);
+        writer.fork();
+        poll_record.encode(unique_name_poll, writer);
+        writer.ldelim();
+      }
+
+      if (message.timestamp != 0) {
+        writer.uint32(40);
+        writer.uint64(message.timestamp);
+      }
+    }
+
+    static decode(reader: Reader, length: i32): poll_answered_event {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new poll_answered_event();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1:
+            message.post_id = reader.bytes();
+            break;
+
+          case 2:
+            message.actor = reader.bytes();
+            break;
+
+          case 3:
+            message.ballot = poll_ballot.decode(reader, reader.uint32());
+            break;
+
+          case 4:
+            message.poll = poll_record.decode(reader, reader.uint32());
+            break;
+
+          case 5:
+            message.timestamp = reader.uint64();
+            break;
+
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    post_id: Uint8Array | null;
+    actor: Uint8Array | null;
+    ballot: poll_ballot | null;
+    poll: poll_record | null;
+    timestamp: u64;
+
+    constructor(
+      post_id: Uint8Array | null = null,
+      actor: Uint8Array | null = null,
+      ballot: poll_ballot | null = null,
+      poll: poll_record | null = null,
+      timestamp: u64 = 0
+    ) {
+      this.post_id = post_id;
+      this.actor = actor;
+      this.ballot = ballot;
+      this.poll = poll;
+      this.timestamp = timestamp;
     }
   }
 

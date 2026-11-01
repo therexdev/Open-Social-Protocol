@@ -1,3 +1,4 @@
+import { PollCard } from "../polls/PollCard";
 import { PostEconomyActions } from "../tokens/PostEconomyActions";
 /** One post in a list or on its page: author, audience, decrypted body, media, reactions. */
 import { useEffect, useState } from "react";
@@ -174,7 +175,7 @@ export function OpenedPostCard({ post, onChanged, expanded = false, content }: P
           Reply to <Link to={`/post/${post.replyTo}`}>a post</Link>
         </p>
       )}
-      <PostBody content={content} />
+      {post.poll && post.state === LIFECYCLE.ACTIVE ? <><PollCard post={post} onChanged={onChanged}/>{(content?.status === "plain" || content?.status === "decrypted") && <MediaList content={content.content}/>}</> : <PostBody content={content} />}
       {post.promoted && <p className="promotion-label"><Icon name="spark" size={14}/> Promoted · paid for by the author</p>}
       <PostEconomyActions post={post} onChanged={onChanged}/>
       <footer className="post-footer">

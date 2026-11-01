@@ -36,6 +36,7 @@ export interface VaultRecord {
 }
 
 export interface DraftRecord {
+  poll?: import("@osp/sdk").PollDefinition;
   id: string;
   account: string;
   text: string;

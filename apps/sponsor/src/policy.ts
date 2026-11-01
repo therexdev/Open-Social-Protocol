@@ -50,6 +50,7 @@ export const ACTOR_FIELDS: Readonly<Partial<Record<ContractName, Readonly<Record
     rotate_audience: "actor",
   },
   publications: {
+    answer_poll: "actor",
     publish: "author",
     set_lifecycle: "author",
     react: "actor",

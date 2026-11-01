@@ -17,7 +17,7 @@ import { DatabaseSync, type SQLInputValue, type StatementSync, type StatementRes
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import path from "node:path";
 
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 /** Every projection table (truncated on replay), in a fixed order. */
 export const PROJECTION_TABLES = [
@@ -30,6 +30,8 @@ export const PROJECTION_TABLES = [
   "posts",
   "post_versions",
   "reactions",
+  "polls",
+  "poll_ballots",
   "key_packages",
   "cross_posts",
   "communities",
@@ -341,6 +343,8 @@ const MIGRATIONS: string[] = [
   CREATE INDEX private_packets_peer ON private_packets(peer, length(sequence), sequence);
   CREATE INDEX private_packets_actor ON private_packets(actor, length(sequence), sequence);
   `,
+  `CREATE TABLE polls (post_id TEXT PRIMARY KEY, data_json TEXT NOT NULL);
+   CREATE TABLE poll_ballots (post_id TEXT NOT NULL, actor TEXT NOT NULL, option INTEGER NOT NULL, PRIMARY KEY(post_id, actor));`,
 ];
 
 export interface CheckpointRow {

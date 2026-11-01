@@ -130,6 +130,8 @@ message publish_arguments {
   // Client-chosen idempotency key (<= 32 bytes). Duplicate keys per author are rejected.
   bytes idempotency_key = 12;
   bytes device = 13 [(koinos.btype) = ADDRESS];
+  // Public, immutable poll created atomically with the first publication.
+  poll_definition poll = 14;
 }
 message publish_result {}
 
@@ -303,3 +305,43 @@ message set_token_contract_result {}
 // @read-only true
 message get_token_contract_arguments {}
 message get_token_contract_result { bytes value = 1 [(koinos.btype) = ADDRESS]; }
+
+// Poll ballots are participation, never automatic reward votes. Choices are public.
+message poll_definition {
+  string question = 1;
+  repeated string options = 2;
+  uint64 closes_at = 3 [jstype = JS_STRING];
+}
+message poll_record {
+  poll_definition definition = 1;
+  repeated uint32 counts = 2;
+  uint32 participants = 3;
+  uint32 engagement_participants = 4;
+  // floor(250 * sqrt(non-author participants)); 1000 = one engagement point.
+  uint64 engagement_milli = 5 [jstype = JS_STRING];
+}
+message poll_ballot { uint32 option = 1; }
+// @description Answer a public poll or change your existing answer (does not upvote)
+// @read-only false
+message answer_poll_arguments {
+  bytes actor = 1 [(koinos.btype) = ADDRESS];
+  bytes post_id = 2;
+  uint32 option = 3;
+  bytes device = 4 [(koinos.btype) = ADDRESS];
+}
+message answer_poll_result {}
+// @description Read poll totals and optionally one account's current answer
+// @read-only true
+message get_poll_arguments {
+  bytes post_id = 1;
+  bytes viewer = 2 [(koinos.btype) = ADDRESS];
+}
+message get_poll_result { poll_record value = 1; poll_ballot ballot = 2; uint64 now = 3 [jstype = JS_STRING]; }
+message poll_created_event { bytes post_id = 1; poll_record poll = 2; }
+message poll_answered_event {
+  bytes post_id = 1;
+  bytes actor = 2 [(koinos.btype) = ADDRESS];
+  poll_ballot ballot = 3;
+  poll_record poll = 4;
+  uint64 timestamp = 5 [jstype = JS_STRING];
+}

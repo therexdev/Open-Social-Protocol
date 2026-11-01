@@ -2176,3 +2176,92 @@ describe("publications: reads", () => {
     expect(callCount()).toBe(before);
   });
 });
+
+let ANSWER!: publications.answer_poll_arguments;
+function callAnswer(): void { contract.answer_poll(ANSWER); }
+function pollAnswerer(actor: Uint8Array, blockedValue: bool = false): void {
+  Testing.authorize([actor]);
+  queue([resolved(true, actor, null), blocked(blockedValue), blocked(false)]);
+}
+describe("public protocol polls", () => {
+  beforeEach(() => {
+    setupConfigured();
+    PUBLISH = firstPost(ALICE, 1, ENV_A);
+    PUBLISH.poll = new publications.poll_definition("Which option?", ["A", "B"], T0 + HOUR);
+    asOwner(ALICE);
+    contract.publish(PUBLISH);
+    POST_ID = PUBLISH.post_id!;
+    MockVM.commitTransaction();
+    clearTrace();
+    ANSWER = new publications.answer_poll_arguments(BOB, POST_ID, 0);
+  });
+  it("creates immutable poll metadata and zero totals", () => {
+    const p = contract.get_poll(new publications.get_poll_arguments(POST_ID));
+    expect(p.value!.definition!.question).toBe("Which option?");
+    expect(p.value!.counts.length).toBe(2);
+    expect(p.value!.participants).toBe(0);
+    expect(p.ballot == null).toBe(true);
+  });
+  it("records option zero, changes it without extra engagement, and never emits an upvote", () => {
+    pollAnswerer(BOB); contract.answer_poll(ANSWER); MockVM.commitTransaction();
+    let p = contract.get_poll(new publications.get_poll_arguments(POST_ID, BOB));
+    expect(p.ballot!.option).toBe(0);
+    expect(p.value!.counts[0]).toBe(1);
+    expect(p.value!.engagement_milli).toBe(250);
+    ANSWER.option = 1;
+    pollAnswerer(BOB); contract.answer_poll(ANSWER);
+    p = contract.get_poll(new publications.get_poll_arguments(POST_ID, BOB));
+    expect(p.value!.counts[0]).toBe(0);
+    expect(p.value!.counts[1]).toBe(1);
+    expect(p.value!.participants).toBe(1);
+    expect(p.value!.engagement_milli).toBe(250);
+    expect(Testing.eventNames()).toStrictEqual(["osp.publications.poll_answered", "osp.publications.poll_answered"]);
+  });
+  it("does not reward the author's own answer", () => {
+    ANSWER.actor = ALICE; asOwner(ALICE); contract.answer_poll(ANSWER);
+    const p = contract.get_poll(new publications.get_poll_arguments(POST_ID));
+    expect(p.value!.participants).toBe(1);
+    expect(p.value!.engagement_milli).toBe(0);
+  });
+  it("diminishes the marginal engagement of later participants", () => {
+    pollAnswerer(BOB); contract.answer_poll(ANSWER); MockVM.commitTransaction();
+    ANSWER.actor = CAROL; pollAnswerer(CAROL); contract.answer_poll(ANSWER);
+    expect(contract.get_poll(new publications.get_poll_arguments(POST_ID)).value!.engagement_milli).toBe(353);
+    expect(contract.engagement(4)).toBe(500);
+    expect(contract.engagement(1000000)).toBe(250000);
+  });
+  it("rejects duplicate answers", () => {
+    pollAnswerer(BOB); contract.answer_poll(ANSWER); MockVM.commitTransaction();
+    pollAnswerer(BOB); expect(callAnswer).toThrow(); expectRevert("already selected");
+  });
+  it("rejects invalid options", () => {
+    ANSWER.option = 2; pollAnswerer(BOB); expect(callAnswer).toThrow(); expectRevert("invalid poll option");
+  });
+  it("rejects votes at the closing boundary", () => {
+    Testing.setTime(T0 + HOUR); pollAnswerer(BOB); expect(callAnswer).toThrow(); expectRevert("poll is closed");
+  });
+  it("rejects blocked voters", () => {
+    pollAnswerer(BOB, true); expect(callAnswer).toThrow(); expectRevert("blocked");
+  });
+  it("requires an authorized identity", () => {
+    Testing.authorize([]); Testing.mockResolveActor(false, null, "denied"); expect(callAnswer).toThrow();
+  });
+  it("does not accept answers to deleted polls", () => {
+    const p = contract.posts.get(POST_ID)!; p.state = publications.lifecycle_state.deleted; contract.posts.put(POST_ID, p); MockVM.commitTransaction();
+    pollAnswerer(BOB); expect(callAnswer).toThrow(); expectRevert("active poll not found");
+  });
+  it("prevents rewriting a poll through ordinary post editing", () => {
+    PUBLISH = edit(ALICE, POST_ID, PUBLISH.content_hash!, ENV_B); asOwner(ALICE);
+    expect(callPublish).toThrow(); expectRevert("immutable");
+  });
+  it("rejects private polls", () => {
+    PUBLISH = firstPost(ALICE, 2, ENV_B, FRIENDS);
+    PUBLISH.poll = new publications.poll_definition("Secret?", ["A", "B"], T0 + HOUR);
+    asOwner(ALICE); expect(callPublish).toThrow(); expectRevert("new public");
+  });
+  it("rejects duplicate option labels", () => {
+    PUBLISH = firstPost(ALICE, 2, ENV_B);
+    PUBLISH.poll = new publications.poll_definition("Question?", ["Yes", " yes "], T0 + HOUR);
+    asOwner(ALICE); expect(callPublish).toThrow(); expectRevert("duplicate poll option");
+  });
+});

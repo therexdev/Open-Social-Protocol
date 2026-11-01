@@ -106,3 +106,17 @@ describe("ComposerForm publish confirmation", () => {
     expect(container.querySelector("dialog")?.hasAttribute("open")).toBe(false);
   });
 });
+
+
+it("preserves the poll definition through review and background publishing", async () => {
+  container = document.createElement("div"); document.body.appendChild(container); root = createRoot(container);
+  const poll = { question: "Which choice?", options: ["First", "Second"], closes_at: String(Date.now() + 3600000) };
+  const draft = { id: "poll", attemptId: "00".repeat(16), account: "saved-test-account", state: "draft", text: poll.question, audience: AUDIENCE.EVERYONE, mediaUrls: [], createdAt: Date.now(), updatedAt: Date.now(), poll } as DraftRecord;
+  transport.start.mockImplementation(async (r: PublishRequest) => r.draft);
+  await act(async () => root.render(<ComposerForm draft={draft}/>));
+  expect(container.textContent).toContain("Poll answers");
+  await click("Review and publish");
+  expect(container.querySelector("dialog")?.textContent).toContain("First");
+  await click("Publish to Everyone");
+  expect(transport.start.mock.calls[0]![0].draft.poll).toEqual(poll);
+});

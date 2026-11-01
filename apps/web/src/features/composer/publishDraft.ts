@@ -40,6 +40,7 @@ export function planDraft(deps: PublishDeps, request: PublishRequest): Promise<P
     me: deps.session.identity,
     keys: deps.session.keys,
     text: request.draft.text,
+    ...(request.draft.poll && { poll: request.draft.poll }),
     audience,
     ...((request.media ?? request.draft.media) && { media: request.media ?? request.draft.media!.map(m => ({ ...m, contentHash: bytesOf(m.contentHash) })) }),
     ...(request.draft.replyTo && { replyTo: request.draft.replyTo }),

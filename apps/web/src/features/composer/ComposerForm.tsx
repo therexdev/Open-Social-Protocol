@@ -1,6 +1,6 @@
 /** Text + audience + optional media reference, ending in an explicit confirmation dialog. */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AUDIENCE, LIMITS } from "@osp/sdk";
+import { AUDIENCE, LIMITS, validatePoll } from "@osp/sdk";
 import { Button, ConfirmDialog, Field, Notice } from "../../components/ui";
 import { errorMessage } from "../../util/format";
 import type { DraftRecord } from "../../vault/store";
@@ -44,6 +44,9 @@ export function ComposerForm({ draft, replyTo, edit, defaultAudience = AUDIENCE.
   const [fileReadFailed,setFileReadFailed] = useState(false);
   const can = useCanAct();
   const { start, ready } = usePublish();
+  const [pollEnabled, setPollEnabled] = useState(!!draft?.poll);
+  const [pollOptions, setPollOptions] = useState(draft?.poll?.options ?? ["", ""]);
+  const [pollHours, setPollHours] = useState(24);
   const [text, setText] = useState(draft?.text ?? edit?.text ?? "");
   const [audience, setAudience] = useState<number>(draft?.audience ?? edit?.audience ?? defaultAudience);
   const [mediaUrl, setMediaUrl] = useState("");
@@ -59,6 +62,8 @@ export function ComposerForm({ draft, replyTo, edit, defaultAudience = AUDIENCE.
   useEffect(() => {
     if (draft) {
       setText(draft.text);
+      setPollEnabled(!!draft.poll);
+      setPollOptions(draft.poll?.options ?? ["", ""]);
       setAudience(draft.audience);
       setMedia(draft.media?.map(m => ({ ...m, contentHash: bytesOf(m.contentHash) })) ?? []);
     }
@@ -132,6 +137,11 @@ export function ComposerForm({ draft, replyTo, edit, defaultAudience = AUDIENCE.
       const record: DraftRecord = draft
         ? { ...draft, text, audience, mediaUrls: media.map((m) => m.url), updatedAt: Date.now() }
         : newDraft(account, { text, audience, mediaUrls: media.map((m) => m.url), ...(replyTo && { replyTo }), ...(edit && { edit: { postId: edit.postId, previousVersion: edit.previousVersion, versionNumber: edit.versionNumber } }) });
+      if (pollEnabled) {
+        const poll = { question: text.trim(), options: pollOptions.map(o => o.trim()), closes_at: draft?.poll?.closes_at ?? String(Date.now() + pollHours * 3600000) };
+        validatePoll(poll);
+        record.poll = poll;
+      } else delete record.poll;
       setConfirm(record);
     } catch (e) {
       setError(errorMessage(e));
@@ -147,6 +157,8 @@ export function ComposerForm({ draft, replyTo, edit, defaultAudience = AUDIENCE.
       const accepted = await start({ draft: confirm, media });
       setConfirm(undefined);
       setText("");
+      setPollEnabled(false);
+      setPollOptions(["", ""]);
       setMedia([]);
       for (const url of previews.current.values()) URL.revokeObjectURL(url); previews.current.clear();
       onSubmitted?.(accepted);
@@ -170,9 +182,10 @@ export function ComposerForm({ draft, replyTo, edit, defaultAudience = AUDIENCE.
         void prepare();
       }}
     >
-      <div className="composer-identity"><Avatar account={account}/><div><strong>You</strong><Field label="Who can read it">{id => <select id={id} value={audience} disabled={edit !== undefined || draft?.edit !== undefined || attaching || media.length > 0} onChange={event => setAudience(Number(event.target.value))}><option value={AUDIENCE.EVERYONE}>Public</option><option value={AUDIENCE.FRIENDS}>Friends</option></select>}</Field></div></div>
+      <div className="composer-identity"><Avatar account={account}/><div><strong>You</strong><Field label="Who can read it">{id => <select id={id} value={audience} disabled={pollEnabled || edit !== undefined || draft?.edit !== undefined || attaching || media.length > 0} onChange={event => setAudience(Number(event.target.value))}><option value={AUDIENCE.EVERYONE}>Public</option><option value={AUDIENCE.FRIENDS}>Friends</option></select>}</Field></div></div>
       {media.length > 0 && <p className="hint">Remove attachments before changing who can see this post.</p>}
-      <Field label={edit ? "Edit your post" : replyTo ? "Your reply" : "What's on your mind?"} hint={tooLong ? `${-remaining} bytes over the limit` : `${remaining} bytes left`}>
+      {!edit && !draft?.edit && !replyTo && <Button variant="ghost" disabled={encrypted || busy || !!draft?.publication} aria-pressed={pollEnabled} onClick={() => setPollEnabled(v => !v)}>{pollEnabled ? "Remove poll" : "Add poll"}</Button>}
+      <Field label={pollEnabled ? "Your poll question" : edit ? "Edit your post" : replyTo ? "Your reply" : "What's on your mind?"} hint={tooLong ? `${-remaining} bytes over the limit` : `${remaining} bytes left`}>
         {(id) => (
           <textarea
             id={id}
@@ -186,6 +199,13 @@ export function ComposerForm({ draft, replyTo, edit, defaultAudience = AUDIENCE.
           />
         )}
       </Field>
+      {pollEnabled && <fieldset className="poll-editor"><legend>Poll answers</legend>
+        <p className="hint">Use the post text as your question. Answers are public. Answering adds participation, not an upvote. The question and answers cannot be edited after publishing.</p>
+        {pollOptions.map((option, i) => <div className="row" key={i}><Field label={`Answer ${i + 1}`}>{id => <input id={id} value={option} maxLength={120} required onChange={e => setPollOptions(items => items.map((v, j) => j === i ? e.target.value : v))}/>}</Field>
+          <Button variant="ghost" disabled={pollOptions.length <= 2} onClick={() => setPollOptions(items => items.filter((_, j) => j !== i))}>Remove answer {i + 1}</Button></div>)}
+        <Button disabled={pollOptions.length >= 8} onClick={() => setPollOptions(items => [...items, ""])}>Add answer</Button>
+        <Field label="Poll duration">{id => <select id={id} value={pollHours} disabled={!!draft?.poll} onChange={e => setPollHours(Number(e.target.value))}><option value={1}>1 hour</option><option value={24}>1 day</option><option value={72}>3 days</option><option value={168}>7 days</option></select>}</Field>
+      </fieldset>}
       <details className="composer-privacy"><summary><Icon name={encrypted ? "lock" : "globe"} size={16}/>{encrypted ? "Only your friends can read this post." : "Anyone can read this post."}</summary><p>{encrypted ? friendsExplanation : everyoneExplanation}</p></details>
       <div className="photo-tools">
         <input ref={photoInput} className="visually-hidden" type="file" accept="image/*" multiple aria-label="Choose photos" disabled={attaching || !can.ok} onChange={e => { const input = e.currentTarget; const files = Array.from(input.files ?? []); void addPhotos(files).finally(() => { input.value = ""; }); }}/>
@@ -246,6 +266,7 @@ export function ComposerForm({ draft, replyTo, edit, defaultAudience = AUDIENCE.
               earlier versions stay in the public history.
             </p>
             <blockquote className="preview">{text}</blockquote>
+            {confirm.poll && <><ul>{confirm.poll.options.map((o, i) => <li key={i}>{o}</li>)}</ul><p>Closes {new Date(Number(confirm.poll.closes_at)).toLocaleString()}. Answers are public and separate from upvotes and downvotes.</p></>}
           </>
         )}
       </ConfirmDialog>

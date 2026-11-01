@@ -260,7 +260,11 @@ export interface MediaRef {
   locations: string[];
   key_ref: Uint8Array;
 }
+export interface PollDefinition { question: string; options: string[]; closes_at: string; }
+export interface PollRecord { definition: PollDefinition; counts: number[]; participants: number; engagement_participants: number; engagement_milli: string; }
+export interface PollView { value?: PollRecord; ballot?: { option: number }; now: string; }
 export interface PublishArgs {
+  poll?: PollDefinition;
   author: Address;
   post_id: Bytes;
   /** Empty for the first version; previous content_hash for edits. */
@@ -355,6 +359,7 @@ export interface PublicationsDependencies {
 }
 
 export interface PublicationsWriteMethods {
+  answer_poll: { actor: Address; post_id: Bytes; option: number; device?: Address };
   set_token_contract: SetContractAddressArgs;
   set_identity_contract: SetContractAddressArgs;
   set_relationships_contract: SetContractAddressArgs;
@@ -365,6 +370,7 @@ export interface PublicationsWriteMethods {
   record_cross_post: RecordCrossPostArgs;
 }
 export interface PublicationsReadMethods {
+  get_poll: [{ post_id: Bytes; viewer?: Address }, PollView];
   get_token_contract: [Record<string, never>, AddressResult];
   get_post: [PostIdArgs, ValueResult<PostRecord>];
   get_author_state: [AuthorArgs, ValueResult<AuthorState>];
@@ -990,6 +996,8 @@ export interface AdminChangedEvent {
 
 /** Event payload types keyed by full event name. */
 export interface EventPayloads {
+  "osp.publications.poll_created": { post_id: Uint8Array; poll: PollRecord };
+  "osp.publications.poll_answered": { post_id: Uint8Array; actor: string; ballot: { option: number }; poll: PollRecord; timestamp: string };
   "osp.messaging.private_packet": { value: PrivatePacket; envelope: Bytes };
   "osp.messaging.private_channel": { value: ConversationRecord };
   "osp.token.economy_activated": { value: EconomyConfig };

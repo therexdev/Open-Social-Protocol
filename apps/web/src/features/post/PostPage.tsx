@@ -131,8 +131,8 @@ export function PostPage() {
           <PostCard post={post} expanded onChanged={() => void load()} />
           {mine && post.state !== LIFECYCLE.DELETED && (
             <div className="row">
-              <Button onClick={() => setEditing((v) => !v)} disabled={!can.ok} title={can.ok ? undefined : can.reason}>
-                {editing ? "Close editor" : "Edit"}
+              <Button onClick={() => setEditing((v) => !v)} disabled={!can.ok || !!post.poll} title={can.ok ? undefined : can.reason}>
+                {editing ? "Close editor" : post.poll ? "Poll cannot be edited" : "Edit"}
               </Button>
               <Button variant="danger" onClick={() => setConfirmDelete(true)} disabled={!can.ok} title={can.ok ? undefined : can.reason}>
                 Delete

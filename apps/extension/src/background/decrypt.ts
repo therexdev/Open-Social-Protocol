@@ -83,6 +83,7 @@ export function toFeedItem(post: PostView, opened: OpenedPost): FeedItem {
     postId: post.postId,
     contentHash: post.contentHash,
     economy: post.economy,
+    poll: post.poll,
     promoted: post.promoted,
     author: post.author,
     audience: post.audience,

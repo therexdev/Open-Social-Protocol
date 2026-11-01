@@ -11,6 +11,8 @@
  */
 import {
   AUDIENCE,
+  validatePoll,
+  type PollDefinition,
   LIMITS,
   RELATIONSHIP_STATUS,
   buildKeyPackageSets,
@@ -48,6 +50,7 @@ export interface PublishChain {
       get_relationship(args: { a: string; b: string }): Promise<{ value?: { status: number } } | undefined>;
     };
     publications: {
+      get_poll?(args: { post_id: Uint8Array }): Promise<{ now: string } | undefined>;
       get_author_state(args: { author: string }): Promise<{ value?: { next_sequence: string } } | undefined>;
       get_post_by_idempotency_key(args: { author: string; idempotency_key: Uint8Array }): Promise<{ value?: { post_id: Uint8Array } } | undefined>;
     };
@@ -67,6 +70,7 @@ export interface PublishIdentity {
 }
 
 export interface PublishInput {
+  poll?: PollDefinition;
   chain: PublishChain;
   indexer: PublishIndexer;
   me: PublishIdentity;
@@ -198,6 +202,13 @@ export async function currentEpoch(chain: PublishChain, account: string): Promis
 }
 
 export async function buildPublishPlan(input: PublishInput): Promise<PublishPlan> {
+  if (input.poll) {
+    validatePoll(input.poll);
+    if (input.audience !== AUDIENCE.EVERYONE || input.replyTo || input.edit) throw new PublishError("Polls require a new public post.");
+    // Older contracts ignore unknown protobuf fields: verify support before publishing.
+    const support = await input.chain.reads.publications.get_poll?.({ post_id: new Uint8Array(32) });
+    if (!support?.now || support.now === "0") throw new PublishError("This network has not enabled polls yet.");
+  }
   const attemptId = typeof input.attemptId === "string" ? fromHex(input.attemptId) : input.attemptId;
   const key = idempotencyKey(input.me.account, attemptId);
   const contentKey = input.audience === AUDIENCE.FRIENDS ? newEpochKey(input.rng) : undefined;
@@ -282,6 +293,7 @@ export async function buildPublishPlan(input: PublishInput): Promise<PublishPlan
   operations.push(
     await input.chain.ops.publications.publish({
       author: input.me.account,
+      ...(input.poll && { poll: input.poll }),
       post_id: postId,
       ...(previousVersion && previousVersion.length > 0 && { previous_version: previousVersion }),
       ...(!isEdit && { sequence }),

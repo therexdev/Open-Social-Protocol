@@ -40,6 +40,7 @@ export class Publications {
     // const reply_to = args.reply_to;
     // const idempotency_key = args.idempotency_key;
     // const device = args.device;
+    // const poll = args.poll;
 
     // YOUR CODE HERE
 
@@ -197,6 +198,37 @@ export class Publications {
 
     const res = new publications.get_token_contract_result();
     // res.value = ;
+
+    return res;
+  }
+
+  answer_poll(
+    args: publications.answer_poll_arguments
+  ): publications.answer_poll_result {
+    // const actor = args.actor;
+    // const post_id = args.post_id;
+    // const option = args.option;
+    // const device = args.device;
+
+    // YOUR CODE HERE
+
+    const res = new publications.answer_poll_result();
+
+    return res;
+  }
+
+  get_poll(
+    args: publications.get_poll_arguments
+  ): publications.get_poll_result {
+    // const post_id = args.post_id;
+    // const viewer = args.viewer;
+
+    // YOUR CODE HERE
+
+    const res = new publications.get_poll_result();
+    // res.value = ;
+    // res.ballot = ;
+    // res.now = ;
 
     return res;
   }
