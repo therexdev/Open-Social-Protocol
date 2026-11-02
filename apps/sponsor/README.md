@@ -99,9 +99,9 @@ SDK's `verifySponsorResult` checks before trusting a sponsor's answer.
 | `OSP_SPONSOR_PUBLIC_URL` | `http://localhost:<port>` | Public base URL (discovery `endpoint`, on-chain record) |
 | `OSP_SPONSOR_DB` | `./data/sponsor-<network>.sqlite` | SQLite file for quotas and utilization (`:memory:` allowed) |
 | `OSP_SPONSOR_DAILY_OPS` | `200` | Operations per payee per UTC day |
-| `OSP_SPONSOR_BURST_OPS` | `20` | Operations per payee per burst window |
+| `OSP_SPONSOR_BURST_OPS` | `180` | Operations per payee per burst window |
 | `OSP_SPONSOR_BURST_WINDOW_SEC` | `60` | Burst window |
-| `OSP_SPONSOR_MAX_BYTES_PER_OP` | `6144` | Ceiling on each operation's encoded `args` |
+| `OSP_SPONSOR_MAX_BYTES_PER_OP` | `24576` | Ceiling on each operation's encoded `args` |
 | `OSP_SPONSOR_MAX_RC_PER_OP` | `200000000` | RC ceiling per operation (`rc_limit <= ceiling x ops`) |
 | `OSP_SPONSOR_MAX_OPS_PER_TX` | `4` | Operations per transaction |
 | `OSP_SPONSOR_ALLOWLIST` | default policy | `contract:method,...` override |
@@ -208,3 +208,5 @@ to a permission-600 JWT file, or use `OSP_MEDIA_PROVIDER=kubo` with your own pri
 Private images are encrypted by the frontend before uploading. Credentials remain on the
 server; the protocol records standard IPFS references. See [portable IPFS photos](../../docs/ipfs-media.md)
 for wire format, limits, pinning/retention, and reverse-proxy configuration.
+
+Photo archives use up to 20 chunks per photo. The default burst allowance covers a post with eight maximum-size photos (168 storage operations plus key distribution and publication); daily quotas still apply. See [photo library rollout](../../docs/photo-library.md) before enabling archives on a live network.

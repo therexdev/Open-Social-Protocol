@@ -1,6 +1,8 @@
+import { AccountPicker } from "../library/AccountPicker";
+import { prepareArchivedPhoto } from "./archivePhoto";
 /** Text + audience + optional media reference, ending in an explicit confirmation dialog. */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AUDIENCE, LIMITS, validatePoll } from "@osp/sdk";
+import { AUDIENCE, LIMITS, validatePoll, PHOTO_MAX_BYTES, photoCost, requirePhotoLibrary } from "@osp/sdk";
 import { Button, ConfirmDialog, Field, Notice } from "../../components/ui";
 import { errorMessage } from "../../util/format";
 import type { DraftRecord } from "../../vault/store";
@@ -13,12 +15,13 @@ import { bytesOf } from "../../util/bytes";
 import { audienceLabel } from "../feed/PostCard";
 import { Avatar, Icon } from "../../components/Icon";
 import { useServices } from "../../api/services";
-import { useSettings } from "../../stores/settings";
 import { useVaultStore } from "../../vault/context";
-import { preparePhoto, uploadPhoto } from "./uploadPhoto";
+import { preparePhoto } from "./preparePhoto";
 import { PhotoReadError } from "./preparePhoto";
 import { MediaPhoto } from "../../components/MediaPhoto";
 import { toBase64url } from "../../util/bytes";
+import { MentionTextarea } from "./MentionTextarea";
+import { RichText } from "../../components/RichText";
 
 export interface ComposerFormProps {
   /** Existing draft to resume (keeps its attempt id). */
@@ -26,16 +29,19 @@ export interface ComposerFormProps {
   replyTo?: string;
   edit?: DraftRecord["edit"] & { text: string; audience: number; media?: MediaAttachment[] };
   defaultAudience?: number;
+  selectedAccounts?: string[];
+  collectionId?: string;
+  galleryOnly?: boolean;
+  audienceLocked?: boolean;
   compact?: boolean;
   onSubmitted?: (draft: DraftRecord) => void;
   onCancel?: () => void;
 }
 
-export function ComposerForm({ draft, replyTo, edit, defaultAudience = AUDIENCE.EVERYONE, compact = false, onSubmitted, onCancel }: ComposerFormProps) {
+export function ComposerForm({ draft, replyTo, edit, defaultAudience = AUDIENCE.EVERYONE, selectedAccounts = [], collectionId, galleryOnly = false, audienceLocked = false, compact = false, onSubmitted, onCancel }: ComposerFormProps) {
   const account = useVault((s) => s.account) ?? "";
   const session = useVault(s => s.session), vault = useVaultStore();
-  const { resolved } = useServices();
-  const uploadOverride = useSettings(s => s.mediaUploadUrl);
+  const { resolved, protocol } = useServices();
   const photoInput = useRef<HTMLInputElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const uploadController = useRef<AbortController | undefined>(undefined);
@@ -49,6 +55,9 @@ export function ComposerForm({ draft, replyTo, edit, defaultAudience = AUDIENCE.
   const [pollHours, setPollHours] = useState(24);
   const [text, setText] = useState(draft?.text ?? edit?.text ?? "");
   const [audience, setAudience] = useState<number>(draft?.audience ?? edit?.audience ?? defaultAudience);
+  const [selected,setSelected] = useState(draft?.selectedAccounts ?? selectedAccounts);
+  const [photoLimit,setPhotoLimit] = useState(PHOTO_MAX_BYTES);
+  const [alsoPost,setAlsoPost] = useState(!galleryOnly);
   const [mediaUrl, setMediaUrl] = useState("");
   const [media, setMedia] = useState<MediaAttachment[]>(draft?.media?.map(m => ({ ...m, contentHash: bytesOf(m.contentHash) })) ?? edit?.media ?? []);
   const [attaching, setAttaching] = useState(false);
@@ -69,7 +78,7 @@ export function ComposerForm({ draft, replyTo, edit, defaultAudience = AUDIENCE.
     }
   }, [draft]);
 
-  const encrypted = audience === AUDIENCE.FRIENDS;
+  const encrypted = audience !== AUDIENCE.EVERYONE;
   const bytes = useMemo(() => {
     try {
       return estimateEnvelopeBytes(buildContent({ text, media, createdAt: Date.now() }), encrypted);
@@ -77,22 +86,23 @@ export function ComposerForm({ draft, replyTo, edit, defaultAudience = AUDIENCE.
       return Number.POSITIVE_INFINITY;
     }
   }, [text, media, encrypted]);
+  const storageUnits = media.filter(m=>m.archiveBytes).reduce((sum,m)=>sum+photoCost(m.size),0);
   const remaining = LIMITS.maxEnvelopeBytes - bytes;
   const tooLong = remaining < 0;
 
   const addPhotos = async (files: File[]) => {
-    if (!session || !resolved.deployment || attaching || !files.length) return;
+    if (!session || !protocol || !resolved.deployment || attaching || !files.length) return;
     if (media.length + files.length > LIMITS.maxMediaRefs) { setError(`Choose at most ${LIMITS.maxMediaRefs - media.length} more photos.`); return; }
     const controller = new AbortController(); uploadController.current = controller;
     setAttaching(true); setError(undefined); setFileReadFailed(false);
     try {
+      await requirePhotoLibrary(protocol);
       for (let i = 0; i < files.length; i++) {
         setUploadStatus(`Preparing photo ${i + 1} of ${files.length}…`);
-        const bytes = await preparePhoto(files[i]!, controller.signal);
+        const bytes = await preparePhoto(files[i]!, controller.signal, photoLimit - (encrypted ? 16 : 0));
         if (controller.signal.aborted || vault.getState().session !== session) return;
-        setUploadStatus(`${encrypted ? "Encrypting and uploading" : "Uploading"} photo ${i + 1} of ${files.length}…`);
-        const endpoint = uploadOverride?.trim() || (resolved.sponsorUrls[0] ? `${resolved.sponsorUrls[0].replace(/\/+$/, "")}/v1/media` : "");
-        const attachment = await uploadPhoto(bytes,{ endpoint, chainId: resolved.deployment.chainId, contract: resolved.deployment.contracts.identity.address, identity: session.identity, private: encrypted, signal: controller.signal });
+        setUploadStatus(`${encrypted ? "Encrypting" : "Preparing"} photo ${i + 1} of ${files.length}…`);
+        const attachment = prepareArchivedPhoto(bytes, protocol, encrypted);
         if (controller.signal.aborted || vault.getState().session !== session) return;
         const previous = previews.current.get(attachment.url); if (previous) URL.revokeObjectURL(previous);
         previews.current.set(attachment.url,URL.createObjectURL(new Blob([new Uint8Array(bytes)],{ type: "image/jpeg" })));
@@ -128,8 +138,8 @@ export function ComposerForm({ draft, replyTo, edit, defaultAudience = AUDIENCE.
       return;
     }
     if (attaching) return;
-    if (text.trim().length === 0 && !media.length) {
-      setError("Write something or add a photo first.");
+    if ((galleryOnly || text.trim().length === 0) && !media.length) {
+      setError(galleryOnly ? "Add a photo first." : "Write something or add a photo first.");
       return;
     }
     setBusy(true);
@@ -137,6 +147,9 @@ export function ComposerForm({ draft, replyTo, edit, defaultAudience = AUDIENCE.
       const record: DraftRecord = draft
         ? { ...draft, text, audience, mediaUrls: media.map((m) => m.url), updatedAt: Date.now() }
         : newDraft(account, { text, audience, mediaUrls: media.map((m) => m.url), ...(replyTo && { replyTo }), ...(edit && { edit: { postId: edit.postId, previousVersion: edit.previousVersion, versionNumber: edit.versionNumber } }) });
+      record.selectedAccounts = selected;
+      record.collectionId = draft?.collectionId ?? collectionId;
+      record.galleryOnly = draft?.galleryOnly ?? (edit ? galleryOnly : galleryOnly && !alsoPost);
       if (pollEnabled) {
         const poll = { question: text.trim(), options: pollOptions.map(o => o.trim()), closes_at: draft?.poll?.closes_at ?? String(Date.now() + pollHours * 3600000) };
         validatePoll(poll);
@@ -182,20 +195,24 @@ export function ComposerForm({ draft, replyTo, edit, defaultAudience = AUDIENCE.
         void prepare();
       }}
     >
-      <div className="composer-identity"><Avatar account={account}/><div><strong>You</strong><Field label="Who can read it">{id => <select id={id} value={audience} disabled={pollEnabled || edit !== undefined || draft?.edit !== undefined || attaching || media.length > 0} onChange={event => setAudience(Number(event.target.value))}><option value={AUDIENCE.EVERYONE}>Public</option><option value={AUDIENCE.FRIENDS}>Friends</option></select>}</Field></div></div>
+      <div className="composer-identity"><Avatar account={account}/><div><strong>You</strong><Field label="Who can read it">{id => <select id={id} value={audience} disabled={audienceLocked || !!collectionId || pollEnabled || edit !== undefined || draft?.edit !== undefined || attaching || media.length > 0} onChange={event => setAudience(Number(event.target.value))}><option value={AUDIENCE.EVERYONE}>Public</option><option value={AUDIENCE.FRIENDS}>Friends</option><option value={AUDIENCE.CUSTOM}>Private · selected people</option></select>}</Field></div></div>
+      {audience === AUDIENCE.CUSTOM && !collectionId && !draft?.collectionId && <AccountPicker value={selected} onChange={setSelected} disabled={busy || !!draft?.publication}/>}
+      {collectionId && <p className="hint">Only current group members receive this post. Membership is checked again before publishing.</p>}
+      {galleryOnly && !edit && <label className="gallery-also-post"><input type="checkbox" checked={alsoPost} onChange={e=>setAlsoPost(e.target.checked)}/>Also share as a post</label>}
       {media.length > 0 && <p className="hint">Remove attachments before changing who can see this post.</p>}
-      {!edit && !draft?.edit && !replyTo && <Button variant="ghost" disabled={encrypted || busy || !!draft?.publication} aria-pressed={pollEnabled} onClick={() => setPollEnabled(v => !v)}>{pollEnabled ? "Remove poll" : "Add poll"}</Button>}
+      {!galleryOnly && !collectionId && !edit && !draft?.edit && !replyTo && <Button variant="ghost" disabled={encrypted || busy || !!draft?.publication} aria-pressed={pollEnabled} onClick={() => setPollEnabled(v => !v)}>{pollEnabled ? "Remove poll" : "Add poll"}</Button>}
       <Field label={pollEnabled ? "Your poll question" : edit ? "Edit your post" : replyTo ? "Your reply" : "What's on your mind?"} hint={tooLong ? `${-remaining} bytes over the limit` : `${remaining} bytes left`}>
         {(id) => (
-          <textarea
+          <MentionTextarea
             id={id}
+            account={account}
             value={text}
-            onChange={(e) => setText(e.target.value)}
+            onValueChange={setText}
             rows={compact ? 3 : 6}
             maxLength={LIMITS.maxEnvelopeBytes}
             aria-invalid={tooLong || undefined}
             placeholder={replyTo ? "Write a reply…" : "Write a post…"}
-            required={!media.length}
+            required={!galleryOnly && !media.length}
           />
         )}
       </Field>
@@ -206,17 +223,18 @@ export function ComposerForm({ draft, replyTo, edit, defaultAudience = AUDIENCE.
         <Button disabled={pollOptions.length >= 8} onClick={() => setPollOptions(items => [...items, ""])}>Add answer</Button>
         <Field label="Poll duration">{id => <select id={id} value={pollHours} disabled={!!draft?.poll} onChange={e => setPollHours(Number(e.target.value))}><option value={1}>1 hour</option><option value={24}>1 day</option><option value={72}>3 days</option><option value={168}>7 days</option></select>}</Field>
       </fieldset>}
-      <details className="composer-privacy"><summary><Icon name={encrypted ? "lock" : "globe"} size={16}/>{encrypted ? "Only your friends can read this post." : "Anyone can read this post."}</summary><p>{encrypted ? friendsExplanation : everyoneExplanation}</p></details>
+      <details className="composer-privacy"><summary><Icon name={encrypted ? "lock" : "globe"} size={16}/>{encrypted ? audience === AUDIENCE.CUSTOM ? "Only selected people can read this post." : "Only your friends can read this post." : "Anyone can read this post."}</summary><p>{audience === AUDIENCE.CUSTOM ? "Encrypted for selected accounts. Removing access creates a new version; earlier copies and keys cannot be taken back." : encrypted ? friendsExplanation : everyoneExplanation}</p></details>
       <div className="photo-tools">
+        <Field label="Photo size budget">{id=><select id={id} value={photoLimit} disabled={attaching} onChange={e=>setPhotoLimit(Number(e.target.value))}>{[1,2,4,7,10].map(rate=><option key={rate} value={rate*32768}>Up to {rate*32} KiB · {rate} usage {rate===1?'unit':'units'}</option>)}</select>}</Field>
         <input ref={photoInput} className="visually-hidden" type="file" accept="image/*" multiple aria-label="Choose photos" disabled={attaching || !can.ok} onChange={e => { const input = e.currentTarget; const files = Array.from(input.files ?? []); void addPhotos(files).finally(() => { input.value = ""; }); }}/>
         <input ref={fileInput} className="visually-hidden" type="file" multiple aria-label="Choose photo files" disabled={attaching || !can.ok} onChange={e => { const input = e.currentTarget; const files = Array.from(input.files ?? []); void addPhotos(files).finally(() => { input.value = ""; }); }}/>
         <Button disabled={attaching || !can.ok || media.length >= LIMITS.maxMediaRefs} onClick={() => photoInput.current?.click()}>Add photos</Button>
         {fileReadFailed && <Button variant="ghost" disabled={attaching || !can.ok} onClick={() => fileInput.current?.click()}>Choose from files</Button>}
         {uploadStatus && <span role="status">{uploadStatus}</span>}
-        <p className="hint">{encrypted ? "Photos are encrypted on this device before upload." : "Public photos are uploaded to IPFS when selected."} Free storage has limited capacity and is not guaranteed forever.</p>
+        <p className="hint">Photos are prepared locally. Saving uses free capacity first, then regenerating OSAT capacity. The exact cost is shown before publishing.</p>
       </div>
       {media.length > 0 && <div className="composer-photos">{media.map((m,i) => <div className="composer-photo" key={`${m.url}:${i}`}>
-        {previews.current.has(m.url) ? <div className="ipfs-photo"><img src={previews.current.get(m.url)} alt={m.altText || "Attached photo"}/></div> : m.url.startsWith("ipfs://") ? <MediaPhoto location={m.url} hash={toBase64url(m.contentHash)} mime={m.mime} encryption={m.encryption} alt={m.altText}/> : <span className="mono">{m.url}</span>}
+        {previews.current.has(m.url) ? <div className="ipfs-photo"><img src={previews.current.get(m.url)} alt={m.altText || "Attached photo"}/></div> : (m.url.startsWith("ipfs://") || m.url.startsWith("osp-photo://")) ? <MediaPhoto location={m.url} hash={toBase64url(m.contentHash)} mime={m.mime} encryption={m.encryption} alt={m.altText}/> : <span className="mono">{m.url}</span>}
         <Field label={`Photo ${i + 1} description (optional)`}>{id => <input id={id} value={m.altText ?? ""} maxLength={160} onChange={e => setMedia(list => list.map((item,j) => j === i ? { ...item,altText: e.target.value } : item))}/>}</Field>
         <Button variant="ghost" onClick={() => removeMedia(i)}>Remove photo {i + 1}</Button>
       </div>)}</div>}
@@ -238,7 +256,7 @@ export function ComposerForm({ draft, replyTo, edit, defaultAudience = AUDIENCE.
       {error && <Notice kind="error">{error}</Notice>}
       {!can.ok && <Notice kind="warning">{can.reason}</Notice>}
       <div className="row">
-        <Button type="submit" variant="primary" busy={busy} disabled={attaching || !ready || !can.ok || tooLong || (text.trim().length === 0 && !media.length)}>
+        <Button type="submit" variant="primary" busy={busy} disabled={attaching || !ready || !can.ok || tooLong || ((galleryOnly || text.trim().length === 0) && !media.length)}>
           {edit ? "Review edit" : replyTo ? "Review reply" : "Review and publish"}
         </Button>
         {onCancel && (
@@ -258,14 +276,15 @@ export function ComposerForm({ draft, replyTo, edit, defaultAudience = AUDIENCE.
         {confirm && (
           <>
             <p>
-              <strong>Audience: {audienceLabel(confirm.audience)}.</strong> {confirm.audience === AUDIENCE.FRIENDS ? friendsExplanation : everyoneExplanation}
+              <strong>Audience: {audienceLabel(confirm.audience)}.</strong> {confirm.audience === AUDIENCE.CUSTOM ? "Only you and the selected accounts can read the current version. Previous recipients may keep earlier versions." : confirm.audience === AUDIENCE.FRIENDS ? friendsExplanation : everyoneExplanation}
             </p>
-            <p>Your post will appear in your feed right away while it finishes publishing. You can keep browsing.</p>
+            <p><strong>Photo storage: {storageUnits} usage {storageUnits===1 ? "unit" : "units"}</strong>, plus 1 for the post. Prepared images: {media.map(m=>`${(m.size/1024).toFixed(1)} KiB`).join(', ') || 'none'}. Existing stored images and external URLs have no new storage charge.</p>
+            <p>{confirm.galleryOnly ? "Your photos will appear in your profile while saving finishes." : confirm.collectionId ? "Your post will appear in this group while publishing finishes." : "Your post will appear in your feed right away while it finishes publishing."} You can keep browsing.</p>
             <p>
               Publishing is permanent: the network records it and copies may be kept by anyone who can read it. You can edit or mark it deleted later, but
               earlier versions stay in the public history.
             </p>
-            <blockquote className="preview">{text}</blockquote>
+            <blockquote className="preview"><RichText text={text}/></blockquote>
             {confirm.poll && <><ul>{confirm.poll.options.map((o, i) => <li key={i}>{o}</li>)}</ul><p>Closes {new Date(Number(confirm.poll.closes_at)).toLocaleString()}. Answers are public and separate from upvotes and downvotes.</p></>}
           </>
         )}

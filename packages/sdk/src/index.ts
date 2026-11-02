@@ -27,3 +27,5 @@ export * from "./privateConfirmation.js";
 export * from "./media.js";
 
 export * from "./polls.js";
+
+export * from "./photoLibrary.js";

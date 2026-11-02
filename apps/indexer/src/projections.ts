@@ -431,6 +431,22 @@ function applyPublications(db: IndexerDb, event: LogEvent): void {
   const d = event.data;
   const ts = timestampOf(event);
   switch (event.name) {
+    case "osp.publications.photo_started":
+      db.run("INSERT INTO photo_archives VALUES (?,?) ON CONFLICT(id) DO NOTHING", b64(d.id), JSON.stringify(toJsonValue(d.value))); return;
+    case "osp.publications.photo_chunk":
+      db.run("INSERT INTO photo_chunks VALUES (?,?,?) ON CONFLICT(id,position) DO NOTHING", b64(d.id), num(d.index), bytes(d.data)); return;
+    case "osp.publications.collection_changed": {
+      const v = d.value as Record<string, unknown>, id = b64(d.id);
+      db.run("INSERT INTO photo_collections VALUES (?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET closed=excluded.closed,data_json=excluded.data_json", id, str(v.owner), num(v.kind), num(v.audience), bool(v.closed), JSON.stringify(toJsonValue(v)));
+      db.run("DELETE FROM collection_members WHERE id=?", id);
+      for (const account of [str(v.owner), ...(v.members as string[])]) db.run("INSERT OR IGNORE INTO collection_members VALUES (?,?)", id, account);
+      return;
+    }
+    case "osp.publications.album_item_changed": {
+      const v = d.value as Record<string, unknown>;
+      db.run("INSERT INTO album_items VALUES (?,?,?,?) ON CONFLICT(collection_id,id) DO UPDATE SET removed=excluded.removed,data_json=excluded.data_json", b64(d.collection_id), b64(d.id), bool(v.removed), JSON.stringify(toJsonValue(v))); return;
+    }
+
     case "osp.publications.published": {
       const author = str(d.author);
       const postId = b64(d.post_id);
@@ -494,6 +510,7 @@ function applyPublications(db: IndexerDb, event: LogEvent): void {
         event.height,
         ts,
       );
+      db.run("UPDATE posts SET audience_id=?,collection_id=?,gallery_only=? WHERE post_id=?", b64(d.audience_id), b64(d.collection_id), bool(d.gallery_only), postId);
       const replyTo = b64(d.reply_to);
       if (!existing && replyTo) {
         const parent = db.get<PostRow>("SELECT post_id, author, state FROM posts WHERE post_id = ?", replyTo);

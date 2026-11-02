@@ -50,6 +50,10 @@ export const ACTOR_FIELDS: Readonly<Partial<Record<ContractName, Readonly<Record
     rotate_audience: "actor",
   },
   publications: {
+    begin_photo: "owner",
+    append_photo: "owner",
+    save_collection: "owner",
+    set_album_item: "owner",
     answer_poll: "actor",
     publish: "author",
     set_lifecycle: "author",

@@ -2265,3 +2265,30 @@ describe("public protocol polls", () => {
     asOwner(ALICE); expect(callPublish).toThrow(); expectRevert("duplicate poll option");
   });
 });
+
+// Current membership is checked by the contract, even if a stale client holds old keys.
+describe("private group publication", (): void => {
+  beforeEach((): void => {
+    setupConfigured();
+    contract.library.collections.put(MANIFEST, new publications.collection_record(ALICE, 2, 3, publications.audience_kind.custom, [BOB], ENV_A));
+    MockVM.commitTransaction();
+    PUBLISH = firstPost(BOB, 1, ENV_B, CUSTOM);
+    PUBLISH.audience_id = AUDIENCE_ID;
+    PUBLISH.collection_id = MANIFEST;
+    PUBLISH.epoch = 3;
+  });
+  it("allows a current member and records the group", (): void => {
+    asOwner(BOB); contract.publish(PUBLISH);
+    const value = contract.get_post(new publications.get_post_arguments(PUBLISH.post_id)).value!;
+    expect(Arrays.equal(value.collection_id, MANIFEST)).toBe(true);
+  });
+  it("rejects a stale membership epoch before publishing", (): void => {
+    PUBLISH.epoch = 2; asOwner(BOB);
+    expect((): void => { contract.publish(PUBLISH); }).toThrow("group membership changed");
+  });
+  it("rejects a removed member even with an old key", (): void => {
+    contract.library.collections.put(MANIFEST, new publications.collection_record(ALICE, 2, 4, publications.audience_kind.custom, [], ENV_A));
+    MockVM.commitTransaction(); asOwner(BOB);
+    expect((): void => { contract.publish(PUBLISH); }).toThrow("group access required");
+  });
+});

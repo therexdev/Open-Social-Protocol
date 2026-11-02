@@ -32,6 +32,7 @@ export const PROJECTION_TABLES = [
   "reactions",
   "polls",
   "poll_ballots",
+  "photo_chunks", "photo_archives", "photo_collections", "collection_members", "album_items",
   "key_packages",
   "cross_posts",
   "communities",
@@ -345,6 +346,15 @@ const MIGRATIONS: string[] = [
   `,
   `CREATE TABLE polls (post_id TEXT PRIMARY KEY, data_json TEXT NOT NULL);
    CREATE TABLE poll_ballots (post_id TEXT NOT NULL, actor TEXT NOT NULL, option INTEGER NOT NULL, PRIMARY KEY(post_id, actor));`,
+  `CREATE TABLE photo_chunks (id TEXT NOT NULL, position INTEGER NOT NULL, data BLOB NOT NULL, PRIMARY KEY(id, position));
+   CREATE TABLE photo_archives (id TEXT PRIMARY KEY, data_json TEXT NOT NULL);
+   CREATE TABLE photo_collections (id TEXT PRIMARY KEY, owner TEXT NOT NULL, kind INTEGER NOT NULL, audience INTEGER NOT NULL, closed INTEGER NOT NULL, data_json TEXT NOT NULL);
+   CREATE TABLE collection_members (id TEXT NOT NULL, account TEXT NOT NULL, PRIMARY KEY(id,account));
+   CREATE INDEX collection_member_account ON collection_members(account,id);
+   CREATE TABLE album_items (collection_id TEXT NOT NULL, id TEXT NOT NULL, removed INTEGER NOT NULL, data_json TEXT NOT NULL, PRIMARY KEY(collection_id,id));
+   ALTER TABLE posts ADD COLUMN collection_id TEXT NOT NULL DEFAULT '';
+   ALTER TABLE posts ADD COLUMN gallery_only INTEGER NOT NULL DEFAULT 0;
+   CREATE INDEX posts_collection ON posts(collection_id,block_height);`,
 ];
 
 export interface CheckpointRow {

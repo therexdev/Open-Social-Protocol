@@ -14,6 +14,11 @@ on:
         default: harbinger
         type: choice
         options: [harbinger]
+      contracts:
+        description: Contracts to upgrade (choose publications for the photo library)
+        default: all
+        type: choice
+        options: [all, publications]
       dry_run:
         description: Simulate only (broadcast=false) and print the Mana/RC report
         default: false
@@ -61,19 +66,28 @@ jobs:
           test -n "$CONTRACT_SEED" || { echo "::error::Configure OSP_CONTRACT_SEED and retain it for upgrades"; exit 1; }
       - name: Deploy
         env:
+          DEPLOY_CONTRACTS: ${{ inputs.contracts }}
           KOINOS_HARBINGER_DEPLOYER_WIF: ${{ secrets.KOINOS_HARBINGER_DEPLOYER_WIF }}
           OSP_CONTRACT_SEED: ${{ secrets.OSP_CONTRACT_SEED }}
           OSP_REGISTRY_ADMIN: ${{ vars.OSP_REGISTRY_ADMIN }}
           OSP_UPGRADE_DELAY_MS: ${{ vars.OSP_UPGRADE_DELAY_MS }}
           KOINOS_RPC: ${{ vars.KOINOS_RPC }}
         run: |
-          node --import tsx scripts/deploy-contracts.ts --network "${{ inputs.network }}" \
+          contract_args=()
+          case "$DEPLOY_CONTRACTS" in
+            publications) contract_args+=(--only publications) ;;
+            all|"") ;;
+            *) echo "Unknown contract selection"; exit 1 ;;
+          esac
+          node --import tsx scripts/deploy-contracts.ts --network "${{ inputs.network }}" "${contract_args[@]}" \
             ${{ inputs.dry_run && '--dry-run' || '' }} ${{ inputs.force && '--force' || '' }}
       - name: Verify
         if: ${{ !inputs.dry_run }}
         env:
           KOINOS_RPC: ${{ vars.KOINOS_RPC }}
-        run: node --import tsx scripts/verify-deployment.ts --network "${{ inputs.network }}"
+        run: |
+          node --import tsx scripts/verify-deployment.ts --network "${{ inputs.network }}"
+          node --import tsx scripts/verify-photo-library.ts --network "${{ inputs.network }}" --contracts-only
       - name: Commit deployment manifest
         if: ${{ !inputs.dry_run }}
         run: |

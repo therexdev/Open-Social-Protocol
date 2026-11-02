@@ -121,7 +121,7 @@ export function statusView(options: ApiOptions): Record<string, unknown> {
     ? Object.fromEntries(Object.entries(deployment.contracts).map(([name, entry]) => [name, entry.address]))
     : null;
   return {
-    features: { tokenEconomy: 1, privateMessaging: 2, privateUpdates: 1 },
+    features: { tokenEconomy: 1, privateMessaging: 2, privateUpdates: 1, photoLibrary: 1 },
     network: config.network,
     chainId: deployment?.chainId ?? null,
     // Chain id the node reports and whether it matches the manifest (null until the first sync step compared them).
@@ -175,6 +175,24 @@ export function buildApi(options: ApiOptions): FastifyInstance {
     app.log.error(err);
     reply.status(500).send({ error: { code: "internal_error", message: "internal error" } });
   });
+
+  app.get("/v1/photos/:id/chunks", async request => {
+    const id = parseBase64url(param(request, "id"), "id")!;
+    const rows = db.all<{data: Uint8Array}>("SELECT data FROM photo_chunks WHERE id=? ORDER BY position LIMIT 20", id);
+    return { chunks: rows.map(row => toBase64url(row.data)) };
+  });
+  app.get("/v1/collections", async request => {
+    const owner = parseAddress(query(request, "owner"), "owner", false), viewer = parseAddress(query(request, "viewer"), "viewer", false);
+    const kind = parseInteger(query(request, "kind"), "kind") ?? 1, after = query(request, "after") ?? "";
+    const rows = db.all<{id: string; data_json: string}>(`SELECT c.id,c.data_json FROM photo_collections c WHERE c.kind=? AND c.closed=0 AND c.id>? AND (?='' OR c.owner=?) AND (c.audience=0 OR EXISTS(SELECT 1 FROM collection_members m WHERE m.id=c.id AND m.account=?)) ORDER BY c.id LIMIT 51`, kind, after, owner ?? "", owner ?? "", viewer ?? "");
+    return { items: rows.slice(0,50).map(r => ({ id: r.id, ...JSON.parse(r.data_json) })), next: rows.length > 50 ? rows[49]!.id : undefined };
+  });
+  app.get("/v1/collections/:id/items", async request => {
+    const id = parseBase64url(param(request,"id"),"id")!, after = query(request,"after") ?? "";
+    const rows = db.all<{id: string; data_json: string}>("SELECT id,data_json FROM album_items WHERE collection_id=? AND removed=0 AND id>? ORDER BY id LIMIT 51", id, after);
+    return { items: rows.slice(0,50).map(r => ({ id: r.id, ...JSON.parse(r.data_json) })), next: rows.length > 50 ? rows[49]!.id : undefined };
+  });
+  app.get("/v1/collections/:id/posts", async request => q.collectionPosts(db, parseBase64url(param(request,"id"),"id")!, parseCursor(query(request,"cursor")), parseLimit(query(request,"limit"),20,50), parseAddress(query(request,"viewer"),"viewer",false)));
 
   app.get("/", async () => ({ name: "@osp/indexer", version: config.version, api: "v1", status: "/v1/status" }));
   app.get("/health", async (request, reply) => {

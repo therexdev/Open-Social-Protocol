@@ -24,14 +24,19 @@ export interface OpenedPost {
 
 /** Decrypts or decodes a post for display. Never throws. */
 export async function openPost(post: PostView, ctx: OpenContext): Promise<OpenedPost> {
+  if (post.audience === AUDIENCE.CUSTOM && !ctx.chain) return {status:"error",message:"Connect to the network to verify private sharing."};
   if (ctx.chain) {
     try {
       const record = (await ctx.chain.reads.publications.get_post({ post_id: bytesOf(post.postId) }))?.value;
       if (!record) return { status: "error", message: "This post is awaiting network confirmation. Refresh to check again." };
+      if (record.collection_id?.length) {
+        const collection=(await ctx.chain.reads.publications.get_collection({id:record.collection_id}))?.value;
+        if(!collection || collection.closed || !ctx.me || (collection.owner!==ctx.me.account && !collection.members.includes(ctx.me.account))) return {status:"no-key",message:"You no longer have access to this group."};
+      }
       if (record.state === LIFECYCLE.DELETED) return { status: "tombstone" };
       if (record.state === LIFECYCLE.AUTHOR_HIDDEN) return { status: "hidden" };
       if (record.state === LIFECYCLE.UNAVAILABLE) return { status: "unavailable" };
-      if (record.author !== post.author || record.audience !== post.audience || record.version_count !== post.versionNumber || !bytesEqual(record.latest_version, bytesOf(post.contentHash))) {
+      if (record.author !== post.author || !bytesEqual(record.collection_id ?? new Uint8Array(),bytesOf(post.collectionId ?? "")) || record.audience !== post.audience || record.version_count !== post.versionNumber || !bytesEqual(record.latest_version, bytesOf(post.contentHash))) {
         return { status: "error", message: "The feed has not supplied the current verified version of this post. Refresh the feed to check again." };
       }
     } catch {

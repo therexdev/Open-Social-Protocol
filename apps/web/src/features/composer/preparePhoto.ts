@@ -29,7 +29,7 @@ function readFile(blob: Blob, asDataUrl: boolean, signal?: AbortSignal): Promise
 
 /** Stream first; mobile document providers do not always expose a reliable size
  * or support FileReader on the returned handle. All reads stay local and bounded. */
-export async function readPhotoSource(file: File, signal?: AbortSignal): Promise<Uint8Array> {
+export async function readPhotoSource(file: File, signal?: AbortSignal, maxBytes = 900_000): Promise<Uint8Array> {
   if (signal?.aborted) throw cancelled();
   if (file.size > MAX_SOURCE_BYTES) throw new Error("Choose a photo smaller than 20 MB.");
   if (typeof file.stream === "function") {
@@ -108,7 +108,7 @@ async function decodePhoto(blob: Blob, signal?: AbortSignal): Promise<DecodedPho
 }
 
 /** Read locally and re-encode: strips metadata and bounds dimensions/upload size. */
-export async function preparePhoto(file: File, signal?: AbortSignal): Promise<Uint8Array> {
+export async function preparePhoto(file: File, signal?: AbortSignal, maxBytes = 900_000): Promise<Uint8Array> {
   if (signal?.aborted) throw cancelled();
   const bytes = await readPhotoSource(file, signal);
   const mime = photoMime(bytes);
@@ -118,7 +118,7 @@ export async function preparePhoto(file: File, signal?: AbortSignal): Promise<Ui
     if (!image.width || !image.height || image.width * image.height > 50_000_000) throw new Error("This photo's dimensions are too large. Resize it first.");
     const context = canvas.getContext("2d");
     if (!context) throw new Error("Photo processing is unavailable in this browser.");
-    for (const [longest, quality] of [[2048,0.86],[2048,0.72],[1536,0.82],[1536,0.65],[1024,0.72]] as const) {
+    for (const [longest, quality] of [[2048,0.86],[2048,0.72],[1536,0.82],[1536,0.65],[1024,0.72],[960,0.6],[640,0.5]] as const) {
       if (signal?.aborted) throw cancelled();
       const scale = Math.min(1, longest / Math.max(image.width, image.height));
       canvas.width = Math.max(1, Math.round(image.width * scale)); canvas.height = Math.max(1, Math.round(image.height * scale));
@@ -126,7 +126,7 @@ export async function preparePhoto(file: File, signal?: AbortSignal): Promise<Ui
       context.drawImage(image.source, 0, 0, canvas.width, canvas.height);
       const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, "image/jpeg", quality));
       // Stay below common reverse proxies' 1 MiB request limit.
-      if (blob && blob.type === "image/jpeg" && blob.size <= 900_000) return new Uint8Array(await readFile(blob, false, signal) as ArrayBuffer);
+      if (blob && blob.type === "image/jpeg" && blob.size <= maxBytes) return new Uint8Array(await readFile(blob, false, signal) as ArrayBuffer);
     }
     throw new Error("This photo is still too large after resizing. Choose a smaller image.");
   } finally { image.dispose(); canvas.width = canvas.height = 0; }

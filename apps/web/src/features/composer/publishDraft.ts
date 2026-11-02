@@ -1,5 +1,6 @@
+import { archivePhoto } from "./archivePhoto";
 /** Publication transport; UI may wait for it or run it in the background. */
-import { AUDIENCE, type ProtocolClient } from "@osp/sdk";
+import { AUDIENCE, requirePhotoLibrary, type ProtocolClient } from "@osp/sdk";
 import type { KeyVerifier } from "../../api/keystore";
 import type { PaymentPreference } from "../../stores/settings";
 import { ActionError, submitAction, type SubmitContext, type SubmitOptions } from "../../tx/submit";
@@ -32,8 +33,9 @@ export interface PublishDeps {
   assertActive?: () => void;
 }
 
-export function planDraft(deps: PublishDeps, request: PublishRequest): Promise<PublishPlan> {
-  const audience = request.draft.audience === AUDIENCE.FRIENDS ? AUDIENCE.FRIENDS : AUDIENCE.EVERYONE;
+export async function planDraft(deps: PublishDeps, request: PublishRequest): Promise<PublishPlan> {
+  if (request.draft.audience === AUDIENCE.CUSTOM || request.draft.galleryOnly || request.draft.collectionId) await requirePhotoLibrary(deps.protocol);
+  const audience = request.draft.audience === AUDIENCE.CUSTOM ? AUDIENCE.CUSTOM : request.draft.audience === AUDIENCE.FRIENDS ? AUDIENCE.FRIENDS : AUDIENCE.EVERYONE;
   return buildPublishPlan({
     chain: deps.protocol,
     indexer: deps.indexer,
@@ -42,6 +44,9 @@ export function planDraft(deps: PublishDeps, request: PublishRequest): Promise<P
     text: request.draft.text,
     ...(request.draft.poll && { poll: request.draft.poll }),
     audience,
+    selectedAccounts: request.draft.selectedAccounts,
+    collectionId: request.draft.collectionId,
+    galleryOnly: request.draft.galleryOnly,
     ...((request.media ?? request.draft.media) && { media: request.media ?? request.draft.media!.map(m => ({ ...m, contentHash: bytesOf(m.contentHash) })) }),
     ...(request.draft.replyTo && { replyTo: request.draft.replyTo }),
     ...(request.draft.edit && { edit: request.draft.edit }),
@@ -53,8 +58,8 @@ export function planDraft(deps: PublishDeps, request: PublishRequest): Promise<P
 
 async function completeDraft(deps: PublishDeps, draft: DraftRecord, outcome: PublishOutcome): Promise<PublishOutcome> {
   const p = draft.publication;
-  if (draft.audience === AUDIENCE.FRIENDS && p) {
-    const ref = { author: draft.account, audienceId: new Uint8Array(0), epoch: p.epoch };
+  if (draft.audience !== AUDIENCE.EVERYONE && p) {
+    const ref = { author: draft.account, audienceId: p.audienceId ? bytesOf(p.audienceId) : new Uint8Array(0), epoch: p.epoch };
     if (p.epochKey) await deps.session.keys.put(ref, bytesOf(p.epochKey), { recipients: [draft.account, ...p.recipients] });
     else if (p.recipients.length) await deps.session.keys.addRecipients(ref, p.recipients);
   }
@@ -91,17 +96,21 @@ export async function publishDraft(deps: PublishDeps, request: PublishRequest, p
   const saved = draft.publication;
   const built = prepared ?? (saved?.operations ? {
     operations: saved.operations, postId: bytesOf(saved.postId), contentHash: bytesOf(saved.contentHash),
-    audience: draft.audience, epoch: saved.epoch, recipients: saved.recipients,
+    audience: draft.audience, epoch: saved.epoch, ...(saved.audienceId && { audienceId: bytesOf(saved.audienceId) }), recipients: saved.recipients,
     ...(saved.epochKey && { epochKey: bytesOf(saved.epochKey) }),
   } : await planDraft(deps, request));
   const label = request.draft.edit ? "Saving your edit" : request.draft.replyTo ? "Posting your reply" : "Publishing your post";
   const submit = deps.submit ?? submitAction;
   draft = { ...draft, state: "submitting", updatedAt: Date.now(), publication: {
+    ...(built.audienceId && { audienceId: toBase64url(built.audienceId) }),
     postId: toBase64url(built.postId), contentHash: toBase64url(built.contentHash), epoch: built.epoch,
     ...(built.epochKey && { epochKey: toBase64url(built.epochKey) }), recipients: built.recipients, operations: built.operations,
   } };
   await saveDraft(session, draft);
   try {
+  for (const media of request.media ?? draft.media?.map(m => ({ ...m, contentHash: bytesOf(m.contentHash) })) ?? []) {
+    if (media.archiveBytes) await archivePhoto(media, { client: protocol, signer: me.signer, payment: deps.payment }, me.account, deps.assertActive);
+  }
     const result = await submit({ client: protocol, signer: me.signer, payment: deps.payment }, built.operations, {
       label,
       success: request.draft.edit ? "Edit saved" : request.draft.replyTo ? "Reply posted" : "Post published",

@@ -5,7 +5,7 @@ import { fromBase64url, ipfsCid, MAX_IMAGE_BYTES, openMedia } from "@osp/sdk";
 const files = new Map<string, { bytes: Uint8Array; expires: number }>();
 const MAX_CACHE_BYTES = 12 * 1024 * 1024;
 let total = 0;
-const key = (location: string, hash: string) => `${ipfsCid(location)}:${hash}`;
+const key = (location: string, hash: string) => `${location.startsWith("osp-photo://") ? location : ipfsCid(location)}:${hash}`;
 function remove(id: string) { const entry = files.get(id); if (entry) total -= entry.bytes.length; files.delete(id); }
 export function rememberMediaBytes(location: string, hash: string, bytes: Uint8Array): void {
   if (!bytes.length || bytes.length > MAX_IMAGE_BYTES) return;
