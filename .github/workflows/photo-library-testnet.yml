@@ -1,6 +1,7 @@
 name: photo-library-testnet
 
 # Explicit release branch: only the publications contract is upgraded.
+# Release approved after PR #7 passed its build and test checks.
 on:
   push:
     branches: [codex/photo-library-testnet-rollout]
