@@ -1,5 +1,7 @@
 # Photos, albums, selected sharing and private groups
 
+For the existing VPS/website, follow [the operator update instructions](photo-library-update.md).
+
 This change replaces new photo uploads in the reference web client with an event-backed archive in the publications contract. It requires a coordinated contract, indexer, sponsor and client rollout. It is not enabled by deploying only the web bundle.
 
 ## Product behavior
@@ -68,7 +70,7 @@ Collection and album-entry writes use compare-and-swap revisions. Current member
 
 ## Validation
 
-Local suites: 107 publications contract, 33 token contract, 110 SDK, 66 indexer, 61 sponsor, 285 web and 102 extension tests passed (764 total, plus two existing web skips). Release contract builds, TypeScript builds and web/extension bundle smoke checks passed.
+Local suites: 107 publications contract, 33 token contract, 110 SDK, 66 indexer, 61 sponsor, 312 web and 102 extension tests passed (791 total, plus two existing web skips). Release contract builds, TypeScript builds and web/extension bundle smoke checks passed.
 
 - Publications contract tests: archive size boundaries, owner binding, exact retry idempotency, chunk integrity, usage required, collection CAS, member removal, album tombstones, current group member publication, stale group epochs and removed member rejection.
 - SDK: exact tier boundaries, malformed locations, incomplete/reordered/tampered chunks and whole-image integrity.

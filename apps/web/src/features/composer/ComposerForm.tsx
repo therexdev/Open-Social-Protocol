@@ -20,6 +20,8 @@ import { preparePhoto } from "./preparePhoto";
 import { PhotoReadError } from "./preparePhoto";
 import { MediaPhoto } from "../../components/MediaPhoto";
 import { toBase64url } from "../../util/bytes";
+import { MentionTextarea } from "./MentionTextarea";
+import { RichText } from "../../components/RichText";
 
 export interface ComposerFormProps {
   /** Existing draft to resume (keeps its attempt id). */
@@ -201,10 +203,11 @@ export function ComposerForm({ draft, replyTo, edit, defaultAudience = AUDIENCE.
       {!galleryOnly && !collectionId && !edit && !draft?.edit && !replyTo && <Button variant="ghost" disabled={encrypted || busy || !!draft?.publication} aria-pressed={pollEnabled} onClick={() => setPollEnabled(v => !v)}>{pollEnabled ? "Remove poll" : "Add poll"}</Button>}
       <Field label={pollEnabled ? "Your poll question" : edit ? "Edit your post" : replyTo ? "Your reply" : "What's on your mind?"} hint={tooLong ? `${-remaining} bytes over the limit` : `${remaining} bytes left`}>
         {(id) => (
-          <textarea
+          <MentionTextarea
             id={id}
+            account={account}
             value={text}
-            onChange={(e) => setText(e.target.value)}
+            onValueChange={setText}
             rows={compact ? 3 : 6}
             maxLength={LIMITS.maxEnvelopeBytes}
             aria-invalid={tooLong || undefined}
@@ -281,7 +284,7 @@ export function ComposerForm({ draft, replyTo, edit, defaultAudience = AUDIENCE.
               Publishing is permanent: the network records it and copies may be kept by anyone who can read it. You can edit or mark it deleted later, but
               earlier versions stay in the public history.
             </p>
-            <blockquote className="preview">{text}</blockquote>
+            <blockquote className="preview"><RichText text={text}/></blockquote>
             {confirm.poll && <><ul>{confirm.poll.options.map((o, i) => <li key={i}>{o}</li>)}</ul><p>Closes {new Date(Number(confirm.poll.closes_at)).toLocaleString()}. Answers are public and separate from upvotes and downvotes.</p></>}
           </>
         )}

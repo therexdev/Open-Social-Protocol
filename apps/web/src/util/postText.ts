@@ -1,7 +1,10 @@
+import { mentionPattern, parseMention } from "./mentions";
+
 export type TextPart =
   | { kind: "text"; text: string }
   | { kind: "url"; text: string; href: string }
-  | { kind: "tag"; text: string; tag: string };
+  | { kind: "tag"; text: string; tag: string }
+  | { kind: "mention"; text: string; name: string; account: string };
 
 const tagCharacters = /^[\p{L}\p{N}_][\p{L}\p{M}\p{N}_]*$/u;
 export function normalizeTag(value: string): string | undefined {
@@ -23,17 +26,21 @@ function trimUrl(value: string): string {
   }
 }
 
-/** Plain text only: URLs consume their fragments before hashtag matching. */
+/** Plain text only: URLs consume their fragments before tag/mention matching. */
 export function splitPostText(text: string): TextPart[] {
-  const pattern = /https?:\/\/[^\s<>"\u0000-\u001f]+|www\.[^\s<>"\u0000-\u001f]+|#[\p{L}\p{N}_][\p{L}\p{M}\p{N}_]*/giu;
+  const pattern = new RegExp(String.raw`https?:\/\/[^\s<>"\u0000-\u001f]+|www\.[^\s<>"\u0000-\u001f]+|${mentionPattern}|#[\p{L}\p{N}_][\p{L}\p{M}\p{N}_]*`, "giu");
   const parts: TextPart[] = [];
   let offset = 0;
   for (const match of text.matchAll(pattern)) {
     const start = match.index;
     const before = [...text.slice(0, start)].at(-1) ?? "";
-    if (/[\p{L}\p{M}\p{N}_@#]/u.test(before)) continue;
+    // Explicit account links survive removing whitespace beside a selected name.
+    if (!match[0].startsWith("@") && /[\p{L}\p{M}\p{N}_@#]/u.test(before)) continue;
     let part: TextPart | undefined;
-    if (match[0].startsWith("#")) {
+    if (match[0].startsWith("@")) {
+      const mention = parseMention(match[0]);
+      if (mention) part = { kind: "mention", text: match[0], ...mention };
+    } else if (match[0].startsWith("#")) {
       const tag = normalizeTag(match[0]);
       if (tag) part = { kind: "tag", text: match[0], tag };
     } else {

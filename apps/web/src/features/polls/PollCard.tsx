@@ -7,6 +7,7 @@ import { useCanAct, useSubmitContext } from "../session";
 import { submitAction } from "../../tx/submit";
 import { bytesOf } from "../../util/bytes";
 import { errorMessage } from "../../util/format";
+import { RichText } from "../../components/RichText";
 
 export function PollCard({ post, onChanged }: { post: PostView; onChanged?: () => void }) {
   const { protocol } = useServices(), submit = useSubmitContext(), can = useCanAct();
@@ -46,7 +47,7 @@ export function PollCard({ post, onChanged }: { post: PostView; onChanged?: () =
     finally { setBusy(false); }
   };
   return <section className="poll-card" aria-label="Poll">
-    <h3>{poll.definition.question}</h3>
+    <h3><RichText text={poll.definition.question}/></h3>
     <fieldset disabled={busy || closed || !can.ok || !view?.value}><legend>Choose one answer</legend>
       {poll.definition.options.map((option, i) => {
         const count = poll.counts[i] ?? 0, percent = poll.participants ? Math.round(count * 100 / poll.participants) : 0;
