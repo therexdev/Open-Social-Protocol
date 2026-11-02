@@ -41,3 +41,5 @@ export function useServices(): Services {
   if (!value) throw new Error("useServices must be used inside ServicesProvider");
   return value;
 }
+
+export function useOptionalServices(): Services | undefined { return useContext(ServicesContext); }

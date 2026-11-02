@@ -11,6 +11,8 @@
  */
 import {
   AUDIENCE,
+  utf8,
+  type CollectionRecord,
   validatePoll,
   type PollDefinition,
   LIMITS,
@@ -50,6 +52,7 @@ export interface PublishChain {
       get_relationship(args: { a: string; b: string }): Promise<{ value?: { status: number } } | undefined>;
     };
     publications: {
+      get_collection?(args: { id: Uint8Array }): Promise<{ value?: CollectionRecord } | undefined>;
       get_poll?(args: { post_id: Uint8Array }): Promise<{ now: string } | undefined>;
       get_author_state(args: { author: string }): Promise<{ value?: { next_sequence: string } } | undefined>;
       get_post_by_idempotency_key(args: { author: string; idempotency_key: Uint8Array }): Promise<{ value?: { post_id: Uint8Array } } | undefined>;
@@ -76,7 +79,10 @@ export interface PublishInput {
   me: PublishIdentity;
   keys: KeyStore;
   text: string;
-  audience: typeof AUDIENCE.EVERYONE | typeof AUDIENCE.FRIENDS;
+  audience: typeof AUDIENCE.EVERYONE | typeof AUDIENCE.FRIENDS | typeof AUDIENCE.CUSTOM;
+  selectedAccounts?: string[];
+  collectionId?: string;
+  galleryOnly?: boolean;
   media?: MediaAttachment[];
   /** base64url post id of the parent for replies. */
   replyTo?: string;
@@ -92,6 +98,8 @@ export interface PublishInput {
 }
 
 export interface MediaAttachment {
+  /** Prepared ciphertext persisted only inside the encrypted publication draft. */
+  archiveBytes?: string;
   url: string;
   mime: string;
   size: number;
@@ -109,6 +117,7 @@ export interface PublishPlan {
   idempotencyKey: Uint8Array;
   audience: number;
   epoch: number;
+  audienceId?: Uint8Array;
   sequence: string;
   versionNumber: number;
   envelopeBytes: number;
@@ -211,13 +220,13 @@ export async function buildPublishPlan(input: PublishInput): Promise<PublishPlan
   }
   const attemptId = typeof input.attemptId === "string" ? fromHex(input.attemptId) : input.attemptId;
   const key = idempotencyKey(input.me.account, attemptId);
-  const contentKey = input.audience === AUDIENCE.FRIENDS ? newEpochKey(input.rng) : undefined;
+  const contentKey = input.audience !== AUDIENCE.EVERYONE ? newEpochKey(input.rng) : undefined;
   for (const media of input.media ?? []) {
-    if (input.audience === AUDIENCE.FRIENDS && !media.encryption) throw new PublishError("Linked media files are public at their original host. Remove the attachment and upload the photo again with Friends selected.");
+    if (input.audience !== AUDIENCE.EVERYONE && !media.encryption) throw new PublishError("Linked media files are public at their original host. Remove the attachment and upload the photo again with private sharing selected.");
     if (input.audience === AUDIENCE.EVERYONE && media.encryption) throw new PublishError("Remove private photos before changing this post to Public.");
     if (media.encryption) {
-      if (!media.url.startsWith("ipfs://") || bytesOf(media.encryption.key).length !== 32 || bytesOf(media.encryption.nonce).length !== 24) throw new PublishError("Invalid encrypted photo attachment");
-      ipfsCid(media.url);
+      if ((!media.url.startsWith("ipfs://") && !media.url.startsWith("osp-photo://")) || bytesOf(media.encryption.key).length !== 32 || bytesOf(media.encryption.nonce).length !== 24) throw new PublishError("Invalid encrypted photo attachment");
+      if (media.url.startsWith("ipfs://")) ipfsCid(media.url);
     }
   }
   const content = buildContent(input, contentKey);
@@ -229,6 +238,7 @@ export async function buildPublishPlan(input: PublishInput): Promise<PublishPlan
   const previousVersion = input.edit ? bytesOf(input.edit.previousVersion) : undefined;
   const editPostId = input.edit ? bytesOf(input.edit.postId) : undefined;
 
+  let audienceId: Uint8Array | undefined;
   let epoch = 0;
   let epochKey: Uint8Array | undefined;
   let newKey: Uint8Array | undefined;
@@ -264,15 +274,43 @@ export async function buildPublishPlan(input: PublishInput): Promise<PublishPlan
     }
   }
 
+  if (input.audience === AUDIENCE.CUSTOM) {
+    let selected = [...new Set(input.selectedAccounts ?? [])].filter(a => a !== input.me.account);
+    epoch = input.edit?.versionNumber ?? 1;
+    if (input.collectionId) {
+      const collection = (await input.chain.reads.publications.get_collection?.({ id: bytesOf(input.collectionId) }))?.value;
+      if (!collection || collection.closed || collection.kind !== 2 || (collection.owner !== input.me.account && !collection.members.includes(input.me.account))) throw new PublishError("You no longer have access to this group.");
+      selected = [...new Set([collection.owner, ...collection.members])].filter(a => a !== input.me.account);
+      epoch = collection.revision;
+    }
+    if (selected.length > 50) throw new PublishError("Select at most 50 accounts.");
+    // A fresh audience and key for EACH post/version avoids granting unrelated
+    // private posts when an individual post is shared later.
+    audienceId = sha256Envelope(utf8(`osp/selected/v1:${input.chain.chainId}:${input.me.account}:${toBase64url(attemptId)}`));
+    newKey = newEpochKey(input.rng); epochKey = newKey;
+    const toSeal: Recipient[] = [{ address: input.me.account, publicKey: input.me.encryption.publicKey, keyVersion: input.me.encryption.keyVersion }];
+    for (const account of selected) {
+      const record = (await input.chain.reads.identity.get_identity({ account }))?.value;
+      if (!record || record.encryption_key.length !== LIMITS.keyBytes) throw new PublishError(`Account ${account} has no registered encryption key. No post was sent.`);
+      toSeal.push({address: account, publicKey: record.encryption_key, keyVersion: record.key_version || 1});
+    }
+    recipients = selected;
+    content.share_with = selected;
+    for (const set of buildKeyPackageSets({ author: input.me.account, audienceId, epoch, epochKey, recipients: toSeal, ...(input.rng && {rng: input.rng}) })) {
+      operations.push(await input.chain.ops.publications.distribute_keys({ author: input.me.account, audience_id: audienceId, epoch, packages: set.bytes }));
+    }
+  }
+
   const aad = {
     chainId: input.chain.chainId,
     author: input.me.account,
     ...(editPostId && { postId: editPostId }),
     audience: input.audience,
+    ...(audienceId && { audienceId }),
     epoch,
     versionNumber,
   };
-  const encrypted = input.audience === AUDIENCE.FRIENDS ? encryptContent({ content, aad, epochKey, contentKey, ...(input.rng && { rng: input.rng }) }) : encryptContent({ content, aad });
+  const encrypted = input.audience !== AUDIENCE.EVERYONE ? encryptContent({ content, aad, epochKey, contentKey, ...(input.rng && { rng: input.rng }) }) : encryptContent({ content, aad });
   const envelope = encrypted.bytes;
   if (envelope.length > LIMITS.maxEnvelopeBytes) {
     throw new PublishError(`This post is ${envelope.length} bytes; the limit is ${LIMITS.maxEnvelopeBytes}. Shorten it or remove attachments.`);
@@ -298,6 +336,9 @@ export async function buildPublishPlan(input: PublishInput): Promise<PublishPlan
       ...(previousVersion && previousVersion.length > 0 && { previous_version: previousVersion }),
       ...(!isEdit && { sequence }),
       audience: input.audience,
+      ...(audienceId && { audience_id: audienceId }),
+      ...(input.collectionId && { collection_id: bytesOf(input.collectionId) }),
+      gallery_only: !!input.galleryOnly,
       epoch,
       envelope,
       content_hash: hash,
@@ -313,6 +354,7 @@ export async function buildPublishPlan(input: PublishInput): Promise<PublishPlan
     contentHash: hash,
     idempotencyKey: key,
     audience: input.audience,
+    ...(audienceId && { audienceId }),
     epoch,
     sequence,
     versionNumber,

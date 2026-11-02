@@ -8,6 +8,7 @@ import type { KeyResolverIdentity, KeySource, KeyStore, KeyVerifier } from "./ke
 import type { PostView } from "./indexer";
 
 export interface OpenedContent {
+  share_with?: string[];
   version: number;
   text: string;
   mime: string;
@@ -48,14 +49,20 @@ function tryDecrypt(envelope: Envelope, epochKey: Uint8Array, aad: AadInput): Op
 
 /** Decrypts or decodes a post for display. Never throws. */
 export async function openPost(post: PostView, ctx: OpenContext): Promise<PostContent> {
+  if (post.audience === 2 && !ctx.chain) return {status:"error",message:"Connect to the network to verify private sharing."};
   if (ctx.chain) {
     try {
       const record = (await ctx.chain.reads.publications.get_post({ post_id: bytesOf(post.postId) }))?.value;
       if (!record) return { status: "error", message: "This post is awaiting network confirmation. Checking again automatically." };
+      const collectionId = record.collection_id?.length ? record.collection_id : undefined;
+      if (collectionId) {
+        const collection = (await ctx.chain.reads.publications.get_collection({ id: collectionId }))?.value;
+        if (!collection || collection.closed || !ctx.me || (collection.owner !== ctx.me.account && !collection.members.includes(ctx.me.account))) return {status:"no-key",message:"You no longer have access to this group."};
+      }
       if (record.state === LIFECYCLE.DELETED) return { status: "tombstone" };
       if (record.state === LIFECYCLE.AUTHOR_HIDDEN) return { status: "hidden" };
       if (record.state === LIFECYCLE.UNAVAILABLE) return { status: "unavailable" };
-      if (record.author !== post.author || record.audience !== post.audience || record.version_count !== post.versionNumber || !bytesEqual(record.latest_version, bytesOf(post.contentHash))) {
+      if (record.author !== post.author || !bytesEqual(record.collection_id ?? new Uint8Array(), bytesOf(post.collectionId ?? "")) || record.audience !== post.audience || record.version_count !== post.versionNumber || !bytesEqual(record.latest_version, bytesOf(post.contentHash))) {
         return { status: "error", message: "The feed has not supplied the current verified version of this post. Refresh the feed to check again." };
       }
     } catch {
@@ -84,11 +91,12 @@ export async function openPost(post: PostView, ctx: OpenContext): Promise<PostCo
   if (envelope.suite !== SUITE.XCHACHA20POLY1305_X25519) {
     return { status: "error", message: "This post uses an encryption suite this client does not support." };
   }
-  if (!ctx.keys || !ctx.me) return { status: "locked", message: "Unlock your account to read friends-only posts." };
+  if (!ctx.keys || !ctx.me) return { status: "locked", message: "Unlock your account to read private posts." };
   const audienceId = bytesOf(post.audienceId);
   const ref = { author: post.author, audienceId, epoch: post.epoch };
   const entry = ctx.keySource ? await ctx.keys.resolve(ref, ctx.me, ctx.keySource, { ...(ctx.verify && { verify: ctx.verify }) }) : ctx.keys.entry(ref);
   if (!entry) {
+    if (post.audience === 2) return {status:"no-key",message:"This private post has not been shared with your account."};
     const who = post.author === ctx.me.account ? "this device has not received the key for this post yet" : "you do not have the key for this post yet";
     return { status: "no-key", message: `Friends-only post: ${who}. Friends receive access to older posts too when the author opens the app to finish sharing. This post will check again automatically.` };
   }

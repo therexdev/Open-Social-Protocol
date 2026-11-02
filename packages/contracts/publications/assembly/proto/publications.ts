@@ -141,6 +141,17 @@ export namespace publications {
         writer.uint32(72);
         writer.uint64(message.updated_at);
       }
+
+      const unique_name_collection_id = message.collection_id;
+      if (unique_name_collection_id !== null) {
+        writer.uint32(82);
+        writer.bytes(unique_name_collection_id);
+      }
+
+      if (message.gallery_only != false) {
+        writer.uint32(88);
+        writer.bool(message.gallery_only);
+      }
     }
 
     static decode(reader: Reader, length: i32): post_record {
@@ -186,6 +197,14 @@ export namespace publications {
             message.updated_at = reader.uint64();
             break;
 
+          case 10:
+            message.collection_id = reader.bytes();
+            break;
+
+          case 11:
+            message.gallery_only = reader.bool();
+            break;
+
           default:
             reader.skipType(tag & 7);
             break;
@@ -204,6 +223,8 @@ export namespace publications {
     audience: audience_kind;
     created_at: u64;
     updated_at: u64;
+    collection_id: Uint8Array | null;
+    gallery_only: bool;
 
     constructor(
       author: Uint8Array | null = null,
@@ -214,7 +235,9 @@ export namespace publications {
       reply_to: Uint8Array | null = null,
       audience: audience_kind = 0,
       created_at: u64 = 0,
-      updated_at: u64 = 0
+      updated_at: u64 = 0,
+      collection_id: Uint8Array | null = null,
+      gallery_only: bool = false
     ) {
       this.author = author;
       this.sequence = sequence;
@@ -225,6 +248,8 @@ export namespace publications {
       this.audience = audience;
       this.created_at = created_at;
       this.updated_at = updated_at;
+      this.collection_id = collection_id;
+      this.gallery_only = gallery_only;
     }
   }
 
@@ -649,6 +674,17 @@ export namespace publications {
         poll_definition.encode(unique_name_poll, writer);
         writer.ldelim();
       }
+
+      const unique_name_collection_id = message.collection_id;
+      if (unique_name_collection_id !== null) {
+        writer.uint32(122);
+        writer.bytes(unique_name_collection_id);
+      }
+
+      if (message.gallery_only != false) {
+        writer.uint32(128);
+        writer.bool(message.gallery_only);
+      }
     }
 
     static decode(reader: Reader, length: i32): publish_arguments {
@@ -714,6 +750,14 @@ export namespace publications {
             message.poll = poll_definition.decode(reader, reader.uint32());
             break;
 
+          case 15:
+            message.collection_id = reader.bytes();
+            break;
+
+          case 16:
+            message.gallery_only = reader.bool();
+            break;
+
           default:
             reader.skipType(tag & 7);
             break;
@@ -737,6 +781,8 @@ export namespace publications {
     idempotency_key: Uint8Array | null;
     device: Uint8Array | null;
     poll: poll_definition | null;
+    collection_id: Uint8Array | null;
+    gallery_only: bool;
 
     constructor(
       author: Uint8Array | null = null,
@@ -752,7 +798,9 @@ export namespace publications {
       reply_to: Uint8Array | null = null,
       idempotency_key: Uint8Array | null = null,
       device: Uint8Array | null = null,
-      poll: poll_definition | null = null
+      poll: poll_definition | null = null,
+      collection_id: Uint8Array | null = null,
+      gallery_only: bool = false
     ) {
       this.author = author;
       this.post_id = post_id;
@@ -768,6 +816,8 @@ export namespace publications {
       this.idempotency_key = idempotency_key;
       this.device = device;
       this.poll = poll;
+      this.collection_id = collection_id;
+      this.gallery_only = gallery_only;
     }
   }
 
@@ -1779,6 +1829,17 @@ export namespace publications {
         writer.uint32(120);
         writer.uint64(message.timestamp);
       }
+
+      const unique_name_collection_id = message.collection_id;
+      if (unique_name_collection_id !== null) {
+        writer.uint32(130);
+        writer.bytes(unique_name_collection_id);
+      }
+
+      if (message.gallery_only != false) {
+        writer.uint32(136);
+        writer.bool(message.gallery_only);
+      }
     }
 
     static decode(reader: Reader, length: i32): published_event {
@@ -1848,6 +1909,14 @@ export namespace publications {
             message.timestamp = reader.uint64();
             break;
 
+          case 16:
+            message.collection_id = reader.bytes();
+            break;
+
+          case 17:
+            message.gallery_only = reader.bool();
+            break;
+
           default:
             reader.skipType(tag & 7);
             break;
@@ -1872,6 +1941,8 @@ export namespace publications {
     idempotency_key: Uint8Array | null;
     protocol_version: u32;
     timestamp: u64;
+    collection_id: Uint8Array | null;
+    gallery_only: bool;
 
     constructor(
       author: Uint8Array | null = null,
@@ -1888,7 +1959,9 @@ export namespace publications {
       reply_to: Uint8Array | null = null,
       idempotency_key: Uint8Array | null = null,
       protocol_version: u32 = 0,
-      timestamp: u64 = 0
+      timestamp: u64 = 0,
+      collection_id: Uint8Array | null = null,
+      gallery_only: bool = false
     ) {
       this.author = author;
       this.post_id = post_id;
@@ -1905,6 +1978,8 @@ export namespace publications {
       this.idempotency_key = idempotency_key;
       this.protocol_version = protocol_version;
       this.timestamp = timestamp;
+      this.collection_id = collection_id;
+      this.gallery_only = gallery_only;
     }
   }
 
@@ -3024,6 +3099,1387 @@ export namespace publications {
       this.ballot = ballot;
       this.poll = poll;
       this.timestamp = timestamp;
+    }
+  }
+
+  export class photo_archive_record {
+    static encode(message: photo_archive_record, writer: Writer): void {
+      const unique_name_owner = message.owner;
+      if (unique_name_owner !== null) {
+        writer.uint32(10);
+        writer.bytes(unique_name_owner);
+      }
+
+      const unique_name_digest = message.digest;
+      if (unique_name_digest !== null) {
+        writer.uint32(18);
+        writer.bytes(unique_name_digest);
+      }
+
+      if (message.size != 0) {
+        writer.uint32(24);
+        writer.uint32(message.size);
+      }
+
+      const unique_name_chunk_hashes = message.chunk_hashes;
+      if (unique_name_chunk_hashes.length !== 0) {
+        for (let i = 0; i < unique_name_chunk_hashes.length; ++i) {
+          writer.uint32(34);
+          writer.bytes(unique_name_chunk_hashes[i]);
+        }
+      }
+
+      if (message.received != 0) {
+        writer.uint32(40);
+        writer.uint32(message.received);
+      }
+
+      if (message.units != 0) {
+        writer.uint32(48);
+        writer.uint32(message.units);
+      }
+    }
+
+    static decode(reader: Reader, length: i32): photo_archive_record {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new photo_archive_record();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1:
+            message.owner = reader.bytes();
+            break;
+
+          case 2:
+            message.digest = reader.bytes();
+            break;
+
+          case 3:
+            message.size = reader.uint32();
+            break;
+
+          case 4:
+            message.chunk_hashes.push(reader.bytes());
+            break;
+
+          case 5:
+            message.received = reader.uint32();
+            break;
+
+          case 6:
+            message.units = reader.uint32();
+            break;
+
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    owner: Uint8Array | null;
+    digest: Uint8Array | null;
+    size: u32;
+    chunk_hashes: Array<Uint8Array>;
+    received: u32;
+    units: u32;
+
+    constructor(
+      owner: Uint8Array | null = null,
+      digest: Uint8Array | null = null,
+      size: u32 = 0,
+      chunk_hashes: Array<Uint8Array> = [],
+      received: u32 = 0,
+      units: u32 = 0
+    ) {
+      this.owner = owner;
+      this.digest = digest;
+      this.size = size;
+      this.chunk_hashes = chunk_hashes;
+      this.received = received;
+      this.units = units;
+    }
+  }
+
+  export class begin_photo_arguments {
+    static encode(message: begin_photo_arguments, writer: Writer): void {
+      const unique_name_owner = message.owner;
+      if (unique_name_owner !== null) {
+        writer.uint32(10);
+        writer.bytes(unique_name_owner);
+      }
+
+      const unique_name_id = message.id;
+      if (unique_name_id !== null) {
+        writer.uint32(18);
+        writer.bytes(unique_name_id);
+      }
+
+      const unique_name_digest = message.digest;
+      if (unique_name_digest !== null) {
+        writer.uint32(26);
+        writer.bytes(unique_name_digest);
+      }
+
+      if (message.size != 0) {
+        writer.uint32(32);
+        writer.uint32(message.size);
+      }
+
+      const unique_name_chunk_hashes = message.chunk_hashes;
+      if (unique_name_chunk_hashes.length !== 0) {
+        for (let i = 0; i < unique_name_chunk_hashes.length; ++i) {
+          writer.uint32(42);
+          writer.bytes(unique_name_chunk_hashes[i]);
+        }
+      }
+
+      const unique_name_device = message.device;
+      if (unique_name_device !== null) {
+        writer.uint32(50);
+        writer.bytes(unique_name_device);
+      }
+    }
+
+    static decode(reader: Reader, length: i32): begin_photo_arguments {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new begin_photo_arguments();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1:
+            message.owner = reader.bytes();
+            break;
+
+          case 2:
+            message.id = reader.bytes();
+            break;
+
+          case 3:
+            message.digest = reader.bytes();
+            break;
+
+          case 4:
+            message.size = reader.uint32();
+            break;
+
+          case 5:
+            message.chunk_hashes.push(reader.bytes());
+            break;
+
+          case 6:
+            message.device = reader.bytes();
+            break;
+
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    owner: Uint8Array | null;
+    id: Uint8Array | null;
+    digest: Uint8Array | null;
+    size: u32;
+    chunk_hashes: Array<Uint8Array>;
+    device: Uint8Array | null;
+
+    constructor(
+      owner: Uint8Array | null = null,
+      id: Uint8Array | null = null,
+      digest: Uint8Array | null = null,
+      size: u32 = 0,
+      chunk_hashes: Array<Uint8Array> = [],
+      device: Uint8Array | null = null
+    ) {
+      this.owner = owner;
+      this.id = id;
+      this.digest = digest;
+      this.size = size;
+      this.chunk_hashes = chunk_hashes;
+      this.device = device;
+    }
+  }
+
+  @unmanaged
+  export class begin_photo_result {
+    static encode(message: begin_photo_result, writer: Writer): void {}
+
+    static decode(reader: Reader, length: i32): begin_photo_result {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new begin_photo_result();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    constructor() {}
+  }
+
+  export class append_photo_arguments {
+    static encode(message: append_photo_arguments, writer: Writer): void {
+      const unique_name_owner = message.owner;
+      if (unique_name_owner !== null) {
+        writer.uint32(10);
+        writer.bytes(unique_name_owner);
+      }
+
+      const unique_name_id = message.id;
+      if (unique_name_id !== null) {
+        writer.uint32(18);
+        writer.bytes(unique_name_id);
+      }
+
+      if (message.index != 0) {
+        writer.uint32(24);
+        writer.uint32(message.index);
+      }
+
+      const unique_name_data = message.data;
+      if (unique_name_data !== null) {
+        writer.uint32(34);
+        writer.bytes(unique_name_data);
+      }
+
+      const unique_name_device = message.device;
+      if (unique_name_device !== null) {
+        writer.uint32(42);
+        writer.bytes(unique_name_device);
+      }
+    }
+
+    static decode(reader: Reader, length: i32): append_photo_arguments {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new append_photo_arguments();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1:
+            message.owner = reader.bytes();
+            break;
+
+          case 2:
+            message.id = reader.bytes();
+            break;
+
+          case 3:
+            message.index = reader.uint32();
+            break;
+
+          case 4:
+            message.data = reader.bytes();
+            break;
+
+          case 5:
+            message.device = reader.bytes();
+            break;
+
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    owner: Uint8Array | null;
+    id: Uint8Array | null;
+    index: u32;
+    data: Uint8Array | null;
+    device: Uint8Array | null;
+
+    constructor(
+      owner: Uint8Array | null = null,
+      id: Uint8Array | null = null,
+      index: u32 = 0,
+      data: Uint8Array | null = null,
+      device: Uint8Array | null = null
+    ) {
+      this.owner = owner;
+      this.id = id;
+      this.index = index;
+      this.data = data;
+      this.device = device;
+    }
+  }
+
+  @unmanaged
+  export class append_photo_result {
+    static encode(message: append_photo_result, writer: Writer): void {}
+
+    static decode(reader: Reader, length: i32): append_photo_result {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new append_photo_result();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    constructor() {}
+  }
+
+  export class get_photo_arguments {
+    static encode(message: get_photo_arguments, writer: Writer): void {
+      const unique_name_id = message.id;
+      if (unique_name_id !== null) {
+        writer.uint32(10);
+        writer.bytes(unique_name_id);
+      }
+    }
+
+    static decode(reader: Reader, length: i32): get_photo_arguments {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new get_photo_arguments();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1:
+            message.id = reader.bytes();
+            break;
+
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    id: Uint8Array | null;
+
+    constructor(id: Uint8Array | null = null) {
+      this.id = id;
+    }
+  }
+
+  export class get_photo_result {
+    static encode(message: get_photo_result, writer: Writer): void {
+      const unique_name_value = message.value;
+      if (unique_name_value !== null) {
+        writer.uint32(10);
+        writer.fork();
+        photo_archive_record.encode(unique_name_value, writer);
+        writer.ldelim();
+      }
+    }
+
+    static decode(reader: Reader, length: i32): get_photo_result {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new get_photo_result();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1:
+            message.value = photo_archive_record.decode(
+              reader,
+              reader.uint32()
+            );
+            break;
+
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    value: photo_archive_record | null;
+
+    constructor(value: photo_archive_record | null = null) {
+      this.value = value;
+    }
+  }
+
+  @unmanaged
+  export class get_library_version_arguments {
+    static encode(
+      message: get_library_version_arguments,
+      writer: Writer
+    ): void {}
+
+    static decode(reader: Reader, length: i32): get_library_version_arguments {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new get_library_version_arguments();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    constructor() {}
+  }
+
+  @unmanaged
+  export class get_library_version_result {
+    static encode(message: get_library_version_result, writer: Writer): void {
+      if (message.version != 0) {
+        writer.uint32(8);
+        writer.uint32(message.version);
+      }
+    }
+
+    static decode(reader: Reader, length: i32): get_library_version_result {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new get_library_version_result();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1:
+            message.version = reader.uint32();
+            break;
+
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    version: u32;
+
+    constructor(version: u32 = 0) {
+      this.version = version;
+    }
+  }
+
+  export class photo_chunk_event {
+    static encode(message: photo_chunk_event, writer: Writer): void {
+      const unique_name_id = message.id;
+      if (unique_name_id !== null) {
+        writer.uint32(10);
+        writer.bytes(unique_name_id);
+      }
+
+      if (message.index != 0) {
+        writer.uint32(16);
+        writer.uint32(message.index);
+      }
+
+      const unique_name_data = message.data;
+      if (unique_name_data !== null) {
+        writer.uint32(26);
+        writer.bytes(unique_name_data);
+      }
+    }
+
+    static decode(reader: Reader, length: i32): photo_chunk_event {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new photo_chunk_event();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1:
+            message.id = reader.bytes();
+            break;
+
+          case 2:
+            message.index = reader.uint32();
+            break;
+
+          case 3:
+            message.data = reader.bytes();
+            break;
+
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    id: Uint8Array | null;
+    index: u32;
+    data: Uint8Array | null;
+
+    constructor(
+      id: Uint8Array | null = null,
+      index: u32 = 0,
+      data: Uint8Array | null = null
+    ) {
+      this.id = id;
+      this.index = index;
+      this.data = data;
+    }
+  }
+
+  export class photo_started_event {
+    static encode(message: photo_started_event, writer: Writer): void {
+      const unique_name_id = message.id;
+      if (unique_name_id !== null) {
+        writer.uint32(10);
+        writer.bytes(unique_name_id);
+      }
+
+      const unique_name_value = message.value;
+      if (unique_name_value !== null) {
+        writer.uint32(18);
+        writer.fork();
+        photo_archive_record.encode(unique_name_value, writer);
+        writer.ldelim();
+      }
+    }
+
+    static decode(reader: Reader, length: i32): photo_started_event {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new photo_started_event();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1:
+            message.id = reader.bytes();
+            break;
+
+          case 2:
+            message.value = photo_archive_record.decode(
+              reader,
+              reader.uint32()
+            );
+            break;
+
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    id: Uint8Array | null;
+    value: photo_archive_record | null;
+
+    constructor(
+      id: Uint8Array | null = null,
+      value: photo_archive_record | null = null
+    ) {
+      this.id = id;
+      this.value = value;
+    }
+  }
+
+  export class collection_record {
+    static encode(message: collection_record, writer: Writer): void {
+      const unique_name_owner = message.owner;
+      if (unique_name_owner !== null) {
+        writer.uint32(10);
+        writer.bytes(unique_name_owner);
+      }
+
+      if (message.kind != 0) {
+        writer.uint32(16);
+        writer.uint32(message.kind);
+      }
+
+      if (message.revision != 0) {
+        writer.uint32(24);
+        writer.uint32(message.revision);
+      }
+
+      if (message.audience != 0) {
+        writer.uint32(32);
+        writer.int32(message.audience);
+      }
+
+      const unique_name_members = message.members;
+      if (unique_name_members.length !== 0) {
+        for (let i = 0; i < unique_name_members.length; ++i) {
+          writer.uint32(42);
+          writer.bytes(unique_name_members[i]);
+        }
+      }
+
+      const unique_name_envelope = message.envelope;
+      if (unique_name_envelope !== null) {
+        writer.uint32(50);
+        writer.bytes(unique_name_envelope);
+      }
+
+      if (message.closed != false) {
+        writer.uint32(56);
+        writer.bool(message.closed);
+      }
+    }
+
+    static decode(reader: Reader, length: i32): collection_record {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new collection_record();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1:
+            message.owner = reader.bytes();
+            break;
+
+          case 2:
+            message.kind = reader.uint32();
+            break;
+
+          case 3:
+            message.revision = reader.uint32();
+            break;
+
+          case 4:
+            message.audience = reader.int32();
+            break;
+
+          case 5:
+            message.members.push(reader.bytes());
+            break;
+
+          case 6:
+            message.envelope = reader.bytes();
+            break;
+
+          case 7:
+            message.closed = reader.bool();
+            break;
+
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    owner: Uint8Array | null;
+    kind: u32;
+    revision: u32;
+    audience: audience_kind;
+    members: Array<Uint8Array>;
+    envelope: Uint8Array | null;
+    closed: bool;
+
+    constructor(
+      owner: Uint8Array | null = null,
+      kind: u32 = 0,
+      revision: u32 = 0,
+      audience: audience_kind = 0,
+      members: Array<Uint8Array> = [],
+      envelope: Uint8Array | null = null,
+      closed: bool = false
+    ) {
+      this.owner = owner;
+      this.kind = kind;
+      this.revision = revision;
+      this.audience = audience;
+      this.members = members;
+      this.envelope = envelope;
+      this.closed = closed;
+    }
+  }
+
+  export class save_collection_arguments {
+    static encode(message: save_collection_arguments, writer: Writer): void {
+      const unique_name_owner = message.owner;
+      if (unique_name_owner !== null) {
+        writer.uint32(10);
+        writer.bytes(unique_name_owner);
+      }
+
+      const unique_name_id = message.id;
+      if (unique_name_id !== null) {
+        writer.uint32(18);
+        writer.bytes(unique_name_id);
+      }
+
+      if (message.previous_revision != 0) {
+        writer.uint32(24);
+        writer.uint32(message.previous_revision);
+      }
+
+      if (message.kind != 0) {
+        writer.uint32(32);
+        writer.uint32(message.kind);
+      }
+
+      if (message.audience != 0) {
+        writer.uint32(40);
+        writer.int32(message.audience);
+      }
+
+      const unique_name_members = message.members;
+      if (unique_name_members.length !== 0) {
+        for (let i = 0; i < unique_name_members.length; ++i) {
+          writer.uint32(50);
+          writer.bytes(unique_name_members[i]);
+        }
+      }
+
+      const unique_name_envelope = message.envelope;
+      if (unique_name_envelope !== null) {
+        writer.uint32(58);
+        writer.bytes(unique_name_envelope);
+      }
+
+      if (message.closed != false) {
+        writer.uint32(64);
+        writer.bool(message.closed);
+      }
+
+      const unique_name_device = message.device;
+      if (unique_name_device !== null) {
+        writer.uint32(74);
+        writer.bytes(unique_name_device);
+      }
+    }
+
+    static decode(reader: Reader, length: i32): save_collection_arguments {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new save_collection_arguments();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1:
+            message.owner = reader.bytes();
+            break;
+
+          case 2:
+            message.id = reader.bytes();
+            break;
+
+          case 3:
+            message.previous_revision = reader.uint32();
+            break;
+
+          case 4:
+            message.kind = reader.uint32();
+            break;
+
+          case 5:
+            message.audience = reader.int32();
+            break;
+
+          case 6:
+            message.members.push(reader.bytes());
+            break;
+
+          case 7:
+            message.envelope = reader.bytes();
+            break;
+
+          case 8:
+            message.closed = reader.bool();
+            break;
+
+          case 9:
+            message.device = reader.bytes();
+            break;
+
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    owner: Uint8Array | null;
+    id: Uint8Array | null;
+    previous_revision: u32;
+    kind: u32;
+    audience: audience_kind;
+    members: Array<Uint8Array>;
+    envelope: Uint8Array | null;
+    closed: bool;
+    device: Uint8Array | null;
+
+    constructor(
+      owner: Uint8Array | null = null,
+      id: Uint8Array | null = null,
+      previous_revision: u32 = 0,
+      kind: u32 = 0,
+      audience: audience_kind = 0,
+      members: Array<Uint8Array> = [],
+      envelope: Uint8Array | null = null,
+      closed: bool = false,
+      device: Uint8Array | null = null
+    ) {
+      this.owner = owner;
+      this.id = id;
+      this.previous_revision = previous_revision;
+      this.kind = kind;
+      this.audience = audience;
+      this.members = members;
+      this.envelope = envelope;
+      this.closed = closed;
+      this.device = device;
+    }
+  }
+
+  @unmanaged
+  export class save_collection_result {
+    static encode(message: save_collection_result, writer: Writer): void {}
+
+    static decode(reader: Reader, length: i32): save_collection_result {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new save_collection_result();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    constructor() {}
+  }
+
+  export class get_collection_arguments {
+    static encode(message: get_collection_arguments, writer: Writer): void {
+      const unique_name_id = message.id;
+      if (unique_name_id !== null) {
+        writer.uint32(10);
+        writer.bytes(unique_name_id);
+      }
+    }
+
+    static decode(reader: Reader, length: i32): get_collection_arguments {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new get_collection_arguments();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1:
+            message.id = reader.bytes();
+            break;
+
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    id: Uint8Array | null;
+
+    constructor(id: Uint8Array | null = null) {
+      this.id = id;
+    }
+  }
+
+  export class get_collection_result {
+    static encode(message: get_collection_result, writer: Writer): void {
+      const unique_name_value = message.value;
+      if (unique_name_value !== null) {
+        writer.uint32(10);
+        writer.fork();
+        collection_record.encode(unique_name_value, writer);
+        writer.ldelim();
+      }
+    }
+
+    static decode(reader: Reader, length: i32): get_collection_result {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new get_collection_result();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1:
+            message.value = collection_record.decode(reader, reader.uint32());
+            break;
+
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    value: collection_record | null;
+
+    constructor(value: collection_record | null = null) {
+      this.value = value;
+    }
+  }
+
+  export class collection_changed_event {
+    static encode(message: collection_changed_event, writer: Writer): void {
+      const unique_name_id = message.id;
+      if (unique_name_id !== null) {
+        writer.uint32(10);
+        writer.bytes(unique_name_id);
+      }
+
+      const unique_name_value = message.value;
+      if (unique_name_value !== null) {
+        writer.uint32(18);
+        writer.fork();
+        collection_record.encode(unique_name_value, writer);
+        writer.ldelim();
+      }
+    }
+
+    static decode(reader: Reader, length: i32): collection_changed_event {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new collection_changed_event();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1:
+            message.id = reader.bytes();
+            break;
+
+          case 2:
+            message.value = collection_record.decode(reader, reader.uint32());
+            break;
+
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    id: Uint8Array | null;
+    value: collection_record | null;
+
+    constructor(
+      id: Uint8Array | null = null,
+      value: collection_record | null = null
+    ) {
+      this.id = id;
+      this.value = value;
+    }
+  }
+
+  export class album_item_record {
+    static encode(message: album_item_record, writer: Writer): void {
+      const unique_name_envelope = message.envelope;
+      if (unique_name_envelope !== null) {
+        writer.uint32(10);
+        writer.bytes(unique_name_envelope);
+      }
+
+      if (message.epoch != 0) {
+        writer.uint32(16);
+        writer.uint32(message.epoch);
+      }
+
+      if (message.revision != 0) {
+        writer.uint32(24);
+        writer.uint32(message.revision);
+      }
+
+      if (message.removed != false) {
+        writer.uint32(32);
+        writer.bool(message.removed);
+      }
+    }
+
+    static decode(reader: Reader, length: i32): album_item_record {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new album_item_record();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1:
+            message.envelope = reader.bytes();
+            break;
+
+          case 2:
+            message.epoch = reader.uint32();
+            break;
+
+          case 3:
+            message.revision = reader.uint32();
+            break;
+
+          case 4:
+            message.removed = reader.bool();
+            break;
+
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    envelope: Uint8Array | null;
+    epoch: u32;
+    revision: u32;
+    removed: bool;
+
+    constructor(
+      envelope: Uint8Array | null = null,
+      epoch: u32 = 0,
+      revision: u32 = 0,
+      removed: bool = false
+    ) {
+      this.envelope = envelope;
+      this.epoch = epoch;
+      this.revision = revision;
+      this.removed = removed;
+    }
+  }
+
+  export class set_album_item_arguments {
+    static encode(message: set_album_item_arguments, writer: Writer): void {
+      const unique_name_owner = message.owner;
+      if (unique_name_owner !== null) {
+        writer.uint32(10);
+        writer.bytes(unique_name_owner);
+      }
+
+      const unique_name_collection_id = message.collection_id;
+      if (unique_name_collection_id !== null) {
+        writer.uint32(18);
+        writer.bytes(unique_name_collection_id);
+      }
+
+      const unique_name_id = message.id;
+      if (unique_name_id !== null) {
+        writer.uint32(26);
+        writer.bytes(unique_name_id);
+      }
+
+      if (message.epoch != 0) {
+        writer.uint32(32);
+        writer.uint32(message.epoch);
+      }
+
+      if (message.previous_revision != 0) {
+        writer.uint32(40);
+        writer.uint32(message.previous_revision);
+      }
+
+      const unique_name_envelope = message.envelope;
+      if (unique_name_envelope !== null) {
+        writer.uint32(50);
+        writer.bytes(unique_name_envelope);
+      }
+
+      if (message.removed != false) {
+        writer.uint32(56);
+        writer.bool(message.removed);
+      }
+
+      const unique_name_device = message.device;
+      if (unique_name_device !== null) {
+        writer.uint32(66);
+        writer.bytes(unique_name_device);
+      }
+    }
+
+    static decode(reader: Reader, length: i32): set_album_item_arguments {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new set_album_item_arguments();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1:
+            message.owner = reader.bytes();
+            break;
+
+          case 2:
+            message.collection_id = reader.bytes();
+            break;
+
+          case 3:
+            message.id = reader.bytes();
+            break;
+
+          case 4:
+            message.epoch = reader.uint32();
+            break;
+
+          case 5:
+            message.previous_revision = reader.uint32();
+            break;
+
+          case 6:
+            message.envelope = reader.bytes();
+            break;
+
+          case 7:
+            message.removed = reader.bool();
+            break;
+
+          case 8:
+            message.device = reader.bytes();
+            break;
+
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    owner: Uint8Array | null;
+    collection_id: Uint8Array | null;
+    id: Uint8Array | null;
+    epoch: u32;
+    previous_revision: u32;
+    envelope: Uint8Array | null;
+    removed: bool;
+    device: Uint8Array | null;
+
+    constructor(
+      owner: Uint8Array | null = null,
+      collection_id: Uint8Array | null = null,
+      id: Uint8Array | null = null,
+      epoch: u32 = 0,
+      previous_revision: u32 = 0,
+      envelope: Uint8Array | null = null,
+      removed: bool = false,
+      device: Uint8Array | null = null
+    ) {
+      this.owner = owner;
+      this.collection_id = collection_id;
+      this.id = id;
+      this.epoch = epoch;
+      this.previous_revision = previous_revision;
+      this.envelope = envelope;
+      this.removed = removed;
+      this.device = device;
+    }
+  }
+
+  @unmanaged
+  export class set_album_item_result {
+    static encode(message: set_album_item_result, writer: Writer): void {}
+
+    static decode(reader: Reader, length: i32): set_album_item_result {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new set_album_item_result();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    constructor() {}
+  }
+
+  export class get_album_item_arguments {
+    static encode(message: get_album_item_arguments, writer: Writer): void {
+      const unique_name_collection_id = message.collection_id;
+      if (unique_name_collection_id !== null) {
+        writer.uint32(10);
+        writer.bytes(unique_name_collection_id);
+      }
+
+      const unique_name_id = message.id;
+      if (unique_name_id !== null) {
+        writer.uint32(18);
+        writer.bytes(unique_name_id);
+      }
+    }
+
+    static decode(reader: Reader, length: i32): get_album_item_arguments {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new get_album_item_arguments();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1:
+            message.collection_id = reader.bytes();
+            break;
+
+          case 2:
+            message.id = reader.bytes();
+            break;
+
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    collection_id: Uint8Array | null;
+    id: Uint8Array | null;
+
+    constructor(
+      collection_id: Uint8Array | null = null,
+      id: Uint8Array | null = null
+    ) {
+      this.collection_id = collection_id;
+      this.id = id;
+    }
+  }
+
+  export class get_album_item_result {
+    static encode(message: get_album_item_result, writer: Writer): void {
+      const unique_name_value = message.value;
+      if (unique_name_value !== null) {
+        writer.uint32(10);
+        writer.fork();
+        album_item_record.encode(unique_name_value, writer);
+        writer.ldelim();
+      }
+    }
+
+    static decode(reader: Reader, length: i32): get_album_item_result {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new get_album_item_result();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1:
+            message.value = album_item_record.decode(reader, reader.uint32());
+            break;
+
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    value: album_item_record | null;
+
+    constructor(value: album_item_record | null = null) {
+      this.value = value;
+    }
+  }
+
+  export class album_item_changed_event {
+    static encode(message: album_item_changed_event, writer: Writer): void {
+      const unique_name_collection_id = message.collection_id;
+      if (unique_name_collection_id !== null) {
+        writer.uint32(10);
+        writer.bytes(unique_name_collection_id);
+      }
+
+      const unique_name_id = message.id;
+      if (unique_name_id !== null) {
+        writer.uint32(18);
+        writer.bytes(unique_name_id);
+      }
+
+      const unique_name_value = message.value;
+      if (unique_name_value !== null) {
+        writer.uint32(26);
+        writer.fork();
+        album_item_record.encode(unique_name_value, writer);
+        writer.ldelim();
+      }
+    }
+
+    static decode(reader: Reader, length: i32): album_item_changed_event {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new album_item_changed_event();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1:
+            message.collection_id = reader.bytes();
+            break;
+
+          case 2:
+            message.id = reader.bytes();
+            break;
+
+          case 3:
+            message.value = album_item_record.decode(reader, reader.uint32());
+            break;
+
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    collection_id: Uint8Array | null;
+    id: Uint8Array | null;
+    value: album_item_record | null;
+
+    constructor(
+      collection_id: Uint8Array | null = null,
+      id: Uint8Array | null = null,
+      value: album_item_record | null = null
+    ) {
+      this.collection_id = collection_id;
+      this.id = id;
+      this.value = value;
     }
   }
 

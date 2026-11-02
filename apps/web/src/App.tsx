@@ -1,3 +1,4 @@
+import { GroupsPage, CollectionPage } from "./features/library/LibraryPages";
 /** Routes and the account gate: empty vault -> onboarding, locked -> unlock screen, unlocked -> app. */
 import { useEffect, useRef, type ReactNode } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
@@ -88,6 +89,8 @@ function OwnProfile() {
 export function AppRoutes() {
   return (
     <Routes>
+      <Route path="/groups" element={<RequireAccount><GroupsPage /></RequireAccount>} />
+      <Route path="/collections/:id" element={<Optional><CollectionPage /></Optional>} />
       <Route path="/about" element={<AboutPage />} />
       <Route path="/people" element={<PeoplePage />} />
       <Route path="/tags/:tag" element={<Optional><HashtagPage /></Optional>} />

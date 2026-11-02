@@ -121,9 +121,9 @@ describe("discovery", () => {
     expect(doc.network.chainId).toBe(HARBINGER_CHAIN_ID);
     expect(doc.network.rpc).toEqual(deployment.rpc);
     expect(doc.policy.version).toBe(2);
-    expect(doc.policy.maxBytesPerOp).toBe(6144);
+    expect(doc.policy.maxBytesPerOp).toBe(24576);
     expect(doc.policy.maxRcPerOp).toBe("200000000");
-    expect(doc.policy.perUser).toEqual({ dailyOps: 200, burstOps: 20, burstWindowSec: 60 });
+    expect(doc.policy.perUser).toEqual({ dailyOps: 200, burstOps: 180, burstWindowSec: 60 });
     const contracts = doc.policy.allowed.map((a) => a.contract).sort();
     expect(contracts).toEqual(
       [deployment.contracts.identity, deployment.contracts.relationships, deployment.contracts.publications, deployment.contracts.communities, deployment.contracts.messaging, deployment.contracts.token]
@@ -424,7 +424,7 @@ describe("POST /v1/sponsor refusals", () => {
       author: user.getAddress(),
       post_id: postId,
       sequence: "1",
-      envelope: new Uint8Array(7000).fill(9),
+      envelope: new Uint8Array(25000).fill(9),
       content_hash: new Uint8Array(32).fill(1),
       idempotency_key: new Uint8Array(16).fill(2),
     });
@@ -712,7 +712,7 @@ describe("utilization and health", () => {
     expect(body.today.refused.invalid_transaction).toBe(1);
     expect(body.today.refusedTotal).toBe(1);
     expect(body.yesterday.accepted).toBe(0);
-    expect(body.limits).toEqual({ dailyOps: 200, burstOps: 20, burstWindowSec: 60 });
+    expect(body.limits).toEqual({ dailyOps: 200, burstOps: 180, burstWindowSec: 60 });
     expect(response.body).not.toContain(user.getAddress());
     expect(response.body).not.toContain(other.getAddress());
     await harness.app.close();
@@ -771,4 +771,17 @@ describe("utilization and health", () => {
     expect(discovery.statusCode).toBe(503);
     await harness.app.close();
   });
+});
+
+it('sponsors a full archive chunk only for its owning payee',async()=>{
+  const h=await start();
+  try {
+    const data=new Uint8Array(16384).fill(6),id=new Uint8Array(32).fill(4);
+    const own=await h.client.ops.publications.append_photo({owner:user.getAddress(),id,index:0,data});
+    expect((await sponsorRequest(h.app,await userTx(h,[own]))).status).toBe(200);
+    const someoneElse=await h.client.ops.publications.append_photo({owner:other.getAddress(),id,index:0,data});
+    const denied=await sponsorRequest(h.app,await userTx(h,[someoneElse],{nonce:nonceValue(2)}));
+    expect(denied.status).toBe(400);
+    expect(denied.body.error.category).toBe("invalid_transaction");
+  } finally {await h.app.close();}
 });

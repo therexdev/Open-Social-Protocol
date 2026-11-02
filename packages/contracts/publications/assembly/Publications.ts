@@ -19,6 +19,7 @@
 // everything else PUBLISH. The dependency setters are callable only by the
 // contract account.
 import { System, Storage, Protobuf, authority, Arrays, Crypto } from "@koinos/sdk-as";
+import { PhotoLibrary } from "./PhotoLibrary";
 import { publications } from "./proto/publications";
 import { token } from "./proto/token";
 import { relationships } from "./proto/relationships";
@@ -68,6 +69,16 @@ const MAX_LIFECYCLE_STATE: i32 = <i32>publications.lifecycle_state.superseded;
 const MAX_OUTCOME_STATE: i32 = <i32>publications.outcome_state.reconcile_required;
 
 export class Publications {
+  library: PhotoLibrary = new PhotoLibrary();
+  get_library_version(args: publications.get_library_version_arguments): publications.get_library_version_result { return new publications.get_library_version_result(1); }
+  begin_photo(args: publications.begin_photo_arguments): publications.begin_photo_result { this.library.begin(args, this.identityContract(), this.get_token_contract(new publications.get_token_contract_arguments()).value); return new publications.begin_photo_result(); }
+  append_photo(args: publications.append_photo_arguments): publications.append_photo_result { this.library.append(args, this.identityContract()); return new publications.append_photo_result(); }
+  get_photo(args: publications.get_photo_arguments): publications.get_photo_result { return new publications.get_photo_result(this.library.photos.get(this.library.id(args.id))); }
+  save_collection(args: publications.save_collection_arguments): publications.save_collection_result { this.library.save(args, this.identityContract(), this.get_token_contract(new publications.get_token_contract_arguments()).value); return new publications.save_collection_result(); }
+  get_collection(args: publications.get_collection_arguments): publications.get_collection_result { return new publications.get_collection_result(this.library.collections.get(this.library.id(args.id))); }
+  set_album_item(args: publications.set_album_item_arguments): publications.set_album_item_result { this.library.setItem(args, this.identityContract(), this.get_token_contract(new publications.get_token_contract_arguments()).value); return new publications.set_album_item_result(); }
+  get_album_item(args: publications.get_album_item_arguments): publications.get_album_item_result { return new publications.get_album_item_result(this.library.items.get(Util.concat([this.library.id(args.collection_id), this.library.id(args.id)]))); }
+
   polls: Storage.Map<Uint8Array, publications.poll_record> = new Storage.Map<Uint8Array, publications.poll_record>(System.getContractId(), 5, publications.poll_record.decode, publications.poll_record.encode, null);
   pollBallots: Storage.Map<Uint8Array, publications.poll_ballot> = new Storage.Map<Uint8Array, publications.poll_ballot>(System.getContractId(), 6, publications.poll_ballot.decode, publications.poll_ballot.encode, null);
 
@@ -404,6 +415,12 @@ export class Publications {
     }
     Actor.requireAuthorized(this.identityContract(), author, args.device, capability);
 
+    const collectionId: Uint8Array | null = Util.isEmpty(args.collection_id) ? null : this.library.id(args.collection_id);
+    if (collectionId != null) {
+      const collection = this.library.collections.get(collectionId);
+      System.require(collection != null && !collection!.closed && collection!.kind == 2 && this.library.member(collection!, author), "group access required");
+      System.require(args.audience == publications.audience_kind.custom && args.epoch == collection!.revision, "group membership changed; review again");
+    }
     const now = Util.now();
     let record: publications.post_record;
     let previousVersion: Uint8Array | null = null;
@@ -425,6 +442,8 @@ export class Publications {
         const parent = this.posts.get(parentId);
         System.require(parent != null, "reply target not found");
         System.require(parent!.state != publications.lifecycle_state.deleted, "reply target deleted");
+        if (parent!.audience != publications.audience_kind.everyone) System.require(args.audience != publications.audience_kind.everyone, "private replies cannot be public");
+        System.require(Arrays.equal(parent!.collection_id, collectionId), "reply must stay in its group");
         const parentAuthor = parent!.author!;
         // A reply to your own post never needs a block check.
         if (!Arrays.equal(parentAuthor, author)) {
@@ -447,6 +466,8 @@ export class Publications {
         now,
         now
       );
+      record.collection_id = collectionId;
+      record.gallery_only = args.gallery_only;
       this.posts.put(postId, record);
 
       state.next_sequence = state.next_sequence + 1;
@@ -461,6 +482,8 @@ export class Publications {
       System.require(Arrays.equal(previous, record.latest_version!), "stale version");
       previousVersion = previous;
       System.require(args.audience == record.audience, "audience change not allowed");
+      System.require(Arrays.equal(record.collection_id, collectionId), "group cannot change");
+      System.require(record.gallery_only == args.gallery_only, "gallery placement cannot change");
 
       // The thread position of a post is fixed by its first version.
       replyTo = Util.isEmpty(record.reply_to) ? null : record.reply_to;
@@ -504,6 +527,8 @@ export class Publications {
       PROTOCOL_VERSION,
       now
     );
+    ev.collection_id = collectionId;
+    ev.gallery_only = args.gallery_only;
     System.event(
       "osp.publications.published",
       Protobuf.encode(ev, publications.published_event.encode),

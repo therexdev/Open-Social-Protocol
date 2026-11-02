@@ -427,3 +427,41 @@ describe("native poll publishing", () => {
     await expect(buildPublishPlan({ ...input, poll: { ...poll(), options: ["Yes", " yes "] } })).rejects.toThrow("different");
   });
 });
+
+describe('selected people',()=>{
+ it('shares with a non-friend, authenticates the recipient list and isolates other private posts',async()=>{
+  const {chain,indexer}=setup({friends:[],identities:[alice,bob]});
+  const plan=await buildPublishPlan({chain,indexer,me,keys:new KeyStore(),text:'three people only',audience:AUDIENCE.CUSTOM,selectedAccounts:[alice.account],attemptId:new Uint8Array(16).fill(70)});
+  const calls=plan.operations.map(o=>chain.contracts.decodeOperation(o)!);
+  const packages=parseKeyPackageSet(calls[0]!.args.packages as Uint8Array);
+  const key=openEpochKeyFromSet(packages,alice.account,alice.encryption.secretKey)!;
+  expect(openEpochKeyFromSet(packages,bob.account,bob.encryption.secretKey)).toBeUndefined();
+  const args=calls.at(-1)!.args;
+  const content=decryptContent({envelope:decodeEnvelope(args.envelope as Uint8Array),epochKey:key,aad:{chainId:chain.chainId,author:me.account,audience:AUDIENCE.CUSTOM,audienceId:plan.audienceId,epoch:plan.epoch,versionNumber:1}}) as {text:string;share_with:string[]};
+  expect(content.text).toBe('three people only');expect(content.share_with).toEqual([alice.account]);
+  const second=await buildPublishPlan({chain,indexer,me,keys:new KeyStore(),text:'different people',audience:AUDIENCE.CUSTOM,selectedAccounts:[bob.account],attemptId:new Uint8Array(16).fill(71)});
+  expect(toBase64url(second.audienceId!)).not.toBe(toBase64url(plan.audienceId!));
+  expect(toBase64url(second.epochKey!)).not.toBe(toBase64url(key));
+ });
+ it('fails closed for unregistered people and permits only-me private posts',async()=>{
+  const {chain,indexer}=setup({identities:[]});
+  const input={chain,indexer,me,keys:new KeyStore(),text:'private',audience:AUDIENCE.CUSTOM,attemptId:new Uint8Array(16).fill(80)};
+  await expect(buildPublishPlan({...input,selectedAccounts:[alice.account]})).rejects.toThrow('no registered encryption key');
+  const plan=await buildPublishPlan(input);expect(plan.recipients).toEqual([]);expect(plan.epochKey).toHaveLength(32);
+ });
+});
+
+it('revokes a selected reader by encrypting the edited version with a fresh key',async()=>{
+  const {chain,indexer}=setup({friends:[],identities:[alice,bob]});
+  const base={chain,indexer,me,keys:new KeyStore(),text:'private version',audience:AUDIENCE.CUSTOM};
+  const first=await buildPublishPlan({...base,selectedAccounts:[alice.account],attemptId:new Uint8Array(16).fill(91)});
+  const edited=await buildPublishPlan({...base,selectedAccounts:[bob.account],attemptId:new Uint8Array(16).fill(92),edit:{postId:toBase64url(first.postId),previousVersion:toBase64url(first.contentHash),versionNumber:2}});
+  const calls=edited.operations.map(op=>chain.contracts.decodeOperation(op)!);
+  const set=parseKeyPackageSet(calls[0]!.args.packages as Uint8Array);
+  expect(openEpochKeyFromSet(set,alice.account,alice.encryption.secretKey)).toBeUndefined();
+  const key=openEpochKeyFromSet(set,bob.account,bob.encryption.secretKey)!;
+  const envelope=decodeEnvelope(calls.at(-1)!.args.envelope as Uint8Array);
+  const aad={chainId:chain.chainId,author:me.account,postId:first.postId,audience:2,audienceId:edited.audienceId,epoch:edited.epoch,versionNumber:2};
+  expect(()=>decryptContent({envelope,epochKey:first.epochKey,aad})).toThrow();
+  expect(decryptContent({envelope,epochKey:key,aad}).share_with).toEqual([bob.account]);
+});

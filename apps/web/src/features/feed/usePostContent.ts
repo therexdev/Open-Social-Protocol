@@ -31,7 +31,7 @@ export function usePostContent(post: PostView): PostContent | undefined {
       setContent(result);
       // A friend's signed key distribution can arrive after the post itself. Retry without
       // requiring navigation or a reload, and respect the key store's 30-second miss cache.
-      if (result.status === "no-key" || result.status === "error") timer = window.setTimeout(() => void open(), 30_000);
+      if (post.audience === 2 || result.status === "no-key" || result.status === "error") timer = window.setTimeout(() => void open(), 30_000);
     };
     void open();
     return () => {

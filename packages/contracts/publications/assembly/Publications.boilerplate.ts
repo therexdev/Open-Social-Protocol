@@ -41,6 +41,8 @@ export class Publications {
     // const idempotency_key = args.idempotency_key;
     // const device = args.device;
     // const poll = args.poll;
+    // const collection_id = args.collection_id;
+    // const gallery_only = args.gallery_only;
 
     // YOUR CODE HERE
 
@@ -229,6 +231,129 @@ export class Publications {
     // res.value = ;
     // res.ballot = ;
     // res.now = ;
+
+    return res;
+  }
+
+  begin_photo(
+    args: publications.begin_photo_arguments
+  ): publications.begin_photo_result {
+    // const owner = args.owner;
+    // const id = args.id;
+    // const digest = args.digest;
+    // const size = args.size;
+    // const chunk_hashes = args.chunk_hashes;
+    // const device = args.device;
+
+    // YOUR CODE HERE
+
+    const res = new publications.begin_photo_result();
+
+    return res;
+  }
+
+  append_photo(
+    args: publications.append_photo_arguments
+  ): publications.append_photo_result {
+    // const owner = args.owner;
+    // const id = args.id;
+    // const index = args.index;
+    // const data = args.data;
+    // const device = args.device;
+
+    // YOUR CODE HERE
+
+    const res = new publications.append_photo_result();
+
+    return res;
+  }
+
+  get_photo(
+    args: publications.get_photo_arguments
+  ): publications.get_photo_result {
+    // const id = args.id;
+
+    // YOUR CODE HERE
+
+    const res = new publications.get_photo_result();
+    // res.value = ;
+
+    return res;
+  }
+
+  get_library_version(
+    args: publications.get_library_version_arguments
+  ): publications.get_library_version_result {
+    // YOUR CODE HERE
+
+    const res = new publications.get_library_version_result();
+    // res.version = ;
+
+    return res;
+  }
+
+  save_collection(
+    args: publications.save_collection_arguments
+  ): publications.save_collection_result {
+    // const owner = args.owner;
+    // const id = args.id;
+    // const previous_revision = args.previous_revision;
+    // const kind = args.kind;
+    // const audience = args.audience;
+    // const members = args.members;
+    // const envelope = args.envelope;
+    // const closed = args.closed;
+    // const device = args.device;
+
+    // YOUR CODE HERE
+
+    const res = new publications.save_collection_result();
+
+    return res;
+  }
+
+  get_collection(
+    args: publications.get_collection_arguments
+  ): publications.get_collection_result {
+    // const id = args.id;
+
+    // YOUR CODE HERE
+
+    const res = new publications.get_collection_result();
+    // res.value = ;
+
+    return res;
+  }
+
+  set_album_item(
+    args: publications.set_album_item_arguments
+  ): publications.set_album_item_result {
+    // const owner = args.owner;
+    // const collection_id = args.collection_id;
+    // const id = args.id;
+    // const epoch = args.epoch;
+    // const previous_revision = args.previous_revision;
+    // const envelope = args.envelope;
+    // const removed = args.removed;
+    // const device = args.device;
+
+    // YOUR CODE HERE
+
+    const res = new publications.set_album_item_result();
+
+    return res;
+  }
+
+  get_album_item(
+    args: publications.get_album_item_arguments
+  ): publications.get_album_item_result {
+    // const collection_id = args.collection_id;
+    // const id = args.id;
+
+    // YOUR CODE HERE
+
+    const res = new publications.get_album_item_result();
+    // res.value = ;
 
     return res;
   }

@@ -96,6 +96,8 @@ export interface LabelView {
 }
 
 export interface PostView {
+  collectionId?: string;
+  galleryOnly?: boolean;
   poll?: import("@osp/sdk").PollRecord;
   economy?: IndexedPostEconomy;
   promoted?: { nonce: string; opportunity: string };
@@ -366,6 +368,10 @@ export class IndexerClient {
     return this.get<Page<PostView>>(`/v1/feed${qs({ viewer: query.viewer, scope: query.scope, cursor: query.cursor, limit: query.limit })}`);
   }
 
+  photoChunks(id: string): Promise<{chunks: string[]}> { return this.get(`/v1/photos/${encodeURIComponent(id)}/chunks`); }
+  collections(query: { owner?: string; viewer?: string; kind: number; after?: string }): Promise<{items: Array<{id: string}>; next?: string}> { return this.get(`/v1/collections${qs(query)}`); }
+  albumItems(id: string, after?: string): Promise<{items: Array<{id: string}>; next?: string}> { return this.get(`/v1/collections/${encodeURIComponent(id)}/items${qs({after})}`); }
+  collectionPosts(id: string, query: PageQuery = {}): Promise<Page<PostView>> { return this.get(`/v1/collections/${encodeURIComponent(id)}/posts${qs({...query})}`); }
   accountPosts(account: string, query: PageQuery = {}): Promise<Page<PostView>> {
     return this.get<Page<PostView>>(`/v1/accounts/${encodeURIComponent(account)}/posts${qs({ cursor: query.cursor, limit: query.limit, viewer: query.viewer })}`);
   }

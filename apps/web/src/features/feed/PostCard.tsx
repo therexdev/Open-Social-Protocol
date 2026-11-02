@@ -22,7 +22,7 @@ import { RichText } from "../../components/RichText";
 export function audienceLabel(audience: number): string {
   if (audience === AUDIENCE.EVERYONE) return "Everyone";
   if (audience === AUDIENCE.FRIENDS) return "Friends";
-  return "Custom audience";
+  return "Selected people";
 }
 
 function MediaList({ content }: { content: OpenedContent }) {
@@ -33,7 +33,7 @@ function MediaList({ content }: { content: OpenedContent }) {
       {content.media.map((item, index) => {
         const url = item.locations?.[0];
         const isImage = (item.mime ?? "").startsWith("image/");
-        if (url?.startsWith("ipfs://") && isImage) return <li key={url} className="media-item"><MediaPhoto location={url} hash={toBase64url(item.content_hash)} mime={item.mime} alt={item.alt_text} encryption={item.mediaKey ? { key: toBase64url(item.mediaKey), nonce: toBase64url(item.nonce) } : undefined}/></li>;
+        if ((url?.startsWith("ipfs://") || url?.startsWith("osp-photo://")) && isImage) return <li key={url} className="media-item"><MediaPhoto location={url} hash={toBase64url(item.content_hash)} mime={item.mime} alt={item.alt_text} encryption={item.mediaKey ? { key: toBase64url(item.mediaKey), nonce: toBase64url(item.nonce) } : undefined}/></li>;
         return (
           <li key={index} className="media-item">
             {url ? (
