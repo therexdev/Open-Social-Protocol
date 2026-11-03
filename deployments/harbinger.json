@@ -5,7 +5,7 @@
     "https://testnet.koinosfoundation.org/jsonrpc"
   ],
   "protocolVersion": 1,
-  "deployedAt": "2026-11-03T05:48:09.403Z",
+  "deployedAt": "2026-11-03T06:00:56.004Z",
   "deployer": "19C9kF7uBC2a3kWY5iXF4zpWhzahGCmeJd",
   "contracts": {
     "identity": {
