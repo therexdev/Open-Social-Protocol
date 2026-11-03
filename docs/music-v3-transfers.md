@@ -118,3 +118,8 @@ full upload is still needed for final timing and total Mana.
 
 See [byte evidence](evidence/music-v3-byte-benchmark.json) and the prior
 [v1/v2 live receipt comparison](evidence/music-v2-live-benchmark.json).
+
+The subsequent [four final transfer improvements](music-transfer-complete.md)
+add lighter confirmation checks, cache-after-upload, partial download resume and
+an optional indexer mirror. That incremental release requires only the VPS and
+frontend update; do not repeat the contract rollout above for it.

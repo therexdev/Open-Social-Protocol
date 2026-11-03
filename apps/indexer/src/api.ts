@@ -14,6 +14,7 @@ import type { IndexerDb } from "./db.js";
 import * as q from "./queries.js";
 import type { Syncer } from "./sync.js";
 import { PrivateUpdates } from "./privateUpdates.js";
+import { registerMusicMirror } from "./musicMirror.js";
 
 export interface ApiOptions {
   db: IndexerDb;
@@ -121,7 +122,8 @@ export function statusView(options: ApiOptions): Record<string, unknown> {
     ? Object.fromEntries(Object.entries(deployment.contracts).map(([name, entry]) => [name, entry.address]))
     : null;
   return {
-    features: { tokenEconomy: 1, privateMessaging: 2, privateUpdates: 1, photoLibrary: 1 },
+    features: { tokenEconomy: 1, privateMessaging: 2, privateUpdates: 1, photoLibrary: 1,
+      ...(config.musicCache && deployment && { musicGateway: 1 }) },
     network: config.network,
     chainId: deployment?.chainId ?? null,
     // Chain id the node reports and whether it matches the manifest (null until the first sync step compared them).
@@ -154,7 +156,8 @@ export function buildApi(options: ApiOptions): FastifyInstance {
   const privateUpdates = new PrivateUpdates(db);
   app.addHook("preClose", async () => privateUpdates.close());
 
-  app.register(cors, { origin: "*", methods: ["GET", "HEAD", "OPTIONS"] });
+  app.register(cors, { origin: "*", methods: ["GET", "HEAD", "OPTIONS"], exposedHeaders: ["Content-Range", "Accept-Ranges", "ETag"] });
+  registerMusicMirror(app, config);
 
   app.setNotFoundHandler((request, reply) => {
     void request;

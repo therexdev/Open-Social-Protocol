@@ -1,4 +1,5 @@
 import { musicOperationUnits } from "../music.js";
+import { waitForInclusion } from "./waitForInclusion.js";
 /**
  * ProtocolClient: RPC provider, contracts, transaction preparation, signing, simulation and
  * submission with sponsor co-signing and self-pay fallback (spec section 10).
@@ -379,7 +380,9 @@ export class ProtocolClient {
       const timeout = options.waitTimeoutMs ?? 120_000;
       const waitFn = (transaction as { wait?: (type?: "byBlock" | "byTransactionId", timeout?: number) => Promise<{ blockId: string; blockNumber?: number }> }).wait;
       try {
-        result.block = waitFn
+        result.block = this.provider instanceof Provider
+          ? await waitForInclusion(this.provider, transaction.id, timeout)
+          : waitFn
           ? await waitFn("byTransactionId", timeout)
           : await this.provider.wait(transaction.id, "byTransactionId", timeout);
       } catch (error) {

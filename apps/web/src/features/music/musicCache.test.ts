@@ -40,3 +40,16 @@ it("treats inaccessible or full browser storage as an optional cache miss", asyn
   await expect(cache.put("a", new Uint8Array(4))).resolves.toBeUndefined();
   await expect(cache.remove("a")).resolves.toBeUndefined();
 });
+it("keeps partial chunks across instances, shares the size cap and removes them after completion", async () => {
+  const storage = memoryStorage(), cache = createMusicCache(storage, 12);
+  await cache.putPartial("song", 0, [new Uint8Array([1, 2]), new Uint8Array([3, 4])]);
+  const restored = createMusicCache(storage, 12);
+  expect([...(await restored.getPartial("song", 3)).keys()]).toEqual([0, 1]);
+  await restored.put("other", new Uint8Array(8));
+  await restored.putPartial("song", 2, [new Uint8Array([5, 6])]);
+  expect([...storage.map.values()].filter(v => v instanceof Uint8Array).reduce((n, v) => n + (v as Uint8Array).length, 0)).toBeLessThanOrEqual(12);
+  await restored.put("song", new Uint8Array([1, 2, 3, 4, 5, 6]));
+  expect((await restored.getPartial("song", 3)).size).toBe(0);
+  await restored.remove("song");
+  expect(await restored.get("song")).toBeUndefined();
+});

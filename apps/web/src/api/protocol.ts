@@ -4,6 +4,7 @@
  */
 import { ProtocolClient, SponsorPool, type ProviderInterface } from "@osp/sdk";
 import type { ResolvedSettings } from "../stores/settings";
+import { configureMusicGateway } from "../features/music/musicGateway";
 
 export interface CreateProtocolOptions {
   /** A koilib provider (fakes in tests). */
@@ -18,5 +19,7 @@ export function createProtocolClient(resolved: ResolvedSettings, options: Create
     expectedChainId: resolved.deployment.chainId,
     ...(options.fetch && { fetch: options.fetch as (input: string, init?: RequestInit) => Promise<Response> }),
   });
-  return new ProtocolClient({ rpc, deployment: resolved.deployment, sponsors });
+  const client = new ProtocolClient({ rpc, deployment: resolved.deployment, sponsors });
+  configureMusicGateway(client, resolved.indexerUrl, options.fetch);
+  return client;
 }

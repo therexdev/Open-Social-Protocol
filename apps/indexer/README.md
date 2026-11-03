@@ -230,3 +230,12 @@ above LIB, shorter canonical chain, persisting vs transient shrunken head, refus
 height); the poll loop (`start()`/`stop()` against a node whose block store lags its head: bounded RPC
 calls, resumption, stalled `--once`, serialised `syncOnce()`); chain id verification; `--rebuild`
 reproducibility; not-deployed mode. `npm run typecheck -w apps/indexer` checks sources and tests.
+
+## Optional verified music mirror
+
+Set `OSP_MUSIC_CACHE=true` to enable `/v1/music/:id/bytes?digest=...` on this same
+API. `OSP_MUSIC_CACHE_DIR` defaults to `data/music-cache` and
+`OSP_MUSIC_CACHE_MAX_MB` to 512 MiB. Original encrypted/public chain bytes are
+verified before caching, bounded by LRU eviction, and served as binary ranges.
+A cold request returns 202 while warming; clients retain direct RPC fallback.
+See [deployment and validation](../../docs/music-transfer-complete.md).

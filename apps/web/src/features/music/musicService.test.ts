@@ -16,6 +16,7 @@ import { loadMusic, newMusicDraft, uploadMusic, type MusicDraft } from "./musicS
 import * as cacheModule from "./musicCache";
 import { memoryStorage } from "../../vault/storage";
 import { playableMusic } from "./musicAccessService";
+import { configureMusicGateway } from "./musicGateway";
 vi.mock("../../tx/submit", () => ({ submitAction: vi.fn() }));
 const alice = identityFromSeed(new Uint8Array(32).fill(8));
 let client: ProtocolClient,
@@ -487,4 +488,74 @@ it("caches private ciphertext while still refusing playback without current acce
   expect(client.reads.publications.get_music_chunks).not.toHaveBeenCalled();
   expect((await playableMusic(client, draft.id, session)).bytes).toEqual(bytes);
   expect(client.reads.publications.get_music_chunks).not.toHaveBeenCalled();
+});
+
+it.each([false, true])("caches a confirmed upload immediately, protected=%s", async protectedTrack => {
+  v3Draft(300000);
+  ctx.payment = "self-only";
+  if (protectedTrack) draft = newMusicDraft({ owner: alice.account, payer: alice.account, bytes, config, title: "Private", audience: 1, identity: alice, client, mime: "audio/mpeg", durationMs: 1000 });
+  const storage = memoryStorage(), cache = cacheModule.createMusicCache(storage);
+  vi.spyOn(cacheModule, "musicCache").mockReturnValue(cache);
+  await uploadMusic(ctx, draft, bytes, () => {}, () => {});
+  const loaded = await loadMusic(client, draft.id);
+  expect(contentHash(loaded.bytes)).toEqual(record!.digest);
+  expect(client.reads.publications.get_music_chunks).not.toHaveBeenCalled();
+  expect(client.reads.publications.get_music_chunk).not.toHaveBeenCalled();
+  if (protectedTrack) expect(loaded.bytes).not.toEqual(bytes);
+});
+
+it("resumes verified partial chunks after cancellation and revalidates every saved chunk", async () => {
+  v3Draft(600000); ctx.payment = "self-only";
+  await uploadMusic(ctx, draft, bytes, () => {}, () => {});
+  const storage = memoryStorage(), cache = cacheModule.createMusicCache(storage);
+  vi.spyOn(cacheModule, "musicCache").mockReturnValue(cache);
+  const cancelled = new AbortController();
+  await expect(loadMusic(client, draft.id, cancelled.signal, () => cancelled.abort())).rejects.toThrow("cancelled");
+  const cacheKey = cacheModule.musicCacheKey(client, (await import("@osp/sdk")).fromBase64url(draft.id), record!.digest);
+  const partial = await cache.getPartial(cacheKey, record!.received);
+  expect(partial.size).toBeGreaterThan(0);
+  expect(partial.size).toBeLessThan(record!.received);
+  const badIndex = [...partial.keys()][0]!;
+  await cache.putPartial(cacheKey, badIndex, [new Uint8Array(partial.get(badIndex)!.length)]);
+  const reread: number[] = [];
+  vi.mocked(client.reads.publications.get_music_chunks).mockImplementation(async args => ({ chunks: Array.from({ length: args!.count }, (_, n) => { const i = args!.index + n; reread.push(i); return saved.get(i)!; }) }));
+  vi.mocked(client.reads.publications.get_music_chunk).mockImplementation(async args => { reread.push(args!.index); return { data: saved.get(args!.index)! }; });
+  vi.mocked(cacheModule.musicCache).mockReturnValue(cacheModule.createMusicCache(storage));
+  expect((await loadMusic(client, draft.id)).bytes).toEqual(bytes);
+  expect(reread).toContain(badIndex);
+  expect(reread.some(i => i !== badIndex && partial.has(i))).toBe(false);
+  expect((await cache.getPartial(cacheKey, record!.received)).size).toBe(0);
+});
+
+function mirrorResponse(init?: RequestInit, corrupt = false) {
+  const range = new Headers(init?.headers).get("Range")!;
+  const [start, end] = range.slice(6).split("-").map(Number) as [number, number];
+  const body = bytes.slice(start, end + 1);
+  if (corrupt) body[0] = body[0]! ^ 1;
+  return new Response(body, { status: 206, headers: { "Content-Range": `bytes ${start}-${end}/${bytes.length}` } });
+}
+it("loads a warm mirror in bounded binary ranges without native chunk reads", async () => {
+  v3Draft(); ctx.payment = "self-only";
+  await uploadMusic(ctx, draft, bytes, () => {}, () => {});
+  const fetcher = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => mirrorResponse(init));
+  configureMusicGateway(client, "https://mirror.test", fetcher);
+  expect(contentHash((await loadMusic(client, draft.id)).bytes)).toEqual(contentHash(bytes));
+  expect(fetcher).toHaveBeenCalledTimes(9);
+  expect(client.reads.publications.get_music_chunks).not.toHaveBeenCalled();
+  expect(client.reads.publications.get_music_chunk).not.toHaveBeenCalled();
+});
+it.each(["cold", "corrupt", "oversized", "bad range", "offline"])("falls back to native reads for a %s mirror", async mode => {
+  v3Draft(300000); ctx.payment = "self-only";
+  await uploadMusic(ctx, draft, bytes, () => {}, () => {});
+  const fetcher = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+    if (mode === "offline") throw Error("offline");
+    if (mode === "cold") return new Response("warming", { status: 202 });
+    if (mode === "oversized") return new Response(new Uint8Array(bytes.length + 1), { status: 206, headers: { "Content-Range": `bytes 0-${bytes.length - 1}/${bytes.length}` } });
+    if (mode === "bad range") return new Response(bytes.slice(), { status: 206, headers: { "Content-Range": "bytes 1-2/3" } });
+    return mirrorResponse(init, true);
+  });
+  configureMusicGateway(client, "https://mirror.test", fetcher);
+  expect((await loadMusic(client, draft.id)).bytes).toEqual(bytes);
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  expect(client.reads.publications.get_music_chunks).toHaveBeenCalledTimes(3);
 });

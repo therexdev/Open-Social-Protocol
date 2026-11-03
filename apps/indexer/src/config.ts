@@ -32,6 +32,7 @@ export interface IndexerConfig {
   /** Optional override of the reversible window (blocks below head - window count as final). */
   reversibleWindow?: number;
   version: string;
+  musicCache?: { directory: string; maxBytes: number };
 }
 
 export const DEFAULTS = {
@@ -118,6 +119,11 @@ export function loadConfig(env: Env = process.env, options: LoadConfigOptions = 
   const reversibleWindow =
     reversibleWindowRaw !== undefined && reversibleWindowRaw.trim() !== "" ? intEnv(env, "OSP_REVERSIBLE_WINDOW", 0, 0) : undefined;
 
+  const cacheEnabled = env.OSP_MUSIC_CACHE?.trim();
+  if (cacheEnabled && !["true", "false"].includes(cacheEnabled)) throw Error("OSP_MUSIC_CACHE must be true or false");
+  const cacheMb = intEnv(env, "OSP_MUSIC_CACHE_MAX_MB", 512, 10);
+  if (cacheMb > 4096) throw Error("OSP_MUSIC_CACHE_MAX_MB must be <= 4096");
+
   return {
     network,
     deploymentPath,
@@ -132,5 +138,9 @@ export function loadConfig(env: Env = process.env, options: LoadConfigOptions = 
     batchSize: intEnv(env, "OSP_BATCH_SIZE", DEFAULTS.batchSize, 1),
     ...(reversibleWindow !== undefined && { reversibleWindow }),
     version: packageVersion(),
+    ...(cacheEnabled === "true" && { musicCache: {
+      directory: env.OSP_MUSIC_CACHE_DIR?.trim() || path.join("data", "music-cache"),
+      maxBytes: cacheMb * 1024 * 1024,
+    } }),
   };
 }

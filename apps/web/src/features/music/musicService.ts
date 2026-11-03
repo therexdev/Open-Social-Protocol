@@ -33,7 +33,8 @@ import { toArrayBuffer } from "../../util/bytes";
 import { deriveAesKey, EncryptedStore } from "../../vault/encryptedStore";
 import { defaultStorage } from "../../vault/storage";
 import type { Session } from "../../vault/store";
-import { musicCache } from "./musicCache";
+import { musicCache, musicCacheKey } from "./musicCache";
+import { hasMusicGateway, readMusicGateway } from "./musicGateway";
 
 export interface MusicDraft {
   artist?: string;
@@ -374,6 +375,9 @@ export async function uploadMusic(
   const complete = (await client.reads.publications.get_music({ id }))?.value;
   if (!complete || complete.received !== chunks.length)
     throw new Error("The last chunk is still confirming. Resume to check completion.");
+  if (!matchesMusic(draft, complete)) throw new Error("Completed music does not match this upload.");
+  const verified = verifyMusic(complete, chunks);
+  await musicCache()?.put(musicCacheKey(client, id, complete.digest), verified);
 }
 export async function loadMusic(
   client: ProtocolClient,
@@ -398,7 +402,7 @@ export async function loadMusic(
     throw new Error("This track is not ready to play.");
   check();
   const cache = musicCache(),
-    cacheKey = JSON.stringify([client.chainId, client.deployment.contracts.publications.address, toBase64url(key), toBase64url(record.digest)]),
+    cacheKey = musicCacheKey(client, key, record.digest),
     cached = await cache?.get(cacheKey);
   check();
   if (cached) {
@@ -410,24 +414,56 @@ export async function loadMusic(
   }
   const config = await musicConfig(client);
   let batchSize = config.version >= 3 ? MUSIC_READ_BATCH_CHUNKS : 1;
+  let gatewayEnabled = hasMusicGateway(client);
   const chunks = new Array<Uint8Array>(record.chunk_hashes.length);
+  const validChunk = (chunk: Uint8Array | undefined, i: number): chunk is Uint8Array =>
+    chunk instanceof Uint8Array && chunk.length === Math.min(MUSIC_CHUNK_BYTES, record.size - i * MUSIC_CHUNK_BYTES) && bytesEqual(contentHash(chunk), record.chunk_hashes[i]!);
   let cursor = 0,
     received = 0;
-  await Promise.all(
-    Array.from({ length: Math.min(4, Math.ceil(chunks.length / batchSize)) }, () => (async () => {
+  for (const [i, chunk] of (await cache?.getPartial(cacheKey, chunks.length)) ?? []) {
+    if (validChunk(chunk, i)) { chunks[i] = chunk; received++; }
+  }
+  check();
+  if (received) progress?.(received, chunks.length);
+  // Probe once so a cold/older server immediately restores four-way chain reads.
+  if (gatewayEnabled && received < chunks.length) {
+    let first = 0;
+    while (chunks[first]) first++;
+    let end = Math.min(first + 64, chunks.length);
+    for (let i = first + 1; i < end; i++) if (chunks[i]) { end = i; break; }
+    const probe = await readMusicGateway(client, key, record, first, end - first, signal);
+    check();
+    if (probe) {
+      probe.forEach((chunk, offset) => { chunks[first + offset] = chunk; });
+      await cache?.putPartial(cacheKey, first, probe);
+      received += probe.length;
+      progress?.(received, chunks.length);
+    } else gatewayEnabled = false;
+  }
+  let firstError: unknown;
+  const outcomes = await Promise.allSettled(
+    Array.from({ length: Math.min(4, Math.ceil(chunks.length / (gatewayEnabled ? 64 : batchSize))) }, () => (async () => {
       while (cursor < chunks.length) {
         check();
+        while (cursor < chunks.length && chunks[cursor]) cursor++;
+        if (cursor >= chunks.length) break;
         let index = cursor;
-        const end = Math.min(index + batchSize, chunks.length);
+        let end = Math.min(index + (gatewayEnabled ? 64 : batchSize), chunks.length);
+        for (let i = index + 1; i < end; i++) if (chunks[i]) { end = i; break; }
         cursor = end;
         // Keep ownership of this range while retrying, so concurrent workers
         // cannot skip or duplicate chunks when the RPC needs a smaller batch.
         while (index < end) {
           check();
-          const count = Math.min(batchSize, end - index);
+          let count = Math.min(gatewayEnabled ? 64 : batchSize, end - index);
           let result: Array<Uint8Array | undefined> | undefined;
+          if (gatewayEnabled) {
+            result = await readMusicGateway(client, key, record, index, count, signal);
+            check();
+            if (!result) { gatewayEnabled = false; count = Math.min(batchSize, end - index); }
+          }
           try {
-            result = count > 1
+            result ??= count > 1
               ? (await client.reads.publications.get_music_chunks({ id: key, index, count }))?.chunks
               : [(await client.reads.publications.get_music_chunk({ id: key, index }))?.data];
           } catch (error) {
@@ -445,17 +481,21 @@ export async function loadMusic(
             throw new Error("An audio chunk is unavailable. Retry loading the track.");
           for (let offset = 0; offset < count; offset++) {
             const chunk = result[offset], i = index + offset;
-            if (!(chunk instanceof Uint8Array) || chunk.length !== Math.min(MUSIC_CHUNK_BYTES, record.size - i * MUSIC_CHUNK_BYTES) || !bytesEqual(contentHash(chunk), record.chunk_hashes[i]!))
+            if (!validChunk(chunk, i))
               throw new Error("Audio chunk verification failed.");
             chunks[i] = chunk;
           }
+          await cache?.putPartial(cacheKey, index, result as Uint8Array[]);
+          check();
           index += count;
           received += count;
           progress?.(received, chunks.length);
         }
       }
-    })().catch(error => { stopped = true; throw error; }))
+    })().catch(error => { firstError ??= error; stopped = true; throw error; }))
   );
+  const failure = outcomes.find(outcome => outcome.status === "rejected");
+  if (failure?.status === "rejected") throw firstError ?? failure.reason;
   check();
   const bytes = verifyMusic(record, chunks);
   await cache?.put(cacheKey, bytes);
