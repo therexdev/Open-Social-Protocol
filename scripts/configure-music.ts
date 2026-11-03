@@ -90,7 +90,7 @@ console.log(
   JSON.stringify(
     {
       network,
-      contract: contract.id,
+      contract: contract.getId(),
       current: current.value,
       proposed: policy,
       benchmarkFee: musicFee(8403113, rate_per_mb),
@@ -117,7 +117,7 @@ if (
     payer = deployerSigner(preset, provider);
   assert.equal(
     owner.getAddress(),
-    contract.id,
+    contract.getId(),
     "Contract seed does not match the deployed publications account"
   );
   contract.signer = owner;
