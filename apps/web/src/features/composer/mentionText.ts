@@ -55,7 +55,9 @@ export function findMentionQuery(value: MentionText, start: number, end = start)
   const match = /(?:^|[\s([{"'“‘])@([^@\r\n\t]*)$/u.exec(before);
   if (!match) return undefined;
   const query = match[1]!;
-  if (query.length > 64 || (query && (!/^[\p{L}\p{M}\p{N}_.’' -]+$/u.test(query) || /\s$/.test(query)))) return undefined;
+  // Keep completion open between words; display names can also contain symbols
+  // (e.g. L33T US€R), emoji and non-ASCII dashes or connector punctuation.
+  if (query.length > 64 || (query && !/^[\p{L}\p{M}\p{N}\p{S}\p{Pc}\p{Pd}.’' \u200d]+$/u.test(query))) return undefined;
   return { start: start - query.length - 1, end: start, query };
 }
 
@@ -63,7 +65,7 @@ export function insertMention(value: MentionText, query: MentionQuery, person: {
   const name = mentionName(person.name, person.account), label = `@${name}`;
   // Replace the remaining word when the caret is inside an unfinished @name.
   const suffix = value.text.slice(query.end);
-  const tail = /^[\p{L}\p{M}\p{N}_’'-]*/u.exec(suffix)![0];
+  const tail = /^[\p{L}\p{M}\p{N}\p{S}\p{Pc}\p{Pd}’'\u200d]*/u.exec(suffix)![0];
   const end = query.end + tail.length;
   const space = !value.text[end] || !/[\s.,!?;:)}\]]/u.test(value.text[end]!) ? " " : "";
   const replacement = label + space;

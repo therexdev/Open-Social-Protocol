@@ -166,17 +166,17 @@ export class QuotaStore {
   }
 
   /** Decides whether `ops` more operations fit the user's daily and burst allowances. */
-  check(user: string, ops: number, at: number = this.now()): QuotaDecision {
+  check(user: string, ops: number, at: number = this.now(), dailyLimit = this.limits.dailyOps): QuotaDecision {
     const daily = this.dailyOps(user, at);
     const window = this.burstWindow(user, at);
     const burst = window.reduce((sum, entry) => sum + entry.ops, 0);
-    const remaining = { daily: Math.max(0, this.limits.dailyOps - daily), burst: Math.max(0, this.limits.burstOps - burst) };
-    if (daily + ops > this.limits.dailyOps) {
+    const remaining = { daily: Math.max(0, dailyLimit - daily), burst: Math.max(0, this.limits.burstOps - burst) };
+    if (daily + ops > dailyLimit) {
       const nextDay = Date.UTC(new Date(at).getUTCFullYear(), new Date(at).getUTCMonth(), new Date(at).getUTCDate() + 1);
       return {
         ok: false,
         category: "quota_exceeded",
-        message: `daily quota of ${this.limits.dailyOps} operations reached (${daily} used, ${ops} requested)`,
+        message: `daily quota of ${dailyLimit} operations reached (${daily} used, ${ops} requested)`,
         retryAfterSec: Math.max(1, Math.ceil((nextDay - at) / 1000)),
         remaining,
       };
@@ -260,9 +260,9 @@ export class QuotaStore {
    * `commit`s the reservation (the transaction was broadcast, paid or reverted) or `release`s
    * it (nothing was broadcast).
    */
-  reserve(user: string, ops: number, at: number = this.now()): ReserveDecision {
+  reserve(user: string, ops: number, at: number = this.now(), dailyLimit = this.limits.dailyOps): ReserveDecision {
     const held = this.transaction((): { decision: QuotaDecision; entry?: { at: number; ops: number } } => {
-      const decision = this.check(user, ops, at);
+      const decision = this.check(user, ops, at, dailyLimit);
       return decision.ok ? { decision, entry: this.hold(user, ops, at) } : { decision };
     });
     if (!held.decision.ok) return held.decision;

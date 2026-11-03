@@ -26,6 +26,8 @@ export function MentionTextarea({ account, value, onValueChange, ...props }: Pro
   const [dismissed, setDismissed] = useState(false);
   const [activeAccount, setActiveAccount] = useState<string>();
   const [results, setResults] = useState<Person[]>([]);
+  const [directory, setDirectory] = useState<Person[]>([]);
+  const [loadingDirectory, setLoadingDirectory] = useState(false);
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState(false);
   const [placement, setPlacement] = useState({ above: false, height: 270 });
@@ -35,6 +37,24 @@ export function MentionTextarea({ account, value, onValueChange, ...props }: Pro
     ? findMentionQuery(draft, selection.start, selection.end) : undefined;
   const text = query?.query.trim();
   const open = !!query;
+
+  // Warm the public names alongside friend profiles. Filtering can then happen
+  // immediately, including while a subsequent name-search request is in flight.
+  useEffect(() => {
+    let alive = true;
+    setDirectory([]);
+    if (!activated || !indexer.configured) { setLoadingDirectory(false); return; }
+    setLoadingDirectory(true);
+    void indexer.searchPeople("", 100).then(people => {
+      if (alive) setDirectory(people.filter(person => isAddress(person.account)).map(person => ({
+        account: person.account,
+        name: parseProfileUri(person.profileUri)?.display_name?.trim() || shortAddress(person.account),
+      })));
+    }).catch(() => {
+      // Friends and individual name searches remain usable without the warm-up.
+    }).finally(() => { if (alive) setLoadingDirectory(false); });
+    return () => { alive = false; };
+  }, [activated, indexer, account]);
 
   useLayoutEffect(() => {
     if (!open) return;
@@ -86,11 +106,13 @@ export function MentionTextarea({ account, value, onValueChange, ...props }: Pro
   const blocked = new Set([...contacts.blocked, ...(contacts.graph?.blockedBy ?? []), account ?? ""]);
   const friends = new Set(contacts.friends);
   const choices = new Map<string, Person>();
+  const publicPeople = new Map([...directory, ...results].map(person => [person.account, person]));
   for (const peer of contacts.friends) {
-    // Search may return a friend's name before the individual profile request completes.
-    choices.set(peer, results.find(person => person.account === peer) ?? { account: peer, name: contacts.name(peer) });
+    // A public-directory name can arrive before a friend's profile request.
+    const person = publicPeople.get(peer);
+    choices.set(peer, person && person.name !== shortAddress(peer) ? person : { account: peer, name: contacts.name(peer) });
   }
-  for (const person of results) if (!choices.has(person.account)) choices.set(person.account, person);
+  for (const person of publicPeople.values()) if (!choices.has(person.account)) choices.set(person.account, person);
   const normalized = normalizeNickname(text ?? "");
   const people = [...choices.values()].filter(person => !blocked.has(person.account) && isAddress(person.account) &&
     (!normalized || normalizeNickname(person.name).includes(normalized) || person.account.startsWith(text!)))
@@ -148,9 +170,9 @@ export function MentionTextarea({ account, value, onValueChange, ...props }: Pro
         if (event.key === "Enter" || event.key === "Tab") setDismissed(true);
         props.onKeyDown?.(event);
       }} />
-    <p className="hint mention-hint" id={`${id}-hint`}>Type @ to tag someone.</p>
+    <p className="hint mention-hint" id={`${id}-hint`}>Type @ followed by a name or address to tag someone.</p>
     {open && <div className="mention-dropdown" data-placement={placement.above ? "above" : "below"}>
-      <p className="hint">{text ? "Friends first, then other people" : "Your friends · type a name to find more people"}</p>
+      <p className="hint">Friends first · type a name or address to filter</p>
       <div id={`${id}-options`} role="listbox" aria-label="People to tag" className="mention-options" style={{ maxHeight: placement.height }}>
         {people.map((person, i) => <button key={person.account} id={`${id}-${i}`} type="button"
           role="option" aria-selected={active === i} tabIndex={-1} className="mention-person"
@@ -162,7 +184,7 @@ export function MentionTextarea({ account, value, onValueChange, ...props }: Pro
         </button>)}
       </div>
       <div role="status" className="hint">
-        {(searching || contacts.loading) ? "Finding people…" : !people.length ? text ? "No matching people." : "No friends yet. Type a name to search." : "Use ↑ ↓ and Enter, or select a person."}
+        {(searching || contacts.loading || loadingDirectory) ? "Finding people…" : !people.length ? text ? "No matching people." : "Type a name to search for someone." : "Use ↑ ↓ and Enter, or select a person."}
         {contacts.error && <p>Your friends couldn’t be loaded. You can still search by name.</p>}
         {searchError && <p>People search is unavailable. You can still select a matching friend.</p>}
       </div>

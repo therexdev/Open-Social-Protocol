@@ -19,6 +19,7 @@
 // everything else PUBLISH. The dependency setters are callable only by the
 // contract account.
 import { System, Storage, Protobuf, authority, Arrays, Crypto } from "@koinos/sdk-as";
+import { MusicLibrary } from "./MusicLibrary";
 import { PhotoLibrary } from "./PhotoLibrary";
 import { publications } from "./proto/publications";
 import { token } from "./proto/token";
@@ -69,6 +70,15 @@ const MAX_LIFECYCLE_STATE: i32 = <i32>publications.lifecycle_state.superseded;
 const MAX_OUTCOME_STATE: i32 = <i32>publications.outcome_state.reconcile_required;
 
 export class Publications {
+  music: MusicLibrary = new MusicLibrary();
+  set_music_config(args: publications.set_music_config_arguments): publications.set_music_config_result { this.music.setConfig(args); return new publications.set_music_config_result(); }
+  get_music_config(args: publications.get_music_config_arguments): publications.get_music_config_result { return new publications.get_music_config_result(this.music.settings()); }
+  begin_music(args: publications.begin_music_arguments): publications.begin_music_result { this.music.begin(args, this.identityContract()); return new publications.begin_music_result(); }
+  append_music(args: publications.append_music_arguments): publications.append_music_result { this.music.append(args, this.identityContract()); return new publications.append_music_result(); }
+  get_music(args: publications.get_music_arguments): publications.get_music_result { return new publications.get_music_result(this.music.tracks.get(this.music.id(args.id))); }
+  get_music_chunk(args: publications.get_music_chunk_arguments): publications.get_music_chunk_result { return this.music.chunks.get(Util.concat([this.music.id(args.id), Util.u32be(args.index)])) || new publications.get_music_chunk_result(); }
+  list_music(args: publications.list_music_arguments): publications.list_music_result { return this.music.list(args); }
+
   library: PhotoLibrary = new PhotoLibrary();
   get_library_version(args: publications.get_library_version_arguments): publications.get_library_version_result { return new publications.get_library_version_result(1); }
   begin_photo(args: publications.begin_photo_arguments): publications.begin_photo_result { this.library.begin(args, this.identityContract(), this.get_token_contract(new publications.get_token_contract_arguments()).value); return new publications.begin_photo_result(); }

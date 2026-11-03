@@ -1,3 +1,4 @@
+import type { MusicConfig, MusicRecord, BeginMusicArgs } from "../music.js";
 import type { PhotoArchiveRecord, CollectionRecord, AlbumItemRecord } from "../photoLibrary.js";
 /**
  * Typed arguments, results and event payloads for every contract method
@@ -364,6 +365,9 @@ export interface PublicationsDependencies {
 }
 
 export interface PublicationsWriteMethods {
+  set_music_config: { recipient: Address; rate_per_mb: U64; max_bytes: number; enabled: boolean };
+  begin_music: BeginMusicArgs;
+  append_music: { owner: Address; id: Bytes; index: number; data: Bytes; device?: Address };
   begin_photo: { owner: Address; id: Bytes; digest: Bytes; size: number; chunk_hashes: Bytes[]; device?: Address };
   append_photo: { owner: Address; id: Bytes; index: number; data: Bytes; device?: Address };
   save_collection: { owner: Address; id: Bytes; previous_revision: number; kind: number; audience: number; members: Address[]; envelope: Bytes; closed?: boolean; device?: Address };
@@ -379,6 +383,10 @@ export interface PublicationsWriteMethods {
   record_cross_post: RecordCrossPostArgs;
 }
 export interface PublicationsReadMethods {
+  get_music_config: [Record<string, never>, ValueResult<MusicConfig>];
+  get_music: [{ id: Bytes }, ValueResult<MusicRecord>];
+  get_music_chunk: [{ id: Bytes; index: number }, { data: Bytes }];
+  list_music: [{ owner: Address; after?: Bytes }, { ids: Bytes[] }];
   get_library_version: [Record<string, never>, { version: number }];
   get_photo: [{ id: Bytes }, ValueResult<PhotoArchiveRecord>];
   get_collection: [{ id: Bytes }, ValueResult<CollectionRecord>];

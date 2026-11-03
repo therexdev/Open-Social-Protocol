@@ -357,4 +357,110 @@ export class Publications {
 
     return res;
   }
+
+  set_music_config(
+    args: publications.set_music_config_arguments
+  ): publications.set_music_config_result {
+    // const recipient = args.recipient;
+    // const rate_per_mb = args.rate_per_mb;
+    // const max_bytes = args.max_bytes;
+    // const enabled = args.enabled;
+
+    // YOUR CODE HERE
+
+    const res = new publications.set_music_config_result();
+
+    return res;
+  }
+
+  get_music_config(
+    args: publications.get_music_config_arguments
+  ): publications.get_music_config_result {
+    // YOUR CODE HERE
+
+    const res = new publications.get_music_config_result();
+    // res.value = ;
+
+    return res;
+  }
+
+  begin_music(
+    args: publications.begin_music_arguments
+  ): publications.begin_music_result {
+    // const owner = args.owner;
+    // const id = args.id;
+    // const digest = args.digest;
+    // const size = args.size;
+    // const chunk_hashes = args.chunk_hashes;
+    // const title = args.title;
+    // const mime = args.mime;
+    // const duration_ms = args.duration_ms;
+    // const config_revision = args.config_revision;
+    // const max_fee = args.max_fee;
+    // const payer = args.payer;
+    // const device = args.device;
+
+    // YOUR CODE HERE
+
+    const res = new publications.begin_music_result();
+
+    return res;
+  }
+
+  append_music(
+    args: publications.append_music_arguments
+  ): publications.append_music_result {
+    // const owner = args.owner;
+    // const id = args.id;
+    // const index = args.index;
+    // const data = args.data;
+    // const device = args.device;
+
+    // YOUR CODE HERE
+
+    const res = new publications.append_music_result();
+
+    return res;
+  }
+
+  get_music(
+    args: publications.get_music_arguments
+  ): publications.get_music_result {
+    // const id = args.id;
+
+    // YOUR CODE HERE
+
+    const res = new publications.get_music_result();
+    // res.value = ;
+
+    return res;
+  }
+
+  get_music_chunk(
+    args: publications.get_music_chunk_arguments
+  ): publications.get_music_chunk_result {
+    // const id = args.id;
+    // const index = args.index;
+
+    // YOUR CODE HERE
+
+    const res = new publications.get_music_chunk_result();
+    // res.data = ;
+
+    return res;
+  }
+
+  list_music(
+    args: publications.list_music_arguments
+  ): publications.list_music_result {
+    // const owner = args.owner;
+    // const after = args.after;
+
+    // YOUR CODE HERE
+
+    const res = new publications.list_music_result();
+    // res.ids = ;
+
+    return res;
+  }
 }

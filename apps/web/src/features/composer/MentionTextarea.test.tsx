@@ -57,10 +57,10 @@ async function key(key: string, extra = {}) {
 const options = () => [...container.querySelectorAll<HTMLButtonElement>('[role="option"]')];
 
 it("opens friends on @, matches accents, puts friends first and excludes self and blocked accounts", async () => {
-  mocks.search.mockResolvedValue([profile(stranger, "Zoe Adams"), profile(friend, "Zoë Friend"), profile(me, "Zoe Me"), profile(blocked, "Zoe Blocked"), profile(blockedBy, "Zoe Blocked by")]);
+  mocks.search.mockImplementation(async (query: string) => query ? [profile(stranger, "Zoe Adams"), profile(friend, "Zoë Friend"), profile(me, "Zoe Me"), profile(blocked, "Zoe Blocked"), profile(blockedBy, "Zoe Blocked by")] : []);
   await mount(); await type("Hello @");
   expect(options()).toHaveLength(1); expect(options()[0]?.textContent).toContain("Zoë Friend");
-  expect(mocks.search).not.toHaveBeenCalled();
+  expect(mocks.search).toHaveBeenCalledExactlyOnceWith("", 100);
   await type("Hello @zoe");
   expect(options()[0]?.textContent).toContain("Zoë Friend");
   await act(async () => vi.advanceTimersByTimeAsync(250));
@@ -84,7 +84,7 @@ it("selects duplicate names by their account, preserves surrounding text and nev
 
 it("ignores stale searches and failures leave matching friends selectable", async () => {
   let finish!: (people: unknown[]) => void;
-  mocks.search.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; })).mockRejectedValue(new Error("Offline"));
+  mocks.search.mockImplementation((query: string) => !query ? Promise.resolve([]) : query === "Old" ? new Promise(resolve => { finish = resolve; }) : Promise.reject(new Error("Offline")));
   await mount(); await type("@Old"); await act(async () => vi.advanceTimersByTimeAsync(250));
   await type("@zoe"); await act(async () => vi.advanceTimersByTimeAsync(250));
   await act(async () => finish([profile(stranger, "Old Name")]));
@@ -93,6 +93,39 @@ it("ignores stale searches and failures leave matching friends selectable", asyn
   await act(async () => options()[0]!.click());
   expect(textarea.value).toBe("@Zoë Friend "); expect(document.activeElement).toBe(textarea);
   expect(save).toHaveBeenLastCalledWith(`${encodeMention("Zoë Friend", friend)} `);
+});
+
+it("filters public display names immediately even before friend profiles load or if query search returns no names", async () => {
+  // A real inline profile from the directory, independent of our test encoder.
+  const rex = { account: "1EiR6tc8jtVK6boR5w1chjq17XEXXHiNk4", profileUri: "data:application/x-osp-profile;base64,CAESA1JleA==" };
+  mocks.friends = [rex.account]; mocks.names = {};
+  mocks.search.mockImplementation(async (query: string) => query ? [] : [profile(stranger, "Rex Fan"), rex]);
+  await mount(); await type("@");
+  expect(options()).toHaveLength(2);
+  expect(options()[0]?.querySelector("strong")?.textContent).toBe("Rex");
+  await type("@rEx");
+  expect(options()).toHaveLength(2); // No debounce/network wait is required.
+  await act(async () => vi.advanceTimersByTimeAsync(250));
+  expect(options()).toHaveLength(2);
+  await type("@1EiR6");
+  expect(options()).toHaveLength(1);
+  await type("@no-match");
+  expect(options()).toHaveLength(0);
+});
+
+it("keeps full-name and symbol-name suggestions open and selects the account behind the name", async () => {
+  mocks.names[friend] = "Carl P";
+  mocks.search.mockResolvedValue([profile(friend, "Carl P"), profile(stranger, "L33T US€R")]);
+  await mount(); await type("Hello @Carl");
+  await type("Hello @Carl ");
+  expect(options()).toHaveLength(1);
+  await type("Hello @Carl P");
+  expect(options()[0]?.textContent).toContain("Carl P");
+  await type("Hello @L33T US€R");
+  expect(options()).toHaveLength(1);
+  await act(async () => options()[0]!.click());
+  expect(textarea.value).toBe("Hello @L33T US€R ");
+  expect(save).toHaveBeenLastCalledWith(`Hello ${encodeMention("L33T US€R", stranger)} `);
 });
 
 it("dismisses with Escape, Tab and outside focus, and does not select during IME composition", async () => {

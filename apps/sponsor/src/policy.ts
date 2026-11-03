@@ -14,7 +14,7 @@ import { CONTRACT_NAMES, type ContractName, type Deployment, type SponsorPolicy 
 export const SPONSORED_CONTRACTS: readonly ContractName[] = ["identity", "relationships", "publications", "communities", "messaging"];
 
 /** Methods that are never sponsored by default (contract-account administration). */
-export const ADMIN_METHODS: ReadonlySet<string> = new Set(["set_identity_contract", "set_relationships_contract", "set_token_contract", "set_dependencies", "init", "set_reward_policy", "activate_recharge", "activate_economy", "grant_test_tokens", "consume", "allocate_private_usage"]);
+export const ADMIN_METHODS: ReadonlySet<string> = new Set(["set_music_config", "set_identity_contract", "set_relationships_contract", "set_token_contract", "set_dependencies", "init", "set_reward_policy", "activate_recharge", "activate_economy", "grant_test_tokens", "consume", "allocate_private_usage"]);
 
 /**
  * Argument field naming the acting account per method. `null` marks methods anyone may
@@ -50,6 +50,8 @@ export const ACTOR_FIELDS: Readonly<Partial<Record<ContractName, Readonly<Record
     rotate_audience: "actor",
   },
   publications: {
+    begin_music: "owner",
+    append_music: "owner",
     begin_photo: "owner",
     append_photo: "owner",
     save_collection: "owner",
@@ -116,7 +118,7 @@ export function actorField(contract: ContractName, method: string, args: Record<
 }
 
 export interface AllowedMethod {
-  contract: ContractName;
+  contract: ContractName | "native";
   address: string;
   method: string;
   entryPoint: number;

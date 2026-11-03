@@ -4483,6 +4483,1165 @@ export namespace publications {
     }
   }
 
+  export class music_config {
+    static encode(message: music_config, writer: Writer): void {
+      if (message.version != 0) {
+        writer.uint32(8);
+        writer.uint32(message.version);
+      }
+
+      if (message.revision != 0) {
+        writer.uint32(16);
+        writer.uint32(message.revision);
+      }
+
+      const unique_name_recipient = message.recipient;
+      if (unique_name_recipient !== null) {
+        writer.uint32(26);
+        writer.bytes(unique_name_recipient);
+      }
+
+      if (message.rate_per_mb != 0) {
+        writer.uint32(32);
+        writer.uint64(message.rate_per_mb);
+      }
+
+      if (message.max_bytes != 0) {
+        writer.uint32(40);
+        writer.uint32(message.max_bytes);
+      }
+
+      if (message.enabled != false) {
+        writer.uint32(48);
+        writer.bool(message.enabled);
+      }
+
+      const unique_name_native_token = message.native_token;
+      if (unique_name_native_token !== null) {
+        writer.uint32(58);
+        writer.bytes(unique_name_native_token);
+      }
+    }
+
+    static decode(reader: Reader, length: i32): music_config {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new music_config();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1:
+            message.version = reader.uint32();
+            break;
+
+          case 2:
+            message.revision = reader.uint32();
+            break;
+
+          case 3:
+            message.recipient = reader.bytes();
+            break;
+
+          case 4:
+            message.rate_per_mb = reader.uint64();
+            break;
+
+          case 5:
+            message.max_bytes = reader.uint32();
+            break;
+
+          case 6:
+            message.enabled = reader.bool();
+            break;
+
+          case 7:
+            message.native_token = reader.bytes();
+            break;
+
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    version: u32;
+    revision: u32;
+    recipient: Uint8Array | null;
+    rate_per_mb: u64;
+    max_bytes: u32;
+    enabled: bool;
+    native_token: Uint8Array | null;
+
+    constructor(
+      version: u32 = 0,
+      revision: u32 = 0,
+      recipient: Uint8Array | null = null,
+      rate_per_mb: u64 = 0,
+      max_bytes: u32 = 0,
+      enabled: bool = false,
+      native_token: Uint8Array | null = null
+    ) {
+      this.version = version;
+      this.revision = revision;
+      this.recipient = recipient;
+      this.rate_per_mb = rate_per_mb;
+      this.max_bytes = max_bytes;
+      this.enabled = enabled;
+      this.native_token = native_token;
+    }
+  }
+
+  export class music_record {
+    static encode(message: music_record, writer: Writer): void {
+      const unique_name_owner = message.owner;
+      if (unique_name_owner !== null) {
+        writer.uint32(10);
+        writer.bytes(unique_name_owner);
+      }
+
+      const unique_name_digest = message.digest;
+      if (unique_name_digest !== null) {
+        writer.uint32(18);
+        writer.bytes(unique_name_digest);
+      }
+
+      if (message.size != 0) {
+        writer.uint32(24);
+        writer.uint32(message.size);
+      }
+
+      const unique_name_chunk_hashes = message.chunk_hashes;
+      if (unique_name_chunk_hashes.length !== 0) {
+        for (let i = 0; i < unique_name_chunk_hashes.length; ++i) {
+          writer.uint32(34);
+          writer.bytes(unique_name_chunk_hashes[i]);
+        }
+      }
+
+      if (message.received != 0) {
+        writer.uint32(40);
+        writer.uint32(message.received);
+      }
+
+      const unique_name_title = message.title;
+      if (unique_name_title !== null) {
+        writer.uint32(50);
+        writer.string(unique_name_title);
+      }
+
+      const unique_name_mime = message.mime;
+      if (unique_name_mime !== null) {
+        writer.uint32(58);
+        writer.string(unique_name_mime);
+      }
+
+      if (message.duration_ms != 0) {
+        writer.uint32(64);
+        writer.uint32(message.duration_ms);
+      }
+
+      if (message.fee != 0) {
+        writer.uint32(72);
+        writer.uint64(message.fee);
+      }
+
+      const unique_name_recipient = message.recipient;
+      if (unique_name_recipient !== null) {
+        writer.uint32(82);
+        writer.bytes(unique_name_recipient);
+      }
+
+      const unique_name_payer = message.payer;
+      if (unique_name_payer !== null) {
+        writer.uint32(90);
+        writer.bytes(unique_name_payer);
+      }
+    }
+
+    static decode(reader: Reader, length: i32): music_record {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new music_record();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1:
+            message.owner = reader.bytes();
+            break;
+
+          case 2:
+            message.digest = reader.bytes();
+            break;
+
+          case 3:
+            message.size = reader.uint32();
+            break;
+
+          case 4:
+            message.chunk_hashes.push(reader.bytes());
+            break;
+
+          case 5:
+            message.received = reader.uint32();
+            break;
+
+          case 6:
+            message.title = reader.string();
+            break;
+
+          case 7:
+            message.mime = reader.string();
+            break;
+
+          case 8:
+            message.duration_ms = reader.uint32();
+            break;
+
+          case 9:
+            message.fee = reader.uint64();
+            break;
+
+          case 10:
+            message.recipient = reader.bytes();
+            break;
+
+          case 11:
+            message.payer = reader.bytes();
+            break;
+
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    owner: Uint8Array | null;
+    digest: Uint8Array | null;
+    size: u32;
+    chunk_hashes: Array<Uint8Array>;
+    received: u32;
+    title: string | null;
+    mime: string | null;
+    duration_ms: u32;
+    fee: u64;
+    recipient: Uint8Array | null;
+    payer: Uint8Array | null;
+
+    constructor(
+      owner: Uint8Array | null = null,
+      digest: Uint8Array | null = null,
+      size: u32 = 0,
+      chunk_hashes: Array<Uint8Array> = [],
+      received: u32 = 0,
+      title: string | null = null,
+      mime: string | null = null,
+      duration_ms: u32 = 0,
+      fee: u64 = 0,
+      recipient: Uint8Array | null = null,
+      payer: Uint8Array | null = null
+    ) {
+      this.owner = owner;
+      this.digest = digest;
+      this.size = size;
+      this.chunk_hashes = chunk_hashes;
+      this.received = received;
+      this.title = title;
+      this.mime = mime;
+      this.duration_ms = duration_ms;
+      this.fee = fee;
+      this.recipient = recipient;
+      this.payer = payer;
+    }
+  }
+
+  export class set_music_config_arguments {
+    static encode(message: set_music_config_arguments, writer: Writer): void {
+      const unique_name_recipient = message.recipient;
+      if (unique_name_recipient !== null) {
+        writer.uint32(10);
+        writer.bytes(unique_name_recipient);
+      }
+
+      if (message.rate_per_mb != 0) {
+        writer.uint32(16);
+        writer.uint64(message.rate_per_mb);
+      }
+
+      if (message.max_bytes != 0) {
+        writer.uint32(24);
+        writer.uint32(message.max_bytes);
+      }
+
+      if (message.enabled != false) {
+        writer.uint32(32);
+        writer.bool(message.enabled);
+      }
+    }
+
+    static decode(reader: Reader, length: i32): set_music_config_arguments {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new set_music_config_arguments();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1:
+            message.recipient = reader.bytes();
+            break;
+
+          case 2:
+            message.rate_per_mb = reader.uint64();
+            break;
+
+          case 3:
+            message.max_bytes = reader.uint32();
+            break;
+
+          case 4:
+            message.enabled = reader.bool();
+            break;
+
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    recipient: Uint8Array | null;
+    rate_per_mb: u64;
+    max_bytes: u32;
+    enabled: bool;
+
+    constructor(
+      recipient: Uint8Array | null = null,
+      rate_per_mb: u64 = 0,
+      max_bytes: u32 = 0,
+      enabled: bool = false
+    ) {
+      this.recipient = recipient;
+      this.rate_per_mb = rate_per_mb;
+      this.max_bytes = max_bytes;
+      this.enabled = enabled;
+    }
+  }
+
+  @unmanaged
+  export class set_music_config_result {
+    static encode(message: set_music_config_result, writer: Writer): void {}
+
+    static decode(reader: Reader, length: i32): set_music_config_result {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new set_music_config_result();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    constructor() {}
+  }
+
+  @unmanaged
+  export class get_music_config_arguments {
+    static encode(message: get_music_config_arguments, writer: Writer): void {}
+
+    static decode(reader: Reader, length: i32): get_music_config_arguments {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new get_music_config_arguments();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    constructor() {}
+  }
+
+  export class get_music_config_result {
+    static encode(message: get_music_config_result, writer: Writer): void {
+      const unique_name_value = message.value;
+      if (unique_name_value !== null) {
+        writer.uint32(10);
+        writer.fork();
+        music_config.encode(unique_name_value, writer);
+        writer.ldelim();
+      }
+    }
+
+    static decode(reader: Reader, length: i32): get_music_config_result {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new get_music_config_result();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1:
+            message.value = music_config.decode(reader, reader.uint32());
+            break;
+
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    value: music_config | null;
+
+    constructor(value: music_config | null = null) {
+      this.value = value;
+    }
+  }
+
+  export class begin_music_arguments {
+    static encode(message: begin_music_arguments, writer: Writer): void {
+      const unique_name_owner = message.owner;
+      if (unique_name_owner !== null) {
+        writer.uint32(10);
+        writer.bytes(unique_name_owner);
+      }
+
+      const unique_name_id = message.id;
+      if (unique_name_id !== null) {
+        writer.uint32(18);
+        writer.bytes(unique_name_id);
+      }
+
+      const unique_name_digest = message.digest;
+      if (unique_name_digest !== null) {
+        writer.uint32(26);
+        writer.bytes(unique_name_digest);
+      }
+
+      if (message.size != 0) {
+        writer.uint32(32);
+        writer.uint32(message.size);
+      }
+
+      const unique_name_chunk_hashes = message.chunk_hashes;
+      if (unique_name_chunk_hashes.length !== 0) {
+        for (let i = 0; i < unique_name_chunk_hashes.length; ++i) {
+          writer.uint32(42);
+          writer.bytes(unique_name_chunk_hashes[i]);
+        }
+      }
+
+      const unique_name_title = message.title;
+      if (unique_name_title !== null) {
+        writer.uint32(50);
+        writer.string(unique_name_title);
+      }
+
+      const unique_name_mime = message.mime;
+      if (unique_name_mime !== null) {
+        writer.uint32(58);
+        writer.string(unique_name_mime);
+      }
+
+      if (message.duration_ms != 0) {
+        writer.uint32(64);
+        writer.uint32(message.duration_ms);
+      }
+
+      if (message.config_revision != 0) {
+        writer.uint32(72);
+        writer.uint32(message.config_revision);
+      }
+
+      if (message.max_fee != 0) {
+        writer.uint32(80);
+        writer.uint64(message.max_fee);
+      }
+
+      const unique_name_payer = message.payer;
+      if (unique_name_payer !== null) {
+        writer.uint32(90);
+        writer.bytes(unique_name_payer);
+      }
+
+      const unique_name_device = message.device;
+      if (unique_name_device !== null) {
+        writer.uint32(98);
+        writer.bytes(unique_name_device);
+      }
+    }
+
+    static decode(reader: Reader, length: i32): begin_music_arguments {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new begin_music_arguments();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1:
+            message.owner = reader.bytes();
+            break;
+
+          case 2:
+            message.id = reader.bytes();
+            break;
+
+          case 3:
+            message.digest = reader.bytes();
+            break;
+
+          case 4:
+            message.size = reader.uint32();
+            break;
+
+          case 5:
+            message.chunk_hashes.push(reader.bytes());
+            break;
+
+          case 6:
+            message.title = reader.string();
+            break;
+
+          case 7:
+            message.mime = reader.string();
+            break;
+
+          case 8:
+            message.duration_ms = reader.uint32();
+            break;
+
+          case 9:
+            message.config_revision = reader.uint32();
+            break;
+
+          case 10:
+            message.max_fee = reader.uint64();
+            break;
+
+          case 11:
+            message.payer = reader.bytes();
+            break;
+
+          case 12:
+            message.device = reader.bytes();
+            break;
+
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    owner: Uint8Array | null;
+    id: Uint8Array | null;
+    digest: Uint8Array | null;
+    size: u32;
+    chunk_hashes: Array<Uint8Array>;
+    title: string | null;
+    mime: string | null;
+    duration_ms: u32;
+    config_revision: u32;
+    max_fee: u64;
+    payer: Uint8Array | null;
+    device: Uint8Array | null;
+
+    constructor(
+      owner: Uint8Array | null = null,
+      id: Uint8Array | null = null,
+      digest: Uint8Array | null = null,
+      size: u32 = 0,
+      chunk_hashes: Array<Uint8Array> = [],
+      title: string | null = null,
+      mime: string | null = null,
+      duration_ms: u32 = 0,
+      config_revision: u32 = 0,
+      max_fee: u64 = 0,
+      payer: Uint8Array | null = null,
+      device: Uint8Array | null = null
+    ) {
+      this.owner = owner;
+      this.id = id;
+      this.digest = digest;
+      this.size = size;
+      this.chunk_hashes = chunk_hashes;
+      this.title = title;
+      this.mime = mime;
+      this.duration_ms = duration_ms;
+      this.config_revision = config_revision;
+      this.max_fee = max_fee;
+      this.payer = payer;
+      this.device = device;
+    }
+  }
+
+  @unmanaged
+  export class begin_music_result {
+    static encode(message: begin_music_result, writer: Writer): void {}
+
+    static decode(reader: Reader, length: i32): begin_music_result {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new begin_music_result();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    constructor() {}
+  }
+
+  export class append_music_arguments {
+    static encode(message: append_music_arguments, writer: Writer): void {
+      const unique_name_owner = message.owner;
+      if (unique_name_owner !== null) {
+        writer.uint32(10);
+        writer.bytes(unique_name_owner);
+      }
+
+      const unique_name_id = message.id;
+      if (unique_name_id !== null) {
+        writer.uint32(18);
+        writer.bytes(unique_name_id);
+      }
+
+      if (message.index != 0) {
+        writer.uint32(24);
+        writer.uint32(message.index);
+      }
+
+      const unique_name_data = message.data;
+      if (unique_name_data !== null) {
+        writer.uint32(34);
+        writer.bytes(unique_name_data);
+      }
+
+      const unique_name_device = message.device;
+      if (unique_name_device !== null) {
+        writer.uint32(42);
+        writer.bytes(unique_name_device);
+      }
+    }
+
+    static decode(reader: Reader, length: i32): append_music_arguments {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new append_music_arguments();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1:
+            message.owner = reader.bytes();
+            break;
+
+          case 2:
+            message.id = reader.bytes();
+            break;
+
+          case 3:
+            message.index = reader.uint32();
+            break;
+
+          case 4:
+            message.data = reader.bytes();
+            break;
+
+          case 5:
+            message.device = reader.bytes();
+            break;
+
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    owner: Uint8Array | null;
+    id: Uint8Array | null;
+    index: u32;
+    data: Uint8Array | null;
+    device: Uint8Array | null;
+
+    constructor(
+      owner: Uint8Array | null = null,
+      id: Uint8Array | null = null,
+      index: u32 = 0,
+      data: Uint8Array | null = null,
+      device: Uint8Array | null = null
+    ) {
+      this.owner = owner;
+      this.id = id;
+      this.index = index;
+      this.data = data;
+      this.device = device;
+    }
+  }
+
+  @unmanaged
+  export class append_music_result {
+    static encode(message: append_music_result, writer: Writer): void {}
+
+    static decode(reader: Reader, length: i32): append_music_result {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new append_music_result();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    constructor() {}
+  }
+
+  export class get_music_arguments {
+    static encode(message: get_music_arguments, writer: Writer): void {
+      const unique_name_id = message.id;
+      if (unique_name_id !== null) {
+        writer.uint32(10);
+        writer.bytes(unique_name_id);
+      }
+    }
+
+    static decode(reader: Reader, length: i32): get_music_arguments {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new get_music_arguments();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1:
+            message.id = reader.bytes();
+            break;
+
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    id: Uint8Array | null;
+
+    constructor(id: Uint8Array | null = null) {
+      this.id = id;
+    }
+  }
+
+  export class get_music_result {
+    static encode(message: get_music_result, writer: Writer): void {
+      const unique_name_value = message.value;
+      if (unique_name_value !== null) {
+        writer.uint32(10);
+        writer.fork();
+        music_record.encode(unique_name_value, writer);
+        writer.ldelim();
+      }
+    }
+
+    static decode(reader: Reader, length: i32): get_music_result {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new get_music_result();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1:
+            message.value = music_record.decode(reader, reader.uint32());
+            break;
+
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    value: music_record | null;
+
+    constructor(value: music_record | null = null) {
+      this.value = value;
+    }
+  }
+
+  export class get_music_chunk_arguments {
+    static encode(message: get_music_chunk_arguments, writer: Writer): void {
+      const unique_name_id = message.id;
+      if (unique_name_id !== null) {
+        writer.uint32(10);
+        writer.bytes(unique_name_id);
+      }
+
+      if (message.index != 0) {
+        writer.uint32(16);
+        writer.uint32(message.index);
+      }
+    }
+
+    static decode(reader: Reader, length: i32): get_music_chunk_arguments {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new get_music_chunk_arguments();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1:
+            message.id = reader.bytes();
+            break;
+
+          case 2:
+            message.index = reader.uint32();
+            break;
+
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    id: Uint8Array | null;
+    index: u32;
+
+    constructor(id: Uint8Array | null = null, index: u32 = 0) {
+      this.id = id;
+      this.index = index;
+    }
+  }
+
+  export class get_music_chunk_result {
+    static encode(message: get_music_chunk_result, writer: Writer): void {
+      const unique_name_data = message.data;
+      if (unique_name_data !== null) {
+        writer.uint32(10);
+        writer.bytes(unique_name_data);
+      }
+    }
+
+    static decode(reader: Reader, length: i32): get_music_chunk_result {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new get_music_chunk_result();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1:
+            message.data = reader.bytes();
+            break;
+
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    data: Uint8Array | null;
+
+    constructor(data: Uint8Array | null = null) {
+      this.data = data;
+    }
+  }
+
+  export class list_music_arguments {
+    static encode(message: list_music_arguments, writer: Writer): void {
+      const unique_name_owner = message.owner;
+      if (unique_name_owner !== null) {
+        writer.uint32(10);
+        writer.bytes(unique_name_owner);
+      }
+
+      const unique_name_after = message.after;
+      if (unique_name_after !== null) {
+        writer.uint32(18);
+        writer.bytes(unique_name_after);
+      }
+    }
+
+    static decode(reader: Reader, length: i32): list_music_arguments {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new list_music_arguments();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1:
+            message.owner = reader.bytes();
+            break;
+
+          case 2:
+            message.after = reader.bytes();
+            break;
+
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    owner: Uint8Array | null;
+    after: Uint8Array | null;
+
+    constructor(
+      owner: Uint8Array | null = null,
+      after: Uint8Array | null = null
+    ) {
+      this.owner = owner;
+      this.after = after;
+    }
+  }
+
+  export class list_music_result {
+    static encode(message: list_music_result, writer: Writer): void {
+      const unique_name_ids = message.ids;
+      if (unique_name_ids.length !== 0) {
+        for (let i = 0; i < unique_name_ids.length; ++i) {
+          writer.uint32(10);
+          writer.bytes(unique_name_ids[i]);
+        }
+      }
+    }
+
+    static decode(reader: Reader, length: i32): list_music_result {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new list_music_result();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1:
+            message.ids.push(reader.bytes());
+            break;
+
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    ids: Array<Uint8Array>;
+
+    constructor(ids: Array<Uint8Array> = []) {
+      this.ids = ids;
+    }
+  }
+
+  export class music_paid_event {
+    static encode(message: music_paid_event, writer: Writer): void {
+      const unique_name_id = message.id;
+      if (unique_name_id !== null) {
+        writer.uint32(10);
+        writer.bytes(unique_name_id);
+      }
+
+      const unique_name_value = message.value;
+      if (unique_name_value !== null) {
+        writer.uint32(18);
+        writer.fork();
+        music_record.encode(unique_name_value, writer);
+        writer.ldelim();
+      }
+    }
+
+    static decode(reader: Reader, length: i32): music_paid_event {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new music_paid_event();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1:
+            message.id = reader.bytes();
+            break;
+
+          case 2:
+            message.value = music_record.decode(reader, reader.uint32());
+            break;
+
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    id: Uint8Array | null;
+    value: music_record | null;
+
+    constructor(
+      id: Uint8Array | null = null,
+      value: music_record | null = null
+    ) {
+      this.id = id;
+      this.value = value;
+    }
+  }
+
+  export class music_completed_event {
+    static encode(message: music_completed_event, writer: Writer): void {
+      const unique_name_id = message.id;
+      if (unique_name_id !== null) {
+        writer.uint32(10);
+        writer.bytes(unique_name_id);
+      }
+
+      const unique_name_owner = message.owner;
+      if (unique_name_owner !== null) {
+        writer.uint32(18);
+        writer.bytes(unique_name_owner);
+      }
+    }
+
+    static decode(reader: Reader, length: i32): music_completed_event {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new music_completed_event();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1:
+            message.id = reader.bytes();
+            break;
+
+          case 2:
+            message.owner = reader.bytes();
+            break;
+
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    id: Uint8Array | null;
+    owner: Uint8Array | null;
+
+    constructor(id: Uint8Array | null = null, owner: Uint8Array | null = null) {
+      this.id = id;
+      this.owner = owner;
+    }
+  }
+
+  export class music_native_approval {
+    static encode(message: music_native_approval, writer: Writer): void {
+      const unique_name_owner = message.owner;
+      if (unique_name_owner !== null) {
+        writer.uint32(10);
+        writer.bytes(unique_name_owner);
+      }
+
+      const unique_name_spender = message.spender;
+      if (unique_name_spender !== null) {
+        writer.uint32(18);
+        writer.bytes(unique_name_spender);
+      }
+
+      if (message.value != 0) {
+        writer.uint32(24);
+        writer.uint64(message.value);
+      }
+    }
+
+    static decode(reader: Reader, length: i32): music_native_approval {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new music_native_approval();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1:
+            message.owner = reader.bytes();
+            break;
+
+          case 2:
+            message.spender = reader.bytes();
+            break;
+
+          case 3:
+            message.value = reader.uint64();
+            break;
+
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    owner: Uint8Array | null;
+    spender: Uint8Array | null;
+    value: u64;
+
+    constructor(
+      owner: Uint8Array | null = null,
+      spender: Uint8Array | null = null,
+      value: u64 = 0
+    ) {
+      this.owner = owner;
+      this.spender = spender;
+      this.value = value;
+    }
+  }
+
   export enum audience_kind {
     everyone = 0,
     friends = 1,
