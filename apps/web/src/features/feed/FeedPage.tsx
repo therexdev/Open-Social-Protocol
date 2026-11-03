@@ -87,7 +87,7 @@ function FeedPanel({ scope, viewer, active }: { scope: Tab; viewer: string | und
     return indexer.feed({ scope, ...(viewer && { viewer }), ...(cursor && { cursor }), limit: 20 });
   }, [indexer, scope, viewer]);
   const publishing = usePublishing();
-  const pending = publishing.posts.filter(d => !d.replyTo && (scope !== "public" || d.audience === 0));
+  const pending = publishing.posts.filter(d => !d.galleryOnly && !d.collectionId && !d.replyTo && (scope !== "public" || d.audience === 0));
   const hasPending = pending.length > 0;
   useEffect(() => {
     if (!active || !hasPending) return;

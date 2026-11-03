@@ -1,3 +1,5 @@
+import { MusicSection } from "../music/MusicSection";
+import { PhotoGallery, CollectionList } from "../library/LibraryPages";
 /** Own or others' profile: name and bio from the profile document, posts, relationship actions. */
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
@@ -77,7 +79,7 @@ export function ProfilePage() {
   const can = useCanAct();
   const { graph, refresh } = useGraph(viewer);
   const [editing, setEditing] = useState(false);
-  const [tab, setTab] = useState<"posts" | "about">("posts");
+  const [tab, setTab] = useState<"posts" | "about" | "photos" | "groups" | "music">("posts");
   const posts = usePagedPosts((cursor) => indexer.accountPosts(account, { ...(cursor && { cursor }), ...(viewer && { viewer }), limit: 20 }), [indexer, account, viewer]);
   const mine = me === account;
   const view = info?.view;
@@ -119,14 +121,17 @@ export function ProfilePage() {
         </div>
         {editing && mine && <ProfileEditor account={account} name={info?.displayName ?? ""} bio={info?.bio ?? ""} onDone={() => setEditing(false)} />}
       </Card>
-      <Tabs value={tab} onChange={setTab} label="Profile views" options={[{ value: "posts", label: "Posts" }, { value: "about", label: "About" }]}/>
+      <Tabs value={tab} onChange={setTab} label="Profile views" options={[{ value: "posts", label: "Posts" }, { value: "photos", label: "Photos" }, { value: "music", label: "Music" }, { value: "groups", label: "Groups" }, { value: "about", label: "About" }]}/>
+      {tab === "music" && <MusicSection owner={account}/>}
+      {tab === "photos" && <PhotoGallery key={`${account}:${viewer ?? "locked"}`} owner={account}/>}
+      {tab === "groups" && <CollectionList key={`${account}:${viewer ?? "locked"}`} kind={2} owner={account}/>}
       {tab === "about" && <Card title={`About ${info?.displayName || shortAddress(account)}`}><p className="profile-about-bio">{info?.bio || "No bio added yet."}</p><p className="hint">Account address</p><p className="mono address">{account}</p><CopyButton text={account} label="Copy address"/></Card>}
       <section className="stack" hidden={tab !== "posts"} aria-label={mine ? "Your posts" : "Posts"}>
       {mine && <QuickComposer account={account} name={info?.displayName}/>}
       {posts.error && <Notice kind="error">{posts.error} <Button onClick={() => void posts.refresh()}>Retry loading posts</Button></Notice>}
       {!posts.loading && !posts.error && posts.items.length === 0 && <Empty>No posts yet.</Empty>}
       <div className="post-list">
-        {posts.items.map((post) => (
+        {posts.items.filter(p=>!p.galleryOnly && !p.collectionId).map((post) => (
           <PostCard key={`${post.postId}:${post.contentHash}`} post={post} onChanged={() => void posts.refresh()} />
         ))}
       </div>

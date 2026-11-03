@@ -29,6 +29,7 @@ export interface MediaItem {
 
 /** osp.envelope.content (plaintext of a post). */
 export interface Content {
+  share_with?: string[];
   version?: number;
   text?: string;
   mime?: string;
@@ -145,6 +146,7 @@ export function encodeContent(content: Content): Uint8Array {
 export function decodeContent(bytes: Uint8Array): Required<Pick<Content, "version" | "text" | "mime" | "lang" | "external_ref">> & {
   media: Required<MediaItem>[];
   created_at: string;
+  share_with: string[];
 } {
   return decode(CONTENT_TYPE, bytes);
 }

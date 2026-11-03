@@ -10,6 +10,7 @@ import { listDrafts, removeDraft, subscribeDrafts } from "./drafts";
 import { usePublish } from "./usePublish";
 import { errorMessage } from "../../util/format";
 import { Icon } from "../../components/Icon";
+import { RichText } from "../../components/RichText";
 
 export function ComposerPage() {
   const session = useSession();
@@ -73,7 +74,7 @@ export function ComposerPage() {
             {drafts.map((draft) => (
               <li key={draft.id} className="list-item">
                 <div>
-                  <p className="preview-line">{draft.text}</p>
+                  <p className="preview-line"><RichText text={draft.text}/></p>
                   <p className="muted">
                     {draft.state === "unknown"
                       ? "Outcome unknown: the network did not answer. Checking the saved attempt prevents duplicate posts."

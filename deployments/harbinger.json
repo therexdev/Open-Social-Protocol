@@ -5,7 +5,7 @@
     "https://testnet.koinosfoundation.org/jsonrpc"
   ],
   "protocolVersion": 1,
-  "deployedAt": "2026-09-28T02:14:59.509Z",
+  "deployedAt": "2026-11-03T06:00:56.004Z",
   "deployer": "19C9kF7uBC2a3kWY5iXF4zpWhzahGCmeJd",
   "contracts": {
     "identity": {
@@ -26,11 +26,11 @@
     },
     "publications": {
       "address": "1P2bThgYcJgj4MCC5AVrcXq5DDj9CRWruU",
-      "txId": "0x12202113d70971edd9b5b2da1653289a305dfe7e1dbfa347bc9186d4e27a357a64e3",
-      "block": "8683366",
-      "wasmSha256": "03ef7cdbf1e46eb84f78bf2a255b754d07d9319e86040af018fc3b150bd1f97a",
-      "abiSha256": "6959363283f555c0c13dfa3c96ffecc17a502cda9e8b1fb429104cff08ea6819",
-      "rcUsed": "97620924"
+      "txId": "0x12206cf8b28d2e1b15a0d9c61f2cdffe3148b655482df44134354d3a8fb4885005b1",
+      "block": "9756365",
+      "wasmSha256": "1c9c48a5f37caf30093eba12e6adfa8754cbd688fc37f8d7eb0155879ff5d2d3",
+      "abiSha256": "833424019d968cb82c69df8c3ba68125e42a61f1acf284c77ca7eb05220a8f03",
+      "rcUsed": "342332162"
     },
     "communities": {
       "address": "19qUJT9fPk44Qay4vP8itfdgHkXHyG21vk",

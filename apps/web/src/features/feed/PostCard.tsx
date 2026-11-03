@@ -1,3 +1,4 @@
+import { PollCard } from "../polls/PollCard";
 import { PostEconomyActions } from "../tokens/PostEconomyActions";
 /** One post in a list or on its page: author, audience, decrypted body, media, reactions. */
 import { useEffect, useState } from "react";
@@ -21,7 +22,7 @@ import { RichText } from "../../components/RichText";
 export function audienceLabel(audience: number): string {
   if (audience === AUDIENCE.EVERYONE) return "Everyone";
   if (audience === AUDIENCE.FRIENDS) return "Friends";
-  return "Custom audience";
+  return "Selected people";
 }
 
 function MediaList({ content }: { content: OpenedContent }) {
@@ -32,7 +33,7 @@ function MediaList({ content }: { content: OpenedContent }) {
       {content.media.map((item, index) => {
         const url = item.locations?.[0];
         const isImage = (item.mime ?? "").startsWith("image/");
-        if (url?.startsWith("ipfs://") && isImage) return <li key={url} className="media-item"><MediaPhoto location={url} hash={toBase64url(item.content_hash)} mime={item.mime} alt={item.alt_text} encryption={item.mediaKey ? { key: toBase64url(item.mediaKey), nonce: toBase64url(item.nonce) } : undefined}/></li>;
+        if ((url?.startsWith("ipfs://") || url?.startsWith("osp-photo://")) && isImage) return <li key={url} className="media-item"><MediaPhoto location={url} hash={toBase64url(item.content_hash)} mime={item.mime} alt={item.alt_text} encryption={item.mediaKey ? { key: toBase64url(item.mediaKey), nonce: toBase64url(item.nonce) } : undefined}/></li>;
         return (
           <li key={index} className="media-item">
             {url ? (
@@ -174,7 +175,7 @@ export function OpenedPostCard({ post, onChanged, expanded = false, content }: P
           Reply to <Link to={`/post/${post.replyTo}`}>a post</Link>
         </p>
       )}
-      <PostBody content={content} />
+      {post.poll && post.state === LIFECYCLE.ACTIVE ? <><PollCard post={post} onChanged={onChanged}/>{(content?.status === "plain" || content?.status === "decrypted") && <MediaList content={content.content}/>}</> : <PostBody content={content} />}
       {post.promoted && <p className="promotion-label"><Icon name="spark" size={14}/> Promoted · paid for by the author</p>}
       <PostEconomyActions post={post} onChanged={onChanged}/>
       <footer className="post-footer">

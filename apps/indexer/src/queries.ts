@@ -39,6 +39,9 @@ export interface LabelView {
 }
 
 export interface PostView {
+  collectionId?: string;
+  galleryOnly?: boolean;
+  poll?: import("@osp/sdk").PollRecord;
   economy?: IndexedPostEconomy;
   promoted?: { nonce: string; opportunity: string };
   postId: string;
@@ -115,6 +118,8 @@ interface PostRow extends Row {
   previous_version: string;
   audience: number;
   audience_id: string;
+  collection_id: string;
+  gallery_only: number;
   epoch: number;
   envelope: Uint8Array;
   media_json: string;
@@ -197,6 +202,8 @@ function postView(db: IndexerDb, row: PostRow, viewer?: string): PostView {
     previousVersion: row.previous_version,
     audience: row.audience,
     audienceId: row.audience_id,
+    collectionId: row.collection_id,
+    galleryOnly: !!row.gallery_only,
     epoch: row.epoch,
     envelope: redacted ? "" : envelopeString(row.envelope),
     media,
@@ -213,6 +220,10 @@ function postView(db: IndexerDb, row: PostRow, viewer?: string): PostView {
     versions,
     labels: labelsForPost(db, row.post_id),
     economy: postEconomy(db, row.post_id, viewer),
+    ...(!redacted && (() => {
+      const poll = db.get<{ data_json: string }>("SELECT data_json FROM polls WHERE post_id = ?", row.post_id);
+      return poll ? { poll: JSON.parse(poll.data_json) } : {};
+    })()),
   };
 }
 
@@ -252,7 +263,7 @@ const FRIENDS_OF_VIEWER = `p.author IN (
 
 /** Feed: top-level, non-deleted, non-hidden posts, newest first by (blockHeight, txIndex, sequence). */
 export function feed(db: IndexerDb, query: FeedQuery): Page<PostView> {
-  const conditions = ["p.reply_to = ''", "p.state NOT IN (1, 2)"];
+  const conditions = ["p.reply_to = ''", "p.state NOT IN (1, 2)", "p.gallery_only = 0", "p.collection_id = ''"];
   const params: unknown[] = [];
   const viewer = query.viewer;
   const friendsCondition = viewer ? `(p.author = ? OR ${FRIENDS_OF_VIEWER})` : undefined;
@@ -267,8 +278,8 @@ export function feed(db: IndexerDb, query: FeedQuery): Page<PostView> {
       break;
     case "all":
       if (friendsCondition) {
-        conditions.push(`(p.audience = 0 OR ${friendsCondition})`);
-        params.push(...friendsParams);
+        conditions.push(`(p.audience = 0 OR ${friendsCondition} OR EXISTS (SELECT 1 FROM key_packages k WHERE k.author=p.author AND k.audience_id=p.audience_id AND k.epoch=p.epoch AND k.recipient=?))`);
+        params.push(...friendsParams, viewer);
       } else {
         conditions.push("p.audience = 0");
       }
@@ -803,4 +814,8 @@ export function promotions(db: IndexerDb, viewer?: string, scope: FeedScope = "p
 export function pendingRewards(db: IndexerDb, author: string, after: string, limit: number): Page<PostView> {
   const rows = db.all<{post_id: string}>("SELECT post_id FROM token_rewards WHERE author=? AND settled=0 AND post_id>? ORDER BY post_id LIMIT ?", author, after, limit + 1);
   return { items: rows.slice(0,limit).map(row => getPost(db,row.post_id,author)).filter((p): p is PostView => !!p), nextCursor: rows.length > limit ? rows[limit - 1]!.post_id : null };
+}
+
+export function collectionPosts(db: IndexerDb, collectionId: string, cursor: PositionCursor | undefined, limit: number, viewer?: string): Page<PostView> {
+  return pagePosts(db, "p.collection_id = ? AND p.state NOT IN (1,2)", [collectionId], cursor, limit, viewer);
 }

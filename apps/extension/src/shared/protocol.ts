@@ -80,6 +80,7 @@ export type FeedScope = "public" | "friends";
 export type PostContentStatus = "plain" | "decrypted" | "tombstone" | "hidden" | "unavailable" | "no-key" | "locked" | "error";
 
 export interface FeedItem {
+  poll?: import("@osp/sdk").PollRecord;
   contentHash?: string;
   economy?: IndexedPostEconomy;
   promoted?: { nonce: string; opportunity: string };

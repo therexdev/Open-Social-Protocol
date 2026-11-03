@@ -20,6 +20,20 @@ const user = Signer.fromSeed("user");
 const sponsorSigner = Signer.fromSeed("sponsor");
 const attacker = Signer.fromSeed("attacker");
 
+it("saves the signed transaction before contacting the sponsor and aborts if saving fails", async () => {
+  const provider = fakeProvider(), sponsor = await fakeSponsor();
+  const client = new ProtocolClient({ rpc: provider, deployment });
+  const op = await client.ops.relationships.follow({ follower: user.getAddress(), target: attacker.getAddress() });
+  await expect(client.submit({ operations: [op], signer: user, sponsor: sponsor.client, selfPayFallback: false, beforeBroadcast: async tx => {
+    expect(tx.id).toBeTruthy();
+    expect(await Signer.recoverAddresses(tx)).toContain(user.getAddress());
+    expect(sponsor.received).toHaveLength(0);
+    throw new Error("recovery storage unavailable");
+  } })).rejects.toThrow("recovery storage unavailable");
+  expect(sponsor.received).toHaveLength(0);
+  expect(provider.sent).toHaveLength(0);
+});
+
 it("keeps a submitted sponsor transaction as outcome unknown when confirmation times out", async () => {
   const provider = fakeProvider();
   provider.wait = vi.fn(async () => { throw new Error("confirmation timeout"); });

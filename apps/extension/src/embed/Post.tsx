@@ -22,11 +22,13 @@ export function PostCard({ item }: { item: FeedItem }) {
     </header>
     {item.labels.length > 0 && <div className="labels">{item.labels.map((label) => <span key={`${label.communityId}-${label.label}`} className="chip chip-label" title={label.reason}>{label.label}</span>)}</div>}
     {readable ? <div className="post-body">
-      <p className="post-text">{item.text}</p>
+      <p className="post-text">{item.poll?.definition.question ?? item.text}</p>
+      {item.poll && <section aria-label="Poll"><ul>{item.poll.definition.options.map((option, i) => <li key={i}>{option} · {item.poll!.counts[i] ?? 0} answers</li>)}</ul><p>{item.poll.participants} answers · Participation is separate from upvotes and downvotes.</p><a className="btn" href={postUrl} target="_blank" rel="noopener noreferrer">Open poll</a></section>}
       {!!item.media?.length && <ul className="media-list">{item.media.map((media, i) => {
-        const url = safeHttpUrl(media.locations?.[0]);
-        return <li key={i} className="media-item">{url ? <a href={url} target="_blank" rel="noopener noreferrer">{media.alt_text || "Attachment"}</a> : <span>{media.alt_text || "Attachment"}</span>}
-          {url && media.mime?.startsWith("image/") && <><button className="btn btn-ghost" onClick={() => setImages((old) => ({ ...old, [i]: !old[i] }))}>{images[i] ? "Hide image" : "Show image"}</button>{images[i] && <img className="media-preview" src={url} alt={media.alt_text || ""} referrerPolicy="no-referrer" />}</>}
+        const archive = media.locations?.[0]?.startsWith("osp-photo://");
+        const url = archive ? postUrl : safeHttpUrl(media.locations?.[0]);
+        return <li key={i} className="media-item">{url ? <a href={url} target="_blank" rel="noopener noreferrer">{media.alt_text || (archive ? "Open archived photo" : "Attachment")}</a> : <span>{media.alt_text || "Attachment"}</span>}
+          {!archive && url && media.mime?.startsWith("image/") && <><button className="btn btn-ghost" onClick={() => setImages((old) => ({ ...old, [i]: !old[i] }))}>{images[i] ? "Hide image" : "Show image"}</button>{images[i] && <img className="media-preview" src={url} alt={media.alt_text || ""} referrerPolicy="no-referrer" />}</>}
         </li>;
       })}</ul>}
       {safeHttpUrl(item.externalRef) && <a href={item.externalRef} target="_blank" rel="noopener noreferrer">{item.externalRef}</a>}

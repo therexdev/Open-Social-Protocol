@@ -1,3 +1,4 @@
+import { GroupsPage, CollectionPage } from "./features/library/LibraryPages";
 /** Routes and the account gate: empty vault -> onboarding, locked -> unlock screen, unlocked -> app. */
 import { useEffect, useRef, type ReactNode } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
@@ -20,6 +21,7 @@ import { RecoveryPage } from "./features/recovery/RecoveryPage";
 import { MessagesPage } from "./features/messages/MessagesPage";
 import { PrivateMessagingProvider } from "./features/messages/PrivateMessagingProvider";
 import { TokensPage } from "./features/tokens/TokensPage";
+import { WalletPage } from "./features/wallet/WalletPage";
 import { SettingsPage } from "./features/settings/SettingsPage";
 import { useAccount } from "./stores/account";
 import { useSettings } from "./stores/settings";
@@ -88,6 +90,8 @@ function OwnProfile() {
 export function AppRoutes() {
   return (
     <Routes>
+      <Route path="/groups" element={<RequireAccount><GroupsPage /></RequireAccount>} />
+      <Route path="/collections/:id" element={<Optional><CollectionPage /></Optional>} />
       <Route path="/about" element={<AboutPage />} />
       <Route path="/people" element={<PeoplePage />} />
       <Route path="/tags/:tag" element={<Optional><HashtagPage /></Optional>} />
@@ -145,6 +149,7 @@ export function AppRoutes() {
       />
       <Route path="/messages" element={<RequireAccount><MessagesPage /></RequireAccount>} />
       <Route path="/tokens" element={<RequireAccount><TokensPage /></RequireAccount>} />
+      <Route path="/wallet" element={<RequireAccount><WalletPage /></RequireAccount>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

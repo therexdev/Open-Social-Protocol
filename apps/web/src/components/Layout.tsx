@@ -58,8 +58,10 @@ const primary = [
   { to: "/me", label: "Profile", icon: "profile" },
 ] as const;
 const secondary = [
+  { to: "/groups", label: "Groups", icon: "people" },
   { to: "/notifications", label: "Activity", icon: "bell" },
   { to: "/tokens", label: "Tokens", icon: "token" },
+  { to: "/wallet", label: "Wallet", icon: "wallet" },
   { to: "/settings", label: "Settings", icon: "settings" },
   { to: "/about", label: "About Open Social", icon: "info" },
 ] as const;
@@ -109,7 +111,7 @@ export function Layout({ children }: { children: ReactNode }) {
       <Link to="/" className="brand" aria-label={`${APP_NAME} home`}><span>Open<span className="brand-light"> Social</span></span></Link>
       <nav className="desktop-nav" aria-label="Primary">{primary.map(item => navItem(item))}</nav>
       <section className="sidebar-topics"><h2>Topics</h2><form onSubmit={event => { event.preventDefault(); const value = String(new FormData(event.currentTarget).get("tag") ?? "").trim().replace(/^#/, ""); if (value) navigate(`/tags/${encodeURIComponent(value)}`); }}><Icon name="search" size={16}/><input name="tag" aria-label="Search hashtags" placeholder="Search topics" maxLength={64}/></form>{["community", "technology", "art", "photography"].map(tag => <Link key={tag} to={`/tags/${tag}`}># <span>{tag}</span></Link>)}</section>
-      <div className="sidebar-bottom">{navItem(secondary[2])}<button className="nav-item" onClick={() => setMenuOpen(true)}><Icon name="more" size={22}/>More</button><Link className="btn btn-primary create-post" to="/compose"><Icon name="plus" size={19}/>Create a post</Link>{account && <Link className="sidebar-profile" to={ownProfile}><Avatar account={account} name={name}/><span><strong>{name}</strong><small>Your account</small></span></Link>}</div>
+      <div className="sidebar-bottom">{navItem(secondary.find(item=>item.to==="/groups")!)}{navItem(secondary.find(item=>item.to==="/settings")!)}<button className="nav-item" onClick={() => setMenuOpen(true)}><Icon name="more" size={22}/>More</button><Link className="btn btn-primary create-post" to="/compose"><Icon name="plus" size={19}/>Create a post</Link>{account && <Link className="sidebar-profile" to={ownProfile}><Avatar account={account} name={name}/><span><strong>{name}</strong><small>Your account</small></span></Link>}</div>
     </aside>
     <div className="app-workspace">
       <header className="topbar">

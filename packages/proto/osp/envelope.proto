@@ -41,6 +41,8 @@ message content {
   uint64 created_at = 6;
   // Optional link to a host-site publication (e.g. facebook URL) for cross-posts.
   string external_ref = 7;
+  // Authenticated, encrypted recipient list for selective sharing and safe replies.
+  repeated string share_with = 8;
 }
 
 // Authenticated associated data for AEAD (suite 1). Serialized canonically and

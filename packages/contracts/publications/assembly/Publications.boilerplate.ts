@@ -40,6 +40,9 @@ export class Publications {
     // const reply_to = args.reply_to;
     // const idempotency_key = args.idempotency_key;
     // const device = args.device;
+    // const poll = args.poll;
+    // const collection_id = args.collection_id;
+    // const gallery_only = args.gallery_only;
 
     // YOUR CODE HERE
 
@@ -197,6 +200,266 @@ export class Publications {
 
     const res = new publications.get_token_contract_result();
     // res.value = ;
+
+    return res;
+  }
+
+  answer_poll(
+    args: publications.answer_poll_arguments
+  ): publications.answer_poll_result {
+    // const actor = args.actor;
+    // const post_id = args.post_id;
+    // const option = args.option;
+    // const device = args.device;
+
+    // YOUR CODE HERE
+
+    const res = new publications.answer_poll_result();
+
+    return res;
+  }
+
+  get_poll(
+    args: publications.get_poll_arguments
+  ): publications.get_poll_result {
+    // const post_id = args.post_id;
+    // const viewer = args.viewer;
+
+    // YOUR CODE HERE
+
+    const res = new publications.get_poll_result();
+    // res.value = ;
+    // res.ballot = ;
+    // res.now = ;
+
+    return res;
+  }
+
+  begin_photo(
+    args: publications.begin_photo_arguments
+  ): publications.begin_photo_result {
+    // const owner = args.owner;
+    // const id = args.id;
+    // const digest = args.digest;
+    // const size = args.size;
+    // const chunk_hashes = args.chunk_hashes;
+    // const device = args.device;
+
+    // YOUR CODE HERE
+
+    const res = new publications.begin_photo_result();
+
+    return res;
+  }
+
+  append_photo(
+    args: publications.append_photo_arguments
+  ): publications.append_photo_result {
+    // const owner = args.owner;
+    // const id = args.id;
+    // const index = args.index;
+    // const data = args.data;
+    // const device = args.device;
+
+    // YOUR CODE HERE
+
+    const res = new publications.append_photo_result();
+
+    return res;
+  }
+
+  get_photo(
+    args: publications.get_photo_arguments
+  ): publications.get_photo_result {
+    // const id = args.id;
+
+    // YOUR CODE HERE
+
+    const res = new publications.get_photo_result();
+    // res.value = ;
+
+    return res;
+  }
+
+  get_library_version(
+    args: publications.get_library_version_arguments
+  ): publications.get_library_version_result {
+    // YOUR CODE HERE
+
+    const res = new publications.get_library_version_result();
+    // res.version = ;
+
+    return res;
+  }
+
+  save_collection(
+    args: publications.save_collection_arguments
+  ): publications.save_collection_result {
+    // const owner = args.owner;
+    // const id = args.id;
+    // const previous_revision = args.previous_revision;
+    // const kind = args.kind;
+    // const audience = args.audience;
+    // const members = args.members;
+    // const envelope = args.envelope;
+    // const closed = args.closed;
+    // const device = args.device;
+
+    // YOUR CODE HERE
+
+    const res = new publications.save_collection_result();
+
+    return res;
+  }
+
+  get_collection(
+    args: publications.get_collection_arguments
+  ): publications.get_collection_result {
+    // const id = args.id;
+
+    // YOUR CODE HERE
+
+    const res = new publications.get_collection_result();
+    // res.value = ;
+
+    return res;
+  }
+
+  set_album_item(
+    args: publications.set_album_item_arguments
+  ): publications.set_album_item_result {
+    // const owner = args.owner;
+    // const collection_id = args.collection_id;
+    // const id = args.id;
+    // const epoch = args.epoch;
+    // const previous_revision = args.previous_revision;
+    // const envelope = args.envelope;
+    // const removed = args.removed;
+    // const device = args.device;
+
+    // YOUR CODE HERE
+
+    const res = new publications.set_album_item_result();
+
+    return res;
+  }
+
+  get_album_item(
+    args: publications.get_album_item_arguments
+  ): publications.get_album_item_result {
+    // const collection_id = args.collection_id;
+    // const id = args.id;
+
+    // YOUR CODE HERE
+
+    const res = new publications.get_album_item_result();
+    // res.value = ;
+
+    return res;
+  }
+
+  set_music_config(
+    args: publications.set_music_config_arguments
+  ): publications.set_music_config_result {
+    // const recipient = args.recipient;
+    // const rate_per_mb = args.rate_per_mb;
+    // const max_bytes = args.max_bytes;
+    // const enabled = args.enabled;
+
+    // YOUR CODE HERE
+
+    const res = new publications.set_music_config_result();
+
+    return res;
+  }
+
+  get_music_config(
+    args: publications.get_music_config_arguments
+  ): publications.get_music_config_result {
+    // YOUR CODE HERE
+
+    const res = new publications.get_music_config_result();
+    // res.value = ;
+
+    return res;
+  }
+
+  begin_music(
+    args: publications.begin_music_arguments
+  ): publications.begin_music_result {
+    // const owner = args.owner;
+    // const id = args.id;
+    // const digest = args.digest;
+    // const size = args.size;
+    // const chunk_hashes = args.chunk_hashes;
+    // const title = args.title;
+    // const mime = args.mime;
+    // const duration_ms = args.duration_ms;
+    // const config_revision = args.config_revision;
+    // const max_fee = args.max_fee;
+    // const payer = args.payer;
+    // const device = args.device;
+
+    // YOUR CODE HERE
+
+    const res = new publications.begin_music_result();
+
+    return res;
+  }
+
+  append_music(
+    args: publications.append_music_arguments
+  ): publications.append_music_result {
+    // const owner = args.owner;
+    // const id = args.id;
+    // const index = args.index;
+    // const data = args.data;
+    // const device = args.device;
+
+    // YOUR CODE HERE
+
+    const res = new publications.append_music_result();
+
+    return res;
+  }
+
+  get_music(
+    args: publications.get_music_arguments
+  ): publications.get_music_result {
+    // const id = args.id;
+
+    // YOUR CODE HERE
+
+    const res = new publications.get_music_result();
+    // res.value = ;
+
+    return res;
+  }
+
+  get_music_chunk(
+    args: publications.get_music_chunk_arguments
+  ): publications.get_music_chunk_result {
+    // const id = args.id;
+    // const index = args.index;
+
+    // YOUR CODE HERE
+
+    const res = new publications.get_music_chunk_result();
+    // res.data = ;
+
+    return res;
+  }
+
+  list_music(
+    args: publications.list_music_arguments
+  ): publications.list_music_result {
+    // const owner = args.owner;
+    // const after = args.after;
+
+    // YOUR CODE HERE
+
+    const res = new publications.list_music_result();
+    // res.ids = ;
 
     return res;
   }

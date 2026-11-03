@@ -1,0 +1,65 @@
+name: photo-library-testnet
+
+# Explicit release branch: only the publications contract is upgraded.
+# Release approved after PR #7 passed its build and test checks.
+on:
+  push:
+    branches: [codex/photo-library-testnet-rollout]
+    paths-ignore:
+      - 'deployments/**'
+      - 'deployment-progress/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+concurrency:
+  group: deploy-harbinger
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Build and verify release artifacts
+        run: |
+          npm run build -w packages/proto -w packages/sdk -w packages/contracts
+          npx tsc -p scripts/tsconfig.json
+          node --import tsx scripts/deployment-runtime-smoke.ts
+      - name: Simulate and upgrade publications
+        env:
+          KOINOS_HARBINGER_DEPLOYER_WIF: ${{ secrets.KOINOS_HARBINGER_DEPLOYER_WIF }}
+          OSP_CONTRACT_SEED: ${{ secrets.OSP_CONTRACT_SEED }}
+          OSP_REGISTRY_ADMIN: ${{ vars.OSP_REGISTRY_ADMIN }}
+          OSP_UPGRADE_DELAY_MS: ${{ vars.OSP_UPGRADE_DELAY_MS }}
+          KOINOS_RPC: ${{ vars.KOINOS_RPC }}
+        run: |
+          node --import tsx scripts/deploy-contracts.ts --network harbinger --only publications --dry-run
+          node --import tsx scripts/deploy-contracts.ts --network harbinger --only publications
+      - name: Verify the deployed contract
+        run: |
+          node --import tsx scripts/verify-deployment.ts --network harbinger
+          node --import tsx scripts/verify-photo-library.ts --network harbinger --contracts-only
+      - name: Preserve deployment records
+        if: ${{ always() }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add deployments/harbinger.json deployment-progress/harbinger.json
+          if ! git diff --cached --quiet; then
+            git commit -m "Deploy photo library to harbinger (${{ github.run_id }})"
+            git push origin HEAD:${{ github.ref_name }}
+          fi
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: photo-library-deployment
+          path: |
+            deployments/harbinger.json
+            deployment-progress/harbinger.json
+            packages/contracts/build/release

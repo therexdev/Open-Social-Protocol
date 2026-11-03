@@ -25,3 +25,10 @@ export * from "./promotion.js";
 export * from "./crypto/privateMessaging.js";
 export * from "./privateConfirmation.js";
 export * from "./media.js";
+
+export * from "./polls.js";
+
+export * from "./photoLibrary.js";
+
+export * from "./music.js";
+export * from "./wallet.js";

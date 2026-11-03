@@ -27,10 +27,13 @@ function EditDialog({ post, onDone, onCancel }: { post: PostView; onDone: () => 
     ...(m.mediaKey && { encryption: { key: toBase64url(m.mediaKey),nonce: toBase64url(m.nonce) } }),
   })) : [];
   return (
-    <Card title="Edit post">
+    <Card title={post.audience===AUDIENCE.CUSTOM ? "Edit post and manage sharing" : "Edit post"}>
       <p className="muted">Edits publish a new version. The previous version stays in the public history.</p>
       <ComposerForm
         edit={{ postId: post.postId, previousVersion: post.contentHash, versionNumber: post.versionNumber + 1, text, audience: post.audience, media }}
+        selectedAccounts={content && 'content' in content ? content.content.share_with : []}
+        collectionId={post.collectionId}
+        galleryOnly={post.galleryOnly}
         defaultAudience={post.audience}
         compact
         onSubmitted={onDone}
@@ -131,8 +134,8 @@ export function PostPage() {
           <PostCard post={post} expanded onChanged={() => void load()} />
           {mine && post.state !== LIFECYCLE.DELETED && (
             <div className="row">
-              <Button onClick={() => setEditing((v) => !v)} disabled={!can.ok} title={can.ok ? undefined : can.reason}>
-                {editing ? "Close editor" : "Edit"}
+              <Button onClick={() => setEditing((v) => !v)} disabled={!can.ok || !!post.poll} title={can.ok ? undefined : can.reason}>
+                {editing ? "Close editor" : post.poll ? "Poll cannot be edited" : post.audience===AUDIENCE.CUSTOM ? "Edit / manage sharing" : "Edit"}
               </Button>
               <Button variant="danger" onClick={() => setConfirmDelete(true)} disabled={!can.ok} title={can.ok ? undefined : can.reason}>
                 Delete
@@ -171,17 +174,8 @@ export function PostPage() {
           )}
           <Card className="replies-card" title="Replies" actions={can.ok && post.state !== LIFECYCLE.DELETED ? <Button onClick={() => setReplying((v) => !v)}>{replying ? "Close" : "Reply"}</Button> : undefined}>
             {replying && (
-              <ComposerForm
-                replyTo={post.postId}
-                defaultAudience={post.audience === AUDIENCE.FRIENDS ? AUDIENCE.FRIENDS : AUDIENCE.EVERYONE}
-                compact
-                onSubmitted={() => {
-                  setReplying(false);
-                  void replies.refresh(true);
-                  void load(true);
-                }}
-                onCancel={() => setReplying(false)}
-              />
+              <PrivateReply post={post} onSubmitted={()=>{setReplying(false);void replies.refresh(true);void load(true);}} onCancel={()=>setReplying(false)}/>
+
             )}
             {replies.error && <Notice kind="error">{replies.error}</Notice>}
             {!replies.loading && replies.items.length === 0 && !pending.some(d => !d.edit) && <Empty>No replies yet.</Empty>}
@@ -202,4 +196,11 @@ export function PostPage() {
       )}
     </div>
   );
+}
+
+function PrivateReply({post,onSubmitted,onCancel}:{post:PostView;onSubmitted:()=>void;onCancel:()=>void}) {
+  const opened=usePostContent(post);
+  if(post.audience===AUDIENCE.CUSTOM && (!opened || !('content' in opened)))return <Notice>Open this private post before replying.</Notice>;
+  const selected=opened && 'content' in opened?[...new Set([post.author,...(opened.content.share_with ?? [])])]:[];
+  return <ComposerForm replyTo={post.postId} defaultAudience={post.audience} selectedAccounts={selected} collectionId={post.collectionId} audienceLocked={post.audience!==AUDIENCE.EVERYONE} compact onSubmitted={onSubmitted} onCancel={onCancel}/>;
 }

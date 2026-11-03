@@ -9,14 +9,16 @@ describe("default allowlist", () => {
   it("covers every write method of the social and messaging contracts except the admin setters", () => {
     const entries = defaultAllowlist(deployment);
     const names = entries.map((e) => `${e.contract}.${e.method}`);
-    expect(names).toHaveLength(45);
+    expect(names).toHaveLength(53);
     expect(names).toContain("identity.register");
+    expect(names).toContain("publications.answer_poll");
     expect(names).toContain("messaging.send_message");
     expect(names).toContain("messaging.reserve_private_usage");
     expect(names).toContain("messaging.post_private_packet");
     expect(names).not.toContain("messaging.allocate_private_usage");
     expect(names).toContain("token.support");
-    for (const method of ["token.transfer", "token.burn", "token.consume", "token.init", "token.set_reward_policy", "token.activate_economy", "token.grant_test_tokens", "messaging.set_dependencies", "publications.set_token_contract", "relationships.set_token_contract"]) expect(names).not.toContain(method);
+    expect(names).toContain("token.transfer");
+    for (const method of ["token.burn", "token.consume", "token.init", "token.set_reward_policy", "token.activate_economy", "token.grant_test_tokens", "messaging.set_dependencies", "publications.set_token_contract", "relationships.set_token_contract"]) expect(names).not.toContain(method);
     expect(names).toContain("relationships.follow");
     expect(names).toContain("publications.publish");
     expect(names).toContain("communities.set_label");
@@ -27,6 +29,7 @@ describe("default allowlist", () => {
     expect(names.some((n) => n.startsWith("sponsorship."))).toBe(false);
     expect(names.some((n) => n.startsWith("registry."))).toBe(false);
     for (const entry of entries) {
+      if (entry.contract === "native") throw new Error("Native token must be resolved before enabling it");
       expect(ABIS[entry.contract].methods[entry.method]?.read_only).toBe(false);
       expect(entry.address).toBe(deployment.contracts[entry.contract].address);
     }
@@ -57,7 +60,7 @@ describe("allowlist override", () => {
     const entries = parseAllowlist("publications:publish, relationships:follow\nrelationships:follow", deployment);
     expect(entries.map((e) => `${e.contract}.${e.method}`)).toEqual(["publications.publish", "relationships.follow"]);
     const wildcard = parseAllowlist("publications:*", deployment);
-    expect(wildcard.map((e) => e.method).sort()).toEqual(["distribute_keys", "publish", "react", "record_cross_post", "set_lifecycle"]);
+    expect(wildcard.map((e) => e.method).sort()).toEqual(["answer_poll", "append_music", "append_photo", "begin_music", "begin_photo", "distribute_keys", "publish", "react", "record_cross_post", "save_collection", "set_album_item", "set_lifecycle"]);
     const sponsorship = parseAllowlist("sponsorship:set_user_grant", deployment);
     expect(sponsorship[0]?.entryPoint).toBe(ABIS.sponsorship.methods.set_user_grant?.entry_point);
   });
@@ -75,6 +78,7 @@ describe("allowlist override", () => {
 describe("actor fields", () => {
   it("names the signing account for every default-allowlisted method", () => {
     for (const entry of defaultAllowlist(deployment)) {
+      if (entry.contract === "native") throw new Error("Native token must be resolved before enabling it");
       expect(ACTOR_FIELDS[entry.contract]?.[entry.method], `${entry.contract}.${entry.method}`).not.toBeUndefined();
     }
     expect(actorField("publications", "publish", {})).toBe("author");

@@ -1,3 +1,5 @@
+import type { MusicConfig, MusicRecord, BeginMusicArgs } from "../music.js";
+import type { PhotoArchiveRecord, CollectionRecord, AlbumItemRecord } from "../photoLibrary.js";
 /**
  * Typed arguments, results and event payloads for every contract method
  * (packages/proto/osp/*.proto). Input values follow the SDK object model
@@ -260,7 +262,13 @@ export interface MediaRef {
   locations: string[];
   key_ref: Uint8Array;
 }
+export interface PollDefinition { question: string; options: string[]; closes_at: string; }
+export interface PollRecord { definition: PollDefinition; counts: number[]; participants: number; engagement_participants: number; engagement_milli: string; }
+export interface PollView { value?: PollRecord; ballot?: { option: number }; now: string; }
 export interface PublishArgs {
+  collection_id?: Bytes;
+  gallery_only?: boolean;
+  poll?: PollDefinition;
   author: Address;
   post_id: Bytes;
   /** Empty for the first version; previous content_hash for edits. */
@@ -323,6 +331,8 @@ export interface PostByIdempotencyKeyArgs {
 }
 
 export interface PostRecord {
+  collection_id?: Uint8Array;
+  gallery_only?: boolean;
   author: string;
   sequence: string;
   version_count: number;
@@ -355,6 +365,14 @@ export interface PublicationsDependencies {
 }
 
 export interface PublicationsWriteMethods {
+  set_music_config: { recipient: Address; rate_per_mb: U64; max_bytes: number; enabled: boolean };
+  begin_music: BeginMusicArgs;
+  append_music: { owner: Address; id: Bytes; index: number; data: Bytes; device?: Address };
+  begin_photo: { owner: Address; id: Bytes; digest: Bytes; size: number; chunk_hashes: Bytes[]; device?: Address };
+  append_photo: { owner: Address; id: Bytes; index: number; data: Bytes; device?: Address };
+  save_collection: { owner: Address; id: Bytes; previous_revision: number; kind: number; audience: number; members: Address[]; envelope: Bytes; closed?: boolean; device?: Address };
+  set_album_item: { owner: Address; collection_id: Bytes; id: Bytes; epoch: number; previous_revision: number; envelope?: Bytes; removed?: boolean; device?: Address };
+  answer_poll: { actor: Address; post_id: Bytes; option: number; device?: Address };
   set_token_contract: SetContractAddressArgs;
   set_identity_contract: SetContractAddressArgs;
   set_relationships_contract: SetContractAddressArgs;
@@ -365,6 +383,15 @@ export interface PublicationsWriteMethods {
   record_cross_post: RecordCrossPostArgs;
 }
 export interface PublicationsReadMethods {
+  get_music_config: [Record<string, never>, ValueResult<MusicConfig>];
+  get_music: [{ id: Bytes }, ValueResult<MusicRecord>];
+  get_music_chunk: [{ id: Bytes; index: number }, { data: Bytes }];
+  list_music: [{ owner: Address; after?: Bytes }, { ids: Bytes[] }];
+  get_library_version: [Record<string, never>, { version: number }];
+  get_photo: [{ id: Bytes }, ValueResult<PhotoArchiveRecord>];
+  get_collection: [{ id: Bytes }, ValueResult<CollectionRecord>];
+  get_album_item: [{ collection_id: Bytes; id: Bytes }, ValueResult<AlbumItemRecord>];
+  get_poll: [{ post_id: Bytes; viewer?: Address }, PollView];
   get_token_contract: [Record<string, never>, AddressResult];
   get_post: [PostIdArgs, ValueResult<PostRecord>];
   get_author_state: [AuthorArgs, ValueResult<AuthorState>];
@@ -990,6 +1017,8 @@ export interface AdminChangedEvent {
 
 /** Event payload types keyed by full event name. */
 export interface EventPayloads {
+  "osp.publications.poll_created": { post_id: Uint8Array; poll: PollRecord };
+  "osp.publications.poll_answered": { post_id: Uint8Array; actor: string; ballot: { option: number }; poll: PollRecord; timestamp: string };
   "osp.messaging.private_packet": { value: PrivatePacket; envelope: Bytes };
   "osp.messaging.private_channel": { value: ConversationRecord };
   "osp.token.economy_activated": { value: EconomyConfig };

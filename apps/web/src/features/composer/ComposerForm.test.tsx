@@ -5,6 +5,9 @@ import { AUDIENCE } from "@osp/sdk";
 import type { DraftRecord } from "../../vault/store";
 import type { PublishRequest } from "./usePublish";
 import { ComposerForm } from "./ComposerForm";
+import { MemoryRouter } from "react-router-dom";
+import { Signer } from "@osp/sdk";
+import { encodeMention } from "../../util/mentions";
 
 const transport = vi.hoisted(() => ({ start: vi.fn() }));
 vi.mock("./usePublish", () => ({ usePublish: () => ({ ...transport, ready: true }) }));
@@ -13,7 +16,10 @@ vi.mock("../../vault/context", () => ({
   useVault: (selector: (state: { account: string }) => unknown) => selector({ account: "saved-test-account" }),
   useVaultStore: () => ({ getState: () => ({ account: "saved-test-account" }) }),
 }));
-vi.mock("../../api/services", () => ({ useServices: () => ({ resolved: { sponsorUrls: [] } }) }));
+vi.mock("../../api/services", () => {
+  const services = { resolved: { sponsorUrls: [] }, indexer: { configured: false } };
+  return { useServices: () => services };
+});
 
 let root: Root;
 let container: HTMLDivElement;
@@ -105,4 +111,32 @@ describe("ComposerForm publish confirmation", () => {
     expect(textarea.value).toBe("A post to test publishing");
     expect(container.querySelector("dialog")?.hasAttribute("open")).toBe(false);
   });
+});
+
+
+it("preserves the poll definition through review and background publishing", async () => {
+  container = document.createElement("div"); document.body.appendChild(container); root = createRoot(container);
+  const poll = { question: "Which choice?", options: ["First", "Second"], closes_at: String(Date.now() + 3600000) };
+  const draft = { id: "poll", attemptId: "00".repeat(16), account: "saved-test-account", state: "draft", text: poll.question, audience: AUDIENCE.EVERYONE, mediaUrls: [], createdAt: Date.now(), updatedAt: Date.now(), poll } as DraftRecord;
+  transport.start.mockImplementation(async (r: PublishRequest) => r.draft);
+  await act(async () => root.render(<ComposerForm draft={draft}/>));
+  expect(container.textContent).toContain("Poll answers");
+  await click("Review and publish");
+  expect(container.querySelector("dialog")?.textContent).toContain("First");
+  await click("Publish to Everyone");
+  expect(transport.start.mock.calls[0]![0].draft.poll).toEqual(poll);
+});
+
+it.each([AUDIENCE.EVERYONE, AUDIENCE.FRIENDS])("preserves a saved mention target when publishing audience %s", async audience => {
+  container = document.createElement("div"); document.body.appendChild(container); root = createRoot(container);
+  const target = Signer.fromSeed("composer-mention-target").getAddress();
+  const text = `Hello ${encodeMention("Alex Kim", target)}!`;
+  const draft = { id: "mention", attemptId: "00".repeat(16), account: "saved-test-account", state: "draft", text, audience, mediaUrls: [], createdAt: Date.now(), updatedAt: Date.now() } as DraftRecord;
+  transport.start.mockImplementation(async (r: PublishRequest) => r.draft);
+  await act(async () => root.render(<MemoryRouter><ComposerForm draft={draft}/></MemoryRouter>));
+  expect(container.querySelector("textarea")!.value).toBe("Hello @Alex Kim!");
+  await click("Review and publish");
+  expect(container.querySelector("dialog .mention-link")?.getAttribute("href")).toBe(`/u/${target}`);
+  await click(`Publish to ${audience === AUDIENCE.EVERYONE ? "Everyone" : "Friends"}`);
+  expect(transport.start.mock.calls[0]![0].draft.text).toBe(text);
 });

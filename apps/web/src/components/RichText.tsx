@@ -6,6 +6,7 @@ export function RichText({ text }: { text: string }) {
   return <>{splitPostText(text).map((part, index) => <Fragment key={index}>
     {part.kind === "url" ? <a className="text-link" href={part.href} target="_blank" rel="noopener noreferrer ugc">{part.text}</a>
       : part.kind === "tag" ? <Link className="text-link hashtag-link" to={tagHref(part.tag)}>{part.text}</Link>
-        : part.text}
+        : part.kind === "mention" ? <Link className="text-link mention-link" to={`/u/${part.account}`} title={part.account}>@{part.name}</Link>
+          : part.text}
   </Fragment>)}</>;
 }

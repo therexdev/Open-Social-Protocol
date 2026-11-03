@@ -1,3 +1,4 @@
+import { musicAllowance } from "./music.js";
 /**
  * Sponsor HTTP service (docs/sponsor-api.md): discovery, prepare, sponsor, utilization.
  *
@@ -10,6 +11,8 @@ import cors from "@fastify/cors";
 import { registerMediaRoutes } from "./media.js";
 import {
   Provider,
+  NATIVE_TRANSFER_ENTRY,
+  resolveNativeToken,
   ProtocolClient,
   contractAddresses,
   isAddress,
@@ -29,7 +32,7 @@ import {
   type TransactionReceipt,
 } from "@osp/sdk";
 import { SPONSOR_VERSION, type SponsorConfig } from "./config.js";
-import { buildAllowlist, discoveryPolicy, type Allowlist, type PolicyLimits } from "./policy.js";
+import { buildAllowlist, discoveryPolicy, Allowlist, type PolicyLimits } from "./policy.js";
 import { QuotaStore, type UtilizationReport } from "./quota.js";
 import { SponsorRefusal, validateOperations, validateTransaction, type ValidationContext } from "./validate.js";
 
@@ -55,7 +58,7 @@ export interface SponsorServiceOptions {
 }
 
 export interface StatusReport {
-  features: { privateMessaging: 2; messagingNonceOrdering: 1; messagingFastConfirmation: 1; messagingResponsiveAllocation: 1 };
+  features: { walletTransfers: number; musicUploads: number; privateMessaging: 2; messagingNonceOrdering: 1; messagingFastConfirmation: 1; messagingResponsiveAllocation: 1 };
   ok: boolean;
   state: ServiceState;
   message: string;
@@ -125,7 +128,7 @@ export class SponsorService {
   readonly address: string | undefined;
   readonly provider: ProviderInterface | undefined;
   readonly client: ProtocolClient | undefined;
-  readonly allowlist: Allowlist | undefined;
+  allowlist: Allowlist | undefined;
   readonly limits: PolicyLimits;
   readonly quota: QuotaStore;
   private readonly options: SponsorServiceOptions;
@@ -168,6 +171,26 @@ export class SponsorService {
       this.provider = options.provider ?? new Provider(options.deployment.rpc);
       this.client = new ProtocolClient({ rpc: this.provider, deployment: options.deployment });
     }
+  }
+
+  /** Resolve native KOIN from the deployed music contract before discovery/registration. */
+  async initializeMusic(): Promise<void> {
+    if (!this.client || !this.allowlist) return;
+    const config = (await this.client.reads.publications.get_music_config())?.value;
+    if (!config || config.version !== 1 || !isAddress(config.native_token)) throw new Error("Music contract update is not available");
+    if (!this.allowlist.entries.some(e => e.contract === "publications" && e.method === "begin_music")) return;
+    this.allowlist = new Allowlist([...this.allowlist.entries.filter(e => e.contract !== "native" || e.method !== "approve"), {contract: "native", address: config.native_token, method: "approve", entryPoint: 0x74e21680}]);
+    this.discoveryDoc = undefined;
+  }
+
+  /** Resolve from this chain's name service; never trust a user-supplied token address. */
+  async initializeWallet(): Promise<void> {
+    // A custom allowlist remains restrictive. OSAT can be opted in with token:transfer;
+    // native wallet sponsorship is enabled only with the default platform policy.
+    if (!this.client || !this.allowlist || this.config.allowlist) return;
+    const address = await resolveNativeToken(this.client);
+    this.allowlist = new Allowlist([...this.allowlist.entries.filter(e => e.contract !== "native" || e.method !== "transfer"), { contract: "native", address, method: "transfer", entryPoint: NATIVE_TRANSFER_ENTRY }]);
+    this.discoveryDoc = undefined;
   }
 
   /** Throws `temporarily_unavailable` unless the service has a deployment and a key. */
@@ -264,7 +287,7 @@ export class SponsorService {
 
   status(): StatusReport {
     return {
-      features: { privateMessaging: 2, messagingNonceOrdering: 1, messagingFastConfirmation: 1, messagingResponsiveAllocation: 1 },
+      features: { walletTransfers: this.allowlist?.entries.some(e => e.contract === "native" && e.method === "transfer") && this.allowlist.entries.some(e => e.contract === "token" && e.method === "transfer") ? 1 : 0, musicUploads: this.allowlist?.entries.some(e => e.contract === "native" && e.method === "approve") ? 1 : 0, privateMessaging: 2, messagingNonceOrdering: 1, messagingFastConfirmation: 1, messagingResponsiveAllocation: 1 },
       ok: this.state === "serving",
       state: this.state,
       message: stateMessage(this.state, this.options),
@@ -336,7 +359,7 @@ export class SponsorService {
    * nothing else, which is what the SDK's `verifySponsorResult` demands.
    */
   async sponsor(input: unknown): Promise<SponsorResponse> {
-    const { signer, provider } = this.serving();
+    const { signer, provider, client, sponsor } = this.serving();
     const at = this.now();
     let validated;
     try {
@@ -345,7 +368,10 @@ export class SponsorService {
       this.refuse(error);
     }
     const { payee, operations, transaction } = validated;
-    const reservation = this.quota.reserve(payee, operations.length, at);
+    let paidMusic;
+    try { paidMusic = await musicAllowance(client, sponsor, payee, transaction.operations ?? []); }
+    catch (error) { this.refuse(error); }
+    const reservation = this.quota.reserve(paidMusic?.key ?? payee, operations.length, at, paidMusic?.limit ?? this.limits.dailyOps);
     if (!reservation.ok) {
       this.refuse(new SponsorRefusal("quota_exceeded", reservation.message, { retryAfterSec: reservation.retryAfterSec }));
     }
