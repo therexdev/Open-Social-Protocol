@@ -526,7 +526,7 @@ describe("sponsorship: set_sponsor", () => {
     contract.set_sponsor(sponsorArgs(SPONSOR_A, ENDPOINT, POLICY_URI, [], 0));
     expect(sponsorOrFail(SPONSOR_A).max_bytes_per_op).toBe(0);
     expectSetSponsorRevert(
-      sponsorArgs(SPONSOR_A, ENDPOINT, POLICY_URI, [], 98305),
+      sponsorArgs(SPONSOR_A, ENDPOINT, POLICY_URI, [], 327681),
       "max_bytes_per_op too large"
     );
   });

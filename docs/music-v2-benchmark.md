@@ -29,7 +29,12 @@ in place did not allocate another full copy in active chain state. The new
 implementation still reads the manifest once per batch and stores every audio
 byte. Transaction signatures and other overhead also change.
 
-**No measured Mana reduction is claimed.** Both existing audio test accounts had
+**Historical pre-deployment report:** the following paragraph describes the earlier
+local-only benchmark. A subsequent full-song chain receipt comparison measured
+875.39915208 Mana for v1 and 783.51995762 Mana for v2 (10.50% less), including
+both initialization transactions. See [the recorded live results](evidence/music-v2-live-benchmark.json).
+
+At the time of the initial local report, **no measured Mana reduction was claimed.** Both existing audio test accounts had
 zero testnet Mana, and no funded deployer credential was present in this working
 session. The 724/435/290 values are the current application price formula, not
 measured resource charges. No upload-price reduction or production deployment

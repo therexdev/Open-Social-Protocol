@@ -10,6 +10,22 @@ import { useVault } from "../../vault/context";
 import { Devices } from "./Devices";
 import { RecoveryContacts } from "./RecoveryContacts";
 import { Icon, type IconName } from "../../components/Icon";
+import { clearMusicCache } from "../music/musicCache";
+
+function MusicCacheSection() {
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+  return <Card title="Downloaded music">
+    <p>Keep up to 64 MiB on this device for faster repeat playback. Private music stays encrypted. Older downloads are removed automatically.</p>
+    <Button busy={busy} onClick={() => {
+      setBusy(true);
+      void clearMusicCache().then(() => setMessage("Downloaded music cleared. Songs will download again when played."))
+        .catch(() => setMessage("Could not clear downloaded music. Please try again."))
+        .finally(() => setBusy(false));
+    }}>Clear downloaded music</Button>
+    {message && <p role="status">{message}</p>}
+  </Card>;
+}
 
 function EndpointsSection() {
   const settings = useSettings();
@@ -280,6 +296,7 @@ export function SettingsPage() {
       <Card title="Network and endpoints">
         <EndpointsSection />
       </Card>
+      <MusicCacheSection />
       </section><section hidden={section !== "account"} aria-label="Account settings">
       <Card title="Your account">
         {status === "unlocked" ? (

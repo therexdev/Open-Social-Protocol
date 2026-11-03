@@ -33,7 +33,7 @@ import { Util } from "./common/util";
 // (publish envelopes are up to 4 KiB and key packages up to 16 KiB). Enlarged at
 // module initialization: imported modules run their top-level statements before
 // the generated index.ts calls main().
-const SYSTEM_BUFFER_SIZE: u32 = 96 * 1024;
+const SYSTEM_BUFFER_SIZE: u32 = 320 * 1024;
 System.setSystemBufferSize(SYSTEM_BUFFER_SIZE);
 
 // State spaces (one per map / object).
@@ -89,6 +89,7 @@ export class Publications {
   append_music(args: publications.append_music_arguments): publications.append_music_result { this.music.append(args, this.identityContract()); return new publications.append_music_result(); }
   get_music(args: publications.get_music_arguments): publications.get_music_result { return new publications.get_music_result(this.music.get(this.music.id(args.id))); }
   get_music_chunk(args: publications.get_music_chunk_arguments): publications.get_music_chunk_result { return this.music.chunks.get(Util.concat([this.music.id(args.id), Util.u32be(args.index)])) || new publications.get_music_chunk_result(); }
+  get_music_chunks(args: publications.get_music_chunks_arguments): publications.get_music_chunks_result { return this.music.readChunks(args); }
   list_music(args: publications.list_music_arguments): publications.list_music_result { return this.music.list(args); }
 
   library: PhotoLibrary = new PhotoLibrary();

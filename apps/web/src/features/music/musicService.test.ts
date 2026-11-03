@@ -8,10 +8,14 @@ import {
   toBase64url,
   type MusicConfig,
   type MusicRecord,
+  SponsorClient,
 } from "@osp/sdk";
 import { fakeProvider, fixtureDeployment } from "../../testing/fixtures";
 import { submitAction, type SubmitContext } from "../../tx/submit";
 import { loadMusic, newMusicDraft, uploadMusic, type MusicDraft } from "./musicService";
+import * as cacheModule from "./musicCache";
+import { memoryStorage } from "../../vault/storage";
+import { playableMusic } from "./musicAccessService";
 vi.mock("../../tx/submit", () => ({ submitAction: vi.fn() }));
 const alice = identityFromSeed(new Uint8Array(32).fill(8));
 let client: ProtocolClient,
@@ -314,4 +318,113 @@ it("rejects an encrypted file that would exceed the limit and invalid OSAT price
   expect(() => newMusicDraft({ ...input, audience: 1 })).toThrow("including encryption");
   for (const unlockPrice of ["-1", "1.5", "1000001", "1e2"])
     expect(() => newMusicDraft({ ...input, unlockPrice })).toThrow("whole OSAT");
+});
+
+function v3Draft(size = 8403298) {
+  config.version = 3;
+  bytes = new Uint8Array(size).fill(37);
+  draft = newMusicDraft({ owner: alice.account, payer: alice.account, bytes, config, title: "Exact original", mime: "audio/mpeg", durationMs: 210000 });
+  vi.spyOn(client.reads.publications, "get_music_chunks").mockImplementation(async args => ({
+    chunks: Array.from({ length: Math.min(args!.count, record!.received - args!.index) }, (_, n) => saved.get(args!.index + n)!),
+  }));
+}
+
+it("uploads the full 513-chunk file in 34 transactions, resumes safely and downloads in 33 reads", async () => {
+  v3Draft();
+  ctx.payment = "self-only";
+  failAt = 16;
+  await expect(uploadMusic(ctx, draft, bytes, () => {}, () => {})).rejects.toThrow("interrupted");
+  expect(record!.received).toBe(16);
+  failAt = undefined;
+  const callsBeforeResume = vi.mocked(submitAction).mock.calls.length;
+  await uploadMusic(ctx, JSON.parse(JSON.stringify(draft)), bytes, () => {}, () => {});
+  expect(paid).toBe(1);
+  expect(record!.received).toBe(513);
+  // 34 successful transactions plus the deliberately interrupted second append.
+  expect(submitAction).toHaveBeenCalledTimes(35);
+  expect(callsBeforeResume).toBe(3);
+  let active = 0, peak = 0;
+  vi.mocked(client.reads.publications.get_music_chunks).mockImplementation(async args => {
+    active++; peak = Math.max(peak, active);
+    await Promise.resolve(); active--;
+    return { chunks: Array.from({ length: args!.count }, (_, n) => saved.get(args!.index + n)!) };
+  });
+  const progress = vi.fn();
+  expect(contentHash((await loadMusic(client, draft.id, undefined, progress)).bytes)).toEqual(contentHash(bytes));
+  expect(client.reads.publications.get_music_chunks).toHaveBeenCalledTimes(33);
+  expect(client.reads.publications.get_music_chunk).not.toHaveBeenCalled();
+  expect(peak).toBeLessThanOrEqual(4);
+  expect(progress).toHaveBeenLastCalledWith(513, 513);
+});
+
+it.each([[3, 73728, 4], [4, 140000, 8], [4, 272384, 16]])("negotiates sponsor policy %i and %i bytes to %i chunks", async (version, maxBytesPerOp, expected) => {
+  v3Draft(600000);
+  const sponsor = new SponsorClient({ endpoint: "https://sponsor.test" });
+  client.sponsors.sponsors.push(sponsor);
+  vi.spyOn(sponsor, "discover").mockResolvedValue({ sponsor: config.recipient, network: { chainId: client.chainId, rpc: [] }, policy: { version, maxBytesPerOp } } as never);
+  await uploadMusic(ctx, draft, bytes, () => {}, () => {});
+  const op = vi.mocked(submitAction).mock.calls[1]![1][0]!;
+  expect(client.contracts.decodeOperation(op)!.args.chunks).toHaveLength(expected);
+});
+
+it("downgrades a saved sixteen-chunk draft when the connected contract is still v2", async () => {
+  v3Draft(300000);
+  config.version = 2;
+  ctx.payment = "self-only";
+  await uploadMusic(ctx, draft, bytes, () => {}, () => {});
+  expect(client.contracts.decodeOperation(vi.mocked(submitAction).mock.calls[1]![1][0]!)!.args.chunks).toHaveLength(4);
+});
+
+it("verifies cached bytes against fresh chain state and redownloads corrupted cache data", async () => {
+  v3Draft(300000);
+  ctx.payment = "self-only";
+  await uploadMusic(ctx, draft, bytes, () => {}, () => {});
+  const cache = cacheModule.createMusicCache(memoryStorage());
+  vi.spyOn(cacheModule, "musicCache").mockReturnValue(cache);
+  await loadMusic(client, draft.id);
+  vi.mocked(client.reads.publications.get_music_chunks).mockClear();
+  expect((await loadMusic(client, draft.id)).bytes).toEqual(bytes);
+  expect(client.reads.publications.get_music_chunks).not.toHaveBeenCalled();
+  vi.spyOn(cache, "get").mockResolvedValueOnce(new Uint8Array(bytes.length));
+  expect((await loadMusic(client, draft.id)).bytes).toEqual(bytes);
+  expect(client.reads.publications.get_music_chunks).toHaveBeenCalledTimes(2);
+  vi.mocked(client.reads.publications.get_music_chunks).mockClear();
+  record!.received--;
+  await expect(loadMusic(client, draft.id)).rejects.toThrow("not ready");
+  expect(client.reads.publications.get_music_chunks).not.toHaveBeenCalled();
+});
+
+it("rejects corrupt/truncated batch responses and respects cancellation even on cache hits", async () => {
+  v3Draft(300000);
+  ctx.payment = "self-only";
+  await uploadMusic(ctx, draft, bytes, () => {}, () => {});
+  vi.mocked(client.reads.publications.get_music_chunks).mockResolvedValueOnce({ chunks: [] });
+  await expect(loadMusic(client, draft.id)).rejects.toThrow("unavailable");
+  saved.get(15)![0] = saved.get(15)![0]! ^ 1;
+  await expect(loadMusic(client, draft.id)).rejects.toThrow("verification");
+  const cancelled = new AbortController(); cancelled.abort();
+  await expect(loadMusic(client, draft.id, cancelled.signal)).rejects.toThrow("cancelled");
+});
+
+it("caches private ciphertext while still refusing playback without current access", async () => {
+  v3Draft(300000);
+  ctx.payment = "self-only";
+  draft = newMusicDraft({ owner: alice.account, payer: alice.account, bytes, config, title: "Private", audience: 1, identity: alice, client, mime: "audio/mpeg", durationMs: 210000 });
+  await uploadMusic(ctx, draft, bytes, () => {}, () => {});
+  const storage = memoryStorage(), cache = cacheModule.createMusicCache(storage);
+  vi.spyOn(cacheModule, "musicCache").mockReturnValue(cache);
+  const session = { identity: alice } as never;
+  expect((await playableMusic(client, draft.id, session)).bytes).toEqual(bytes);
+  const stored = [...storage.map.values()].filter(v => v instanceof Uint8Array) as Uint8Array[];
+  expect(stored).toHaveLength(1);
+  expect(stored[0]).not.toEqual(bytes);
+  expect(contentHash(stored[0]!)).toEqual(record!.digest);
+  vi.mocked(client.reads.publications.get_music_chunks).mockClear();
+  await expect(playableMusic(client, draft.id)).rejects.toThrow("Unlock");
+  const bob = identityFromSeed(new Uint8Array(32).fill(12));
+  vi.spyOn(client.reads.publications, "get_music_access").mockResolvedValue({ eligible: false, now: "0" });
+  await expect(playableMusic(client, draft.id, { identity: bob } as never)).rejects.toThrow("not shared");
+  expect(client.reads.publications.get_music_chunks).not.toHaveBeenCalled();
+  expect((await playableMusic(client, draft.id, session)).bytes).toEqual(bytes);
+  expect(client.reads.publications.get_music_chunks).not.toHaveBeenCalled();
 });

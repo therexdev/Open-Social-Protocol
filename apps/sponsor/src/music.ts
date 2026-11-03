@@ -3,6 +3,7 @@ import {
   bytesEqual,
   contentHash,
   MUSIC_CHUNK_BYTES,
+  MUSIC_BATCH_CHUNKS,
   MUSIC_MAX_BYTES,
   musicFee,
   toBase64url,
@@ -67,7 +68,7 @@ export async function musicAllowance(
   if (
     !Array.isArray(chunks) ||
     chunks.length < 1 ||
-    chunks.length > 4 ||
+    chunks.length > MUSIC_BATCH_CHUNKS ||
     index !== v.received ||
     index + chunks.length > v.chunk_hashes.length
   )

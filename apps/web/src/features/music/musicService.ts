@@ -7,6 +7,9 @@ import {
   musicKeyContext,
   sealMusicKey,
   MUSIC_BATCH_CHUNKS,
+  MUSIC_CHUNK_BYTES,
+  MUSIC_READ_BATCH_CHUNKS,
+  musicBatchChunks,
   type MusicKey,
   type Identity,
   contentHash,
@@ -30,6 +33,7 @@ import { toArrayBuffer } from "../../util/bytes";
 import { deriveAesKey, EncryptedStore } from "../../vault/encryptedStore";
 import { defaultStorage } from "../../vault/storage";
 import type { Session } from "../../vault/store";
+import { musicCache } from "./musicCache";
 
 export interface MusicDraft {
   artist?: string;
@@ -212,7 +216,7 @@ export function newMusicDraft(input: {
     configRevision: input.config.revision,
     fee: musicFee(stored.length, input.config.rate_per_mb),
     recipient: input.config.recipient,
-    batchSize: input.config.version >= 2 ? MUSIC_BATCH_CHUNKS : 1,
+    batchSize: musicBatchChunks(input.config.version),
     ...(key && nonce && ownerKey
       ? {
           key: toBase64url(key),
@@ -323,7 +327,26 @@ export async function uploadMusic(
   }
   if (!matchesMusic(draft, record)) throw new Error("Music reservation changed unexpectedly.");
   progress(record.received, chunks.length, true);
-  const batchSize = draft.batchSize === MUSIC_BATCH_CHUNKS ? MUSIC_BATCH_CHUNKS : 1;
+  // A saved v1/v2 draft remains resumable after either end is upgraded. Never send
+  // an oversized batch to an older contract or sponsor during a staged rollout.
+  const config = await musicConfig(client);
+  let batchSize = Math.min(
+    [1, 4, 8, MUSIC_BATCH_CHUNKS].includes(draft.batchSize ?? 1) ? (draft.batchSize ?? 1) : 1,
+    musicBatchChunks(config.version)
+  );
+  if (batchSize > 4 && ctx.payment !== "self-only") {
+    let supported = 4;
+    for (const sponsor of client.sponsors.sponsors) {
+      try {
+        const discovery = await sponsor.discover();
+        if (discovery.sponsor !== draft.recipient || discovery.network.chainId !== client.chainId) continue;
+        const max = discovery.policy.version >= 4 ? MUSIC_BATCH_CHUNKS : 4;
+        supported = [MUSIC_BATCH_CHUNKS, 8, 4, 1].find(n => n <= max && n * (MUSIC_CHUNK_BYTES + 4) + 512 <= discovery.policy.maxBytesPerOp) ?? 1;
+        break;
+      } catch { /* Submission handles sponsor availability; retain the v2 ceiling. */ }
+    }
+    batchSize = Math.min(batchSize, supported);
+  }
   for (let index = record.received; index < chunks.length; index += batchSize) {
     assertActive();
     const batch = chunks.slice(index, index + batchSize);
@@ -358,6 +381,11 @@ export async function loadMusic(
   signal?: AbortSignal,
   progress?: (received: number, total: number) => void
 ): Promise<{ record: MusicRecord; bytes: Uint8Array }> {
+  let stopped = false;
+  const check = () => {
+    if (signal?.aborted || stopped) throw new Error("Audio loading cancelled.");
+  };
+  check();
   const key = fromBase64url(id),
     record = (await client.reads.publications.get_music({ id: key }))?.value;
   if (
@@ -365,31 +393,52 @@ export async function loadMusic(
     record.received !== record.chunk_hashes.length ||
     record.size < 1 ||
     record.size > MUSIC_MAX_BYTES ||
-    record.chunk_hashes.length !== Math.ceil(record.size / 16384)
+    record.chunk_hashes.length !== Math.ceil(record.size / MUSIC_CHUNK_BYTES)
   )
     throw new Error("This track is not ready to play.");
+  check();
+  const cache = musicCache(),
+    cacheKey = JSON.stringify([client.chainId, client.deployment.contracts.publications.address, toBase64url(key), toBase64url(record.digest)]),
+    cached = await cache?.get(cacheKey);
+  check();
+  if (cached) {
+    try {
+      const bytes = verifyMusic(record, musicChunks(cached));
+      progress?.(record.received, record.received);
+      return { record, bytes };
+    } catch { await cache?.remove(cacheKey); }
+  }
+  const config = await musicConfig(client);
+  const batchSize = config.version >= 3 ? MUSIC_READ_BATCH_CHUNKS : 1;
   const chunks = new Array<Uint8Array>(record.chunk_hashes.length);
   let cursor = 0,
     received = 0;
-  const check = () => {
-    if (signal?.aborted) throw new Error("Audio loading cancelled.");
-  };
   await Promise.all(
-    Array.from({ length: Math.min(4, chunks.length) }, async () => {
+    Array.from({ length: Math.min(4, Math.ceil(chunks.length / batchSize)) }, () => (async () => {
       while (cursor < chunks.length) {
         check();
-        const index = cursor++;
-        const result = await client.reads.publications.get_music_chunk({
-          id: key,
-          index,
-        });
+        const index = cursor, count = Math.min(batchSize, chunks.length - index);
+        cursor += count;
+        const result = batchSize > 1
+          ? (await client.reads.publications.get_music_chunks({ id: key, index, count }))?.chunks
+          : [(await client.reads.publications.get_music_chunk({ id: key, index }))?.data];
         check();
-        if (!result) throw new Error("An audio chunk is unavailable. Retry loading the track.");
-        chunks[index] = result.data;
-        progress?.(++received, chunks.length);
+        if (!result || result.length !== count)
+          throw new Error("An audio chunk is unavailable. Retry loading the track.");
+        for (let offset = 0; offset < count; offset++) {
+          const chunk = result[offset], i = index + offset;
+          if (!(chunk instanceof Uint8Array) || chunk.length !== Math.min(MUSIC_CHUNK_BYTES, record.size - i * MUSIC_CHUNK_BYTES) || !bytesEqual(contentHash(chunk), record.chunk_hashes[i]!))
+            throw new Error("Audio chunk verification failed.");
+          chunks[i] = chunk;
+        }
+        received += count;
+        progress?.(received, chunks.length);
       }
-    })
+    })().catch(error => { stopped = true; throw error; }))
   );
   check();
-  return { record, bytes: verifyMusic(record, chunks) };
+  const bytes = verifyMusic(record, chunks);
+  await cache?.put(cacheKey, bytes);
+  check();
+  return { record, bytes };
 }

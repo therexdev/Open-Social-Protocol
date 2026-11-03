@@ -230,6 +230,56 @@ it("resumes a legacy manifest into separate progress without losing confirmed ch
   expect(lib.tracks.get(ID)!.received).toBe(0);
   expect(lib.get(ID)!.received).toBe(1);
 });
+it("uploads sixteen full chunks and reads bounded ranges including a short tail", (): void => {
+  System.setSystemBufferSize(320 * 1024);
+  const full = new Uint8Array(16384).fill(9), tail = new Uint8Array(43).fill(10);
+  begin.size = 16 * 16384 + tail.length;
+  begin.chunk_hashes = [];
+  const batch: Uint8Array[] = [];
+  for (let i = 0; i < 16; i++) { begin.chunk_hashes.push(lib.hash(full)); batch.push(full); }
+  begin.chunk_hashes.push(lib.hash(tail));
+  begin.max_fee = lib.fee(begin.size, 8610000000);
+  start();
+  auth();
+  lib.appendBatch(new publications.append_music_batch_arguments(ALICE, ID, 0, batch), IDENTITY);
+  MockVM.commitTransaction();
+  expect(lib.get(ID)!.received).toBe(16);
+  const range = lib.readChunks(new publications.get_music_chunks_arguments(ID, 0, 16));
+  expect(range.chunks.length).toBe(16);
+  expect(Arrays.equal(range.chunks[15], full)).toBe(true);
+  const wire = Protobuf.encode(range, publications.get_music_chunks_result.encode);
+  expect(wire.length > 262144).toBe(true);
+  expect(Protobuf.decode<publications.get_music_chunks_result>(wire, publications.get_music_chunks_result.decode).chunks.length).toBe(16);
+  auth();
+  lib.appendBatch(new publications.append_music_batch_arguments(ALICE, ID, 16, [tail]), IDENTITY);
+  MockVM.commitTransaction();
+  const last = lib.readChunks(new publications.get_music_chunks_arguments(ID, 15, 16));
+  expect(last.chunks.length).toBe(2);
+  expect(Arrays.equal(last.chunks[1], tail)).toBe(true);
+  expect(lib.list(new publications.list_music_arguments(ALICE)).ids.length).toBe(1);
+  expect((): void => { lib.readChunks(new publications.get_music_chunks_arguments(ID, 0, 0)); }).toThrow();
+  expect((): void => { lib.readChunks(new publications.get_music_chunks_arguments(ID, 0, 17)); }).toThrow();
+  expect((): void => { lib.readChunks(new publications.get_music_chunks_arguments(ID, 4294967295, 16)); }).toThrow();
+  expect((): void => {
+    const oversized: Uint8Array[] = [];
+    for (let i = 0; i < 17; i++) oversized.push(DATA);
+    lib.appendBatch(new publications.append_music_batch_arguments(ALICE, ID, 0, oversized), IDENTITY);
+  }).toThrow();
+});
+it("reads completed v1 tracks without migrating their manifest or requiring authority", (): void => {
+  start();
+  const legacy = lib.tracks.get(ID)!;
+  legacy.version = 0;
+  legacy.received = 1;
+  lib.tracks.put(ID, legacy);
+  lib.chunks.put(Util.concat([ID, Util.u32be(0)]), new publications.get_music_chunk_result(DATA));
+  MockVM.commitTransaction();
+  Testing.authorize([]);
+  const result = lib.readChunks(new publications.get_music_chunks_arguments(ID, 0, 16));
+  expect(result.chunks.length).toBe(1);
+  expect(Arrays.equal(result.chunks[0], DATA)).toBe(true);
+  expect(lib.readChunks(new publications.get_music_chunks_arguments(new Uint8Array(32), 0, 16)).chunks.length).toBe(0);
+});
 it("rejects restricted plaintext, a missing paid key and unbounded batches", (): void => {
   begin.audience = 1;
   auth();

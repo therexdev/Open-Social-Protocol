@@ -459,6 +459,21 @@ export class Publications {
     return res;
   }
 
+  get_music_chunks(
+    args: publications.get_music_chunks_arguments
+  ): publications.get_music_chunks_result {
+    // const id = args.id;
+    // const index = args.index;
+    // const count = args.count;
+
+    // YOUR CODE HERE
+
+    const res = new publications.get_music_chunks_result();
+    // res.chunks = ;
+
+    return res;
+  }
+
   list_music(
     args: publications.list_music_arguments
   ): publications.list_music_result {

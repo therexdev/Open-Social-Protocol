@@ -5633,6 +5633,102 @@ export namespace publications {
     }
   }
 
+  export class get_music_chunks_arguments {
+    static encode(message: get_music_chunks_arguments, writer: Writer): void {
+      const unique_name_id = message.id;
+      if (unique_name_id !== null) {
+        writer.uint32(10);
+        writer.bytes(unique_name_id);
+      }
+
+      if (message.index != 0) {
+        writer.uint32(16);
+        writer.uint32(message.index);
+      }
+
+      if (message.count != 0) {
+        writer.uint32(24);
+        writer.uint32(message.count);
+      }
+    }
+
+    static decode(reader: Reader, length: i32): get_music_chunks_arguments {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new get_music_chunks_arguments();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1:
+            message.id = reader.bytes();
+            break;
+
+          case 2:
+            message.index = reader.uint32();
+            break;
+
+          case 3:
+            message.count = reader.uint32();
+            break;
+
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    id: Uint8Array | null;
+    index: u32;
+    count: u32;
+
+    constructor(id: Uint8Array | null = null, index: u32 = 0, count: u32 = 0) {
+      this.id = id;
+      this.index = index;
+      this.count = count;
+    }
+  }
+
+  export class get_music_chunks_result {
+    static encode(message: get_music_chunks_result, writer: Writer): void {
+      const unique_name_chunks = message.chunks;
+      if (unique_name_chunks.length !== 0) {
+        for (let i = 0; i < unique_name_chunks.length; ++i) {
+          writer.uint32(10);
+          writer.bytes(unique_name_chunks[i]);
+        }
+      }
+    }
+
+    static decode(reader: Reader, length: i32): get_music_chunks_result {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new get_music_chunks_result();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1:
+            message.chunks.push(reader.bytes());
+            break;
+
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    chunks: Array<Uint8Array>;
+
+    constructor(chunks: Array<Uint8Array> = []) {
+      this.chunks = chunks;
+    }
+  }
+
   export class list_music_arguments {
     static encode(message: list_music_arguments, writer: Writer): void {
       const unique_name_owner = message.owner;

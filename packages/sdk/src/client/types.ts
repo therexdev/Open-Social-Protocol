@@ -395,6 +395,7 @@ export interface PublicationsReadMethods {
   get_music_config: [Record<string, never>, ValueResult<MusicConfig>];
   get_music: [{ id: Bytes }, ValueResult<MusicRecord>];
   get_music_chunk: [{ id: Bytes; index: number }, { data: Bytes }];
+  get_music_chunks: [{ id: Bytes; index: number; count: number }, { chunks: Bytes[] }];
   list_music: [{ owner?: Address; group_id?: Bytes; after?: Bytes }, { ids: Bytes[] }];
   get_library_version: [Record<string, never>, { version: number }];
   get_photo: [{ id: Bytes }, ValueResult<PhotoArchiveRecord>];

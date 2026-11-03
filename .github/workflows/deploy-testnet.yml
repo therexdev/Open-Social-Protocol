@@ -15,7 +15,7 @@ on:
         type: choice
         options: [harbinger]
       contracts:
-        description: Contracts to upgrade (choose music for Music v2)
+        description: Contracts to upgrade (choose music for Music v3 transfers)
         default: all
         type: choice
         options: [all, publications, music]

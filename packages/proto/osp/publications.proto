@@ -535,6 +535,10 @@ message get_music_result { music_record value = 1; }
 // @read-only true
 message get_music_chunk_arguments { bytes id = 1; uint32 index = 2; }
 message get_music_chunk_result { bytes data = 1; }
+// @description Read up to sixteen consecutive audio chunks, including legacy tracks
+// @read-only true
+message get_music_chunks_arguments { bytes id = 1; uint32 index = 2; uint32 count = 3; }
+message get_music_chunks_result { repeated bytes chunks = 1; }
 // @description List complete public tracks belonging to one profile (20 per page)
 // @read-only true
 message list_music_arguments {
@@ -561,7 +565,7 @@ message music_key {
   bytes ciphertext = 4;
 }
 message music_progress { uint32 received = 1; }
-// @description Append up to four sequential committed 16 KiB chunks atomically
+// @description Append up to sixteen sequential committed 16 KiB chunks atomically
 // @read-only false
 message append_music_batch_arguments {
   bytes owner = 1 [(koinos.btype) = ADDRESS];

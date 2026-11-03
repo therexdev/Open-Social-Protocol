@@ -18,6 +18,7 @@ import {
   musicFee,
   musicPaymentOperations,
   toBase64url,
+  MUSIC_BATCH_ARGUMENT_BYTES,
 } from "@osp/sdk";
 const flags = Object.fromEntries(
   process.argv.slice(2).reduce<string[][]>((out, arg, i, all) => {
@@ -75,6 +76,11 @@ for (let i = 0; i < chunks.length; i += 4) {
     chunks: chunks.slice(i, i + 4),
   }).length;
 }
+let v3Arguments = 0, v3ProgressWrites = 0;
+for (let i = 0; i < chunks.length; i += 16) {
+  v3Arguments += encode("publications.append_music_batch_arguments", { owner, id, index: i, chunks: chunks.slice(i, i + 16) }).length;
+  v3ProgressWrites += encode("publications.music_progress", { received: Math.min(i + 16, chunks.length) }).length;
+}
 const report: Record<string, unknown> = {
   generatedAt: new Date().toISOString(),
   filename: flags.audio.split("/").pop(),
@@ -82,17 +88,36 @@ const report: Record<string, unknown> = {
   audioBytes: audio.length,
   ciphertextBytes: audio.length + 16,
   chunks: chunks.length,
+  candidates: [4, 8, 16].map(batchSize => {
+    let argumentBytes = 0, maxArgumentBytes = 0, maxReadResponseBytes = 0;
+    for (let index = 0; index < chunks.length; index += batchSize) {
+      const batch = chunks.slice(index, index + batchSize);
+      const size = encode("publications.append_music_batch_arguments", { owner, id, index, chunks: batch }).length;
+      argumentBytes += size;
+      maxArgumentBytes = Math.max(maxArgumentBytes, size);
+      maxReadResponseBytes = Math.max(maxReadResponseBytes, encode("publications.get_music_chunks_result", { chunks: batch }).length);
+    }
+    assert(maxArgumentBytes <= MUSIC_BATCH_ARGUMENT_BYTES);
+    return { batchSize, uploadTransactions: 1 + Math.ceil(chunks.length / batchSize), chunkReadRequests: Math.ceil(chunks.length / batchSize), argumentBytes, maxArgumentBytes, maxReadResponseBytes };
+  }),
   before: {
     uploadTransactions: 1 + chunks.length,
     appendTransactions: chunks.length,
     appendArgumentBytes: previousArguments,
     repeatedManifestSerializationBytes: previousManifestWrites,
   },
-  after: {
+  fourChunkBaseline: {
     uploadTransactions: 1 + Math.ceil(chunks.length / 4),
     appendTransactions: Math.ceil(chunks.length / 4),
     appendArgumentBytes: batchedArguments,
     progressSerializationBytes: progressWrites,
+  },
+  after: {
+    uploadTransactions: 1 + Math.ceil(chunks.length / 16),
+    appendTransactions: Math.ceil(chunks.length / 16),
+    chunkReadRequests: Math.ceil(chunks.length / 16),
+    appendArgumentBytes: v3Arguments,
+    progressSerializationBytes: v3ProgressWrites,
   },
   applicationFeeKoin: Number(musicFee(audio.length)) / 1e8,
   notes: [
@@ -134,13 +159,18 @@ if (flags.simulate) {
       },
     });
     const records: Record<string, unknown>[] = [];
-    for (const version of ["before", "after"]) {
+    for (const variant of [
+      { version: "before", batchSize: Number(flags["baseline-batch"] ?? "4") },
+      ...[4, 8, 16].map(batchSize => ({ version: "after", batchSize })),
+    ]) {
+      const { version, batchSize } = variant;
+      assert([1, 4, 8, 16].includes(batchSize), "baseline-batch must be 1, 4, 8 or 16");
       const wasm = fs.readFileSync(
         version === "before"
           ? flags["baseline-wasm"]
           : "packages/contracts/build/release/publications.wasm"
       );
-      for (const count of [0, 1, 4, 16]) {
+      for (const count of [0, Math.min(16, chunks.length)]) {
         const begin = {
           ...manifest,
           owner: account.account,
@@ -181,9 +211,9 @@ if (flags.simulate) {
           }),
           ...(await musicPaymentOperations(client, begin, nativeAddress)),
         ];
-        for (let i = 0; i < Math.min(count, chunks.length); i += version === "before" ? 1 : 4)
+        for (let i = 0; i < Math.min(count, chunks.length); i += batchSize)
           operations.push(
-            version === "before"
+            batchSize === 1
               ? await client.ops.publications.append_music({
                   owner: account.account,
                   id,
@@ -194,7 +224,7 @@ if (flags.simulate) {
                   owner: account.account,
                   id,
                   index: i,
-                  chunks: chunks.slice(i, Math.min(i + 4, count)),
+                  chunks: chunks.slice(i, Math.min(i + batchSize, count)),
                 })
           );
         let tx = await Transaction.prepareTransaction(
@@ -211,9 +241,12 @@ if (flags.simulate) {
         );
         records.push({
           version,
+          batchSize,
           chunks: count,
           wasmSha256: createHash("sha256").update(wasm).digest("hex"),
-          receipt,
+          receipt: { rc_used: receipt.rc_used, disk_storage_used: receipt.disk_storage_used,
+            network_bandwidth_used: receipt.network_bandwidth_used, compute_bandwidth_used: receipt.compute_bandwidth_used,
+            reverted: !!receipt.reverted },
         });
       }
     }

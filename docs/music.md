@@ -1,4 +1,4 @@
-# Music v2: uploads, audiences, OSAT access and comments
+# Music: uploads, audiences, OSAT access and comments
 
 Profiles have a Music tab. Each completed track has its own `/music/:id` page with
 an artist name, description, verified player, comments, replies and comment
@@ -70,7 +70,7 @@ original bytes. Encryption adds 16 bytes per file and does not re-encode audio.
 The size limit is 10 MiB including encryption; duration is at most one hour.
 Supported browser-playable formats are MP3, M4A, Ogg, WAV and WebM.
 
-New uploads use `append_music_batch` with up to four contiguous chunks per
+New uploads use `append_music_batch` with up to sixteen contiguous chunks per
 transaction. A fixed manifest holds the commitments; a separate small progress
 record changes during upload. Existing v1 records remain readable and migrate
 progress lazily when resumed. Already-paid drafts resume without repaying, even
@@ -94,13 +94,13 @@ failed payment creates no reservation. Abandoned upload fees are not refunded.
 Changing implementation efficiency does not automatically lower this application
 fee. Measure live Mana before changing the rate.
 
-The sponsor only funds uploads paid to its own configured account. Policy v3
-allows 72 KiB operation arguments. A batch counts one resource/quota unit per
+The sponsor only funds uploads paid to its own configured account. Policy v4
+allows 266 KiB operation arguments. A batch counts one resource/quota unit per
 chunk: the default 2-Mana ceiling remains 2 Mana for an ordinary action and up to
-8 Mana for four committed audio chunks. A paid track retains its two attempts
+32 Mana for sixteen committed audio chunks. A paid track retains its two attempts
 per chunk per UTC day; batching does not multiply that allowance. Mixed bundles,
 unpaid tracks, stale indexes, uncommitted data and oversized batches are rejected.
-The sponsorship registry's maximum permitted argument policy is now 96 KiB.
+The sponsorship registry's maximum permitted argument policy is 320 KiB.
 
 ## Rollout
 
@@ -112,19 +112,19 @@ new events in its raw event log, but it does not grant audio access.
 
 After the reviewed branch is available on GitHub:
 
-1. Merge it into the deployment branch. In `deploy-testnet`, select network
+1. In `deploy-testnet`, select the reviewed `codex/music-access-and-batching` branch and network
    `harbinger`, contracts **music**, and first run **dry run**.
 2. Inspect that run, then deploy the same revision with dry run disabled. Leave
    **Enable Music at 86.1 tKOIN per MB** unchecked for an already-enabled network
    to preserve its price/recipient settings. The workflow uses existing repository
    secrets; no new private key is required on the VPS or frontend.
 3. Pull that revision on the VPS, build services, restart/re-register the sponsor
-   using policy version 3, then run the readiness check:
+   using policy version 4, then run the readiness check:
 
 ```bash
 npm ci
 npm run build -w packages/proto -w packages/sdk -w apps/sponsor -w apps/indexer
-OSP_SPONSOR_POLICY_VERSION=3 OSP_SPONSOR_MAX_BYTES_PER_OP=73728 OSP_SPONSOR_MAX_OPS_PER_TX=4 OSP_SPONSOR_REGISTER=true pm2 restart osp-sponsor --update-env
+OSP_SPONSOR_POLICY_VERSION=4 OSP_SPONSOR_MAX_BYTES_PER_OP=272384 OSP_SPONSOR_MAX_OPS_PER_TX=4 OSP_SPONSOR_REGISTER=true pm2 restart osp-sponsor --update-env
 pm2 restart osp-indexer
 pm2 save
 node --import tsx scripts/verify-music.ts --network harbinger
@@ -163,5 +163,30 @@ ciphertext, withheld access, pending delivery and encrypted comments.
 
 The v1 [native simulation](evidence/music-native-simulation.json) remains prior
 historical evidence; it does not validate v2 escrow or a full v2 song upload.
-A live v2 Mana comparison still needs a funded Harbinger payer. Both existing
-standalone audio test wallets had zero Mana when checked for this release.
+The completed v1/v2 song comparison is recorded in
+[evidence/music-v2-live-benchmark.json](evidence/music-v2-live-benchmark.json).
+The v3 transfer benchmark and rollout are in [music-v3-transfers.md](music-v3-transfers.md).
+New v3 Mana and live timing measurements remain pending deployment.
+
+## Faster downloads and device cache
+
+Music capability version 3 adds the read-only `get_music_chunks(id, index, count)`
+method. It returns at most 16 committed chunks per request and also reads existing
+v1/v2 tracks. The frontend runs at most four requests concurrently, validates
+every chunk against its manifest, then validates the complete file digest. It
+uses the existing single-chunk reads on older contracts. Malformed batch responses
+are rejected, not silently accepted or downgraded.
+
+Verified chain bytes are cached in IndexedDB with a 64 MiB total limit, least
+recently used eviction and a 30-day inactivity expiry. Public tracks retain their
+original bytes; restricted/paid tracks retain ciphertext only. Reading keys and
+decrypted private audio are never written to this cache. Each play reads current
+track state and checks protected access before decryption, including cache hits.
+Cache data is reverified; a corrupt entry is discarded and downloaded again.
+Storage failures do not block playback. Clear the cache in **Settings → Network
+& endpoints → Downloaded music**.
+
+Upload batch size is capped by contract capability and the fee recipient's sponsor
+policy. Saved drafts can continue using smaller batches. The uploader still waits
+for confirmation between batches, preserving account nonce ordering and resume
+safety. This release adds neither transcoding nor streaming nor content deduplication.

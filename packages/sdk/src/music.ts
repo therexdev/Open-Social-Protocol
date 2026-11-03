@@ -6,7 +6,10 @@ import type { ProtocolClient } from "./client/protocolClient.js";
 import type { Address, Bytes, U64 } from "./client/types.js";
 
 export const MUSIC_CHUNK_BYTES = 16384;
-export const MUSIC_BATCH_CHUNKS = 4;
+export const MUSIC_BATCH_CHUNKS = 16;
+export const MUSIC_READ_BATCH_CHUNKS = 16;
+export const MUSIC_BATCH_ARGUMENT_BYTES = 272384; // 266 KiB, including bounded metadata.
+export const musicBatchChunks = (version: number): number => version >= 3 ? MUSIC_BATCH_CHUNKS : version >= 2 ? 4 : 1;
 export const MUSIC_MAX_BYTES = 10 * 1024 * 1024;
 export const MUSIC_DEFAULT_RATE = "8610000000"; // 86.1 native KOIN / decimal MB
 export const MUSIC_MIMES = [
@@ -141,7 +144,7 @@ export async function musicConfig(client: ProtocolClient): Promise<MusicConfig> 
       "Music uploads need the updated Open Social contract. Please try again after the network update."
     );
   }
-  if (config?.version !== 1 && config?.version !== 2)
+  if (config?.version !== 1 && config?.version !== 2 && config?.version !== 3)
     throw new Error("This network does not support Music yet.");
   return config;
 }
@@ -213,7 +216,7 @@ export function validMusicPaymentBundle(
   }
 }
 
-/** A four-chunk batch has four bounded resource units but one signature/transaction.
+/** Each chunk consumes one bounded resource unit, with one signature per batch.
  * Other methods retain one unit per operation. Shared by clients and sponsors. */
 export function musicOperationUnits(
   contracts: ProtocolContracts,

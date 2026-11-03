@@ -148,6 +148,12 @@ it("checks every chunk in a batch and charges quota per chunk", async () => {
   record!.chunk_hashes[3] = new Uint8Array(32);
   await expect(musicAllowance(client, sponsor, alice, [op])).rejects.toThrow("Refresh");
 });
+it("sponsors sixteen chunks with sixteen quota units and rejects corruption in the last chunk", async () => {
+  const op = await client.ops.publications.append_music_batch({ owner: alice, id, index: 0, chunks: Array.from({ length: 16 }, () => data) });
+  expect((await musicAllowance(client, sponsor, alice, [op]))?.units).toBe(16);
+  record!.chunk_hashes[15] = new Uint8Array(32);
+  await expect(musicAllowance(client, sponsor, alice, [op])).rejects.toThrow("Refresh");
+});
 it("rejects oversized or mixed batches, skipped indexes and a forged owner", async () => {
   const batch = (changes = {}) =>
     client.ops.publications.append_music_batch({
@@ -159,7 +165,7 @@ it("rejects oversized or mixed batches, skipped indexes and a forged owner", asy
     });
   await expect(
     musicAllowance(client, sponsor, alice, [
-      await batch({ chunks: [data, data, data, data, data] }),
+      await batch({ chunks: Array.from({ length: 17 }, () => data) }),
     ])
   ).rejects.toThrow();
   await expect(

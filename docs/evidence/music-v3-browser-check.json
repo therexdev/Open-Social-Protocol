@@ -1,0 +1,23 @@
+{
+  "initial": {
+    "reads": 33,
+    "peak": 4,
+    "identical": true,
+    "duration": 210
+  },
+  "persisted": {
+    "reads": 0,
+    "peak": 0,
+    "identical": true,
+    "duration": 210
+  },
+  "restricted": {
+    "firstReads": 33,
+    "repeatReads": 0,
+    "revoked": true,
+    "ciphertextOnly": true,
+    "identical": true,
+    "duration": 210
+  },
+  "errors": []
+}

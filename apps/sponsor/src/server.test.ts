@@ -110,6 +110,31 @@ async function expectRefusal(app: FastifyInstance, transaction: unknown, status:
 }
 
 describe("discovery", () => {
+  it("initializes Music v3 and accepts a signed sixteen-chunk JSON request with a weighted ceiling", async () => {
+    const data = new Uint8Array(16384).fill(17);
+    const harness = await start({ provider: {
+      rc: { [sponsor]: "10000000000" },
+      onRead: op => {
+        if (op.entry_point === ABIS.publications.methods.get_music_config!.entry_point)
+          return encode("publications.get_music_config_result", { value: { version: 3, native_token: other.getAddress(), recipient: sponsor, rate_per_mb: "8610000000", max_bytes: 10485760, enabled: true } });
+        if (op.entry_point === ABIS.publications.methods.get_music!.entry_point)
+          return encode("publications.get_music_result", { value: { owner: user.getAddress(), payer: user.getAddress(), recipient: sponsor, fee: "2300000000", size: 16 * 16384, received: 0, chunk_hashes: Array.from({ length: 16 }, () => contentHash(data)) } });
+      },
+    } });
+    try {
+      await harness.app.sponsorService.initializeMusic();
+      const health = (await harness.app.inject({ method: "GET", url: "/healthz" })).json();
+      expect(health.features.musicUploads).toBe(1);
+      expect(health.features.musicBatching).toBe(2);
+      const operation = await harness.client.ops.publications.append_music_batch({ owner: user.getAddress(), id: postId, index: 0, chunks: Array.from({ length: 16 }, () => data) });
+      const transaction = await userTx(harness, [operation], { rcLimit: "3200000000" });
+      expect(Buffer.byteLength(JSON.stringify({ transaction }))).toBeGreaterThan(256 * 1024);
+      const result = await sponsorRequest(harness.app, transaction);
+      expect(result.status, result.body.error?.message).toBe(200);
+      await verifySponsorResult(transaction, result.body as SponsorResult);
+      expect(harness.provider.sent.filter(tx => tx.broadcast)).toHaveLength(1);
+    } finally { await harness.app.close(); }
+  });
   it("serves a signed document that verifies and describes the default policy", async () => {
     const { app } = await start();
     const first = await app.inject({ method: "GET", url: "/.well-known/osp-sponsor.json" });
@@ -121,8 +146,8 @@ describe("discovery", () => {
     expect(doc.sponsor).toBe(sponsor);
     expect(doc.network.chainId).toBe(HARBINGER_CHAIN_ID);
     expect(doc.network.rpc).toEqual(deployment.rpc);
-    expect(doc.policy.version).toBe(3);
-    expect(doc.policy.maxBytesPerOp).toBe(73728);
+    expect(doc.policy.version).toBe(4);
+    expect(doc.policy.maxBytesPerOp).toBe(272384);
     expect(doc.policy.maxRcPerOp).toBe("200000000");
     expect(doc.policy.perUser).toEqual({ dailyOps: 200, burstOps: 180, burstWindowSec: 60 });
     const contracts = doc.policy.allowed.map((a) => a.contract).sort();
@@ -453,7 +478,7 @@ describe("POST /v1/sponsor refusals", () => {
       author: user.getAddress(),
       post_id: postId,
       sequence: "1",
-      envelope: new Uint8Array(74000).fill(9),
+      envelope: new Uint8Array(272385).fill(9),
       content_hash: new Uint8Array(32).fill(1),
       idempotency_key: new Uint8Array(16).fill(2),
     });

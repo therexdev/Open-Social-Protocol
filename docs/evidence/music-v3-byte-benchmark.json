@@ -1,0 +1,64 @@
+{
+  "generatedAt": "2026-11-03T20:43:59.553Z",
+  "filename": "OpenSocial-Good-Vibes-330.mp3",
+  "sha256": "7a8fe18649ab8677a30876c3a51d12370d0917e314c6c3387c61c3392aa84031",
+  "audioBytes": 8403298,
+  "ciphertextBytes": 8403314,
+  "chunks": 513,
+  "candidates": [
+    {
+      "batchSize": 4,
+      "uploadTransactions": 130,
+      "chunkReadRequests": 129,
+      "argumentBytes": 8413571,
+      "maxArgumentBytes": 65616,
+      "maxReadResponseBytes": 65552
+    },
+    {
+      "batchSize": 8,
+      "uploadTransactions": 66,
+      "chunkReadRequests": 65,
+      "argumentBytes": 8409491,
+      "maxArgumentBytes": 131168,
+      "maxReadResponseBytes": 131104
+    },
+    {
+      "batchSize": 16,
+      "uploadTransactions": 34,
+      "chunkReadRequests": 33,
+      "argumentBytes": 8407451,
+      "maxArgumentBytes": 262272,
+      "maxReadResponseBytes": 262208
+    }
+  ],
+  "before": {
+    "uploadTransactions": 514,
+    "appendTransactions": 513,
+    "appendArgumentBytes": 8438051,
+    "repeatedManifestSerializationBytes": 9033803
+  },
+  "fourChunkBaseline": {
+    "uploadTransactions": 130,
+    "appendTransactions": 129,
+    "appendArgumentBytes": 8413571,
+    "progressSerializationBytes": 356
+  },
+  "after": {
+    "uploadTransactions": 34,
+    "appendTransactions": 33,
+    "chunkReadRequests": 33,
+    "appendArgumentBytes": 8407451,
+    "progressSerializationBytes": 92
+  },
+  "applicationFeeKoin": 724,
+  "notes": [
+    "Same original audio bytes; no re-encoding.",
+    "Counts exclude optional key deliveries, unlock purchases, and comments.",
+    "Serialization bytes measure processing/writes, not net persistent disk growth or Mana savings.",
+    "Application fee is unchanged. Transaction count is measured from the batching rules, not elapsed upload time."
+  ],
+  "mana": {
+    "status": "not_measured",
+    "reason": "A funded Harbinger payer is required for resource simulations."
+  }
+}

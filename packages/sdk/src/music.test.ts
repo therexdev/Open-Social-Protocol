@@ -113,6 +113,8 @@ it("weights batch RC limits by committed chunks without raising ordinary action 
     chunks: [data, data, data, data],
   });
   expect(musicOperationUnits(client.contracts, [op])).toBe(4);
+  const full = await client.ops.publications.append_music_batch({ owner, id, index: 0, chunks: Array.from({ length: 16 }, () => data) });
+  expect(musicOperationUnits(client.contracts, [full])).toBe(16);
   expect(
     musicOperationUnits(client.contracts, [
       await client.ops.publications.append_music({ owner, id, index: 0, data }),
@@ -124,7 +126,7 @@ it("weights batch RC limits by committed chunks without raising ordinary action 
         owner,
         id,
         index: 0,
-        chunks: [data, data, data, data, data],
+        chunks: Array.from({ length: 17 }, () => data),
       }),
     ])
   ).toBe(1);

@@ -8,6 +8,7 @@ import {
   musicFee,
   verifySponsorDiscovery,
   NATIVE_APPROVE_ENTRY,
+  MUSIC_BATCH_ARGUMENT_BYTES,
   type SponsorDiscovery,
 } from "@osp/sdk";
 import { networkFromArgs, parseArgs, readDeployment } from "./common.ts";
@@ -28,11 +29,12 @@ console.log(
     2
   )
 );
-assert.equal(config.version, 2, "Upgrade publications for Music v2");
+assert.equal(config.version, 3, "Upgrade publications for Music v3 transfers");
 assert(config.enabled, "Music uploads are not enabled");
 await client.reads.publications.list_music_requests({ owner: config.recipient });
 await client.reads.publications.list_music_comments({ id: new Uint8Array(32) });
 await client.reads.token.get_music_payment({ id: new Uint8Array(32) });
+await client.reads.publications.get_music_chunks({ id: new Uint8Array(32), index: 0, count: 16 });
 
 assert.equal(
   (await client.provider.invokeGetContractAddress?.("koin"))?.value.address,
@@ -63,12 +65,12 @@ if (!args["contracts-only"]) {
     config.recipient,
     "Music fees must reach this sponsor for sponsored uploads"
   );
-  assert.equal(health.features?.musicBatching, 1, "Restart the Music v2 sponsor");
+  assert(health.features?.musicBatching >= 2, "Restart the Music v3 sponsor");
   const policy = discovery.policy;
-  assert(policy.version >= 3, "Music batching requires sponsor policy v3");
+  assert(policy.version >= 4, "Sixteen-chunk music batching requires sponsor policy v4");
   assert(
-    policy.maxBytesPerOp >= 73728 && Number(policy.maxOpsPerTx) >= 3,
-    "Sponsor needs 72 KiB arguments and 3 operations per transaction"
+    policy.maxBytesPerOp >= MUSIC_BATCH_ARGUMENT_BYTES && Number(policy.maxOpsPerTx) >= 3,
+    "Sponsor needs 266 KiB arguments and 3 operations per transaction"
   );
   for (const [address, entry] of [
     [config.native_token, NATIVE_APPROVE_ENTRY],
@@ -94,6 +96,8 @@ if (!args["contracts-only"]) {
   const registered = (await client.reads.sponsorship.get_sponsor({ sponsor: discovery.sponsor }))
     ?.value;
   assert(registered?.active, "Sponsor on-chain registration is not active");
+  assert(registered.max_bytes_per_op >= MUSIC_BATCH_ARGUMENT_BYTES && registered.policy_version >= 4,
+    "Upgrade sponsorship registry and refresh the on-chain policy v4 registration");
   assert(
     registered.allowed.some(
       (x) => x.contract_id === config.native_token && x.entry_points.includes(NATIVE_APPROVE_ENTRY)

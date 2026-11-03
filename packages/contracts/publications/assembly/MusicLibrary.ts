@@ -98,7 +98,7 @@ export class MusicLibrary {
     // Explicit recipient configuration is required before accepting money.
     const value =
       c == null ? new publications.music_config(1, 0, null, 8610000000, MAX_BYTES, false) : c!;
-    value.version = 2;
+    value.version = 3;
     value.native_token = System.getContractAddress("koin");
     return value;
   }
@@ -289,8 +289,8 @@ export class MusicLibrary {
     const owner = Util.requireAddress(args.owner, "owner"),
       id = this.id(args.id);
     System.require(
-      args.chunks.length > 0 && args.chunks.length <= 4,
-      "one to four audio chunks required"
+      args.chunks.length > 0 && args.chunks.length <= 16,
+      "one to sixteen audio chunks required"
     );
     Actor.requireAuthorized(identity, owner, args.device, Capability.PUBLISH);
     const v = this.get(id);
@@ -342,6 +342,28 @@ export class MusicLibrary {
         [owner]
       );
     }
+  }
+  readChunks(args: publications.get_music_chunks_arguments): publications.get_music_chunks_result {
+    const id = this.id(args.id);
+    System.require(args.count > 0 && args.count <= 16, "read one to sixteen audio chunks");
+    const result = new publications.get_music_chunks_result();
+    const progress = this.progress.get(id);
+    let received: u32 = 0;
+    if (progress != null) received = progress.received;
+    else {
+      // V1 kept its counter in the manifest. V2+ reads only the compact counter.
+      const track = this.tracks.get(id);
+      if (track == null) return result;
+      received = track.received;
+    }
+    System.require(args.index < received, "audio chunk not available");
+    const count = min<u32>(args.count, received - args.index);
+    for (let offset: u32 = 0; offset < count; offset++) {
+      const chunk = this.chunks.get(Util.concat([id, Util.u32be(args.index + offset)]));
+      System.require(chunk != null && chunk.data != null, "audio chunk not available");
+      result.chunks.push(chunk!.data!);
+    }
+    return result;
   }
   list(args: publications.list_music_arguments): publications.list_music_result {
     const grouped = !Util.isEmpty(args.group_id);

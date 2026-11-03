@@ -13,13 +13,13 @@ describe("system-call buffer", () => {
     // Importing the contract module runs its top-level buffer resize.
     const c = new Publications();
     expect(c.contractId.length).toBe(25);
-    expect(System.getSystemBufferSize() >= 32 * 1024).toBe(true);
-    const big = new Uint8Array(20000);
+    expect(System.getSystemBufferSize() >= 320 * 1024).toBe(true);
+    const big = new Uint8Array(263000);
     for (let i = 0; i < big.length; i++) big[i] = <u8>(i & 0x7f);
     MockVM.setContractArguments(big);
     System.resetCache();
     const args = System.getArguments();
-    expect(args.args.length).toBe(20000);
+    expect(args.args.length).toBe(263000);
     expect(args.args[19999]).toBe(<u8>(19999 & 0x7f));
   });
 });
