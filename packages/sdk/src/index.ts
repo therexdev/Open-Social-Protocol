@@ -29,3 +29,5 @@ export * from "./media.js";
 export * from "./polls.js";
 
 export * from "./photoLibrary.js";
+
+export * from "./music.js";

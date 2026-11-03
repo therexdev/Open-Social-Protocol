@@ -1,0 +1,14 @@
+{
+  "broadcast": false,
+  "network": "harbinger",
+  "chainId": "EiAIKVvm6-V2qmsmUvPJy09vCCLbtn9lHFpwrJbcTIEWRQ==",
+  "nativeAddress": "1FaSvLjQJsCJKq5ybmGsMMQs8RQYyVv8ju",
+  "wasmSha256": "1c9c48a5f37caf30093eba12e6adfa8754cbd688fc37f8d7eb0155879ff5d2d3",
+  "rcUsed": "1199102598",
+  "paymentAttempts": 2,
+  "uploadFeeTransfers": 1,
+  "feeAtomic": "100000000",
+  "cleanupVerified": true,
+  "completedEvents": 1,
+  "simulatedAt": "2026-11-03T04:43:04.301Z"
+}

@@ -5,7 +5,7 @@
  * the allowlist and the limits. Every refusal is a `SponsorRefusal` with a stable category
  * from docs/sponsor-api.md and the HTTP status the server should answer with.
  */
-import { Signer, Transaction, isAddress, type ProtocolContracts, type SponsorErrorCategory, type TransactionJson } from "@osp/sdk";
+import { validMusicPaymentBundle, Signer, Transaction, isAddress, type ProtocolContracts, type SponsorErrorCategory, type TransactionJson } from "@osp/sdk";
 import type { CallContractOperationJson, OperationJson } from "@osp/sdk";
 import { utils } from "koilib";
 import { actorField, deviceMaySign, type Allowlist } from "./policy.js";
@@ -155,6 +155,12 @@ function inspectOperations(operations: unknown, payee: string, ctx: ValidationCo
       throw new SponsorRefusal("too_large", `operation ${index}: ${allowed.contract}.${allowed.method} args are ${bytes} bytes (limit ${ctx.limits.maxBytesPerOp})`);
     }
     const operation: CallContractOperationJson = { contract_id: call.contract_id, entry_point: call.entry_point, args: typeof call.args === "string" ? call.args : "" };
+    if (allowed.contract === "native") {
+      if (allowed.method !== "approve" || !validMusicPaymentBundle(ctx.contracts, operations as OperationJson[], payee, call.contract_id))
+        throw new SponsorRefusal("method_not_allowed", "Native approvals require the exact music payment and allowance cleanup bundle");
+      out.push({ index, contract: "native", method: "approve", entryPoint: call.entry_point, contractId: call.contract_id, argsBytes: bytes, actor: payee, operation });
+      continue;
+    }
     const decoded = ctx.contracts.decodeOperation({ call_contract: operation });
     if (!decoded) throw new SponsorRefusal("invalid_transaction", `operation ${index}: ${allowed.contract}.${allowed.method} arguments do not decode`);
     if (decoded.method !== allowed.method || decoded.contract !== allowed.contract) {

@@ -8,6 +8,7 @@ const peer = "1WhPkYjyS1ChEKmbxNAyFUHLuRVQCjNMF";
 const mocks = vi.hoisted(() => ({ blocked: [] as string[] }));
 vi.mock("../../api/services", () => ({ useServices: () => ({ indexer: { configured: true } }) }));
 vi.mock("../../vault/context", () => ({ useVault: (selector: any) => selector({ account: "1EiR6tc8jtVK6boR5w1chjq17XEXXHiNk4", status: "unlocked" }) }));
+vi.mock("../music/MusicSection", () => ({ MusicSection: ({ owner }: { owner: string }) => <div data-music-owner={owner}>Profile music</div> }));
 vi.mock("../session", () => ({ useCanAct: () => ({ ok: true }), useSubmitContext: () => undefined }));
 vi.mock("./useProfileName", () => ({ useProfileInfo: () => ({ displayName: "Jim", registered: true }) }));
 vi.mock("../feed/FeedPage", () => ({ usePagedPosts: () => ({ items: [], loading: false }) }));
@@ -27,4 +28,13 @@ it("does not offer messaging your own profile", async () => {
 });
 it("does not offer a message shortcut for a blocked profile", async () => {
   mocks.blocked = [peer]; await mount(peer); expect(box.querySelector('a[href^="/messages"]')).toBeNull();
+});
+
+it("opens Music for the selected personal profile", async () => {
+  await mount(peer);
+  const tab = [...box.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(x => x.textContent === "Music");
+  expect(tab).toBeDefined();
+  await act(async () => tab!.click());
+  expect(box.querySelector("[data-music-owner]")?.getAttribute("data-music-owner")).toBe(peer);
+  expect(tab!.getAttribute("aria-selected")).toBe("true");
 });

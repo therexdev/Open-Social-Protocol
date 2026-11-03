@@ -36,6 +36,7 @@ async function main(): Promise<void> {
   const service = app.sponsorService;
 
   await app.listen({ port: config.port, host: config.host });
+  try { await service.initializeMusic(); } catch (error) { log(`Music payments unavailable: ${(error as Error).message}`); }
   const status = service.status();
   log(`network ${config.network}; listening on http://${config.host}:${config.port}; public URL ${config.publicUrl}`);
   log(`state: ${status.state} - ${status.message}`);

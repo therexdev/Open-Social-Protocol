@@ -1,9 +1,13 @@
 # Mentions in the reference web client
 
-Type `@` in a post or reply to see friends. Keep typing to filter by display name
+Type `@` in a post or reply to see people, with friends first. Keep typing to filter by display name
 or account address and search other profiles. Name matching ignores case and
 accents. Friends remain first; duplicate display names have separate rows with
 account addresses. The picker excludes your account and known blocked accounts.
+Public names are preloaded on focus so matching suggestions stay available while
+search requests run. Full names keep the list open between words; names with
+symbols and emoji are supported too. Searches also reach beyond the preloaded
+directory, which is limited to 100 profiles.
 
 Select a person with a click/tap, or use the arrow keys and Enter. Escape, Tab,
 or moving focus out of the editor dismisses the list. Enter without an active

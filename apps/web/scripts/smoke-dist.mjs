@@ -9,7 +9,8 @@ import { JSDOM } from "jsdom";
 
 const dist = fileURLToPath(new URL("../dist/", import.meta.url));
 const html = readFileSync(path.join(dist, "index.html"), "utf8");
-const dom = new JSDOM(html, { url: "https://opensocial.test/people?q=Release", pretendToBeVisual: true });
+const dom = new JSDOM(html, { url: "https://opensocial.test/people?q=Rex", pretendToBeVisual: true });
+const person = { account: "1EiR6tc8jtVK6boR5w1chjq17XEXXHiNk4", profileUri: "data:application/x-osp-profile;base64,CAESA1JleA==" };
 const errors = [];
 const requests = [];
 const timers = new Set();
@@ -21,7 +22,7 @@ const fetch = async input => {
   const url = new URL(String(input), dom.window.location.href);
   requests.push(url);
   // Hold the response until assertions have observed the actual request destination.
-  if (url.pathname === "/v1/people") return new Promise(resolve => pending.push(() => resolve(new Response(JSON.stringify({ items: [] })))));
+  if (url.pathname === "/v1/people") return new Promise(resolve => pending.push(() => resolve(new Response(JSON.stringify({ items: [person] })))));
   throw new Error(`Unexpected network request: ${url.href}`);
 };
 const context = vm.createContext({
@@ -53,10 +54,12 @@ try {
   assert.ok(!doc.body.textContent.includes("No indexer is configured"), "Release has no indexer configured");
   const people = requests.find(url => url.pathname === "/v1/people");
   assert.ok(people, "Shipped app never requested the nickname search API");
+  assert.equal(people.searchParams.get("query"), "Rex", "Nickname query was not sent to the indexer");
   assert.ok(people.protocol === "https:" || people.hostname === "localhost" || people.hostname === "127.0.0.1", "Invalid indexer endpoint");
   pending.splice(0).forEach(resolve => resolve());
-  for (let i = 0; i < 20 && !doc.body.textContent.includes("No people found"); i++) await settle();
-  assert.ok(doc.body.textContent.includes("No people found"), "Shipped app could not render its indexer response");
+  for (let i = 0; i < 20 && !doc.querySelector(".person-result"); i++) await settle();
+  assert.equal(doc.querySelector(".person-result strong")?.textContent, "Rex", "Shipped app could not decode the person's display name");
+  assert.equal(doc.querySelector(".person-result")?.getAttribute("href"), `/u/${person.account}`, "Name does not link to the selected account");
   // Inspect the effective sponsor through the real Settings UI, not a replacement resolver.
   doc.querySelector('.sidebar a[href="/settings"]').click();
   for (let i = 0; i < 20 && !doc.body.textContent.includes("Network and endpoints"); i++) await settle();

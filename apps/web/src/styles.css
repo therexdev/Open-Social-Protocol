@@ -1264,3 +1264,11 @@ select, .quick-composer select, .conversation-list select, .composer-identity se
 
 .gallery-also-post { display:flex; align-items:center; gap:.6rem; margin:1rem 0; }
 .gallery-also-post input { width:auto; margin:0; }
+
+/* Profile music keeps native audio controls usable on narrow screens. */
+.music-track { display: grid; gap: .75rem; padding: 1rem 0; border-bottom: 1px solid var(--border, #dce1e8); }
+.music-track:last-child { border-bottom: 0; }
+.music-track h3 { margin: 0; overflow-wrap: anywhere; }
+.music-track audio { width: 100%; min-width: 0; }
+.music-price { padding: 1rem; border: 1px solid var(--border, #dce1e8); border-radius: .75rem; margin: 1rem 0; }
+[aria-label="Profile music"] progress { width: 100%; }

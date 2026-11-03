@@ -60,10 +60,10 @@ describe("account-bound mentions", () => {
 });
 
 describe("mention completion at the cursor", () => {
-  it.each(["@", "Hello @Al", "Hi (@Zoë", "Line one\n@Alex Ki", "@東京"])("opens at %s", text => {
+  it.each(["@", "Hello @Al", "Hi (@Zoë", "Line one\n@Alex Ki", "@東京", "@Alex ", "@L33T US€R", "@Sam 👩‍💻", "@Jean–Paul"])("opens at %s", text => {
     expect(findMentionQuery(plain(text), text.length)).toBeDefined();
   });
-  it.each(["person@example.org", "https://host/@Al", "word@Al", "@@Al", "@Al\n", "@Al ", "@Al!", "@" + "a".repeat(65)])("does not open at %s", text => {
+  it.each(["person@example.org", "https://host/@Al", "word@Al", "@@Al", "@Al\n", "@Al\t", "@Al!", "@" + "a".repeat(65)])("does not open at %s", text => {
     expect(findMentionQuery(plain(text), text.length)).toBeUndefined();
   });
   it("ignores selected text and completed mentions, and replaces only the current unfinished word", () => {
