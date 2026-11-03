@@ -7,7 +7,8 @@ import type { Address, Bytes, U64 } from "./client/types.js";
 
 export const MUSIC_CHUNK_BYTES = 16384;
 export const MUSIC_BATCH_CHUNKS = 16;
-export const MUSIC_READ_BATCH_CHUNKS = 16;
+// Public RPC read calls have a lower compute budget than upload transactions.
+export const MUSIC_READ_BATCH_CHUNKS = 8;
 export const MUSIC_BATCH_ARGUMENT_BYTES = 272384; // 266 KiB, including bounded metadata.
 export const musicBatchChunks = (version: number): number => version >= 3 ? MUSIC_BATCH_CHUNKS : version >= 2 ? 4 : 1;
 export const MUSIC_MAX_BYTES = 10 * 1024 * 1024;

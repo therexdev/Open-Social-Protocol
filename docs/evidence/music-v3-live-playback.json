@@ -1,0 +1,59 @@
+{
+  "network": "harbinger",
+  "rpc": "https://testnet.koinosfoundation.org/jsonrpc",
+  "source": "Live chain responses; Chromium executes the production loader and IndexedDB cache. Browser RPC transport forwarded unchanged through Node fetch.",
+  "short": {
+    "title": "10 Second Test",
+    "bytes": 402381,
+    "digest": "sRnrmW_qWbAcQOJo1PUIMaEQg885PGYyHF66-E5HepE=",
+    "reads": 4,
+    "peak": 4,
+    "duration": 10.017959,
+    "played": true,
+    "milliseconds": 10119
+  },
+  "full": {
+    "title": "Koinos Jams",
+    "bytes": 8403298,
+    "digest": "eo_hhkmrhnejCHbDpR0SNw0JF-MUxsM4fGHDOSqoQDE=",
+    "reads": 65,
+    "peak": 4,
+    "duration": 210,
+    "played": true,
+    "milliseconds": 10427
+  },
+  "replay": {
+    "title": "10 Second Test",
+    "bytes": 402381,
+    "digest": "sRnrmW_qWbAcQOJo1PUIMaEQg885PGYyHF66-E5HepE=",
+    "reads": 0,
+    "peak": 0,
+    "duration": 10.017959,
+    "played": true,
+    "milliseconds": 238
+  },
+  "errors": [],
+  "probe": {
+    "index": 0,
+    "16": {
+      "error": "compute bandwidth limit exceeded",
+      "code": -1013
+    },
+    "8": {
+      "chunks": 8,
+      "bytes": 131072
+    },
+    "4": {
+      "chunks": 4,
+      "bytes": 65536
+    },
+    "2": {
+      "chunks": 2,
+      "bytes": 32768
+    },
+    "1": {
+      "chunks": 1,
+      "bytes": 16384
+    }
+  }
+}

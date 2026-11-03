@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-03T20:43:59.553Z",
+  "generatedAt": "2026-11-03T22:32:50.250Z",
   "filename": "OpenSocial-Good-Vibes-330.mp3",
   "sha256": "7a8fe18649ab8677a30876c3a51d12370d0917e314c6c3387c61c3392aa84031",
   "audioBytes": 8403298,
@@ -46,7 +46,8 @@
   "after": {
     "uploadTransactions": 34,
     "appendTransactions": 33,
-    "chunkReadRequests": 33,
+    "chunkReadRequests": 65,
+    "readBatchChunks": 8,
     "appendArgumentBytes": 8407451,
     "progressSerializationBytes": 92
   },
@@ -54,6 +55,7 @@
   "notes": [
     "Same original audio bytes; no re-encoding.",
     "Counts exclude optional key deliveries, unlock purchases, and comments.",
+    "Candidate read counts are theoretical. Default reads use eight chunks and shrink on RPC compute limits; uploads can still use sixteen.",
     "Serialization bytes measure processing/writes, not net persistent disk growth or Mana savings.",
     "Application fee is unchanged. Transaction count is measured from the batching rules, not elapsed upload time."
   ],

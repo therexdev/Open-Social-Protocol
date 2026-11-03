@@ -8,12 +8,22 @@ streaming, lossy encoding, compression, or deduplication.
 | Transfer | Music v2 client | Music v3 client |
 | --- | ---: | ---: |
 | Full-song upload transactions, including payment | 130 | 34 |
-| Audio read requests on first download | 513 | 33 |
+| Audio read requests on first download | 513 | 65 |
 | Audio read requests on a verified cache hit | 513 | 0 |
 
-Metadata and access checks still use network reads on cache hits. The table is
-verified by local integration tests and wire encoding, not a claim about live
+Metadata and access checks still use network reads on cache hits. Upload counts
+are verified by integration tests and wire encoding; download counts are also
+verified against existing live tracks. They are not a claim about the user's
 upload/download duration. No v3 Mana saving is claimed before a live benchmark.
+
+The playback correction uses eight chunks per read. The live Harbinger RPC
+rejects sixteen full chunks with `compute bandwidth limit exceeded` (-1013),
+even though the contract supports that count and upload transactions succeed.
+The client halves a rejected read batch down to one chunk, retaining integrity
+checks and at most four concurrent reads. Uploads remain sixteen chunks.
+Only the frontend must be replaced after this correction; existing tracks,
+contracts and VPS services require no changes. The original 33-read claim was
+based on mocked RPC responses and does not apply to this live RPC limit.
 
 ## Batch choice
 
@@ -26,7 +36,7 @@ current Harbinger block disk budget is 524,288 bytes and network budget is
 1,048,576 bytes; 16 chunks leave space for protocol overhead. Actual compute and
 Mana still require simulation/live measurement on the target chain.
 
-Sixteen is the supported maximum and default on capability v3. The client caps
+Sixteen is the supported maximum and default for uploads on capability v3. The client caps
 uploads to 8/4/1 if the selected fee recipient's sponsor limits or current
 contract require it. It retains serial transaction confirmation and checks
 every commitment. Existing 1/4-chunk saved drafts remain resumable without
@@ -79,11 +89,16 @@ frontend/extension smoke checks passed. Tests cover maximum-size signed HTTP
 requests, 16-chunk contract buffers, legacy reads, interrupted upload resume,
 sponsor capability fallback, corrupt data, cache eviction and restricted access.
 
-A real Chromium check with the original 210-second MP3 confirmed 33 first-load
+A real Chromium check with mocked responses and the original 210-second MP3 confirmed 33 first-load
 reads and zero audio reads after a page reload. Encrypted playback also retained
 the exact audio, persisted only ciphertext and refused a revoked recipient.
-These browser checks used mock chain responses, not deployed v3 contracts. See
+These original browser checks used mock chain responses, not deployed v3 contracts. See
 [browser evidence](evidence/music-v3-browser-check.json).
+
+The subsequent live-chain Chromium check exercises the corrected production
+loader against both the uploaded 10-second test and the original full song,
+verifying complete digests, audio playback and persistence across a page reload.
+See [live playback evidence](evidence/music-v3-live-playback.json).
 
 ```bash
 node --import tsx scripts/benchmark-music.ts --audio /path/to/song.mp3 --output results.json

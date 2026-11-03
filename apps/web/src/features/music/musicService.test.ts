@@ -329,7 +329,7 @@ function v3Draft(size = 8403298) {
   }));
 }
 
-it("uploads the full 513-chunk file in 34 transactions, resumes safely and downloads in 33 reads", async () => {
+it("uploads the full 513-chunk file in 34 transactions, resumes safely and downloads in 65 reads", async () => {
   v3Draft();
   ctx.payment = "self-only";
   failAt = 16;
@@ -351,8 +351,8 @@ it("uploads the full 513-chunk file in 34 transactions, resumes safely and downl
   });
   const progress = vi.fn();
   expect(contentHash((await loadMusic(client, draft.id, undefined, progress)).bytes)).toEqual(contentHash(bytes));
-  expect(client.reads.publications.get_music_chunks).toHaveBeenCalledTimes(33);
-  expect(client.reads.publications.get_music_chunk).not.toHaveBeenCalled();
+  expect(client.reads.publications.get_music_chunks).toHaveBeenCalledTimes(64);
+  expect(client.reads.publications.get_music_chunk).toHaveBeenCalledTimes(1);
   expect(peak).toBeLessThanOrEqual(4);
   expect(progress).toHaveBeenLastCalledWith(513, 513);
 });
@@ -387,7 +387,7 @@ it("verifies cached bytes against fresh chain state and redownloads corrupted ca
   expect(client.reads.publications.get_music_chunks).not.toHaveBeenCalled();
   vi.spyOn(cache, "get").mockResolvedValueOnce(new Uint8Array(bytes.length));
   expect((await loadMusic(client, draft.id)).bytes).toEqual(bytes);
-  expect(client.reads.publications.get_music_chunks).toHaveBeenCalledTimes(2);
+  expect(client.reads.publications.get_music_chunks).toHaveBeenCalledTimes(3);
   vi.mocked(client.reads.publications.get_music_chunks).mockClear();
   record!.received--;
   await expect(loadMusic(client, draft.id)).rejects.toThrow("not ready");
@@ -404,6 +404,66 @@ it("rejects corrupt/truncated batch responses and respects cancellation even on 
   await expect(loadMusic(client, draft.id)).rejects.toThrow("verification");
   const cancelled = new AbortController(); cancelled.abort();
   await expect(loadMusic(client, draft.id, cancelled.signal)).rejects.toThrow("cancelled");
+});
+
+it.each([4, 2, 1])("reduces compute-limited reads to %i chunks without gaps or duplicate progress", async limit => {
+  v3Draft(720000);
+  ctx.payment = "self-only";
+  await uploadMusic(ctx, draft, bytes, () => {}, () => {});
+  const completed: number[] = [];
+  let active = 0, peak = 0;
+  const limited = new Error('{"error":"compute bandwidth limit exceeded","code":-1013,"logs":[]}');
+  vi.mocked(client.reads.publications.get_music_chunks).mockImplementation(async args => {
+    active++; peak = Math.max(peak, active);
+    await Promise.resolve(); active--;
+    if (args!.count > limit) throw limited;
+    return { chunks: Array.from({ length: args!.count }, (_, n) => {
+      completed.push(args!.index + n);
+      return saved.get(args!.index + n)!;
+    }) };
+  });
+  vi.mocked(client.reads.publications.get_music_chunk).mockImplementation(async args => {
+    active++; peak = Math.max(peak, active);
+    await Promise.resolve(); active--;
+    completed.push(args!.index);
+    return { data: saved.get(args!.index)! };
+  });
+  const progress = vi.fn();
+  expect(contentHash((await loadMusic(client, draft.id, undefined, progress)).bytes)).toEqual(contentHash(bytes));
+  expect(completed.sort((a, b) => a - b)).toEqual(Array.from(saved.keys()));
+  expect(peak).toBeLessThanOrEqual(4);
+  const updates = progress.mock.calls.map(([n]) => n as number);
+  expect(updates.every((n, i) => n > (updates[i - 1] ?? 0))).toBe(true);
+  expect(progress).toHaveBeenLastCalledWith(saved.size, saved.size);
+  expect(Math.max(...vi.mocked(client.reads.publications.get_music_chunks).mock.calls.map(([a]) => a!.count))).toBe(8);
+});
+
+it("does not split unrelated RPC failures or retry a compute limit on a single chunk", async () => {
+  v3Draft(100000);
+  ctx.payment = "self-only";
+  await uploadMusic(ctx, draft, bytes, () => {}, () => {});
+  vi.mocked(client.reads.publications.get_music_chunks).mockRejectedValue(new Error("RPC unavailable"));
+  await expect(loadMusic(client, draft.id)).rejects.toThrow("RPC unavailable");
+  expect(client.reads.publications.get_music_chunks).toHaveBeenCalledTimes(1);
+  expect(client.reads.publications.get_music_chunk).not.toHaveBeenCalled();
+  vi.mocked(client.reads.publications.get_music_chunks).mockRejectedValue(new Error("compute bandwidth limit exceeded"));
+  vi.mocked(client.reads.publications.get_music_chunk).mockRejectedValue(new Error("compute bandwidth limit exceeded"));
+  await expect(loadMusic(client, draft.id)).rejects.toThrow("compute bandwidth limit exceeded");
+  expect(client.reads.publications.get_music_chunk).toHaveBeenCalledTimes(1);
+});
+
+it("stops before retrying a compute-limited read if playback was cancelled", async () => {
+  v3Draft(100000);
+  ctx.payment = "self-only";
+  await uploadMusic(ctx, draft, bytes, () => {}, () => {});
+  const cancelled = new AbortController();
+  vi.mocked(client.reads.publications.get_music_chunks).mockImplementation(async () => {
+    cancelled.abort();
+    throw new Error("compute bandwidth limit exceeded");
+  });
+  await expect(loadMusic(client, draft.id, cancelled.signal)).rejects.toThrow("cancelled");
+  expect(client.reads.publications.get_music_chunks).toHaveBeenCalledTimes(1);
+  expect(client.reads.publications.get_music_chunk).not.toHaveBeenCalled();
 });
 
 it("caches private ciphertext while still refusing playback without current access", async () => {

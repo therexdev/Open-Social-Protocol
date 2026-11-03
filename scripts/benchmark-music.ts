@@ -19,6 +19,7 @@ import {
   musicPaymentOperations,
   toBase64url,
   MUSIC_BATCH_ARGUMENT_BYTES,
+  MUSIC_READ_BATCH_CHUNKS,
 } from "@osp/sdk";
 const flags = Object.fromEntries(
   process.argv.slice(2).reduce<string[][]>((out, arg, i, all) => {
@@ -115,7 +116,8 @@ const report: Record<string, unknown> = {
   after: {
     uploadTransactions: 1 + Math.ceil(chunks.length / 16),
     appendTransactions: Math.ceil(chunks.length / 16),
-    chunkReadRequests: Math.ceil(chunks.length / 16),
+    chunkReadRequests: Math.ceil(chunks.length / MUSIC_READ_BATCH_CHUNKS),
+    readBatchChunks: MUSIC_READ_BATCH_CHUNKS,
     appendArgumentBytes: v3Arguments,
     progressSerializationBytes: v3ProgressWrites,
   },
@@ -123,6 +125,7 @@ const report: Record<string, unknown> = {
   notes: [
     "Same original audio bytes; no re-encoding.",
     "Counts exclude optional key deliveries, unlock purchases, and comments.",
+    "Candidate read counts are theoretical. Default reads use eight chunks and shrink on RPC compute limits; uploads can still use sixteen.",
     "Serialization bytes measure processing/writes, not net persistent disk growth or Mana savings.",
     "Application fee is unchanged. Transaction count is measured from the batching rules, not elapsed upload time.",
   ],

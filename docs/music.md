@@ -166,13 +166,16 @@ historical evidence; it does not validate v2 escrow or a full v2 song upload.
 The completed v1/v2 song comparison is recorded in
 [evidence/music-v2-live-benchmark.json](evidence/music-v2-live-benchmark.json).
 The v3 transfer benchmark and rollout are in [music-v3-transfers.md](music-v3-transfers.md).
-New v3 Mana and live timing measurements remain pending deployment.
+New v3 upload Mana and timing measurements still require a full benchmark.
 
 ## Faster downloads and device cache
 
 Music capability version 3 adds the read-only `get_music_chunks(id, index, count)`
 method. It returns at most 16 committed chunks per request and also reads existing
-v1/v2 tracks. The frontend runs at most four requests concurrently, validates
+v1/v2 tracks. The frontend starts with eight chunks per read because the live
+Harbinger RPC rejects sixteen full chunks with `compute bandwidth limit exceeded`
+(-1013). It halves the batch on that specific error, down to single-chunk reads.
+Uploads still use up to sixteen chunks. The frontend runs at most four requests concurrently, validates
 every chunk against its manifest, then validates the complete file digest. It
 uses the existing single-chunk reads on older contracts. Malformed batch responses
 are rejected, not silently accepted or downgraded.

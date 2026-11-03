@@ -409,7 +409,7 @@ export async function loadMusic(
     } catch { await cache?.remove(cacheKey); }
   }
   const config = await musicConfig(client);
-  const batchSize = config.version >= 3 ? MUSIC_READ_BATCH_CHUNKS : 1;
+  let batchSize = config.version >= 3 ? MUSIC_READ_BATCH_CHUNKS : 1;
   const chunks = new Array<Uint8Array>(record.chunk_hashes.length);
   let cursor = 0,
     received = 0;
@@ -417,22 +417,42 @@ export async function loadMusic(
     Array.from({ length: Math.min(4, Math.ceil(chunks.length / batchSize)) }, () => (async () => {
       while (cursor < chunks.length) {
         check();
-        const index = cursor, count = Math.min(batchSize, chunks.length - index);
-        cursor += count;
-        const result = batchSize > 1
-          ? (await client.reads.publications.get_music_chunks({ id: key, index, count }))?.chunks
-          : [(await client.reads.publications.get_music_chunk({ id: key, index }))?.data];
-        check();
-        if (!result || result.length !== count)
-          throw new Error("An audio chunk is unavailable. Retry loading the track.");
-        for (let offset = 0; offset < count; offset++) {
-          const chunk = result[offset], i = index + offset;
-          if (!(chunk instanceof Uint8Array) || chunk.length !== Math.min(MUSIC_CHUNK_BYTES, record.size - i * MUSIC_CHUNK_BYTES) || !bytesEqual(contentHash(chunk), record.chunk_hashes[i]!))
-            throw new Error("Audio chunk verification failed.");
-          chunks[i] = chunk;
+        let index = cursor;
+        const end = Math.min(index + batchSize, chunks.length);
+        cursor = end;
+        // Keep ownership of this range while retrying, so concurrent workers
+        // cannot skip or duplicate chunks when the RPC needs a smaller batch.
+        while (index < end) {
+          check();
+          const count = Math.min(batchSize, end - index);
+          let result: Array<Uint8Array | undefined> | undefined;
+          try {
+            result = count > 1
+              ? (await client.reads.publications.get_music_chunks({ id: key, index, count }))?.chunks
+              : [(await client.reads.publications.get_music_chunk({ id: key, index }))?.data];
+          } catch (error) {
+            check();
+            // Only retry an explicit RPC compute limit. Corrupt responses,
+            // missing chunks and other errors must still fail verification.
+            if (count > 1 && error instanceof Error && /compute bandwidth limit exceeded/i.test(error.message)) {
+              batchSize = Math.min(batchSize, Math.max(1, Math.floor(count / 2)));
+              continue;
+            }
+            throw error;
+          }
+          check();
+          if (!result || result.length !== count)
+            throw new Error("An audio chunk is unavailable. Retry loading the track.");
+          for (let offset = 0; offset < count; offset++) {
+            const chunk = result[offset], i = index + offset;
+            if (!(chunk instanceof Uint8Array) || chunk.length !== Math.min(MUSIC_CHUNK_BYTES, record.size - i * MUSIC_CHUNK_BYTES) || !bytesEqual(contentHash(chunk), record.chunk_hashes[i]!))
+              throw new Error("Audio chunk verification failed.");
+            chunks[i] = chunk;
+          }
+          index += count;
+          received += count;
+          progress?.(received, chunks.length);
         }
-        received += count;
-        progress?.(received, chunks.length);
       }
     })().catch(error => { stopped = true; throw error; }))
   );
