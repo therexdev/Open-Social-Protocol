@@ -26,13 +26,13 @@ The fee recipient should be the existing Mana sponsor. That sponsor only covers 
 
 This change is not activated just by replacing frontend files. Keep a backup of the current frontend and deploy the publications and sponsor updates first.
 
-1. Merge this branch into the active `codex/protocol-polls` branch. Run the existing `deploy-testnet` workflow with network `harbinger` and contracts `publications` (or the CLI below). Use the existing contract seed so accounts remain unchanged. No other contract upgrade is needed.
-2. Review and set the fee policy. The configuration script defaults to the existing sponsor address from the deployment's cryptographically verified discovery document. `--recipient ADDRESS` explicitly selects another treasury; a different treasury requires self-paid uploads or a sponsor at that address. No recipient is silently enabled by the contract upgrade.
+1. Merge this branch into the active `codex/protocol-polls` branch. Start a new run of the existing `deploy-testnet` workflow on that branch, with network `harbinger`, contracts `publications`, dry run and force unchecked, and **Enable Music at 86.1 tKOIN per MB, paid to the current Mana sponsor** checked. No other contract upgrade is needed.
+2. The workflow upgrades and verifies the contract, saves the deployment manifest, then activates Music with the existing GitHub Secrets `OSP_CONTRACT_SEED` and `KOINOS_HARBINGER_DEPLOYER_WIF`. No local copy or replacement seed is needed. Activation checks that the seed derives the existing publications address and verifies the current sponsor's signed discovery document before using its address as the fee recipient. The rate is 86.1 tKOIN per decimal MB, rounded up to whole tokens (724 tKOIN for the 8,403,113-byte benchmark), with a 10 MiB file limit. Dry runs never activate Music. The activation checkbox defaults off for later unrelated deployments; selecting it again explicitly restores this policy, and an already matching policy sends no transaction.
 3. Rebuild/restart the sponsor from this revision with on-chain registration enabled, then run the readiness check. There is no indexer migration for Music.
 4. Install the frontend ZIP contents directly in Hostinger `public_html`, including `.htaccess`, `sw.js`, `index.html`, and `assets/`. Retain old hashed assets briefly for cached tabs.
 5. Make one small paid audio upload, reload and play it, then try the 8.4 MB / 3:30 test. Verify fee recipient balance, pause/resume, and that only one fee was paid. This rollout still needs that broadcast end-to-end check.
 
-Contract administration uses the existing environment secrets (`OSP_CONTRACT_SEED` and `KOINOS_HARBINGER_DEPLOYER_WIF`). Never put these in the frontend or shell history.
+The commands below are an optional alternative for operators who already hold the original credentials in their environment. Skip them when using the GitHub workflow above. Do not retrieve or replace GitHub secrets to run these commands. Never put credentials in the frontend or shell history. `--recipient ADDRESS` explicitly selects another treasury; a different treasury requires self-paid uploads or a sponsor at that address.
 
 ```bash
 npm ci

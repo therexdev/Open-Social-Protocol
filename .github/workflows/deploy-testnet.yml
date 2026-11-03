@@ -15,7 +15,7 @@ on:
         type: choice
         options: [harbinger]
       contracts:
-        description: Contracts to upgrade (choose publications for the photo library)
+        description: Contracts to upgrade (choose publications for photos or Music)
         default: all
         type: choice
         options: [all, publications]
@@ -25,6 +25,10 @@ on:
         type: boolean
       force:
         description: Re-upload even when the bytecode is unchanged
+        default: false
+        type: boolean
+      activate_music:
+        description: Enable Music at 86.1 tKOIN per MB, paid to the current Mana sponsor
         default: false
         type: boolean
 
@@ -100,6 +104,13 @@ jobs:
             git commit -m "Deploy contracts to ${{ inputs.network }} (${{ github.run_id }})"
             git push origin HEAD:${{ github.ref_name }}
           fi
+      - name: Activate Music using the existing contract seed
+        if: ${{ !inputs.dry_run && inputs.activate_music }}
+        env:
+          KOINOS_HARBINGER_DEPLOYER_WIF: ${{ secrets.KOINOS_HARBINGER_DEPLOYER_WIF }}
+          OSP_CONTRACT_SEED: ${{ secrets.OSP_CONTRACT_SEED }}
+          KOINOS_RPC: ${{ vars.KOINOS_RPC }}
+        run: node --import tsx scripts/configure-music.ts --network "${{ inputs.network }}" --execute
       - name: Preserve progress after a failed deployment
         if: ${{ failure() && !inputs.dry_run }}
         run: |
