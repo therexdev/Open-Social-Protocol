@@ -5,7 +5,7 @@
     "https://testnet.koinosfoundation.org/jsonrpc"
   ],
   "protocolVersion": 1,
-  "deployedAt": "2026-11-03T19:08:32.710Z",
+  "deployedAt": "2026-11-03T21:49:50.469Z",
   "deployer": "19C9kF7uBC2a3kWY5iXF4zpWhzahGCmeJd",
   "contracts": {
     "identity": {
@@ -26,11 +26,11 @@
     },
     "publications": {
       "address": "1P2bThgYcJgj4MCC5AVrcXq5DDj9CRWruU",
-      "txId": "0x1220857d708a85af0b78280626e39857af11e3a9f4d202fa8fa3234396d8b8dd5ba5",
-      "block": "9771850",
-      "wasmSha256": "f71f9b2119242cb3e21218a25a467a5113fbf8c1f5155a52f328fe58783af5a2",
-      "abiSha256": "a0b6dedb1b47c5fc8c1b5b53b166a533d0aae1f1e9a68e0b62ea4b5da097ca53",
-      "rcUsed": "491057798"
+      "txId": "0x1220504b9440b2becdf24bdc63d67b5bd5415f2e8059d1a64a7128b3faa4009f2af5",
+      "block": "9774958",
+      "wasmSha256": "51de74717479111125a3a1b70c133c670fa5331d58edfc1bbbad9ddce2e004d1",
+      "abiSha256": "65125f76c058d11b0612e691c0e9b23abf4f0036d2cfa157033d8f884854d84a",
+      "rcUsed": "252297961"
     },
     "communities": {
       "address": "19qUJT9fPk44Qay4vP8itfdgHkXHyG21vk",
@@ -42,11 +42,11 @@
     },
     "sponsorship": {
       "address": "17aX6cmC3J1YtcM1DJXwD3e98PvhRhavjU",
-      "txId": "0x12200ce39f7a99b62096d3ed211a6b5cfd54585862fe11e0b1c31ccb49372dd4020e",
-      "block": "9771852",
-      "wasmSha256": "7dd3f6a78de800777608b114710ccda42c5cda36e6c78ecba727a42bae3418d1",
+      "txId": "0x122054f6a4db98739003d685a2e9acb8247c3b4b7618740758b6584c63e657869998",
+      "block": "9774961",
+      "wasmSha256": "d4ba04240672cc28e67d9a3c9590f4b3066e1c2a0fd89334060889f2888f77b0",
       "abiSha256": "095cad71f8c2483b5978823d40793849da69dd21324f9b628d63788a332d0725",
-      "rcUsed": "77564740"
+      "rcUsed": "77650007"
     },
     "registry": {
       "address": "1ALYxykwWdueLqSgU78PaZvhTH18z2BnTF",
