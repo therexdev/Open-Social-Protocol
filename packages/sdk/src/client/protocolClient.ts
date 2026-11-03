@@ -43,6 +43,8 @@ export interface SimulateResult {
 }
 
 export interface SubmitOptions {
+  /** Persist a recovery record after signing and before any broadcast. Failure aborts submission. */
+  beforeBroadcast?: (transaction: TransactionJson) => Promise<void>;
   operations: OperationJson[];
   signer: SignerInterface;
   /** Sponsor(s) to try; `null` forces self-pay; undefined uses the client default. */
@@ -305,6 +307,7 @@ export class ProtocolClient {
         ...(rcLimit !== undefined && { rcLimit }),
       });
       const signed = await this.sign(prepared, options.signer);
+      await options.beforeBroadcast?.(signed);
       let result;
       try {
         result = await sponsor.sponsor(signed);
@@ -357,6 +360,7 @@ export class ProtocolClient {
         throw error;
       }
       const signed = await this.sign(prepared, options.signer);
+      await options.beforeBroadcast?.(signed);
       ({ transaction, receipt } = await this.broadcast(signed));
     }
 

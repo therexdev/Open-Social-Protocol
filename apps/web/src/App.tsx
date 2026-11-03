@@ -21,6 +21,7 @@ import { RecoveryPage } from "./features/recovery/RecoveryPage";
 import { MessagesPage } from "./features/messages/MessagesPage";
 import { PrivateMessagingProvider } from "./features/messages/PrivateMessagingProvider";
 import { TokensPage } from "./features/tokens/TokensPage";
+import { WalletPage } from "./features/wallet/WalletPage";
 import { SettingsPage } from "./features/settings/SettingsPage";
 import { useAccount } from "./stores/account";
 import { useSettings } from "./stores/settings";
@@ -148,6 +149,7 @@ export function AppRoutes() {
       />
       <Route path="/messages" element={<RequireAccount><MessagesPage /></RequireAccount>} />
       <Route path="/tokens" element={<RequireAccount><TokensPage /></RequireAccount>} />
+      <Route path="/wallet" element={<RequireAccount><WalletPage /></RequireAccount>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

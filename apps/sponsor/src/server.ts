@@ -11,6 +11,8 @@ import cors from "@fastify/cors";
 import { registerMediaRoutes } from "./media.js";
 import {
   Provider,
+  NATIVE_TRANSFER_ENTRY,
+  resolveNativeToken,
   ProtocolClient,
   contractAddresses,
   isAddress,
@@ -56,7 +58,7 @@ export interface SponsorServiceOptions {
 }
 
 export interface StatusReport {
-  features: { musicUploads: number; privateMessaging: 2; messagingNonceOrdering: 1; messagingFastConfirmation: 1; messagingResponsiveAllocation: 1 };
+  features: { walletTransfers: number; musicUploads: number; privateMessaging: 2; messagingNonceOrdering: 1; messagingFastConfirmation: 1; messagingResponsiveAllocation: 1 };
   ok: boolean;
   state: ServiceState;
   message: string;
@@ -177,7 +179,17 @@ export class SponsorService {
     const config = (await this.client.reads.publications.get_music_config())?.value;
     if (!config || config.version !== 1 || !isAddress(config.native_token)) throw new Error("Music contract update is not available");
     if (!this.allowlist.entries.some(e => e.contract === "publications" && e.method === "begin_music")) return;
-    this.allowlist = new Allowlist([...this.allowlist.entries.filter(e => e.contract !== "native"), {contract: "native", address: config.native_token, method: "approve", entryPoint: 0x74e21680}]);
+    this.allowlist = new Allowlist([...this.allowlist.entries.filter(e => e.contract !== "native" || e.method !== "approve"), {contract: "native", address: config.native_token, method: "approve", entryPoint: 0x74e21680}]);
+    this.discoveryDoc = undefined;
+  }
+
+  /** Resolve from this chain's name service; never trust a user-supplied token address. */
+  async initializeWallet(): Promise<void> {
+    // A custom allowlist remains restrictive. OSAT can be opted in with token:transfer;
+    // native wallet sponsorship is enabled only with the default platform policy.
+    if (!this.client || !this.allowlist || this.config.allowlist) return;
+    const address = await resolveNativeToken(this.client);
+    this.allowlist = new Allowlist([...this.allowlist.entries.filter(e => e.contract !== "native" || e.method !== "transfer"), { contract: "native", address, method: "transfer", entryPoint: NATIVE_TRANSFER_ENTRY }]);
     this.discoveryDoc = undefined;
   }
 
@@ -275,7 +287,7 @@ export class SponsorService {
 
   status(): StatusReport {
     return {
-      features: { musicUploads: this.allowlist?.entries.some(e => e.contract === "native") ? 1 : 0, privateMessaging: 2, messagingNonceOrdering: 1, messagingFastConfirmation: 1, messagingResponsiveAllocation: 1 },
+      features: { walletTransfers: this.allowlist?.entries.some(e => e.contract === "native" && e.method === "transfer") && this.allowlist.entries.some(e => e.contract === "token" && e.method === "transfer") ? 1 : 0, musicUploads: this.allowlist?.entries.some(e => e.contract === "native" && e.method === "approve") ? 1 : 0, privateMessaging: 2, messagingNonceOrdering: 1, messagingFastConfirmation: 1, messagingResponsiveAllocation: 1 },
       ok: this.state === "serving",
       state: this.state,
       message: stateMessage(this.state, this.options),

@@ -61,6 +61,7 @@ const secondary = [
   { to: "/groups", label: "Groups", icon: "people" },
   { to: "/notifications", label: "Activity", icon: "bell" },
   { to: "/tokens", label: "Tokens", icon: "token" },
+  { to: "/wallet", label: "Wallet", icon: "wallet" },
   { to: "/settings", label: "Settings", icon: "settings" },
   { to: "/about", label: "About Open Social", icon: "info" },
 ] as const;

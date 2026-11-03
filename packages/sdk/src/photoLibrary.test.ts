@@ -39,7 +39,7 @@ describe("archive prices and verification", () => {
       verifyPhotoChunks(record, [chunks[1]!, chunks[0]!, chunks[2]!], hash)
     ).toThrow();
     const altered = chunks.map((c) => c.slice());
-    altered[0]![0] ^= 1;
+    altered[0]![0] = altered[0]![0]! ^ 1;
     expect(() => verifyPhotoChunks(record, altered, hash)).toThrow("chunk");
     expect(() => verifyPhotoChunks(record, chunks, new Uint8Array(32))).toThrow(
       "fingerprint"
