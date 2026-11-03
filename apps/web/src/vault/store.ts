@@ -1,7 +1,8 @@
 /**
  * The vault: the identity seed encrypted under a passphrase (SDK lockVault, scrypt +
  * XChaCha20-Poly1305) in IndexedDB; unlocked secrets live only in this in-memory store and
- * are dropped on lock / auto-lock. Nothing secret ever touches localStorage.
+ * are dropped on lock / auto-lock. Optional trusted-device access stores an encrypted
+ * identity with a non-exportable browser key. Nothing secret touches localStorage.
  */
 import { create, type StoreApi, type UseBoundStore } from "zustand";
 import {
@@ -23,7 +24,13 @@ import { EncryptedStore, deriveAesKey } from "./encryptedStore";
 import { type PasskeyAdapter, type PasskeyRecord, unsupportedPasskey, webauthnPasskey } from "./passkey";
 import { defaultStorage, type KeyValueStorage } from "./storage";
 
+import { browserRememberPointer, makeRemembered, readRemembered, rememberedKey, REMEMBER_POINTER, type RememberPointer } from "./rememberDevice";
+
+export const UPLOAD_KEEPALIVE_MS = 5 * 60_000;
+export interface UnlockLease { renew(): void; release(): void }
+
 export type VaultStatus = "loading" | "empty" | "locked" | "unlocked";
+export type LockReason = "manual" | "inactivity" | "expired" | "device-removed" | "reopened";
 
 /** What is persisted (no plaintext secrets). */
 export interface VaultRecord {
@@ -73,22 +80,29 @@ export interface Session {
 
 export interface VaultState {
   status: VaultStatus;
+  lockReason?: LockReason;
   account?: string;
   session?: Session;
   passkeyEnrolled: boolean;
   passkeyAvailable: boolean;
   lastActivity: number;
   autoLockMs: number;
+  rememberedUntil?: number;
+  rememberAvailable: boolean;
+  rememberDevice(): Promise<void>;
+  forgetRememberedDevice(): void;
+  /** A bounded hold, renewed by actual upload progress, never by a timer. */
+  keepUnlocked(): UnlockLease;
   error?: string;
   init(): Promise<void>;
   create(passphrase: string): Promise<Identity>;
   importFromFile(json: string, passphrase: string): Promise<Identity>;
-  unlock(passphrase: string): Promise<Identity>;
-  unlockWithPasskey(): Promise<Identity>;
+  unlock(passphrase: string, remember?: boolean): Promise<Identity>;
+  unlockWithPasskey(remember?: boolean): Promise<Identity>;
   enrollPasskey(passphrase: string): Promise<void>;
   removePasskey(): Promise<void>;
   changePassphrase(current: string, next: string): Promise<void>;
-  lock(): void;
+  lock(reason?: LockReason): void;
   touch(): void;
   /** Locks when idle for longer than `autoLockMs`; returns true when it locked. */
   checkAutoLock(now?: number): boolean;
@@ -106,6 +120,7 @@ export interface VaultStoreOptions {
   passkey?: PasskeyAdapter;
   now?: () => number;
   autoLockMs?: number;
+  rememberPointer?: RememberPointer;
 }
 
 export type VaultStore = UseBoundStore<StoreApi<VaultState>>;
@@ -116,6 +131,10 @@ export function createVaultStore(options: VaultStoreOptions = {}): VaultStore {
   const now = options.now ?? (() => Date.now());
   const lockOptions = options.kdf ? { kdf: options.kdf } : {};
 
+  const pointer = options.rememberPointer ?? browserRememberPointer();
+  let generation = 0;
+  let rememberedId: string | undefined;
+  const holds = new Map<symbol, number>();
   const readRecord = () => storage.get<VaultRecord>(VAULT_KEY);
 
   async function openSession(identity: Identity): Promise<Session> {
@@ -128,9 +147,37 @@ export function createVaultStore(options: VaultStoreOptions = {}): VaultStore {
   }
 
   return create<VaultState>()((set, get) => {
-    const enter = async (identity: Identity): Promise<Identity> => {
+    const saveRemembered = async (identity: Identity, ticket: number) => {
+      const session = get().session;
+      if (!pointer) throw new VaultError("Unlock your account in a browser that supports remembered sign-in.");
+      const prior = pointer.get();
+      const record = await readRecord();
+      if (!record || record.account !== identity.account) throw new VaultError("The saved account changed. Unlock again.");
+      const saved = await makeRemembered(identity, record.blob, now());
+      await storage.set(rememberedKey(saved.id), saved.record);
+      try {
+        // Check the stored key can really decrypt after its IndexedDB round-trip.
+        const verified = await readRemembered(storage, saved.id, record.account, record.blob, now());
+        const current = await readRecord();
+        if (!verified || ticket !== generation || get().session !== session || pointer.get() !== prior ||
+            JSON.stringify(current?.blob) !== JSON.stringify(record.blob)) throw new VaultError("Remembered sign-in was cancelled. Please try again.");
+        pointer.set(saved.id);
+        rememberedId = saved.id;
+      } catch (error) {
+        await storage.del(rememberedKey(saved.id)).catch(() => {});
+        throw error;
+      }
+      if (prior) void storage.del(rememberedKey(prior)).catch(() => {});
+      return saved.expiresAt;
+    };
+
+    // Every asynchronous unlock is invalidated by an explicit lock/removal.
+    const enter = async (identity: Identity, ticket = generation, remember = false): Promise<Identity> => {
       const session = await openSession(identity);
-      set({ status: "unlocked", account: identity.account, session, lastActivity: now(), error: undefined });
+      if (ticket !== generation) throw new VaultError("Unlock was cancelled. Please unlock again.");
+      const rememberedUntil = remember ? await saveRemembered(identity, ticket) : undefined;
+      if (ticket !== generation) throw new VaultError("Unlock was cancelled. Please unlock again.");
+      set({ rememberedUntil, lockReason: undefined, status: "unlocked", account: identity.account, session, lastActivity: now(), error: undefined });
       return identity;
     };
 
@@ -138,15 +185,37 @@ export function createVaultStore(options: VaultStoreOptions = {}): VaultStore {
       status: "loading",
       passkeyEnrolled: false,
       passkeyAvailable: false,
+      rememberAvailable: !!pointer,
       lastActivity: now(),
       autoLockMs: options.autoLockMs ?? 15 * 60_000,
 
       async init() {
+        const ticket = generation;
         try {
           const record = await readRecord();
           const passkeyAvailable = await passkey.supported();
+          if (ticket !== generation) return;
           if (record && record.version === 1) {
-            set({ status: "locked", account: record.account, passkeyEnrolled: record.passkey !== undefined, passkeyAvailable, session: undefined });
+            set({ status: "locked", lockReason: "reopened", account: record.account, passkeyEnrolled: record.passkey !== undefined, passkeyAvailable, session: undefined });
+            let id: string | undefined;
+            try {
+              id = pointer?.get();
+              if (id) {
+                const saved = await readRemembered(storage, id, record.account, record.blob, now());
+                if (ticket !== generation) return;
+                if (saved && pointer?.get() === id) {
+                  const session = await openSession(identityFromSeed(saved.identity.seed, saved.identity.keyVersion));
+                  if (ticket !== generation || pointer?.get() !== id || now() >= saved.expiresAt) return;
+                  rememberedId = id;
+                  set({ status: "unlocked", lockReason: undefined, session, rememberedUntil: saved.expiresAt, lastActivity: now(), error: undefined });
+                  return;
+                }
+              }
+            } catch { /* Corrupt or unsupported saved sessions fall back to the passphrase. */ }
+            if (id && ticket === generation) {
+              try { if (pointer?.get() === id) pointer.clear(); } catch { /* inaccessible storage */ }
+              void storage.del(rememberedKey(id)).catch(() => {});
+            }
           } else {
             set({ status: "empty", account: undefined, passkeyEnrolled: false, passkeyAvailable, session: undefined });
           }
@@ -156,6 +225,9 @@ export function createVaultStore(options: VaultStoreOptions = {}): VaultStore {
       },
 
       async create(passphrase) {
+        get().forgetRememberedDevice();
+        const ticket = ++generation;
+        holds.clear();
         if (passphrase.length < 8) throw new VaultError("Choose a passphrase of at least 8 characters.");
         const seed = newIdentitySeed();
         const identity = identityFromSeed(seed, 1);
@@ -163,10 +235,13 @@ export function createVaultStore(options: VaultStoreOptions = {}): VaultStore {
         const record: VaultRecord = { version: 1, account: identity.account, blob, createdAt: now() };
         await storage.set(VAULT_KEY, record);
         set({ passkeyEnrolled: false });
-        return enter(identity);
+        return enter(identity, ticket);
       },
 
       async importFromFile(json, passphrase) {
+        get().forgetRememberedDevice();
+        const ticket = ++generation;
+        holds.clear();
         if (passphrase.length < 8) throw new VaultError("Choose a passphrase of at least 8 characters.");
         const imported = importIdentity(json);
         const identity = identityFromSeed(imported.seed, imported.keyVersion);
@@ -174,22 +249,24 @@ export function createVaultStore(options: VaultStoreOptions = {}): VaultStore {
         const record: VaultRecord = { version: 1, account: identity.account, blob, createdAt: now() };
         await storage.set(VAULT_KEY, record);
         set({ passkeyEnrolled: false });
-        return enter(identity);
+        return enter(identity, ticket);
       },
 
-      async unlock(passphrase) {
+      async unlock(passphrase, remember = false) {
+        const ticket = generation;
         const record = await readRecord();
         if (!record) throw new VaultError("There is no account on this device yet.");
         const secrets = await unlockVault(record.blob, passphrase);
-        return enter(identityFromSeed(secrets.seed, secrets.keyVersion));
+        return enter(identityFromSeed(secrets.seed, secrets.keyVersion), ticket, remember);
       },
 
-      async unlockWithPasskey() {
+      async unlockWithPasskey(remember = false) {
+        const ticket = generation;
         const record = await readRecord();
         if (!record?.passkey) throw new VaultError("No passkey is set up for this account.");
         const secret = await passkey.open(record.passkey);
         const secrets = await unlockVault(record.passkey.blob, toHex(secret));
-        return enter(identityFromSeed(secrets.seed, secrets.keyVersion));
+        return enter(identityFromSeed(secrets.seed, secrets.keyVersion), ticket, remember);
       },
 
       async enrollPasskey(passphrase) {
@@ -217,13 +294,53 @@ export function createVaultStore(options: VaultStoreOptions = {}): VaultStore {
         if (!record) throw new VaultError("There is no account on this device yet.");
         const secrets = await unlockVault(record.blob, current);
         const blob = await lockVault(secrets, next, lockOptions);
+        get().forgetRememberedDevice();
         await storage.set(VAULT_KEY, { ...record, blob });
       },
 
-      lock() {
+      async rememberDevice() {
+        const session = get().session;
+        if (!session) throw new VaultError("Unlock your account first.");
+        const expiresAt = await saveRemembered(session.identity, generation);
+        if (get().session === session && rememberedId === pointer?.get()) set({ rememberedUntil: expiresAt });
+      },
+
+      forgetRememberedDevice() {
+        generation++;
+        let id = rememberedId;
+        try {
+          const current = pointer?.get();
+          // A stale tab must not revoke a newer explicit remember choice.
+          if (!id || id === current) { id = current ?? id; pointer?.clear(); }
+        } catch { /* IDB deletion is the fallback. */ }
+        rememberedId = undefined;
+        set({ rememberedUntil: undefined, lastActivity: now() });
+        if (id) void storage.del(rememberedKey(id)).catch(() => {});
+      },
+
+      keepUnlocked() {
+        const session = get().session;
+        if (!session) throw new VaultError("Unlock your account before uploading.");
+        const id = Symbol("upload");
+        let released = false;
+        const renew = () => {
+          if (!released && get().session === session) holds.set(id, now() + UPLOAD_KEEPALIVE_MS);
+        };
+        renew();
+        return { renew, release() {
+          if (released) return;
+          released = true;
+          holds.delete(id);
+          if (get().session === session) set({ lastActivity: now() });
+        } };
+      },
+
+      lock(reason = "manual") {
+        get().forgetRememberedDevice();
+        holds.clear();
         const { status, account } = get();
-        if (status !== "unlocked") return;
-        set({ status: "locked", session: undefined, account });
+        if (status === "empty") return;
+        set({ status: "locked", lockReason: reason, session: undefined, account });
       },
 
       touch() {
@@ -233,9 +350,18 @@ export function createVaultStore(options: VaultStoreOptions = {}): VaultStore {
 
       checkAutoLock(at = now()) {
         const state = get();
-        if (state.status !== "unlocked" || state.autoLockMs <= 0) return false;
+        if (state.status !== "unlocked") return false;
+        if (state.rememberedUntil !== undefined) {
+          let valid = false;
+          try { valid = !!rememberedId && pointer?.get() === rememberedId && at < state.rememberedUntil; } catch { /* Fail closed. */ }
+          if (valid) return false;
+          state.lock(at >= state.rememberedUntil ? "expired" : "device-removed");
+          return true;
+        }
+        for (const [id, deadline] of holds) if (deadline <= at) holds.delete(id);
+        if (holds.size || state.autoLockMs <= 0) return false;
         if (at - state.lastActivity >= state.autoLockMs) {
-          state.lock();
+          state.lock("inactivity");
           return true;
         }
         return false;
@@ -254,6 +380,7 @@ export function createVaultStore(options: VaultStoreOptions = {}): VaultStore {
 
       async destroy() {
         const account = get().account;
+        get().lock();
         // Stop background publishers/readers before deleting their persisted state.
         set({ status: "locked", session: undefined });
         await storage.del(VAULT_KEY);
@@ -279,7 +406,17 @@ export const useVault: VaultStore = createVaultStore();
 
 /** Wires activity tracking and the auto-lock timer; returns a cleanup function. */
 export function startAutoLock(store: VaultStore, intervalMs = 15_000): () => void {
-  const touch = () => store.getState().touch();
+  const touch = () => {
+    // Expiry must be checked before focus/activity can refresh inactivity.
+    store.getState().checkAutoLock();
+    store.getState().touch();
+  };
+  const onStorage = (event: StorageEvent) => {
+    if ((event.key === REMEMBER_POINTER || event.key === null) && store.getState().rememberedUntil !== undefined) {
+      store.getState().checkAutoLock();
+    }
+  };
+  window.addEventListener("storage", onStorage);
   const events: Array<keyof WindowEventMap> = ["pointerdown", "keydown", "focus", "scroll"];
   for (const name of events) window.addEventListener(name, touch, { passive: true });
   const onVisibility = () => {
@@ -291,6 +428,7 @@ export function startAutoLock(store: VaultStore, intervalMs = 15_000): () => voi
   return () => {
     for (const name of events) window.removeEventListener(name, touch);
     document.removeEventListener("visibilitychange", onVisibility);
+    window.removeEventListener("storage", onStorage);
     window.clearInterval(timer);
   };
 }

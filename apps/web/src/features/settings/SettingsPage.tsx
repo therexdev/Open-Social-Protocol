@@ -134,6 +134,25 @@ function IdentitySection() {
         </Button>
       </div>
       {exported && <Notice kind="success">Saved. Keep the file private.</Notice>}
+      <div className="stack">
+        <label className="checkbox-row">
+          <input
+            type="checkbox"
+            checked={vault.rememberedUntil !== undefined}
+            disabled={busy || !vault.rememberAvailable || vault.status !== "unlocked"}
+            onChange={(e) => {
+              if (!e.target.checked) { vault.forgetRememberedDevice(); return; }
+              setBusy(true);
+              setError(undefined);
+              void vault.rememberDevice().catch((e) => setError(errorMessage(e))).finally(() => setBusy(false));
+            }}
+          />
+          Remember this device for 30 days
+        </label>
+        <p className="hint">Use only on your personal device. Anyone using this browser can access your account, private content and wallet without your passphrase. Lock now ends remembered sign-in.</p>
+        {vault.rememberedUntil !== undefined && <p className="hint">Remembered until {new Date(vault.rememberedUntil).toLocaleString()}. Inactivity auto-lock is paused until then, including after reopening this browser.</p>}
+        {!vault.rememberAvailable && <p className="hint">Remembered sign-in is unavailable in this browser. You can still adjust auto-lock below.</p>}
+      </div>
       <Field label="Auto-lock after (minutes of inactivity, 0 = never)">
         {(id) => (
           <input
@@ -141,6 +160,7 @@ function IdentitySection() {
             type="number"
             min={0}
             max={720}
+            disabled={vault.rememberedUntil !== undefined}
             value={settings.autoLockMinutes}
             onChange={(e) => {
               const minutes = Math.max(0, Number(e.target.value) || 0);
@@ -150,6 +170,7 @@ function IdentitySection() {
           />
         )}
       </Field>
+      <p className="hint">Music uploads temporarily pause inactivity auto-lock while making progress. Normal auto-lock resumes when you pause, finish or leave the upload page. Lock now always stops signing.</p>
       <Details summary="Passkey unlock">
         {vault.passkeyAvailable ? (
           vault.passkeyEnrolled ? (

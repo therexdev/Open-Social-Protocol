@@ -15,6 +15,8 @@ const mocks = vi.hoisted(() => ({
   services: {} as any,
   session: undefined as any,
   submit: undefined as any,
+  lease: { renew: vi.fn(), release: vi.fn() },
+  keepUnlocked: vi.fn(),
   storage: { load: vi.fn(), save: vi.fn(), clear: vi.fn() },
 }));
 vi.mock("../../api/services", () => ({ useServices: () => mocks.services }));
@@ -25,7 +27,7 @@ vi.mock("../../vault/context", () => ({
       account: mocks.session?.identity.account,
       status: "unlocked",
     }),
-  useVaultStore: () => ({ getState: () => ({ session: mocks.session }) }),
+  useVaultStore: () => ({ getState: () => ({ session: mocks.session, keepUnlocked: mocks.keepUnlocked }) }),
 }));
 vi.mock("../session", () => ({ useSubmitContext: () => mocks.submit }));
 vi.mock("./musicService", async () => ({
@@ -40,6 +42,7 @@ const me = identityFromSeed(new Uint8Array(32).fill(8)),
   other = identityFromSeed(new Uint8Array(32).fill(9));
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.keepUnlocked.mockReturnValue(mocks.lease);
   const client = new ProtocolClient({
     rpc: fakeProvider(),
     deployment: fixtureDeployment(),
@@ -108,6 +111,8 @@ it("shows the 3:30 quote before any payment and saves recovery before uploading"
   expect(pay.disabled).toBe(false);
   await act(async () => pay.click());
   expect(uploadMusic).toHaveBeenCalledOnce();
+  expect(mocks.keepUnlocked).toHaveBeenCalledOnce();
+  expect(mocks.lease.release).toHaveBeenCalledOnce();
   expect(vi.mocked(uploadMusic).mock.calls[0]![1].fee).toBe("72400000000");
   expect(mocks.storage.save.mock.invocationCallOrder[0]!).toBeLessThan(
     vi.mocked(uploadMusic).mock.invocationCallOrder[0]!
@@ -157,4 +162,46 @@ it("provides public playback on another profile without upload controls", async 
   expect(box.querySelector("audio")?.controls).toBe(true);
   await act(async () => root.render(<div />));
   expect(revoke).toHaveBeenCalledWith("blob:music-test");
+});
+
+async function startPendingUpload() {
+  await mount();
+  vi.mocked(prepareAudio).mockResolvedValue({ bytes: new Uint8Array(10), mime: "audio/mpeg", durationMs: 1000 });
+  const input = box.querySelector<HTMLInputElement>('input[type="file"]')!;
+  Object.defineProperty(input, "files", { value: [new File(["test"], "Test.mp3", { type: "audio/mpeg" })] });
+  await act(async () => input.dispatchEvent(new Event("change", { bubbles: true })));
+  const button = [...box.querySelectorAll<HTMLButtonElement>("button")].find((x) => x.textContent?.startsWith("Pay "))!;
+  await act(async () => button.click());
+}
+it("renews upload protection on progress and releases it immediately when paused", async () => {
+  let finish!: () => void;
+  vi.mocked(uploadMusic).mockImplementation(() => new Promise<void>((r) => { finish = r; }));
+  await startPendingUpload();
+  expect(box.textContent).toContain("Auto-lock is paused");
+  const [, , , assertActive, progress] = vi.mocked(uploadMusic).mock.calls[0]!;
+  await act(async () => progress(1, 2, true));
+  expect(mocks.lease.renew).toHaveBeenCalledOnce();
+  await act(async () => [...box.querySelectorAll<HTMLButtonElement>("button")].find((x) => x.textContent === "Pause")!.click());
+  expect(mocks.lease.release).toHaveBeenCalledOnce();
+  expect(() => assertActive()).toThrow("Upload paused");
+  await act(async () => progress(2, 2, true));
+  expect(mocks.lease.renew).toHaveBeenCalledOnce();
+  await act(async () => finish());
+});
+it("releases upload protection on navigation and rejects further signing", async () => {
+  let finish!: () => void;
+  vi.mocked(uploadMusic).mockImplementation(() => new Promise<void>((r) => { finish = r; }));
+  await startPendingUpload();
+  const assertActive = vi.mocked(uploadMusic).mock.calls[0]![3];
+  await act(async () => root.render(<div />));
+  expect(mocks.lease.release).toHaveBeenCalledOnce();
+  expect(() => assertActive()).toThrow("Upload paused");
+  await act(async () => finish());
+});
+it("releases protection on upload error and preserves the recovery draft", async () => {
+  vi.mocked(uploadMusic).mockRejectedValue(new Error("Network unavailable"));
+  await startPendingUpload();
+  expect(mocks.lease.release).toHaveBeenCalledOnce();
+  expect(mocks.storage.clear).not.toHaveBeenCalled();
+  expect(box.textContent).toContain("Network unavailable");
 });

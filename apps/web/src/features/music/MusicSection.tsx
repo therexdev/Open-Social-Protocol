@@ -20,6 +20,7 @@ import {
 } from "../../components/ui";
 import { useVault, useVaultStore } from "../../vault/context";
 import type { EncryptedStore } from "../../vault/encryptedStore";
+import type { UnlockLease } from "../../vault/store";
 import { toArrayBuffer } from "../../util/bytes";
 import { useSubmitContext } from "../session";
 import {
@@ -136,12 +137,14 @@ function MusicPanel({ owner }: { owner: string }) {
     [total, setTotal] = useState(0),
     [notice, setNotice] = useState("");
   const run = useRef({ cancelled: false }),
+    unlockLease = useRef<UnlockLease | undefined>(undefined),
     alive = useRef(true),
     selection = useRef(0);
   useEffect(
     () => () => {
       alive.current = false;
       run.current.cancelled = true;
+      unlockLease.current?.release();
       selection.current++;
     },
     []
@@ -236,13 +239,16 @@ function MusicPanel({ owner }: { owner: string }) {
     }
   };
   const start = async () => {
-    if (!submit || !source || !config || !store || !session) return;
+    if (!submit || !source || !config || !store || !session || unlockLease.current) return;
     const task = { cancelled: false };
     run.current = task;
     setBusy(true);
     setError("");
     setNotice("");
+    let lease: UnlockLease | undefined;
     try {
+      lease = vault.getState().keepUnlocked();
+      unlockLease.current = lease;
       const pending =
         draft ??
         newMusicDraft({
@@ -270,6 +276,7 @@ function MusicPanel({ owner }: { owner: string }) {
             );
         },
         (n, count, payment) => {
+          if (!task.cancelled && alive.current) lease?.renew();
           if (alive.current) {
             setReceived(n);
             setTotal(count);
@@ -289,6 +296,8 @@ function MusicPanel({ owner }: { owner: string }) {
     } catch (e) {
       if (alive.current) setError(message(e));
     } finally {
+      lease?.release();
+      if (unlockLease.current === lease) unlockLease.current = undefined;
       if (alive.current) setBusy(false);
     }
   };
@@ -418,6 +427,8 @@ function MusicPanel({ owner }: { owner: string }) {
             )}
           </Field>
           {selecting && <Spinner label="Reading audio" />}
+          {draft && !source && !selecting && <Notice>Select the original audio file above to enable Resume upload. Your payment and confirmed chunks are saved.</Notice>}
+          {busy && unlockLease.current && !run.current.cancelled && <Notice>Auto-lock is paused while this upload makes progress. Keep this page open and your device awake. You can switch browser tabs; closing the page or locking the account pauses the upload.</Notice>}
           {(source || draft) && (
             <p>
               {musicDuration(draft?.durationMs ?? source!.durationMs)} ·{" "}
@@ -490,6 +501,7 @@ function MusicPanel({ owner }: { owner: string }) {
               <Button
                 onClick={() => {
                   run.current.cancelled = true;
+                  unlockLease.current?.release();
                   setNotice("Pausing after the current transaction confirms…");
                 }}
               >

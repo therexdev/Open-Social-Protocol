@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createSettingsStore, resolveSettings, SETTINGS_KEY } from "./settings";
+import { createSettingsStore, resolveSettings, SETTINGS_KEY, startSettingsSync } from "./settings";
 import { buildDeploymentRegistry } from "../config";
 import { memoryStringStorage } from "../util/webStorage";
 import { fixtureDeployment } from "../testing/fixtures";
@@ -90,4 +90,17 @@ it("ships usable Harbinger services without build-time variables, including save
   const mainnet = resolveSettings(store.getState(), { env });
   expect(mainnet.indexerUrl).not.toBe("https://social-api.usekoinos.com");
   expect(mainnet.sponsorUrls).not.toContain("https://social-sponsor.usekoinos.com");
+});
+
+it("syncs auto-lock 0 from another tab and preserves it on reload", () => {
+  const storage = memoryStringStorage();
+  const first = createSettingsStore({ storage, env });
+  const second = createSettingsStore({ storage, env });
+  const stop = startSettingsSync(second);
+  try {
+    first.getState().update({ autoLockMinutes: 0 });
+    window.dispatchEvent(new StorageEvent("storage", { key: SETTINGS_KEY }));
+    expect(second.getState().autoLockMinutes).toBe(0);
+    expect(createSettingsStore({ storage, env }).getState().autoLockMinutes).toBe(0);
+  } finally { stop(); }
 });

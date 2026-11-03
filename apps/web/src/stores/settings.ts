@@ -29,6 +29,7 @@ export interface Settings {
 export interface SettingsState extends Settings {
   update(patch: Partial<Settings>): void;
   reset(): void;
+  syncFromStorage(): void;
 }
 
 export const SETTINGS_KEY = "osp.web.settings";
@@ -105,6 +106,7 @@ export function createSettingsStore(options: SettingsStoreOptions = {}): Setting
   });
   return create<SettingsState>()((set, get) => ({
     ...load(),
+    syncFromStorage() { set(load()); },
     update(patch) {
       set(patch);
       persist(pick(get()));
@@ -117,6 +119,15 @@ export function createSettingsStore(options: SettingsStoreOptions = {}): Setting
 }
 
 export const useSettings: SettingsStore = createSettingsStore();
+
+/** A setting changed in another tab must also reach the tab doing the upload. */
+export function startSettingsSync(store: SettingsStore): () => void {
+  const sync = (event: StorageEvent) => {
+    if (event.key === SETTINGS_KEY || event.key === null) store.getState().syncFromStorage();
+  };
+  window.addEventListener("storage", sync);
+  return () => window.removeEventListener("storage", sync);
+}
 
 /** Everything the data layer needs, after applying overrides and defaults. */
 export interface ResolvedSettings {

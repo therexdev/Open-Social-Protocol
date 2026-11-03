@@ -273,3 +273,26 @@ it("keeps loaded feed panels mounted during repeated scope changes", async () =>
   expect(container.querySelector("#feed-friends")).not.toBe(friendsPanel);
   expect(calls.filter(call => call.includes("/v1/feed") && call.includes("scope=friends"))).toHaveLength(1);
 });
+
+it("offers remembered sign-in explicitly and enables it through the unlock checkbox", async () => {
+  const storage = memoryStorage();
+  let id: string | undefined;
+  const pointer = { get: () => id, set: (next: string) => { id = next; }, clear: () => { id = undefined; } };
+  const vault = createVaultStore({ storage, kdf, passkey: unsupportedPasskey, rememberPointer: pointer });
+  await vault.getState().create("correct horse battery");
+  vault.getState().lock();
+  const { container } = await render("/settings", vault, deployedServices([]));
+  const go = [...container.querySelectorAll("a")].find((a) => a.textContent === "Go to unlock")!;
+  await act(async () => go.click());
+  const checkbox = [...container.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')].find((el) => el.parentElement?.textContent?.includes("Remember this device"))!;
+  expect(checkbox).toBeDefined();
+  expect(checkbox.checked).toBe(false);
+  expect(container.textContent).toContain("private content and wallet without your passphrase");
+  await act(async () => checkbox.click());
+  await submitUnlock(container, "correct horse battery");
+  expect(vault.getState().status).toBe("unlocked");
+  expect(vault.getState().rememberedUntil).toBeGreaterThan(Date.now());
+  expect(id).toBeTruthy();
+  await act(async () => { useAccount.getState().markRegistered(vault.getState().account!); });
+  expect(container.textContent).toContain("Remembered until");
+});
