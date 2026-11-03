@@ -5,7 +5,7 @@
  * the allowlist and the limits. Every refusal is a `SponsorRefusal` with a stable category
  * from docs/sponsor-api.md and the HTTP status the server should answer with.
  */
-import { validMusicPaymentBundle, Signer, Transaction, isAddress, type ProtocolContracts, type SponsorErrorCategory, type TransactionJson } from "@osp/sdk";
+import { decodeWalletTransfer, validMusicPaymentBundle, Signer, Transaction, isAddress, type ProtocolContracts, type SponsorErrorCategory, type TransactionJson } from "@osp/sdk";
 import type { CallContractOperationJson, OperationJson } from "@osp/sdk";
 import { utils } from "koilib";
 import { actorField, deviceMaySign, type Allowlist } from "./policy.js";
@@ -156,6 +156,15 @@ function inspectOperations(operations: unknown, payee: string, ctx: ValidationCo
     }
     const operation: CallContractOperationJson = { contract_id: call.contract_id, entry_point: call.entry_point, args: typeof call.args === "string" ? call.args : "" };
     if (allowed.contract === "native") {
+      if (allowed.method === "transfer") {
+        let args;
+        try { args = decodeWalletTransfer(operation.args ?? ""); }
+        catch { throw new SponsorRefusal("invalid_transaction", "Invalid native token transfer arguments"); }
+        if (operations.length !== 1 || args.from !== payee)
+          throw new SponsorRefusal("method_not_allowed", "Wallet transfers require one operation from the signing account");
+        out.push({ index, contract: "native", method: "transfer", entryPoint: call.entry_point, contractId: call.contract_id, argsBytes: bytes, actor: payee, operation });
+        continue;
+      }
       if (allowed.method !== "approve" || !validMusicPaymentBundle(ctx.contracts, operations as OperationJson[], payee, call.contract_id))
         throw new SponsorRefusal("method_not_allowed", "Native approvals require the exact music payment and allowance cleanup bundle");
       out.push({ index, contract: "native", method: "approve", entryPoint: call.entry_point, contractId: call.contract_id, argsBytes: bytes, actor: payee, operation });
@@ -168,6 +177,11 @@ function inspectOperations(operations: unknown, payee: string, ctx: ValidationCo
     }
     if (decoded.contract === "messaging" && decoded.method === "allocate_private_usage") throw new SponsorRefusal("method_not_allowed", "Private allocations require the authenticated allocation endpoint");
     const args = decoded.args as Record<string, unknown>;
+    if (decoded.contract === "token" && decoded.method === "transfer") {
+      if (operations.length !== 1) throw new SponsorRefusal("method_not_allowed", "Wallet transfers require one operation");
+      try { decodeWalletTransfer(operation.args ?? ""); }
+      catch { throw new SponsorRefusal("invalid_transaction", "Invalid OSAT transfer arguments"); }
+    }
     const field = actorField(decoded.contract, decoded.method, args);
     let actor: string | undefined;
     if (field !== null) {

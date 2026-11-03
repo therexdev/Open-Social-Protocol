@@ -31,3 +31,4 @@ export * from "./polls.js";
 export * from "./photoLibrary.js";
 
 export * from "./music.js";
+export * from "./wallet.js";

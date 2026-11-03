@@ -1,24 +1,20 @@
 import { useEconomy } from "./EconomyContext";
 import { PendingRewards } from "./PendingRewards";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { isAddress, type TokenAccount } from "@osp/sdk";
+import { type TokenAccount } from "@osp/sdk";
+import { Link } from "react-router-dom";
 import { useServices } from "../../api/services";
-import { AccountLink, Button, Card, Field, Notice } from "../../components/ui";
-import { humanizeError, submitAction } from "../../tx/submit";
-import { useMe, useSubmitContext } from "../session";
+import { AccountLink, Button, Card, Notice } from "../../components/ui";
+import { humanizeError } from "../../tx/submit";
+import { useMe } from "../session";
 import { capacityLabel, tokenResources } from "./resources";
 export function TokensPage() {
   const { policy } = useEconomy();
   const me = useMe(),
-    ctx = useSubmitContext(),
     { protocol, indexer } = useServices();
   const [account, setAccount] = useState<TokenAccount>(),
     [capacity, setCapacity] = useState("0"),
     [error, setError] = useState("");
-  const [to, setTo] = useState(""),
-    [amount, setAmount] = useState(""),
-    [busy, setBusy] = useState(false),
-    [selfPay, setSelfPay] = useState(false);
   const [activity, setActivity] = useState<Awaited<ReturnType<typeof indexer.tokenActivity>>["items"]>([]);
   const version = useRef(0);
   const refresh = useCallback(async () => {
@@ -49,33 +45,6 @@ export function TokensPage() {
     };
   }, [refresh]);
   const { v2, ready, precision, free, paid, actions } = tokenResources(account);
-  const transfer = async () => {
-    if (!ctx || !me || busy || !selfPay) return;
-    if (!isAddress(to.trim()) || to.trim() === me.account || !/^[1-9]\d{0,6}$/.test(amount) || BigInt(amount) > 1000000n) {
-      setError("Enter another account and a positive whole-token amount.");
-      return;
-    }
-    if (BigInt(amount) > ready) {
-      setError(`Only ${ready.toString()} fully charged tokens are available to send. Used tokens must finish recharging.`);
-      return;
-    }
-    setBusy(true);
-    setError("");
-    try {
-      const op = await ctx.client.ops.token.transfer({ from: me.account, to: to.trim(), value: amount });
-      await submitAction({ ...ctx, payment: "self-only" }, [op], {
-        label: "Transferring action tokens",
-        success: "Tokens transferred",
-        waitForReceipt: true,
-      });
-      setAmount("");
-      await refresh();
-    } catch (e) {
-      setError(humanizeError(e));
-    } finally {
-      setBusy(false);
-    }
-  };
   const credits = account ? actions : undefined;
   return (
     <div className="page-stack">
@@ -103,7 +72,7 @@ export function TokensPage() {
         <Card title="Token activity capacity"><p className="token-number">{capacityLabel(paid, precision)} <small>actions</small></p>
           <p className="muted">Paid actions and reward votes share this capacity. Votes use paid capacity only; actions use it after free credits run out.</p></Card>
       </div>}
-      <Button onClick={() => void refresh()} disabled={busy || !protocol}>
+      <Button onClick={() => void refresh()} disabled={!protocol}>
         Refresh balance
       </Button>
       <Card title="How it works">
@@ -120,29 +89,7 @@ export function TokensPage() {
         </p>
       </Card>
       {policy && <PendingRewards onSettled={() => void refresh()}/>}
-      <Card title="Send tokens">
-        <form
-          className="form-stack"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void transfer();
-          }}
-        >
-          <Field label="Recipient account">
-            {(id) => <input id={id} value={to} onChange={(e) => setTo(e.target.value)} disabled={busy} />}
-          </Field>
-          <Field label="Whole tokens">
-            {(id) => <input id={id} inputMode="numeric" value={amount} onChange={(e) => setAmount(e.target.value)} disabled={busy} />}
-          </Field>
-          <label className="checkbox-row">
-            <input type="checkbox" checked={selfPay} onChange={(e) => setSelfPay(e.target.checked)} /> Pay this transfer's Mana from my
-            account
-          </label>
-          <Button type="submit" variant="primary" busy={busy} disabled={!protocol || !selfPay || !to || !amount}>
-            Send tokens
-          </Button>
-        </form>
-      </Card>
+      <Card title="Send tokens"><p>Send OSAT or tKOIN from your Wallet, with Mana covered by Open Social.</p><Link className="btn btn-primary" to="/wallet">Open Wallet</Link></Card>
       <Card title="Recent activity">
         {activity.length === 0 ? (
           <p className="muted">Your votes, rewards, promotions and transfers will appear here.</p>

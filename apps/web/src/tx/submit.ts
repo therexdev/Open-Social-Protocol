@@ -3,7 +3,7 @@
  * pending / confirmed / failed toasts (Mana only inside the details expander) and human wording
  * for sponsor refusals.
  */
-import { InsufficientManaError, ProtocolClient, SponsorError, type OperationJson, type SignerInterface, type SubmitResult } from "@osp/sdk";
+import { InsufficientManaError, ProtocolClient, SponsorError, type OperationJson, type SignerInterface, type SubmitResult, type TransactionJson } from "@osp/sdk";
 import type { PaymentPreference } from "../stores/settings";
 import { useToasts } from "../stores/toasts";
 import { errorMessage } from "../util/format";
@@ -15,6 +15,7 @@ export interface SubmitContext {
 }
 
 export interface SubmitOptions {
+  beforeBroadcast?: (transaction: TransactionJson) => Promise<void>;
   /** Short human label: "Publishing your post". */
   label: string;
   /** Wording when confirmed. */
@@ -136,6 +137,7 @@ export async function submitAction(ctx: SubmitContext, operations: OperationJson
         ...(ctx.payment === "self-only" && { sponsor: null }),
         selfPayFallback: ctx.payment !== "sponsor-only",
         waitForReceipt: options.waitForReceipt ?? true,
+        ...(options.beforeBroadcast && { beforeBroadcast: options.beforeBroadcast }),
       });
     });
     const details = [

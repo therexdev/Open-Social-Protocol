@@ -141,7 +141,7 @@ export function defaultAllowlist(deployment: Deployment): AllowedMethod[] {
       out.push({ contract, address: deployment.contracts[contract].address, method, entryPoint: def.entry_point });
     }
   }
-  for (const method of ["support", "vote", "settle_reward", "promote", "cancel_promotion"]) {
+  for (const method of ["support", "vote", "settle_reward", "promote", "cancel_promotion", "transfer"]) {
     out.push({ contract: "token", address: deployment.contracts.token.address, method, entryPoint: ABIS.token.methods[method]!.entry_point });
   }
   return out;

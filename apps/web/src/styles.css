@@ -1272,3 +1272,13 @@ select, .quick-composer select, .conversation-list select, .composer-identity se
 .music-track audio { width: 100%; min-width: 0; }
 .music-price { padding: 1rem; border: 1px solid var(--border, #dce1e8); border-radius: .75rem; margin: 1rem 0; }
 [aria-label="Profile music"] progress { width: 100%; }
+/* Wallet amounts and long public addresses stay readable on narrow screens. */
+.wallet-page { max-width: 820px; }
+.wallet-address, .wallet-review dd { overflow-wrap: anywhere; word-break: break-word; }
+.wallet-receive { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; margin-top: 1rem; }
+.wallet-receive .hint { width: 100%; }
+.wallet-amount { display: flex; gap: .65rem; }
+.wallet-amount input { flex: 1; min-width: 0; }
+.wallet-amount button { flex-shrink: 0; }
+.wallet-review { display: grid; grid-template-columns: 5rem minmax(0,1fr); gap: .8rem; }
+.wallet-review dd { margin: 0; }

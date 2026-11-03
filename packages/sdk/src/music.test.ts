@@ -47,7 +47,7 @@ describe("native music pricing and verification", () => {
       "incomplete"
     );
     const wrong = chunks.map((x) => x.slice());
-    wrong[1]![0] ^= 1;
+    wrong[1]![0] = wrong[1]![0]! ^ 1;
     expect(() => verifyMusic(record, wrong)).toThrow("chunk verification");
     expect(() => verifyMusic(record, [...chunks].reverse())).toThrow(
       "chunk verification"
