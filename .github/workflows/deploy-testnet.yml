@@ -15,10 +15,10 @@ on:
         type: choice
         options: [harbinger]
       contracts:
-        description: Contracts to upgrade (choose publications for photos or Music)
+        description: Contracts to upgrade (choose music for Music v2)
         default: all
         type: choice
-        options: [all, publications]
+        options: [all, publications, music]
       dry_run:
         description: Simulate only (broadcast=false) and print the Mana/RC report
         default: false
@@ -79,6 +79,7 @@ jobs:
         run: |
           contract_args=()
           case "$DEPLOY_CONTRACTS" in
+            music) contract_args+=(--only token,publications,sponsorship) ;;
             publications) contract_args+=(--only publications) ;;
             all|"") ;;
             *) echo "Unknown contract selection"; exit 1 ;;

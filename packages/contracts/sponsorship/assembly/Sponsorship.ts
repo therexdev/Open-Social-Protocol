@@ -28,7 +28,7 @@ const MAX_ENDPOINT_LENGTH: i32 = 256;
 const MAX_POLICY_URI_LENGTH: i32 = 256;
 const MAX_ALLOWED_CALLS: i32 = 32;
 const MAX_ENTRY_POINTS_PER_CALL: i32 = 64;
-const MAX_BYTES_PER_OP: u32 = 65536;
+const MAX_BYTES_PER_OP: u32 = 98304;
 const MAX_LIST_LIMIT: u32 = 100;
 
 // Accepted endpoint schemes: https anywhere, plain http only for localhost.

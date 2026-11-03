@@ -444,7 +444,7 @@ message get_album_item_arguments { bytes collection_id = 1; bytes id = 2; }
 message get_album_item_result { album_item_record value = 1; }
 message album_item_changed_event { bytes collection_id = 1; bytes id = 2; album_item_record value = 3; }
 
-// Public music: native-token payment and audio bytes live in contract state.
+// Music v2: immutable manifests, batched ciphertext, audience-gated key delivery and OSAT escrow.
 message music_config {
   uint32 version = 1;
   uint32 revision = 2;
@@ -466,6 +466,17 @@ message music_record {
   uint64 fee = 9 [jstype = JS_STRING];
   bytes recipient = 10 [(koinos.btype) = ADDRESS];
   bytes payer = 11 [(koinos.btype) = ADDRESS];
+  string artist = 12;
+  string description = 13;
+  // 0 public, 1 current friends, 2 current private-group members.
+  uint32 audience = 14;
+  bytes group_id = 15;
+  bool encrypted = 16;
+  bytes nonce = 17;
+  music_key owner_key = 18;
+  uint64 unlock_price = 19 [jstype = JS_STRING];
+  uint32 version = 20;
+  bytes key_hash = 21;
 }
 // @description Set native KOIN music pricing (contract authority only)
 // @read-only false
@@ -495,6 +506,15 @@ message begin_music_arguments {
   uint64 max_fee = 10 [jstype = JS_STRING];
   bytes payer = 11 [(koinos.btype) = ADDRESS];
   bytes device = 12 [(koinos.btype) = ADDRESS];
+  string artist = 13;
+  string description = 14;
+  uint32 audience = 15;
+  bytes group_id = 16;
+  bool encrypted = 17;
+  bytes nonce = 18;
+  music_key owner_key = 19;
+  uint64 unlock_price = 20 [jstype = JS_STRING];
+  bytes key_hash = 21;
 }
 message begin_music_result {}
 // @description Append a committed music chunk; identical retries are free
@@ -520,6 +540,7 @@ message get_music_chunk_result { bytes data = 1; }
 message list_music_arguments {
   bytes owner = 1 [(koinos.btype) = ADDRESS];
   bytes after = 2;
+  bytes group_id = 3;
 }
 message list_music_result { repeated bytes ids = 1; }
 message music_paid_event { bytes id = 1; music_record value = 2; }
@@ -531,3 +552,96 @@ message music_native_approval {
   bytes spender = 2 [(koinos.btype) = ADDRESS];
   uint64 value = 3 [jstype = JS_STRING];
 }
+
+// All key packages are recipient-sealed X25519/XChaCha20 keys. Never plaintext.
+message music_key {
+  uint32 key_version = 1;
+  bytes ephemeral_public_key = 2;
+  bytes nonce = 3;
+  bytes ciphertext = 4;
+}
+message music_progress { uint32 received = 1; }
+// @description Append up to four sequential committed 16 KiB chunks atomically
+// @read-only false
+message append_music_batch_arguments {
+  bytes owner = 1 [(koinos.btype) = ADDRESS];
+  bytes id = 2;
+  uint32 index = 3;
+  repeated bytes chunks = 4;
+  bytes device = 5 [(koinos.btype) = ADDRESS];
+}
+message append_music_batch_result {}
+// status: 1 awaiting delivery, 2 delivered, 3 refunded. Free grants use amount 0.
+message music_access {
+  bytes id = 1;
+  bytes buyer = 2 [(koinos.btype) = ADDRESS];
+  uint64 amount = 3 [jstype = JS_STRING];
+  uint64 expires_at = 4 [jstype = JS_STRING];
+  uint32 status = 5;
+  music_key key = 6;
+  bytes public_key = 7;
+  uint32 key_version = 8;
+  bytes payment_id = 9;
+}
+// @description Request an encrypted reading key; reserve OSAT until delivery
+// @read-only false
+message request_music_access_arguments {
+  bytes buyer = 1 [(koinos.btype) = ADDRESS];
+  bytes id = 2;
+  uint64 max_price = 3 [jstype = JS_STRING];
+}
+message request_music_access_result {}
+// @description Deliver a recipient-sealed key and release any pending OSAT payment
+// @read-only false
+message grant_music_access_arguments {
+  bytes owner = 1 [(koinos.btype) = ADDRESS];
+  bytes id = 2;
+  bytes buyer = 3 [(koinos.btype) = ADDRESS];
+  music_key key = 4;
+}
+message grant_music_access_result {}
+// @description Refund an undelivered unlock after 24 hours, or lost audience eligibility
+// @read-only false
+message refund_music_access_arguments {
+  bytes buyer = 1 [(koinos.btype) = ADDRESS];
+  bytes id = 2;
+}
+message refund_music_access_result {}
+// @description Read a music license and authoritative audience eligibility
+// @read-only true
+message get_music_access_arguments { bytes id = 1; bytes buyer = 2 [(koinos.btype) = ADDRESS]; }
+message get_music_access_result { music_access value = 1; bool eligible = 2; uint64 now = 3 [jstype = JS_STRING]; }
+// @description List pending key deliveries for an uploader, 20 per page
+// @read-only true
+message list_music_requests_arguments { bytes owner = 1 [(koinos.btype) = ADDRESS]; bytes after = 2; }
+message list_music_requests_result { repeated music_access items = 1; bytes next = 2; }
+message music_access_event { bytes owner = 1 [(koinos.btype) = ADDRESS]; music_access value = 2; }
+message music_comment {
+  bytes id = 1;
+  bytes author = 2 [(koinos.btype) = ADDRESS];
+  bytes body = 3;
+  bytes nonce = 4;
+  bytes reply_to = 5;
+  uint64 created_at = 6 [jstype = JS_STRING];
+  bool deleted = 7;
+}
+// @description Comment on a completed track; restricted or paid comments must be encrypted
+// @read-only false
+message comment_music_arguments {
+  bytes author = 1 [(koinos.btype) = ADDRESS];
+  bytes id = 2;
+  bytes comment_id = 3;
+  bytes body = 4;
+  bytes nonce = 5;
+  bytes reply_to = 6;
+}
+message comment_music_result {}
+// @description Delete your own track comment
+// @read-only false
+message delete_music_comment_arguments { bytes author = 1 [(koinos.btype) = ADDRESS]; bytes id = 2; bytes comment_id = 3; }
+message delete_music_comment_result {}
+// @description List track comments in publication order, 20 per page
+// @read-only true
+message list_music_comments_arguments { bytes id = 1; bytes after = 2; }
+message list_music_comments_result { repeated music_comment items = 1; bytes next = 2; }
+message music_comment_event { bytes track_id = 1; music_comment value = 2; }

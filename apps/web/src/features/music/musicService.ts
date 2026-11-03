@@ -1,5 +1,14 @@
 import {
   bytesEqual,
+  encode,
+  decode,
+  randomBytes,
+  musicCipher,
+  musicKeyContext,
+  sealMusicKey,
+  MUSIC_BATCH_CHUNKS,
+  type MusicKey,
+  type Identity,
   contentHash,
   fromBase64url,
   MUSIC_MAX_BYTES,
@@ -23,6 +32,18 @@ import { defaultStorage } from "../../vault/storage";
 import type { Session } from "../../vault/store";
 
 export interface MusicDraft {
+  artist?: string;
+  description?: string;
+  audience?: number;
+  groupId?: string;
+  unlockPrice?: string;
+  sourceDigest?: string;
+  sourceSize?: number;
+  key?: string;
+  nonce?: string;
+  ownerKey?: string;
+  keyHash?: string;
+  batchSize?: number;
   id: string;
   owner: string;
   payer: string;
@@ -35,13 +56,9 @@ export interface MusicDraft {
   fee: string;
   recipient: string;
 }
-export const musicTokens = (fee: string) =>
-  (BigInt(fee) / 100000000n).toLocaleString();
+export const musicTokens = (fee: string) => (BigInt(fee) / 100000000n).toLocaleString();
 export const musicDuration = (ms: number) =>
-  `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(
-    2,
-    "0"
-  )}`;
+  `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, "0")}`;
 export async function musicDraftStore(
   session: Session,
   client: ProtocolClient
@@ -86,33 +103,23 @@ export async function prepareAudio(
     })
   );
   musicFee(bytes.length);
-  const url = URL.createObjectURL(
-    new Blob([toArrayBuffer(bytes)], { type: mime })
-  );
+  const url = URL.createObjectURL(new Blob([toArrayBuffer(bytes)], { type: mime }));
   const audio = document.createElement("audio");
   try {
     const durationMs = await new Promise<number>((resolve, reject) => {
       const timer = setTimeout(
-        () =>
-          reject(
-            new Error("Audio details took too long to load. Try an MP3 file.")
-          ),
+        () => reject(new Error("Audio details took too long to load. Try an MP3 file.")),
         15000
       );
       const finish = (error?: Error) => {
         clearTimeout(timer);
         if (error) reject(error);
-        else if (
-          !Number.isFinite(audio.duration) ||
-          audio.duration <= 0 ||
-          audio.duration > 3600
-        )
+        else if (!Number.isFinite(audio.duration) || audio.duration <= 0 || audio.duration > 3600)
           reject(new Error("Choose playable audio up to one hour long."));
         else resolve(Math.max(1, Math.round(audio.duration * 1000)));
       };
       audio.onloadedmetadata = () => finish();
-      audio.onerror = () =>
-        finish(new Error("Your browser cannot play this audio. Try MP3."));
+      audio.onerror = () => finish(new Error("Your browser cannot play this audio. Try MP3."));
       audio.preload = "metadata";
       audio.src = url;
     });
@@ -131,26 +138,91 @@ export function newMusicDraft(input: {
   mime: string;
   durationMs: number;
   config: MusicConfig;
+  artist?: string;
+  description?: string;
+  audience?: number;
+  groupId?: string;
+  unlockPrice?: string;
+  identity?: Identity;
+  client?: ProtocolClient;
 }): MusicDraft {
   const title = input.title.trim();
   if (!title || new TextEncoder().encode(title).length > 240)
     throw new Error("Enter a title no longer than 240 UTF-8 bytes.");
   if (!input.config.enabled || input.bytes.length > input.config.max_bytes)
-    throw new Error(
-      "Audio uploads are disabled or this file exceeds the current size limit."
+    throw new Error("Audio uploads are disabled or this file exceeds the current size limit.");
+  const artist = (input.artist ?? "").trim(),
+    description = (input.description ?? "").trim(),
+    audience = input.audience ?? 0,
+    price = input.unlockPrice ?? "0";
+  if (
+    new TextEncoder().encode(artist).length > 240 ||
+    new TextEncoder().encode(description).length > 2000
+  )
+    throw new Error("Artist must fit 240 bytes and description 2000 bytes.");
+  if (!/^(0|[1-9][0-9]*)$/.test(price) || BigInt(price) > 1000000n)
+    throw new Error("Enter a whole OSAT price from 0 to 1,000,000.");
+  if (
+    ![0, 1, 2].includes(audience) ||
+    (audience === 2 && (!input.groupId || fromBase64url(input.groupId).length !== 32))
+  )
+    throw new Error("Choose a valid audience and group.");
+  const encrypted = audience !== 0 || BigInt(price) > 0n;
+  if ((encrypted || artist || description) && input.config.version < 2)
+    throw new Error("These music features need the updated contracts.");
+  const id = newEpochKey(),
+    key = encrypted ? newEpochKey() : undefined,
+    nonce = encrypted ? randomBytes(24) : undefined;
+  let stored = input.bytes,
+    ownerKey: MusicKey | undefined;
+  if (key && nonce) {
+    if (!input.identity || !input.client)
+      throw new Error("Unlock your account to prepare restricted audio.");
+    const context = musicKeyContext(
+      input.client.chainId,
+      input.client.deployment.contracts.publications.address,
+      id,
+      input.owner
     );
+    stored = musicCipher(context, key, nonce).encrypt(input.bytes);
+    ownerKey = sealMusicKey(context, key, {
+      address: input.owner,
+      publicKey: input.identity.encryption.publicKey,
+      keyVersion: input.identity.encryption.keyVersion,
+    });
+  }
+  if (stored.length > input.config.max_bytes)
+    throw new Error("Audio including encryption exceeds the upload size limit.");
   return {
-    id: toBase64url(newEpochKey()),
+    id: toBase64url(id),
     owner: input.owner,
     payer: input.payer,
-    digest: toBase64url(contentHash(input.bytes)),
-    size: input.bytes.length,
+    digest: toBase64url(contentHash(stored)),
+    size: stored.length,
+    sourceDigest: toBase64url(contentHash(input.bytes)),
+    sourceSize: input.bytes.length,
     title,
+    artist,
+    description,
+    audience,
+    groupId: audience === 2 ? input.groupId : undefined,
+    unlockPrice: price,
     mime: input.mime,
     durationMs: input.durationMs,
     configRevision: input.config.revision,
-    fee: musicFee(input.bytes.length, input.config.rate_per_mb),
+    fee: musicFee(stored.length, input.config.rate_per_mb),
     recipient: input.config.recipient,
+    batchSize: input.config.version >= 2 ? MUSIC_BATCH_CHUNKS : 1,
+    ...(key && nonce && ownerKey
+      ? {
+          key: toBase64url(key),
+          nonce: toBase64url(nonce),
+          ownerKey: toBase64url(
+            encode("publications.music_key", ownerKey as unknown as Record<string, unknown>)
+          ),
+          keyHash: toBase64url(contentHash(key)),
+        }
+      : {}),
   };
 }
 export function matchesMusic(draft: MusicDraft, record: MusicRecord): boolean {
@@ -158,6 +230,14 @@ export function matchesMusic(draft: MusicDraft, record: MusicRecord): boolean {
     record.owner === draft.owner &&
     record.payer === draft.payer &&
     record.title === draft.title &&
+    (record.artist ?? "") === (draft.artist ?? "") &&
+    (record.description ?? "") === (draft.description ?? "") &&
+    (record.audience ?? 0) === (draft.audience ?? 0) &&
+    (record.unlock_price ?? "0") === (draft.unlockPrice ?? "0") &&
+    !!record.encrypted === !!draft.key &&
+    toBase64url(record.group_id ?? new Uint8Array()) === (draft.groupId ?? "") &&
+    toBase64url(record.nonce ?? new Uint8Array()) === (draft.nonce ?? "") &&
+    toBase64url(record.key_hash ?? new Uint8Array()) === (draft.keyHash ?? "") &&
     record.mime === draft.mime &&
     record.size === draft.size &&
     record.duration_ms === draft.durationMs &&
@@ -172,15 +252,30 @@ export async function uploadMusic(
   progress: (received: number, total: number, paid: boolean) => void
 ): Promise<void> {
   if (
-    bytes.length !== draft.size ||
-    !bytesEqual(contentHash(bytes), fromBase64url(draft.digest))
+    bytes.length !== (draft.sourceSize ?? draft.size) ||
+    !bytesEqual(contentHash(bytes), fromBase64url(draft.sourceDigest ?? draft.digest))
   )
     throw new Error("Select the same audio file to resume this upload.");
   if (ctx.signer.getAddress() !== draft.payer)
     throw new Error("Unlock the account that started this upload.");
   const client = ctx.client,
     id = fromBase64url(draft.id),
-    chunks = musicChunks(bytes);
+    stored =
+      draft.key && draft.nonce
+        ? musicCipher(
+            musicKeyContext(
+              client.chainId,
+              client.deployment.contracts.publications.address,
+              id,
+              draft.owner
+            ),
+            fromBase64url(draft.key),
+            fromBase64url(draft.nonce)
+          ).encrypt(bytes)
+        : bytes,
+    chunks = musicChunks(stored);
+  if (stored.length !== draft.size || !bytesEqual(contentHash(stored), fromBase64url(draft.digest)))
+    throw new Error("Saved encryption settings do not match this upload.");
   assertActive();
   let record = (await client.reads.publications.get_music({ id }))?.value;
   if (record && !matchesMusic(draft, record))
@@ -193,65 +288,69 @@ export async function uploadMusic(
       config.recipient !== draft.recipient ||
       musicFee(draft.size, config.rate_per_mb) !== draft.fee
     )
-      throw new Error(
-        "The music price changed. Refresh the quote before paying."
-      );
+      throw new Error("The music price changed. Refresh the quote before paying.");
     const args: BeginMusicArgs = {
       owner: draft.owner,
       payer: draft.payer,
       id,
       digest: fromBase64url(draft.digest),
-      size: bytes.length,
+      size: stored.length,
       chunk_hashes: chunks.map(contentHash),
       title: draft.title,
+      artist: draft.artist,
+      description: draft.description,
+      audience: draft.audience,
+      ...(draft.groupId && { group_id: fromBase64url(draft.groupId) }),
+      unlock_price: draft.unlockPrice ?? "0",
+      encrypted: !!draft.key,
+      ...(draft.nonce && { nonce: fromBase64url(draft.nonce) }),
+      ...(draft.ownerKey && {
+        owner_key: decode<MusicKey>("publications.music_key", fromBase64url(draft.ownerKey)),
+      }),
+      ...(draft.keyHash && { key_hash: fromBase64url(draft.keyHash) }),
       mime: draft.mime,
       duration_ms: draft.durationMs,
       config_revision: draft.configRevision,
       max_fee: draft.fee,
     };
-    await submitAction(
-      ctx,
-      await musicPaymentOperations(client, args, config.native_token),
-      {
-        label: "Paying for music upload",
-        quietProgress: true,
-        beforeSubmit: async () => assertActive(),
-      }
-    );
+    await submitAction(ctx, await musicPaymentOperations(client, args, config.native_token), {
+      label: "Paying for music upload",
+      quietProgress: true,
+      beforeSubmit: async () => assertActive(),
+    });
     record = (await client.reads.publications.get_music({ id }))?.value;
-    if (!record)
-      throw new Error(
-        "Payment is still confirming. Resume this saved upload shortly."
-      );
+    if (!record) throw new Error("Payment is still confirming. Resume this saved upload shortly.");
   }
-  if (!matchesMusic(draft, record))
-    throw new Error("Music reservation changed unexpectedly.");
+  if (!matchesMusic(draft, record)) throw new Error("Music reservation changed unexpectedly.");
   progress(record.received, chunks.length, true);
-  for (let index = record.received; index < chunks.length; index++) {
+  const batchSize = draft.batchSize === MUSIC_BATCH_CHUNKS ? MUSIC_BATCH_CHUNKS : 1;
+  for (let index = record.received; index < chunks.length; index += batchSize) {
     assertActive();
-    await submitAction(
-      ctx,
-      [
-        await client.ops.publications.append_music({
-          owner: draft.owner,
-          id,
-          index,
-          data: chunks[index]!,
-        }),
-      ],
-      {
-        label: `Uploading audio ${index + 1}/${chunks.length}`,
-        quietProgress: true,
-        beforeSubmit: async () => assertActive(),
-      }
-    );
-    progress(index + 1, chunks.length, true);
+    const batch = chunks.slice(index, index + batchSize);
+    const op =
+      batchSize > 1
+        ? await client.ops.publications.append_music_batch({
+            owner: draft.owner,
+            id,
+            index,
+            chunks: batch,
+          })
+        : await client.ops.publications.append_music({
+            owner: draft.owner,
+            id,
+            index,
+            data: batch[0]!,
+          });
+    await submitAction(ctx, [op], {
+      label: `Uploading audio ${index + batch.length}/${chunks.length}`,
+      quietProgress: true,
+      beforeSubmit: async () => assertActive(),
+    });
+    progress(index + batch.length, chunks.length, true);
   }
   const complete = (await client.reads.publications.get_music({ id }))?.value;
   if (!complete || complete.received !== chunks.length)
-    throw new Error(
-      "The last chunk is still confirming. Resume to check completion."
-    );
+    throw new Error("The last chunk is still confirming. Resume to check completion.");
 }
 export async function loadMusic(
   client: ProtocolClient,
@@ -285,10 +384,7 @@ export async function loadMusic(
           index,
         });
         check();
-        if (!result)
-          throw new Error(
-            "An audio chunk is unavailable. Retry loading the track."
-          );
+        if (!result) throw new Error("An audio chunk is unavailable. Retry loading the track.");
         chunks[index] = result.data;
         progress?.(++received, chunks.length);
       }

@@ -29,37 +29,19 @@ assert.equal(await provider.getChainId(), deployment.chainId, "Wrong chain");
 let recipient = typeof args.recipient === "string" ? args.recipient : undefined;
 if (!recipient) {
   const endpoint = deployment.sponsors?.[0];
-  assert(
-    endpoint,
-    "Specify --recipient with the wallet that will receive music fees"
-  );
-  const response = await fetch(
-    `${endpoint.replace(/\/+$/, "")}/.well-known/osp-sponsor.json`,
-    { signal: AbortSignal.timeout(20000) }
-  );
-  assert(
-    response.ok,
-    "Could not read the existing Mana sponsor; specify --recipient"
-  );
+  assert(endpoint, "Specify --recipient with the wallet that will receive music fees");
+  const response = await fetch(`${endpoint.replace(/\/+$/, "")}/.well-known/osp-sponsor.json`, {
+    signal: AbortSignal.timeout(20000),
+  });
+  assert(response.ok, "Could not read the existing Mana sponsor; specify --recipient");
   const discovery = (await response.json()) as SponsorDiscovery;
-  assert(
-    verifySponsorDiscovery(discovery).valid,
-    "Invalid sponsor discovery signature"
-  );
-  assert.equal(
-    discovery.network.chainId,
-    deployment.chainId,
-    "Sponsor is on another chain"
-  );
+  assert(verifySponsorDiscovery(discovery).valid, "Invalid sponsor discovery signature");
+  assert.equal(discovery.network.chainId, deployment.chainId, "Sponsor is on another chain");
   recipient = discovery.sponsor;
 }
 assert(isAddress(recipient), "Recipient must be a valid Koinos address");
-const rate =
-  typeof args["rate-per-mb"] === "string" ? args["rate-per-mb"] : "86.1";
-assert(
-  /^\d+(\.\d{1,8})?$/.test(rate),
-  "Rate must be a positive decimal with at most 8 decimals"
-);
+const rate = typeof args["rate-per-mb"] === "string" ? args["rate-per-mb"] : "86.1";
+assert(/^\d+(\.\d{1,8})?$/.test(rate), "Rate must be a positive decimal with at most 8 decimals");
 const rate_per_mb = utils.parseUnits(rate, 8);
 musicFee(1, rate_per_mb); // shared bounds
 const max_bytes = Number(args["max-bytes"] ?? 10485760);
@@ -81,9 +63,8 @@ const contract = new Contract({
 const current = (await contract.functions.get_music_config!({})).result as
   | { value?: MusicConfig }
   | undefined;
-assert.equal(
-  current?.value?.version,
-  1,
+assert(
+  current?.value?.version === 1 || current?.value?.version === 2,
   "Upgrade publications before configuring Music"
 );
 console.log(
@@ -108,12 +89,7 @@ if (
 ) {
   console.log("Music policy already matches; no transaction sent.");
 } else if (args.execute) {
-  const owner = contractSigner(
-      network,
-      "publications",
-      requireSeed(),
-      provider
-    ),
+  const owner = contractSigner(network, "publications", requireSeed(), provider),
     payer = deployerSigner(preset, provider);
   assert.equal(
     owner.getAddress(),
@@ -126,19 +102,12 @@ if (
     sendTransaction: false,
     signTransaction: false,
   });
-  const result = await submitMeasured(
-    prepared.transaction!,
-    provider,
-    [owner, payer],
-    { log: console.log }
-  );
+  const result = await submitMeasured(prepared.transaction!, provider, [owner, payer], {
+    log: console.log,
+  });
   const block = await result.transaction.wait("byBlock", 120000);
   console.log(
-    JSON.stringify(
-      { configured: true, txId: result.transaction.id, block, policy },
-      null,
-      2
-    )
+    JSON.stringify({ configured: true, txId: result.transaction.id, block, policy }, null, 2)
   );
 } else
   console.log(

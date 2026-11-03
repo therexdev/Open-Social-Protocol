@@ -1,0 +1,101 @@
+{
+  "generatedAt": "2026-11-03T14:54:33.866Z",
+  "filename": "OpenSocial-Good-Vibes-330.mp3",
+  "sha256": "7a8fe18649ab8677a30876c3a51d12370d0917e314c6c3387c61c3392aa84031",
+  "audioBytes": 8403298,
+  "ciphertextBytes": 8403314,
+  "chunks": 513,
+  "before": {
+    "uploadTransactions": 514,
+    "appendTransactions": 513,
+    "appendArgumentBytes": 8438051,
+    "repeatedManifestSerializationBytes": 9033803
+  },
+  "after": {
+    "uploadTransactions": 130,
+    "appendTransactions": 129,
+    "appendArgumentBytes": 8413571,
+    "progressSerializationBytes": 356
+  },
+  "applicationFeeKoin": 724,
+  "notes": [
+    "Same original audio bytes; no re-encoding.",
+    "Counts exclude optional key deliveries, unlock purchases, and comments.",
+    "Serialization bytes measure processing/writes, not net persistent disk growth or Mana savings.",
+    "Application fee is unchanged. Transaction count is measured from the batching rules, not elapsed upload time."
+  ],
+  "mana": {
+    "status": "not_measured",
+    "reason": "A funded Harbinger payer is required for resource simulations."
+  },
+  "encodingComparison": [
+    {
+      "encoding": "Original MP3 320 kbps",
+      "bytes": 8403298,
+      "uploadTransactions": 130,
+      "applicationFeeKoin": 724,
+      "lossyReencode": false
+    },
+    {
+      "encoding": "MP3 192 kbps",
+      "bytes": 5041885,
+      "sha256": "88586cd40ea95bb338b72319daacff1e8c934c210ead74dcb27a5c96f620fa51",
+      "uploadTransactions": 78,
+      "applicationFeeKoin": 435,
+      "lossyReencode": true
+    },
+    {
+      "encoding": "MP3 128 kbps",
+      "bytes": 3361271,
+      "sha256": "f9e757400e1b91367ca3241b333ab98986287a610b8835df4926362c78b41a2e",
+      "uploadTransactions": 53,
+      "applicationFeeKoin": 290,
+      "lossyReencode": true
+    }
+  ],
+  "testnetFunding": {
+    "checkedAt": "2026-11-03T15:06:32.954Z",
+    "network": "harbinger",
+    "accounts": [
+      {
+        "address": "1GBgG6HrR3GfkA3JZasmh8N7cLQf2cKo4V",
+        "rc": "0"
+      },
+      {
+        "address": "1BCgLuNUixRhgTZubWiDmhPdV7VQiEjAWn",
+        "rc": "0"
+      }
+    ]
+  },
+  "browserValidation": {
+    "chain": "mocked reads, synthetic identities",
+    "results": [
+      {
+        "mode": "upload",
+        "width": 390,
+        "errors": [],
+        "overflow": false
+      },
+      {
+        "mode": "paid",
+        "width": 390,
+        "errors": [],
+        "overflow": false
+      },
+      {
+        "mode": "delivered",
+        "width": 390,
+        "errors": [],
+        "overflow": false,
+        "duration": 210
+      },
+      {
+        "mode": "public",
+        "width": 1280,
+        "errors": [],
+        "overflow": false,
+        "duration": 210
+      }
+    ]
+  }
+}

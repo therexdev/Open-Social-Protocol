@@ -38,3 +38,20 @@ clients that cannot query RPC directly can still build a valid transaction.
 ## `GET /v1/utilization`
 Aggregate counters (accepted, refused by category, RC used) for the current and previous day.
 No per-user data is exposed.
+
+
+## Music batching (policy version 3)
+
+Policy v3 keeps `maxRcPerOp` as the ceiling for one bounded work unit. Ordinary
+operations use one unit. `publications.append_music_batch` uses one unit per
+chunk (1–4 chunks, each at most 16 KiB). Client RC limits, sponsor validation and
+paid upload quotas use the same unit count. A batch cannot mix in another
+operation, skip indexes, use another reservation, or contain uncommitted bytes.
+A four-chunk batch with the default limit has at most 8 Mana; an ordinary action
+still has at most 2 Mana. This does not promise the action will fit if chain
+resource prices rise.
+
+The v3 sponsor defaults to 72 KiB argument bounds, within the upgraded
+sponsorship registry's 96 KiB maximum. The signed discovery advertises policy
+version 3 and `healthz.features.musicBatching = 1`. Old clients' ordinary methods
+retain their previous one-unit behavior.

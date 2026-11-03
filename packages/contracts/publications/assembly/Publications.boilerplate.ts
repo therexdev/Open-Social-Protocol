@@ -399,6 +399,15 @@ export class Publications {
     // const max_fee = args.max_fee;
     // const payer = args.payer;
     // const device = args.device;
+    // const artist = args.artist;
+    // const description = args.description;
+    // const audience = args.audience;
+    // const group_id = args.group_id;
+    // const encrypted = args.encrypted;
+    // const nonce = args.nonce;
+    // const owner_key = args.owner_key;
+    // const unlock_price = args.unlock_price;
+    // const key_hash = args.key_hash;
 
     // YOUR CODE HERE
 
@@ -455,11 +464,147 @@ export class Publications {
   ): publications.list_music_result {
     // const owner = args.owner;
     // const after = args.after;
+    // const group_id = args.group_id;
 
     // YOUR CODE HERE
 
     const res = new publications.list_music_result();
     // res.ids = ;
+
+    return res;
+  }
+
+  append_music_batch(
+    args: publications.append_music_batch_arguments
+  ): publications.append_music_batch_result {
+    // const owner = args.owner;
+    // const id = args.id;
+    // const index = args.index;
+    // const chunks = args.chunks;
+    // const device = args.device;
+
+    // YOUR CODE HERE
+
+    const res = new publications.append_music_batch_result();
+
+    return res;
+  }
+
+  request_music_access(
+    args: publications.request_music_access_arguments
+  ): publications.request_music_access_result {
+    // const buyer = args.buyer;
+    // const id = args.id;
+    // const max_price = args.max_price;
+
+    // YOUR CODE HERE
+
+    const res = new publications.request_music_access_result();
+
+    return res;
+  }
+
+  grant_music_access(
+    args: publications.grant_music_access_arguments
+  ): publications.grant_music_access_result {
+    // const owner = args.owner;
+    // const id = args.id;
+    // const buyer = args.buyer;
+    // const key = args.key;
+
+    // YOUR CODE HERE
+
+    const res = new publications.grant_music_access_result();
+
+    return res;
+  }
+
+  refund_music_access(
+    args: publications.refund_music_access_arguments
+  ): publications.refund_music_access_result {
+    // const buyer = args.buyer;
+    // const id = args.id;
+
+    // YOUR CODE HERE
+
+    const res = new publications.refund_music_access_result();
+
+    return res;
+  }
+
+  get_music_access(
+    args: publications.get_music_access_arguments
+  ): publications.get_music_access_result {
+    // const id = args.id;
+    // const buyer = args.buyer;
+
+    // YOUR CODE HERE
+
+    const res = new publications.get_music_access_result();
+    // res.value = ;
+    // res.eligible = ;
+    // res.now = ;
+
+    return res;
+  }
+
+  list_music_requests(
+    args: publications.list_music_requests_arguments
+  ): publications.list_music_requests_result {
+    // const owner = args.owner;
+    // const after = args.after;
+
+    // YOUR CODE HERE
+
+    const res = new publications.list_music_requests_result();
+    // res.items = ;
+    // res.next = ;
+
+    return res;
+  }
+
+  comment_music(
+    args: publications.comment_music_arguments
+  ): publications.comment_music_result {
+    // const author = args.author;
+    // const id = args.id;
+    // const comment_id = args.comment_id;
+    // const body = args.body;
+    // const nonce = args.nonce;
+    // const reply_to = args.reply_to;
+
+    // YOUR CODE HERE
+
+    const res = new publications.comment_music_result();
+
+    return res;
+  }
+
+  delete_music_comment(
+    args: publications.delete_music_comment_arguments
+  ): publications.delete_music_comment_result {
+    // const author = args.author;
+    // const id = args.id;
+    // const comment_id = args.comment_id;
+
+    // YOUR CODE HERE
+
+    const res = new publications.delete_music_comment_result();
+
+    return res;
+  }
+
+  list_music_comments(
+    args: publications.list_music_comments_arguments
+  ): publications.list_music_comments_result {
+    // const id = args.id;
+    // const after = args.after;
+
+    // YOUR CODE HERE
+
+    const res = new publications.list_music_comments_result();
+    // res.items = ;
+    // res.next = ;
 
     return res;
   }

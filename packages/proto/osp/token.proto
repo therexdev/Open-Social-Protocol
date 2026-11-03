@@ -369,3 +369,29 @@ message promotion_changed_event {
   promotion value = 1;
   uint64 timestamp = 2 [jstype = JS_STRING];
 }
+
+// Music escrow is denominated in whole transferable OSAT, never free usage credits.
+message music_escrow {
+  bytes buyer = 1 [(koinos.btype) = ADDRESS];
+  bytes seller = 2 [(koinos.btype) = ADDRESS];
+  uint64 amount = 3 [jstype = JS_STRING];
+  uint32 status = 4;
+}
+// @description Reserve transferable OSAT for music; configured publications contract only
+// @read-only false
+message reserve_music_payment_arguments {
+  bytes id = 1;
+  bytes buyer = 2 [(koinos.btype) = ADDRESS];
+  bytes seller = 3 [(koinos.btype) = ADDRESS];
+  uint64 amount = 4 [jstype = JS_STRING];
+}
+message reserve_music_payment_result {}
+// @description Settle or refund music escrow exactly once; publications contract only
+// @read-only false
+message settle_music_payment_arguments { bytes id = 1; bool refund = 2; }
+message settle_music_payment_result {}
+// @description Read an escrow payment
+// @read-only true
+message get_music_payment_arguments { bytes id = 1; }
+message get_music_payment_result { music_escrow value = 1; }
+message music_payment_event { bytes id = 1; music_escrow value = 2; }

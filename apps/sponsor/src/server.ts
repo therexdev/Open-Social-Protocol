@@ -14,6 +14,7 @@ import {
   NATIVE_TRANSFER_ENTRY,
   resolveNativeToken,
   ProtocolClient,
+  musicOperationUnits,
   contractAddresses,
   isAddress,
   fromBase64url,
@@ -58,7 +59,7 @@ export interface SponsorServiceOptions {
 }
 
 export interface StatusReport {
-  features: { walletTransfers: number; musicUploads: number; privateMessaging: 2; messagingNonceOrdering: 1; messagingFastConfirmation: 1; messagingResponsiveAllocation: 1 };
+  features: { walletTransfers: number; musicUploads: number; musicBatching: number; privateMessaging: 2; messagingNonceOrdering: 1; messagingFastConfirmation: 1; messagingResponsiveAllocation: 1 };
   ok: boolean;
   state: ServiceState;
   message: string;
@@ -177,7 +178,7 @@ export class SponsorService {
   async initializeMusic(): Promise<void> {
     if (!this.client || !this.allowlist) return;
     const config = (await this.client.reads.publications.get_music_config())?.value;
-    if (!config || config.version !== 1 || !isAddress(config.native_token)) throw new Error("Music contract update is not available");
+    if (!config || (config.version !== 1 && config.version !== 2) || !isAddress(config.native_token)) throw new Error("Music contract update is not available");
     if (!this.allowlist.entries.some(e => e.contract === "publications" && e.method === "begin_music")) return;
     this.allowlist = new Allowlist([...this.allowlist.entries.filter(e => e.contract !== "native" || e.method !== "approve"), {contract: "native", address: config.native_token, method: "approve", entryPoint: 0x74e21680}]);
     this.discoveryDoc = undefined;
@@ -287,7 +288,7 @@ export class SponsorService {
 
   status(): StatusReport {
     return {
-      features: { walletTransfers: this.allowlist?.entries.some(e => e.contract === "native" && e.method === "transfer") && this.allowlist.entries.some(e => e.contract === "token" && e.method === "transfer") ? 1 : 0, musicUploads: this.allowlist?.entries.some(e => e.contract === "native" && e.method === "approve") ? 1 : 0, privateMessaging: 2, messagingNonceOrdering: 1, messagingFastConfirmation: 1, messagingResponsiveAllocation: 1 },
+      features: { walletTransfers: this.allowlist?.entries.some(e => e.contract === "native" && e.method === "transfer") && this.allowlist.entries.some(e => e.contract === "token" && e.method === "transfer") ? 1 : 0, musicBatching: 1, musicUploads: this.allowlist?.entries.some(e => e.contract === "native" && e.method === "approve") ? 1 : 0, privateMessaging: 2, messagingNonceOrdering: 1, messagingFastConfirmation: 1, messagingResponsiveAllocation: 1 },
       ok: this.state === "serving",
       state: this.state,
       message: stateMessage(this.state, this.options),
@@ -331,7 +332,8 @@ export class SponsorService {
       if (!isAddress(payee)) throw new SponsorRefusal("invalid_transaction", "payee must be a Base58 address");
       if (payee === sponsor) throw new SponsorRefusal("invalid_transaction", "payee must not be the sponsor");
       const validated = await validateOperations(operations, payee, this.context());
-      let rcLimit = BigInt(this.limits.maxRcPerOp) * BigInt(validated.length);
+      const ops: OperationJson[] = validated.map((op) => ({ call_contract: { ...op.operation } }));
+      let rcLimit = BigInt(this.limits.maxRcPerOp) * BigInt(musicOperationUnits(client.contracts, ops));
       let available: bigint;
       try {
         available = BigInt(await provider.getAccountRc(sponsor));
@@ -340,7 +342,6 @@ export class SponsorService {
       }
       if (available < rcLimit) rcLimit = available;
       try {
-        const ops: OperationJson[] = validated.map((op) => ({ call_contract: { ...op.operation } }));
         return stripWait(await client.prepare(ops, { payee, payer: sponsor, rcLimit: rcLimit.toString() }));
       } catch (error) {
         throw new SponsorRefusal("temporarily_unavailable", `rpc failure while preparing the transaction: ${(error as Error).message}`);
@@ -371,7 +372,7 @@ export class SponsorService {
     let paidMusic;
     try { paidMusic = await musicAllowance(client, sponsor, payee, transaction.operations ?? []); }
     catch (error) { this.refuse(error); }
-    const reservation = this.quota.reserve(paidMusic?.key ?? payee, operations.length, at, paidMusic?.limit ?? this.limits.dailyOps);
+    const reservation = this.quota.reserve(paidMusic?.key ?? payee, paidMusic?.units ?? operations.length, at, paidMusic?.limit ?? this.limits.dailyOps);
     if (!reservation.ok) {
       this.refuse(new SponsorRefusal("quota_exceeded", reservation.message, { retryAfterSec: reservation.retryAfterSec }));
     }

@@ -20,10 +20,10 @@ export const DEFAULTS = {
   dailyOps: 200,
   burstOps: 180,
   burstWindowSec: 60,
-  maxBytesPerOp: 24576,
+  maxBytesPerOp: 73728,
   maxRcPerOp: "200000000",
   maxOpsPerTx: 4,
-  policyVersion: 2,
+  policyVersion: 3,
   register: true,
 } as const;
 

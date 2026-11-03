@@ -3901,4 +3901,387 @@ export namespace token {
       this.timestamp = timestamp;
     }
   }
+
+  export class music_escrow {
+    static encode(message: music_escrow, writer: Writer): void {
+      const unique_name_buyer = message.buyer;
+      if (unique_name_buyer !== null) {
+        writer.uint32(10);
+        writer.bytes(unique_name_buyer);
+      }
+
+      const unique_name_seller = message.seller;
+      if (unique_name_seller !== null) {
+        writer.uint32(18);
+        writer.bytes(unique_name_seller);
+      }
+
+      if (message.amount != 0) {
+        writer.uint32(24);
+        writer.uint64(message.amount);
+      }
+
+      if (message.status != 0) {
+        writer.uint32(32);
+        writer.uint32(message.status);
+      }
+    }
+
+    static decode(reader: Reader, length: i32): music_escrow {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new music_escrow();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1:
+            message.buyer = reader.bytes();
+            break;
+
+          case 2:
+            message.seller = reader.bytes();
+            break;
+
+          case 3:
+            message.amount = reader.uint64();
+            break;
+
+          case 4:
+            message.status = reader.uint32();
+            break;
+
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    buyer: Uint8Array | null;
+    seller: Uint8Array | null;
+    amount: u64;
+    status: u32;
+
+    constructor(
+      buyer: Uint8Array | null = null,
+      seller: Uint8Array | null = null,
+      amount: u64 = 0,
+      status: u32 = 0
+    ) {
+      this.buyer = buyer;
+      this.seller = seller;
+      this.amount = amount;
+      this.status = status;
+    }
+  }
+
+  export class reserve_music_payment_arguments {
+    static encode(
+      message: reserve_music_payment_arguments,
+      writer: Writer
+    ): void {
+      const unique_name_id = message.id;
+      if (unique_name_id !== null) {
+        writer.uint32(10);
+        writer.bytes(unique_name_id);
+      }
+
+      const unique_name_buyer = message.buyer;
+      if (unique_name_buyer !== null) {
+        writer.uint32(18);
+        writer.bytes(unique_name_buyer);
+      }
+
+      const unique_name_seller = message.seller;
+      if (unique_name_seller !== null) {
+        writer.uint32(26);
+        writer.bytes(unique_name_seller);
+      }
+
+      if (message.amount != 0) {
+        writer.uint32(32);
+        writer.uint64(message.amount);
+      }
+    }
+
+    static decode(
+      reader: Reader,
+      length: i32
+    ): reserve_music_payment_arguments {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new reserve_music_payment_arguments();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1:
+            message.id = reader.bytes();
+            break;
+
+          case 2:
+            message.buyer = reader.bytes();
+            break;
+
+          case 3:
+            message.seller = reader.bytes();
+            break;
+
+          case 4:
+            message.amount = reader.uint64();
+            break;
+
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    id: Uint8Array | null;
+    buyer: Uint8Array | null;
+    seller: Uint8Array | null;
+    amount: u64;
+
+    constructor(
+      id: Uint8Array | null = null,
+      buyer: Uint8Array | null = null,
+      seller: Uint8Array | null = null,
+      amount: u64 = 0
+    ) {
+      this.id = id;
+      this.buyer = buyer;
+      this.seller = seller;
+      this.amount = amount;
+    }
+  }
+
+  @unmanaged
+  export class reserve_music_payment_result {
+    static encode(
+      message: reserve_music_payment_result,
+      writer: Writer
+    ): void {}
+
+    static decode(reader: Reader, length: i32): reserve_music_payment_result {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new reserve_music_payment_result();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    constructor() {}
+  }
+
+  export class settle_music_payment_arguments {
+    static encode(
+      message: settle_music_payment_arguments,
+      writer: Writer
+    ): void {
+      const unique_name_id = message.id;
+      if (unique_name_id !== null) {
+        writer.uint32(10);
+        writer.bytes(unique_name_id);
+      }
+
+      if (message.refund != false) {
+        writer.uint32(16);
+        writer.bool(message.refund);
+      }
+    }
+
+    static decode(reader: Reader, length: i32): settle_music_payment_arguments {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new settle_music_payment_arguments();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1:
+            message.id = reader.bytes();
+            break;
+
+          case 2:
+            message.refund = reader.bool();
+            break;
+
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    id: Uint8Array | null;
+    refund: bool;
+
+    constructor(id: Uint8Array | null = null, refund: bool = false) {
+      this.id = id;
+      this.refund = refund;
+    }
+  }
+
+  @unmanaged
+  export class settle_music_payment_result {
+    static encode(message: settle_music_payment_result, writer: Writer): void {}
+
+    static decode(reader: Reader, length: i32): settle_music_payment_result {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new settle_music_payment_result();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    constructor() {}
+  }
+
+  export class get_music_payment_arguments {
+    static encode(message: get_music_payment_arguments, writer: Writer): void {
+      const unique_name_id = message.id;
+      if (unique_name_id !== null) {
+        writer.uint32(10);
+        writer.bytes(unique_name_id);
+      }
+    }
+
+    static decode(reader: Reader, length: i32): get_music_payment_arguments {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new get_music_payment_arguments();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1:
+            message.id = reader.bytes();
+            break;
+
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    id: Uint8Array | null;
+
+    constructor(id: Uint8Array | null = null) {
+      this.id = id;
+    }
+  }
+
+  export class get_music_payment_result {
+    static encode(message: get_music_payment_result, writer: Writer): void {
+      const unique_name_value = message.value;
+      if (unique_name_value !== null) {
+        writer.uint32(10);
+        writer.fork();
+        music_escrow.encode(unique_name_value, writer);
+        writer.ldelim();
+      }
+    }
+
+    static decode(reader: Reader, length: i32): get_music_payment_result {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new get_music_payment_result();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1:
+            message.value = music_escrow.decode(reader, reader.uint32());
+            break;
+
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    value: music_escrow | null;
+
+    constructor(value: music_escrow | null = null) {
+      this.value = value;
+    }
+  }
+
+  export class music_payment_event {
+    static encode(message: music_payment_event, writer: Writer): void {
+      const unique_name_id = message.id;
+      if (unique_name_id !== null) {
+        writer.uint32(10);
+        writer.bytes(unique_name_id);
+      }
+
+      const unique_name_value = message.value;
+      if (unique_name_value !== null) {
+        writer.uint32(18);
+        writer.fork();
+        music_escrow.encode(unique_name_value, writer);
+        writer.ldelim();
+      }
+    }
+
+    static decode(reader: Reader, length: i32): music_payment_event {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new music_payment_event();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1:
+            message.id = reader.bytes();
+            break;
+
+          case 2:
+            message.value = music_escrow.decode(reader, reader.uint32());
+            break;
+
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    id: Uint8Array | null;
+    value: music_escrow | null;
+
+    constructor(
+      id: Uint8Array | null = null,
+      value: music_escrow | null = null
+    ) {
+      this.id = id;
+      this.value = value;
+    }
+  }
 }

@@ -7,6 +7,7 @@ import {
   Transaction,
   TransactionOutcomeUnknownError,
   encode,
+  contentHash,
   signSponsorDiscovery,
   verifySponsorDiscovery,
   verifySponsorResult,
@@ -120,8 +121,8 @@ describe("discovery", () => {
     expect(doc.sponsor).toBe(sponsor);
     expect(doc.network.chainId).toBe(HARBINGER_CHAIN_ID);
     expect(doc.network.rpc).toEqual(deployment.rpc);
-    expect(doc.policy.version).toBe(2);
-    expect(doc.policy.maxBytesPerOp).toBe(24576);
+    expect(doc.policy.version).toBe(3);
+    expect(doc.policy.maxBytesPerOp).toBe(73728);
     expect(doc.policy.maxRcPerOp).toBe("200000000");
     expect(doc.policy.perUser).toEqual({ dailyOps: 200, burstOps: 180, burstWindowSec: 60 });
     const contracts = doc.policy.allowed.map((a) => a.contract).sort();
@@ -158,6 +159,34 @@ describe("discovery", () => {
 });
 
 describe("POST /v1/sponsor acceptance", () => {
+  it("prepares and sponsors four committed music chunks with four resource units", async () => {
+    const data = new Uint8Array(16384).fill(6);
+    const harness = await start({ provider: { onRead: op => {
+      if (op.entry_point === ABIS.publications.methods.get_music?.entry_point)
+        return encode("publications.get_music_result", { value: {
+          owner: user.getAddress(), payer: user.getAddress(), recipient: sponsor,
+          fee: "600000000", size: data.length * 4, received: 0,
+          chunk_hashes: Array.from({ length: 4 }, () => contentHash(data)),
+          digest: contentHash(data), title: "Batch test", mime: "audio/mpeg",
+        } });
+      return undefined;
+    } } });
+    const op = await harness.client.ops.publications.append_music_batch({
+      owner: user.getAddress(), id: postId, index: 0, chunks: [data, data, data, data],
+    });
+    const prepared = await harness.app.inject({ method: "POST", url: "/v1/prepare", payload: { payee: user.getAddress(), operations: [op] } });
+    expect(prepared.statusCode, prepared.body).toBe(200);
+    expect(prepared.json().transaction.header.rc_limit).toBe("800000000");
+    const sponsorClient = new SponsorClient({ endpoint: "https://sponsor.test", fetch: injectFetch(harness.app), expectedChainId: HARBINGER_CHAIN_ID });
+    const result = await harness.client.submit({ operations: [op], signer: user, sponsor: sponsorClient });
+    expect(result.sponsored).toBe(true);
+    expect(result.refusals).toEqual([]);
+    expect(harness.provider.sent[0]?.transaction.header?.rc_limit).toBe("800000000");
+    const over = await userTx(harness, [op], { rcLimit: "800000001" });
+    await expectRefusal(harness.app, over, 413, "too_large", /rc_limit/);
+    await harness.app.close();
+  });
+
   it("co-signs, broadcasts and records a valid payee-signed transaction", async () => {
     const harness = await start();
     const tx = await userTx(harness, [await reactOp(harness.client)]);
@@ -424,7 +453,7 @@ describe("POST /v1/sponsor refusals", () => {
       author: user.getAddress(),
       post_id: postId,
       sequence: "1",
-      envelope: new Uint8Array(25000).fill(9),
+      envelope: new Uint8Array(74000).fill(9),
       content_hash: new Uint8Array(32).fill(1),
       idempotency_key: new Uint8Array(16).fill(2),
     });

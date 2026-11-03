@@ -1,12 +1,4 @@
-import {
-  System,
-  Arrays,
-  Base58,
-  MockVM,
-  Protobuf,
-  chain,
-  system_calls,
-} from "@koinos/sdk-as";
+import { System, Arrays, Base58, MockVM, Protobuf, chain, system_calls } from "@koinos/sdk-as";
 import { MusicLibrary } from "../MusicLibrary";
 import { publications } from "../proto/publications";
 import { identity } from "../proto/identity";
@@ -41,9 +33,7 @@ function auth(account: Uint8Array = ALICE, payment: i32 = -1): void {
         payment,
         new chain.result(
           new Uint8Array(0),
-          payment == 0
-            ? null
-            : new chain.error_data("insufficient native balance")
+          payment == 0 ? null : new chain.error_data("insufficient native balance")
         )
       )
     );
@@ -59,12 +49,7 @@ beforeEach((): void => {
   Testing.setup(CONTRACT);
   MockVM.setContractAddress("koin", CONTRACT);
   lib = new MusicLibrary();
-  config = new publications.set_music_config_arguments(
-    BOB,
-    8610000000,
-    10485760,
-    true
-  );
+  config = new publications.set_music_config_arguments(BOB, 8610000000, 10485760, true);
   Testing.authorize([CONTRACT]);
   lib.setConfig(config);
   MockVM.commitTransaction();
@@ -112,22 +97,11 @@ describe("paid native music", (): void => {
     MockVM.commitTransaction();
     auth();
     lib.append(append, IDENTITY);
-    expect(lib.tracks.get(ID)!.received).toBe(1);
-    expect(
-      Arrays.equal(
-        lib.chunks.get(Util.concat([ID, Util.u32be(0)]))!.data!,
-        DATA
-      )
-    ).toBe(true);
-    expect(
-      lib.list(new publications.list_music_arguments(ALICE)).ids.length
-    ).toBe(1);
-    expect(
-      lib.list(new publications.list_music_arguments(BOB)).ids.length
-    ).toBe(0);
-    expect(
-      lib.list(new publications.list_music_arguments(ALICE, ID)).ids.length
-    ).toBe(0);
+    expect(lib.get(ID)!.received).toBe(1);
+    expect(Arrays.equal(lib.chunks.get(Util.concat([ID, Util.u32be(0)]))!.data!, DATA)).toBe(true);
+    expect(lib.list(new publications.list_music_arguments(ALICE)).ids.length).toBe(1);
+    expect(lib.list(new publications.list_music_arguments(BOB)).ids.length).toBe(0);
+    expect(lib.list(new publications.list_music_arguments(ALICE, ID)).ids.length).toBe(0);
     expect(Testing.eventNames()).toStrictEqual([
       "osp.publications.music_paid",
       "osp.publications.music_completed",
@@ -135,9 +109,7 @@ describe("paid native music", (): void => {
   });
   it("rejects an unpaid append", (): void => {
     auth();
-    expect(() => lib.append(append, IDENTITY)).toThrow(
-      "paid music upload not owned"
-    );
+    expect(() => lib.append(append, IDENTITY)).toThrow("paid music upload not owned");
   });
   it("rejects stale quotes, underpayment and fee-recipient self-payment", (): void => {
     begin.config_revision = 0;
@@ -178,9 +150,7 @@ describe("paid native music", (): void => {
     append.data = new Uint8Array(20).fill(8);
     auth();
     expect(() => lib.append(append, IDENTITY)).toThrow("hash mismatch");
-    expect(
-      lib.list(new publications.list_music_arguments(ALICE)).ids.length
-    ).toBe(0);
+    expect(lib.list(new publications.list_music_arguments(ALICE)).ids.length).toBe(0);
   });
   it("bounds uploads and rejects invalid manifests before payment", (): void => {
     begin.size = 10485761;
@@ -203,19 +173,84 @@ it("stores the maximum 640-chunk manifest within the protocol buffers", (): void
   begin.chunk_hashes = [];
   for (let i = 0; i < 640; i++) begin.chunk_hashes.push(hash);
   begin.max_fee = 90300000000;
-  expect(
-    Protobuf.encode(begin, publications.begin_music_arguments.encode).length <
-      24576
-  ).toBe(true);
+  expect(Protobuf.encode(begin, publications.begin_music_arguments.encode).length < 24576).toBe(
+    true
+  );
   start();
   const value = lib.tracks.get(ID)!;
   expect(value.chunk_hashes.length).toBe(640);
   expect(value.fee).toBe(90300000000);
-  expect(
-    Protobuf.encode(value, publications.music_record.encode).length < 32768
-  ).toBe(true);
+  expect(Protobuf.encode(value, publications.music_record.encode).length < 32768).toBe(true);
   append.data = full;
   auth();
   lib.append(append, IDENTITY);
-  expect(lib.tracks.get(ID)!.received).toBe(1);
+  expect(lib.get(ID)!.received).toBe(1);
+});
+
+it("batches sequential chunks without rewriting the immutable manifest", (): void => {
+  const data = new Uint8Array(16384).fill(7),
+    hash = lib.hash(data);
+  begin.size = 5 * 16384;
+  begin.chunk_hashes = [hash, hash, hash, hash, hash];
+  begin.max_fee = lib.fee(begin.size, 8610000000);
+  start();
+  const original = Protobuf.encode(lib.tracks.get(ID)!, publications.music_record.encode);
+  auth();
+  lib.appendBatch(
+    new publications.append_music_batch_arguments(ALICE, ID, 0, [data, data, data, data]),
+    IDENTITY
+  );
+  MockVM.commitTransaction();
+  expect(lib.get(ID)!.received).toBe(4);
+  expect(
+    Arrays.equal(original, Protobuf.encode(lib.tracks.get(ID)!, publications.music_record.encode))
+  ).toBe(true);
+  auth();
+  lib.appendBatch(
+    new publications.append_music_batch_arguments(ALICE, ID, 0, [data, data, data, data]),
+    IDENTITY
+  );
+  MockVM.commitTransaction();
+  expect(lib.get(ID)!.received).toBe(4);
+  auth();
+  lib.appendBatch(new publications.append_music_batch_arguments(ALICE, ID, 4, [data]), IDENTITY);
+  MockVM.commitTransaction();
+  expect(lib.get(ID)!.received).toBe(5);
+  expect(lib.list(new publications.list_music_arguments(ALICE)).ids.length).toBe(1);
+});
+it("resumes a legacy manifest into separate progress without losing confirmed chunks", (): void => {
+  start();
+  const legacy = lib.tracks.get(ID)!;
+  legacy.version = 0;
+  lib.tracks.put(ID, legacy);
+  MockVM.commitTransaction();
+  auth();
+  lib.append(append, IDENTITY);
+  MockVM.commitTransaction();
+  expect(lib.tracks.get(ID)!.received).toBe(0);
+  expect(lib.get(ID)!.received).toBe(1);
+});
+it("rejects restricted plaintext, a missing paid key and unbounded batches", (): void => {
+  begin.audience = 1;
+  auth();
+  expect((): void => {
+    lib.begin(begin, IDENTITY);
+  }).toThrow();
+  begin.audience = 0;
+  begin.unlock_price = 10;
+  auth();
+  expect((): void => {
+    lib.begin(begin, IDENTITY);
+  }).toThrow();
+  begin.encrypted = true;
+  auth();
+  expect((): void => {
+    lib.begin(begin, IDENTITY);
+  }).toThrow();
+  expect((): void => {
+    lib.appendBatch(
+      new publications.append_music_batch_arguments(ALICE, ID, 0, [DATA, DATA, DATA, DATA, DATA]),
+      IDENTITY
+    );
+  }).toThrow();
 });

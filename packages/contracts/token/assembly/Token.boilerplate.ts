@@ -279,4 +279,45 @@ export class Token {
 
     return res;
   }
+
+  reserve_music_payment(
+    args: token.reserve_music_payment_arguments
+  ): token.reserve_music_payment_result {
+    // const id = args.id;
+    // const buyer = args.buyer;
+    // const seller = args.seller;
+    // const amount = args.amount;
+
+    // YOUR CODE HERE
+
+    const res = new token.reserve_music_payment_result();
+
+    return res;
+  }
+
+  settle_music_payment(
+    args: token.settle_music_payment_arguments
+  ): token.settle_music_payment_result {
+    // const id = args.id;
+    // const refund = args.refund;
+
+    // YOUR CODE HERE
+
+    const res = new token.settle_music_payment_result();
+
+    return res;
+  }
+
+  get_music_payment(
+    args: token.get_music_payment_arguments
+  ): token.get_music_payment_result {
+    // const id = args.id;
+
+    // YOUR CODE HERE
+
+    const res = new token.get_music_payment_result();
+    // res.value = ;
+
+    return res;
+  }
 }

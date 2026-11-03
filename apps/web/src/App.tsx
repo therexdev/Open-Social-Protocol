@@ -1,3 +1,5 @@
+import { MusicPage } from "./features/music/MusicPage";
+import { MusicDeliverySync } from "./features/music/MusicDeliverySync";
 import { GroupsPage, CollectionPage } from "./features/library/LibraryPages";
 /** Routes and the account gate: empty vault -> onboarding, locked -> unlock screen, unlocked -> app. */
 import { useEffect, useRef, type ReactNode } from "react";
@@ -33,7 +35,8 @@ function RequireAccount({ children }: { children: ReactNode }) {
   const status = useVault((s) => s.status);
   const location = useLocation();
   if (status === "loading") return <Spinner label="Opening your vault" />;
-  if (status === "empty") return <Navigate to="/welcome" replace state={{ from: location.pathname }} />;
+  if (status === "empty")
+    return <Navigate to="/welcome" replace state={{ from: location.pathname }} />;
   if (status === "locked") return <UnlockScreen />;
   return <>{children}</>;
 }
@@ -46,7 +49,10 @@ function Optional({ children }: { children: ReactNode }) {
   const status = useVault((s) => s.status);
   const location = useLocation();
   if (status === "loading") return <Spinner label="Opening your vault" />;
-  if (status === "empty") return <Navigate to="/welcome" replace state={{ from: `${location.pathname}${location.search}` }} />;
+  if (status === "empty")
+    return (
+      <Navigate to="/welcome" replace state={{ from: `${location.pathname}${location.search}` }} />
+    );
   return <>{children}</>;
 }
 
@@ -69,7 +75,9 @@ function AccountEffects() {
     if (status === "empty") reset();
     if (status !== "unlocked" || !account) return;
     void check(services, account, force);
-    const retry = () => { if (document.visibilityState !== "hidden") void check(services, account); };
+    const retry = () => {
+      if (document.visibilityState !== "hidden") void check(services, account);
+    };
     const timer = window.setInterval(retry, 30_000);
     window.addEventListener("focus", retry);
     window.addEventListener("online", retry);
@@ -83,19 +91,59 @@ function AccountEffects() {
 }
 
 function OwnProfile() {
-  const account = useVault(s => s.account);
-  return account ? <Navigate to={`/u/${account}`} replace /> : <Navigate to="/welcome" replace state={{ from: "/me" }} />;
+  const account = useVault((s) => s.account);
+  return account ? (
+    <Navigate to={`/u/${account}`} replace />
+  ) : (
+    <Navigate to="/welcome" replace state={{ from: "/me" }} />
+  );
 }
 
 export function AppRoutes() {
   return (
     <Routes>
-      <Route path="/groups" element={<RequireAccount><GroupsPage /></RequireAccount>} />
-      <Route path="/collections/:id" element={<Optional><CollectionPage /></Optional>} />
+      <Route
+        path="/music/:id"
+        element={
+          <Optional>
+            <MusicPage />
+          </Optional>
+        }
+      />
+      <Route
+        path="/groups"
+        element={
+          <RequireAccount>
+            <GroupsPage />
+          </RequireAccount>
+        }
+      />
+      <Route
+        path="/collections/:id"
+        element={
+          <Optional>
+            <CollectionPage />
+          </Optional>
+        }
+      />
       <Route path="/about" element={<AboutPage />} />
       <Route path="/people" element={<PeoplePage />} />
-      <Route path="/tags/:tag" element={<Optional><HashtagPage /></Optional>} />
-      <Route path="/me" element={<RequireAccount><OwnProfile /></RequireAccount>} />
+      <Route
+        path="/tags/:tag"
+        element={
+          <Optional>
+            <HashtagPage />
+          </Optional>
+        }
+      />
+      <Route
+        path="/me"
+        element={
+          <RequireAccount>
+            <OwnProfile />
+          </RequireAccount>
+        }
+      />
       <Route path="/welcome" element={<OnboardingPage />} />
       <Route path="/recover" element={<RecoveryPage />} />
       <Route path="/settings" element={<SettingsPage />} />
@@ -147,9 +195,30 @@ export function AppRoutes() {
           </RequireAccount>
         }
       />
-      <Route path="/messages" element={<RequireAccount><MessagesPage /></RequireAccount>} />
-      <Route path="/tokens" element={<RequireAccount><TokensPage /></RequireAccount>} />
-      <Route path="/wallet" element={<RequireAccount><WalletPage /></RequireAccount>} />
+      <Route
+        path="/messages"
+        element={
+          <RequireAccount>
+            <MessagesPage />
+          </RequireAccount>
+        }
+      />
+      <Route
+        path="/tokens"
+        element={
+          <RequireAccount>
+            <TokensPage />
+          </RequireAccount>
+        }
+      />
+      <Route
+        path="/wallet"
+        element={
+          <RequireAccount>
+            <WalletPage />
+          </RequireAccount>
+        }
+      />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
@@ -168,14 +237,18 @@ export function App({ vault = defaultVault, settings, services }: AppProps) {
   }, [vault]);
   return (
     <VaultProvider store={vault}>
-      <ServicesProvider {...(settings && { store: settings })} {...(services && { factory: services })}>
+      <ServicesProvider
+        {...(settings && { store: settings })}
+        {...(services && { factory: services })}
+      >
         <PublishingProvider>
-        <PrivateMessagingProvider>
-          <AccountEffects />
-          <Layout>
-            <AppRoutes />
-          </Layout>
-        </PrivateMessagingProvider>
+          <PrivateMessagingProvider>
+            <AccountEffects />
+            <MusicDeliverySync />
+            <Layout>
+              <AppRoutes />
+            </Layout>
+          </PrivateMessagingProvider>
         </PublishingProvider>
       </ServicesProvider>
     </VaultProvider>

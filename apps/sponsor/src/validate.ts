@@ -5,7 +5,7 @@
  * the allowlist and the limits. Every refusal is a `SponsorRefusal` with a stable category
  * from docs/sponsor-api.md and the HTTP status the server should answer with.
  */
-import { decodeWalletTransfer, validMusicPaymentBundle, Signer, Transaction, isAddress, type ProtocolContracts, type SponsorErrorCategory, type TransactionJson } from "@osp/sdk";
+import { musicOperationUnits, decodeWalletTransfer, validMusicPaymentBundle, Signer, Transaction, isAddress, type ProtocolContracts, type SponsorErrorCategory, type TransactionJson } from "@osp/sdk";
 import type { CallContractOperationJson, OperationJson } from "@osp/sdk";
 import { utils } from "koilib";
 import { actorField, deviceMaySign, type Allowlist } from "./policy.js";
@@ -282,7 +282,7 @@ export async function validateTransaction(input: unknown, ctx: ValidationContext
   const { operations } = inspected;
 
   const rcLimit = parseRcLimit(header.rc_limit);
-  const rcCeiling = BigInt(ctx.limits.maxRcPerOp) * BigInt(operations.length);
+  const rcCeiling = BigInt(ctx.limits.maxRcPerOp) * BigInt(musicOperationUnits(ctx.contracts, input.operations as OperationJson[]));
   if (rcLimit > rcCeiling) {
     throw new SponsorRefusal("too_large", `rc_limit ${rcLimit} exceeds ${ctx.limits.maxRcPerOp} x ${operations.length} operations`);
   }

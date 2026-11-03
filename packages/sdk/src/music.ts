@@ -1,17 +1,12 @@
 import { contentHash } from "./ids.js";
-import {
-  bytesEqual,
-  encode,
-  decode,
-  fromBase64url,
-  toBase64url,
-} from "./encoding.js";
+import { bytesEqual, encode, decode, fromBase64url, toBase64url } from "./encoding.js";
 import type { OperationJson } from "koilib";
 import type { ProtocolContracts } from "./client/contracts.js";
 import type { ProtocolClient } from "./client/protocolClient.js";
 import type { Address, Bytes, U64 } from "./client/types.js";
 
 export const MUSIC_CHUNK_BYTES = 16384;
+export const MUSIC_BATCH_CHUNKS = 4;
 export const MUSIC_MAX_BYTES = 10 * 1024 * 1024;
 export const MUSIC_DEFAULT_RATE = "8610000000"; // 86.1 native KOIN / decimal MB
 export const MUSIC_MIMES = [
@@ -30,7 +25,43 @@ export interface MusicConfig {
   max_bytes: number;
   enabled: boolean;
 }
+export interface MusicKey {
+  key_version: number;
+  ephemeral_public_key: Uint8Array;
+  nonce: Uint8Array;
+  ciphertext: Uint8Array;
+}
+export interface MusicAccess {
+  id: Uint8Array;
+  buyer: string;
+  amount: string;
+  expires_at: string;
+  status: number;
+  key?: MusicKey;
+  public_key: Uint8Array;
+  key_version: number;
+  payment_id: Uint8Array;
+}
+export interface MusicComment {
+  id: Uint8Array;
+  author: string;
+  body: Uint8Array;
+  nonce: Uint8Array;
+  reply_to: Uint8Array;
+  created_at: string;
+  deleted: boolean;
+}
 export interface MusicRecord {
+  artist?: string;
+  description?: string;
+  audience?: number;
+  group_id?: Uint8Array;
+  encrypted?: boolean;
+  nonce?: Uint8Array;
+  owner_key?: MusicKey;
+  unlock_price?: string;
+  version?: number;
+  key_hash?: Uint8Array;
   owner: string;
   digest: Uint8Array;
   size: number;
@@ -44,6 +75,15 @@ export interface MusicRecord {
   payer: string;
 }
 export interface BeginMusicArgs {
+  artist?: string;
+  description?: string;
+  audience?: number;
+  group_id?: Bytes;
+  encrypted?: boolean;
+  nonce?: Bytes;
+  owner_key?: MusicKey;
+  unlock_price?: U64;
+  key_hash?: Bytes;
   owner: Address;
   id: Bytes;
   digest: Bytes;
@@ -65,10 +105,7 @@ export function musicFee(size: number, rate = MUSIC_DEFAULT_RATE): string {
     throw new Error("Invalid music upload rate.");
   const unit = 100000000n,
     divisor = 1000000n * unit;
-  return (
-    ((BigInt(size) * BigInt(rate) + divisor - 1n) / divisor) *
-    unit
-  ).toString();
+  return (((BigInt(size) * BigInt(rate) + divisor - 1n) / divisor) * unit).toString();
 }
 export function musicChunks(bytes: Uint8Array): Uint8Array[] {
   musicFee(bytes.length);
@@ -77,23 +114,15 @@ export function musicChunks(bytes: Uint8Array): Uint8Array[] {
     chunks.push(bytes.slice(i, i + MUSIC_CHUNK_BYTES));
   return chunks;
 }
-export function verifyMusic(
-  record: MusicRecord,
-  chunks: Uint8Array[]
-): Uint8Array {
+export function verifyMusic(record: MusicRecord, chunks: Uint8Array[]): Uint8Array {
   musicFee(record.size);
   const count = Math.ceil(record.size / MUSIC_CHUNK_BYTES);
-  if (
-    record.received !== count ||
-    chunks.length !== count ||
-    record.chunk_hashes.length !== count
-  )
+  if (record.received !== count || chunks.length !== count || record.chunk_hashes.length !== count)
     throw new Error("Audio upload is incomplete.");
   const bytes = new Uint8Array(record.size);
   chunks.forEach((chunk, i) => {
     if (
-      chunk.length !==
-        Math.min(MUSIC_CHUNK_BYTES, record.size - i * MUSIC_CHUNK_BYTES) ||
+      chunk.length !== Math.min(MUSIC_CHUNK_BYTES, record.size - i * MUSIC_CHUNK_BYTES) ||
       !bytesEqual(contentHash(chunk), record.chunk_hashes[i]!)
     )
       throw new Error("Audio chunk verification failed.");
@@ -103,9 +132,7 @@ export function verifyMusic(
     throw new Error("Audio file verification failed.");
   return bytes;
 }
-export async function musicConfig(
-  client: ProtocolClient
-): Promise<MusicConfig> {
+export async function musicConfig(client: ProtocolClient): Promise<MusicConfig> {
   let config: MusicConfig | undefined;
   try {
     config = (await client.reads.publications.get_music_config())?.value;
@@ -114,7 +141,7 @@ export async function musicConfig(
       "Music uploads need the updated Open Social contract. Please try again after the network update."
     );
   }
-  if (config?.version !== 1)
+  if (config?.version !== 1 && config?.version !== 2)
     throw new Error("This network does not support Music yet.");
   return config;
 }
@@ -140,11 +167,7 @@ export async function musicPaymentOperations(
       ),
     },
   });
-  return [
-    approve(args.max_fee),
-    await client.ops.publications.begin_music(args),
-    approve("0"),
-  ];
+  return [approve(args.max_fee), await client.ops.publications.begin_music(args), approve("0")];
 }
 /** Sponsor policy only permits native approvals inside this exact payment bundle. */
 export function validMusicPaymentBundle(
@@ -188,4 +211,26 @@ export function validMusicPaymentBundle(
   } catch {
     return false;
   }
+}
+
+/** A four-chunk batch has four bounded resource units but one signature/transaction.
+ * Other methods retain one unit per operation. Shared by clients and sponsors. */
+export function musicOperationUnits(
+  contracts: ProtocolContracts,
+  operations: OperationJson[]
+): number {
+  return operations.reduce((total, operation) => {
+    const decoded = contracts.decodeOperation(operation);
+    if (decoded?.contract === "publications" && decoded.method === "append_music_batch") {
+      const chunks = decoded.args.chunks;
+      if (
+        Array.isArray(chunks) &&
+        chunks.length >= 1 &&
+        chunks.length <= MUSIC_BATCH_CHUNKS &&
+        chunks.every((c) => c instanceof Uint8Array && c.length <= MUSIC_CHUNK_BYTES)
+      )
+        return total + chunks.length;
+    }
+    return total + 1;
+  }, 0);
 }

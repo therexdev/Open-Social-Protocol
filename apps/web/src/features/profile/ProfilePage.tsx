@@ -2,7 +2,7 @@ import { MusicSection } from "../music/MusicSection";
 import { PhotoGallery, CollectionList } from "../library/LibraryPages";
 /** Own or others' profile: name and bio from the profile document, posts, relationship actions. */
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import { useServices } from "../../api/services";
 import { buildProfileDocument, PROFILE_URI_MAX_CHARS } from "../../api/profiles";
 import { Avatar, Icon } from "../../components/Icon";
@@ -71,6 +71,8 @@ function ProfileEditor({ account, name, bio, onDone }: { account: string; name: 
 
 export function ProfilePage() {
   const { account = "" } = useParams();
+  const [search] = useSearchParams();
+  const requestedTab = search.get("tab");
   const { indexer } = useServices();
   const me = useVault((s) => s.account);
   const status = useVault((s) => s.status);
@@ -86,8 +88,8 @@ export function ProfilePage() {
 
   useEffect(() => {
     setEditing(false);
-    setTab("posts");
-  }, [account]);
+    setTab(requestedTab === "music" ? "music" : "posts");
+  }, [account, requestedTab]);
 
   return (
     <div className="page profile-page">

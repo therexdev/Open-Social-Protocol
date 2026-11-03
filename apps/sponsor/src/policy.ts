@@ -14,7 +14,7 @@ import { CONTRACT_NAMES, type ContractName, type Deployment, type SponsorPolicy 
 export const SPONSORED_CONTRACTS: readonly ContractName[] = ["identity", "relationships", "publications", "communities", "messaging"];
 
 /** Methods that are never sponsored by default (contract-account administration). */
-export const ADMIN_METHODS: ReadonlySet<string> = new Set(["set_music_config", "set_identity_contract", "set_relationships_contract", "set_token_contract", "set_dependencies", "init", "set_reward_policy", "activate_recharge", "activate_economy", "grant_test_tokens", "consume", "allocate_private_usage"]);
+export const ADMIN_METHODS: ReadonlySet<string> = new Set(["set_music_config", "set_identity_contract", "set_relationships_contract", "set_token_contract", "set_dependencies", "init", "set_reward_policy", "activate_recharge", "activate_economy", "grant_test_tokens", "consume", "allocate_private_usage", "reserve_music_payment", "settle_music_payment"]);
 
 /**
  * Argument field naming the acting account per method. `null` marks methods anyone may
@@ -52,6 +52,12 @@ export const ACTOR_FIELDS: Readonly<Partial<Record<ContractName, Readonly<Record
   publications: {
     begin_music: "owner",
     append_music: "owner",
+    append_music_batch: "owner",
+    request_music_access: "buyer",
+    grant_music_access: "owner",
+    refund_music_access: "buyer",
+    comment_music: "author",
+    delete_music_comment: "author",
     begin_photo: "owner",
     append_photo: "owner",
     save_collection: "owner",

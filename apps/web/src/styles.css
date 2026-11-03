@@ -1282,3 +1282,14 @@ select, .quick-composer select, .conversation-list select, .composer-identity se
 .wallet-amount button { flex-shrink: 0; }
 .wallet-review { display: grid; grid-template-columns: 5rem minmax(0,1fr); gap: .8rem; }
 .wallet-review dd { margin: 0; }
+
+/* Track pages use the same cards and controls as post pages. */
+.music-page { max-width: 900px; margin-inline: auto; }
+.music-artist { font-weight: 600; margin-block: .25rem; }
+.music-description { white-space: pre-wrap; overflow-wrap: anywhere; }
+.music-excerpt { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.music-comments { display: grid; gap: 1rem; }
+.music-comment { border-bottom: 1px solid var(--border); padding-block: 1rem; }
+.music-comment .row > a { overflow-wrap: anywhere; min-width: 0; }
+.music-page .list-item { flex-wrap: wrap; gap: .75rem; overflow-wrap: anywhere; }
+.music-page audio { max-width: 100%; }

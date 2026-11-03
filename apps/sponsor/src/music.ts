@@ -17,12 +17,12 @@ export async function musicAllowance(
   sponsor: string,
   payee: string,
   operations: OperationJson[]
-): Promise<{ key: string; limit: number } | undefined> {
+): Promise<{ key: string; limit: number; units?: number } | undefined> {
   const decoded = operations.map((op) => client.contracts.decodeOperation(op));
   const music = decoded.filter(
     (op) =>
       op?.contract === "publications" &&
-      ["begin_music", "append_music"].includes(op.method)
+      ["begin_music", "append_music", "append_music_batch"].includes(op.method)
   );
   if (!music.length) return undefined;
   const refuse = (message: string): never => {
@@ -34,16 +34,9 @@ export async function musicAllowance(
     const config = (await client.reads.publications.get_music_config())?.value;
     if (
       !config ||
-      !validMusicPaymentBundle(
-        client.contracts,
-        operations,
-        payee,
-        config.native_token
-      )
+      !validMusicPaymentBundle(client.contracts, operations, payee, config.native_token)
     )
-      refuse(
-        "Music payments require the exact approval, payment and cleanup bundle"
-      );
+      refuse("Music payments require the exact approval, payment and cleanup bundle");
     if (
       !config?.enabled ||
       config.recipient !== sponsor ||
@@ -51,13 +44,10 @@ export async function musicAllowance(
       args.config_revision !== config.revision ||
       args.max_fee !== musicFee(Number(args.size), config.rate_per_mb)
     )
-      refuse(
-        "This sponsor only funds music uploads paid to its configured account"
-      );
+      refuse("This sponsor only funds music uploads paid to its configured account");
     return undefined;
   }
-  if (operations.length !== 1)
-    refuse("Music chunks must use one operation per transaction");
+  if (operations.length !== 1) refuse("Music chunks must use one operation per transaction");
   const id = args.id as Uint8Array;
   const record = (await client.reads.publications.get_music({ id }))?.value;
   if (
@@ -71,22 +61,33 @@ export async function musicAllowance(
   )
     refuse("No matching paid music reservation for this sponsor");
   const v = record!,
-    index = Number(args.index),
-    data = args.data as Uint8Array;
+    index = Number(args.index);
+  const chunks =
+    op.method === "append_music_batch" ? (args.chunks as Uint8Array[]) : [args.data as Uint8Array];
   if (
+    !Array.isArray(chunks) ||
+    chunks.length < 1 ||
+    chunks.length > 4 ||
     index !== v.received ||
-    index >= v.chunk_hashes.length ||
-    !(data instanceof Uint8Array) ||
-    data.length !==
-      Math.min(MUSIC_CHUNK_BYTES, v.size - index * MUSIC_CHUNK_BYTES) ||
-    !bytesEqual(contentHash(data), v.chunk_hashes[index]!)
+    index + chunks.length > v.chunk_hashes.length
   )
     refuse("Refresh music upload progress before retrying this chunk");
+  for (let offset = 0; offset < chunks.length; offset++) {
+    const i = index + offset,
+      data = chunks[offset];
+    if (
+      !(data instanceof Uint8Array) ||
+      data.length !== Math.min(MUSIC_CHUNK_BYTES, v.size - i * MUSIC_CHUNK_BYTES) ||
+      !bytesEqual(contentHash(data), v.chunk_hashes[i]!)
+    )
+      refuse("Refresh music upload progress before retrying this chunk");
+  }
   // At most two attempts per paid chunk/day, including reverted broadcasts.
   return {
-    key: `music:${client.chainId}:${
-      client.deployment.contracts.publications.address
-    }:${toBase64url(id)}`,
+    key: `music:${client.chainId}:${client.deployment.contracts.publications.address}:${toBase64url(
+      id
+    )}`,
     limit: v.chunk_hashes.length * 2,
+    units: chunks.length,
   };
 }

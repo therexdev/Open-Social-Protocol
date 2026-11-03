@@ -1,3 +1,4 @@
+import { musicOperationUnits } from "../music.js";
 /**
  * ProtocolClient: RPC provider, contracts, transaction preparation, signing, simulation and
  * submission with sponsor co-signing and self-pay fallback (spec section 10).
@@ -300,7 +301,7 @@ export class ProtocolClient {
       if (discovery.network?.chainId && discovery.network.chainId !== this.chainId) {
         throw new SponsorError("chain_mismatch", `sponsor serves chain ${discovery.network.chainId}`, { endpoint: sponsor.endpoint });
       }
-      const rcLimit = options.rcLimit ?? sponsoredRcLimit(discovery, options.operations.length);
+      const rcLimit = options.rcLimit ?? sponsoredRcLimit(discovery, musicOperationUnits(this.contracts, options.operations));
       const prepared = await this.prepare(options.operations, {
         payee,
         payer: discovery.sponsor,

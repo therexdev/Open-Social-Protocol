@@ -40,21 +40,15 @@ describe("native music pricing and verification", () => {
       recipient: "recipient",
       payer: "owner",
     };
-    expect(contentHash(verifyMusic(record, chunks))).toEqual(
-      contentHash(bytes)
-    );
-    expect(() => verifyMusic(record, chunks.slice(0, -1))).toThrow(
-      "incomplete"
-    );
+    expect(contentHash(verifyMusic(record, chunks))).toEqual(contentHash(bytes));
+    expect(() => verifyMusic(record, chunks.slice(0, -1))).toThrow("incomplete");
     const wrong = chunks.map((x) => x.slice());
     wrong[1]![0] = wrong[1]![0]! ^ 1;
     expect(() => verifyMusic(record, wrong)).toThrow("chunk verification");
-    expect(() => verifyMusic(record, [...chunks].reverse())).toThrow(
-      "chunk verification"
+    expect(() => verifyMusic(record, [...chunks].reverse())).toThrow("chunk verification");
+    expect(() => verifyMusic({ ...record, digest: new Uint8Array(32) }, chunks)).toThrow(
+      "file verification"
     );
-    expect(() =>
-      verifyMusic({ ...record, digest: new Uint8Array(32) }, chunks)
-    ).toThrow("file verification");
   });
 });
 
@@ -84,23 +78,11 @@ it("restricts native approvals to an exact fee and clears allowance in the same 
     max_fee: "100000000",
   };
   const bundle = await musicPaymentOperations(client, args, native);
-  expect(validMusicPaymentBundle(client.contracts, bundle, payer, native)).toBe(
-    true
-  );
-  expect(
-    validMusicPaymentBundle(client.contracts, bundle.slice(0, 2), payer, native)
-  ).toBe(false);
-  expect(
-    validMusicPaymentBundle(client.contracts, bundle, native, native)
-  ).toBe(false);
-  expect(validMusicPaymentBundle(client.contracts, bundle, payer, payer)).toBe(
-    false
-  );
-  for (const changes of [
-    { owner: native },
-    { spender: native },
-    { value: "200000000" },
-  ]) {
+  expect(validMusicPaymentBundle(client.contracts, bundle, payer, native)).toBe(true);
+  expect(validMusicPaymentBundle(client.contracts, bundle.slice(0, 2), payer, native)).toBe(false);
+  expect(validMusicPaymentBundle(client.contracts, bundle, native, native)).toBe(false);
+  expect(validMusicPaymentBundle(client.contracts, bundle, payer, payer)).toBe(false);
+  for (const changes of [{ owner: native }, { spender: native }, { value: "200000000" }]) {
     const modified = structuredClone(bundle);
     modified[0]!.call_contract!.args = toBase64url(
       encode("publications.music_native_approval", {
@@ -110,13 +92,40 @@ it("restricts native approvals to an exact fee and clears allowance in the same 
         ...changes,
       })
     );
-    expect(
-      validMusicPaymentBundle(client.contracts, modified, payer, native)
-    ).toBe(false);
+    expect(validMusicPaymentBundle(client.contracts, modified, payer, native)).toBe(false);
   }
   const noCleanup = structuredClone(bundle);
   noCleanup[2] = noCleanup[0]!;
+  expect(validMusicPaymentBundle(client.contracts, noCleanup, payer, native)).toBe(false);
+});
+
+it("weights batch RC limits by committed chunks without raising ordinary action limits", async () => {
+  const { ProtocolClient, musicOperationUnits } = await import("./index.js");
+  const { fakeProvider, fixtureDeployment } = await import("./testing/fixtures.js");
+  const client = new ProtocolClient({ rpc: fakeProvider(), deployment: fixtureDeployment() });
+  const owner = fixtureDeployment().contracts.identity.address,
+    id = new Uint8Array(32),
+    data = new Uint8Array(16384);
+  const op = await client.ops.publications.append_music_batch({
+    owner,
+    id,
+    index: 0,
+    chunks: [data, data, data, data],
+  });
+  expect(musicOperationUnits(client.contracts, [op])).toBe(4);
   expect(
-    validMusicPaymentBundle(client.contracts, noCleanup, payer, native)
-  ).toBe(false);
+    musicOperationUnits(client.contracts, [
+      await client.ops.publications.append_music({ owner, id, index: 0, data }),
+    ])
+  ).toBe(1);
+  expect(
+    musicOperationUnits(client.contracts, [
+      await client.ops.publications.append_music_batch({
+        owner,
+        id,
+        index: 0,
+        chunks: [data, data, data, data, data],
+      }),
+    ])
+  ).toBe(1);
 });

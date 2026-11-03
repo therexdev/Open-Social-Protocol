@@ -1,4 +1,4 @@
-import type { MusicConfig, MusicRecord, BeginMusicArgs } from "../music.js";
+import type { MusicConfig, MusicRecord, MusicKey, MusicAccess, MusicComment, BeginMusicArgs } from "../music.js";
 import type { PhotoArchiveRecord, CollectionRecord, AlbumItemRecord } from "../photoLibrary.js";
 /**
  * Typed arguments, results and event payloads for every contract method
@@ -367,6 +367,12 @@ export interface PublicationsDependencies {
 export interface PublicationsWriteMethods {
   set_music_config: { recipient: Address; rate_per_mb: U64; max_bytes: number; enabled: boolean };
   begin_music: BeginMusicArgs;
+  append_music_batch: { owner: Address; id: Bytes; index: number; chunks: Bytes[]; device?: Address };
+  request_music_access: { buyer: Address; id: Bytes; max_price: U64 };
+  grant_music_access: { owner: Address; id: Bytes; buyer: Address; key: MusicKey };
+  refund_music_access: { buyer: Address; id: Bytes };
+  comment_music: { author: Address; id: Bytes; comment_id: Bytes; body: Bytes; nonce?: Bytes; reply_to?: Bytes };
+  delete_music_comment: { author: Address; id: Bytes; comment_id: Bytes };
   append_music: { owner: Address; id: Bytes; index: number; data: Bytes; device?: Address };
   begin_photo: { owner: Address; id: Bytes; digest: Bytes; size: number; chunk_hashes: Bytes[]; device?: Address };
   append_photo: { owner: Address; id: Bytes; index: number; data: Bytes; device?: Address };
@@ -383,10 +389,13 @@ export interface PublicationsWriteMethods {
   record_cross_post: RecordCrossPostArgs;
 }
 export interface PublicationsReadMethods {
+  get_music_access: [{ id: Bytes; buyer: Address }, { value?: MusicAccess; eligible: boolean; now: string }];
+  list_music_requests: [{ owner: Address; after?: Bytes }, { items: MusicAccess[]; next: Bytes }];
+  list_music_comments: [{ id: Bytes; after?: Bytes }, { items: MusicComment[]; next: Bytes }];
   get_music_config: [Record<string, never>, ValueResult<MusicConfig>];
   get_music: [{ id: Bytes }, ValueResult<MusicRecord>];
   get_music_chunk: [{ id: Bytes; index: number }, { data: Bytes }];
-  list_music: [{ owner: Address; after?: Bytes }, { ids: Bytes[] }];
+  list_music: [{ owner?: Address; group_id?: Bytes; after?: Bytes }, { ids: Bytes[] }];
   get_library_version: [Record<string, never>, { version: number }];
   get_photo: [{ id: Bytes }, ValueResult<PhotoArchiveRecord>];
   get_collection: [{ id: Bytes }, ValueResult<CollectionRecord>];
@@ -701,6 +710,8 @@ export interface IndexedPostEconomy {
   block: string;
 }
 export interface TokenWriteMethods {
+  reserve_music_payment: { id: Bytes; buyer: Address; seller: Address; amount: U64 };
+  settle_music_payment: { id: Bytes; refund: boolean };
   activate_economy: { test_period_blocks?: U64 };
   grant_test_tokens: { account: Address; value: U64 };
   vote: { actor: Address; post_id: Bytes; version: Bytes; direction: number; weight: U64; device?: Address };
@@ -716,6 +727,7 @@ export interface TokenWriteMethods {
   consume: { account: Address; units: U64 };
 }
 export interface TokenReadMethods {
+  get_music_payment: [{ id: Bytes }, ValueResult<{ buyer: string; seller: string; amount: string; status: number }>];
   get_economy: [Record<string, never>, { value?: EconomyConfig; block: string; current_epoch: string }];
   get_post_economy: [{ post_id: Bytes; viewer?: Address }, PostEconomy];
   get_promotions: [Record<string, never>, { values: Promotion[]; block: string }];

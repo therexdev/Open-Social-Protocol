@@ -1,3 +1,4 @@
+import { GroupMusic } from "../music/GroupMusic";
 import { PendingPosts } from "../composer/PendingPosts";
 import { usePublishing } from "../composer/PublishingProvider";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -572,6 +573,7 @@ export function CollectionPage() {
           }}
         />
       )}
+      {collection.record.kind === 2 && <GroupMusic key={`${collection.id}:${collection.record.revision}`} groupId={collection.id} />}
       {collection.record.kind === 2 ? (
         <GroupFeed collection={collection} />
       ) : (

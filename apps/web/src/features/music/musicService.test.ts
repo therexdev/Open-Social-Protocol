@@ -11,12 +11,7 @@ import {
 } from "@osp/sdk";
 import { fakeProvider, fixtureDeployment } from "../../testing/fixtures";
 import { submitAction, type SubmitContext } from "../../tx/submit";
-import {
-  loadMusic,
-  newMusicDraft,
-  uploadMusic,
-  type MusicDraft,
-} from "./musicService";
+import { loadMusic, newMusicDraft, uploadMusic, type MusicDraft } from "./musicService";
 vi.mock("../../tx/submit", () => ({ submitAction: vi.fn() }));
 const alice = identityFromSeed(new Uint8Array(32).fill(8));
 let client: ProtocolClient,
@@ -56,24 +51,31 @@ beforeEach(() => {
     mime: "audio/mpeg",
     durationMs: 210000,
   });
-  vi.spyOn(client.reads.publications, "get_music_config").mockImplementation(
-    async () => ({ value: config })
-  );
-  vi.spyOn(client.reads.publications, "get_music").mockImplementation(
-    async () => ({ value: record })
-  );
-  vi.spyOn(client.reads.publications, "get_music_chunk").mockImplementation(
-    async (args) => ({ data: saved.get(args!.index)! })
-  );
+  vi.spyOn(client.reads.publications, "get_music_config").mockImplementation(async () => ({
+    value: config,
+  }));
+  vi.spyOn(client.reads.publications, "get_music").mockImplementation(async () => ({
+    value: record,
+  }));
+  vi.spyOn(client.reads.publications, "get_music_chunk").mockImplementation(async (args) => ({
+    data: saved.get(args!.index)!,
+  }));
   vi.mocked(submitAction).mockImplementation(async (_ctx, ops, options) => {
     await options.beforeSubmit?.();
-    const op = client.contracts.decodeOperation(
-        ops.length === 3 ? ops[1]! : ops[0]!
-      )!,
+    const op = client.contracts.decodeOperation(ops.length === 3 ? ops[1]! : ops[0]!)!,
       a = op.args;
     if (op.method === "begin_music") {
       paid++;
       record = {
+        artist: (a.artist ?? "") as string,
+        description: (a.description ?? "") as string,
+        audience: (a.audience ?? 0) as number,
+        group_id: a.group_id as Uint8Array,
+        encrypted: !!a.encrypted,
+        nonce: a.nonce as Uint8Array,
+        owner_key: a.owner_key as any,
+        unlock_price: (a.unlock_price ?? "0") as string,
+        key_hash: a.key_hash as Uint8Array,
         owner: a.owner as string,
         payer: a.payer as string,
         title: a.title as string,
@@ -88,8 +90,10 @@ beforeEach(() => {
       };
     } else {
       if (a.index === failAt) throw new Error("connection interrupted");
-      saved.set(a.index as number, a.data as Uint8Array);
-      record!.received++;
+      const batch =
+        op.method === "append_music_batch" ? (a.chunks as Uint8Array[]) : [a.data as Uint8Array];
+      batch.forEach((chunk, offset) => saved.set(Number(a.index) + offset, chunk));
+      record!.received += batch.length;
     }
     return {} as never;
   });
@@ -221,18 +225,93 @@ it("loads all 513 chunks of the 3:30 benchmark with at most four reads in flight
   };
   let active = 0,
     peak = 0;
-  vi.mocked(client.reads.publications.get_music_chunk).mockImplementation(
-    async (args) => {
-      active++;
-      peak = Math.max(peak, active);
-      await Promise.resolve();
-      active--;
-      return { data: chunks[args!.index]! };
-    }
-  );
-  expect(contentHash((await loadMusic(client, draft.id)).bytes)).toEqual(
-    contentHash(large)
-  );
+  vi.mocked(client.reads.publications.get_music_chunk).mockImplementation(async (args) => {
+    active++;
+    peak = Math.max(peak, active);
+    await Promise.resolve();
+    active--;
+    return { data: chunks[args!.index]! };
+  });
+  expect(contentHash((await loadMusic(client, draft.id)).bytes)).toEqual(contentHash(large));
   expect(client.reads.publications.get_music_chunk).toHaveBeenCalledTimes(513);
   expect(peak).toBeLessThanOrEqual(4);
+});
+
+it("batches four chunks, resumes after interruption, and preserves encrypted audio and metadata", async () => {
+  const { musicCipher, musicKeyContext, fromBase64url, openMusicKey } = await import("@osp/sdk");
+  config.version = 2;
+  bytes = new Uint8Array(150000).fill(42);
+  draft = newMusicDraft({
+    owner: alice.account,
+    payer: alice.account,
+    bytes,
+    config,
+    title: "Private song",
+    artist: "Test artist",
+    description: "Test description",
+    audience: 1,
+    unlockPrice: "9",
+    identity: alice,
+    client,
+    mime: "audio/mpeg",
+    durationMs: 210000,
+  });
+  failAt = 4;
+  await expect(
+    uploadMusic(
+      ctx,
+      draft,
+      bytes,
+      () => {},
+      () => {}
+    )
+  ).rejects.toThrow("interrupted");
+  expect(record!.received).toBe(4);
+  expect(paid).toBe(1);
+  const restored = JSON.parse(JSON.stringify(draft));
+  failAt = undefined;
+  await uploadMusic(
+    ctx,
+    restored,
+    bytes,
+    () => {},
+    () => {}
+  );
+  expect(paid).toBe(1);
+  expect(record!.received).toBe(10);
+  expect(record!.artist).toBe("Test artist");
+  const loaded = await loadMusic(client, draft.id);
+  expect(loaded.bytes).not.toEqual(bytes);
+  const context = musicKeyContext(
+    client.chainId,
+    client.deployment.contracts.publications.address,
+    fromBase64url(draft.id),
+    alice.account
+  );
+  const key = openMusicKey(
+    context,
+    record!.owner_key!,
+    alice.account,
+    alice.seed,
+    record!.key_hash!
+  );
+  expect(musicCipher(context, key, record!.nonce!).decrypt(loaded.bytes)).toEqual(bytes);
+});
+it("rejects an encrypted file that would exceed the limit and invalid OSAT prices", () => {
+  config.version = 2;
+  config.max_bytes = 100;
+  const input = {
+    owner: alice.account,
+    payer: alice.account,
+    bytes: new Uint8Array(100),
+    config,
+    title: "Song",
+    identity: alice,
+    client,
+    mime: "audio/mpeg",
+    durationMs: 1000,
+  };
+  expect(() => newMusicDraft({ ...input, audience: 1 })).toThrow("including encryption");
+  for (const unlockPrice of ["-1", "1.5", "1000001", "1e2"])
+    expect(() => newMusicDraft({ ...input, unlockPrice })).toThrow("whole OSAT");
 });

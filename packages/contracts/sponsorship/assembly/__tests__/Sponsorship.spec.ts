@@ -69,7 +69,10 @@ function syntheticAddress(i: i32): Uint8Array {
   return out;
 }
 
-function allowedCall(contractId: Uint8Array | null, entryPoints: Array<u32> = []): sponsorship.allowed_call {
+function allowedCall(
+  contractId: Uint8Array | null,
+  entryPoints: Array<u32> = []
+): sponsorship.allowed_call {
   return new sponsorship.allowed_call(contractId, entryPoints);
 }
 
@@ -125,7 +128,10 @@ function clearEvents(): void {
 
 function expectRevert(substr: string): void {
   const err = Testing.lastError();
-  expect(err.includes(substr)).toBe(true, "expected revert containing '" + substr + "' but got '" + err + "'");
+  expect(err.includes(substr)).toBe(
+    true,
+    "expected revert containing '" + substr + "' but got '" + err + "'"
+  );
 }
 
 function expectImpacted(ev: system_calls.event_arguments, expected: Uint8Array[]): void {
@@ -174,9 +180,12 @@ function grantArgs(
 // Pending arguments consumed by the revert helpers below (closures cannot
 // capture locals in AssemblyScript, so the arguments live at module level).
 let pendingSetSponsor: sponsorship.set_sponsor_arguments = new sponsorship.set_sponsor_arguments();
-let pendingDeactivate: sponsorship.deactivate_sponsor_arguments = new sponsorship.deactivate_sponsor_arguments();
-let pendingSetGrant: sponsorship.set_user_grant_arguments = new sponsorship.set_user_grant_arguments();
-let pendingRevoke: sponsorship.revoke_user_grant_arguments = new sponsorship.revoke_user_grant_arguments();
+let pendingDeactivate: sponsorship.deactivate_sponsor_arguments =
+  new sponsorship.deactivate_sponsor_arguments();
+let pendingSetGrant: sponsorship.set_user_grant_arguments =
+  new sponsorship.set_user_grant_arguments();
+let pendingRevoke: sponsorship.revoke_user_grant_arguments =
+  new sponsorship.revoke_user_grant_arguments();
 
 function expectSetSponsorRevert(args: sponsorship.set_sponsor_arguments, substr: string): void {
   pendingSetSponsor = args;
@@ -202,7 +211,11 @@ function expectSetGrantRevert(args: sponsorship.set_user_grant_arguments, substr
   expectRevert(substr);
 }
 
-function expectRevokeRevert(sponsor: Uint8Array | null, user: Uint8Array | null, substr: string): void {
+function expectRevokeRevert(
+  sponsor: Uint8Array | null,
+  user: Uint8Array | null,
+  substr: string
+): void {
   pendingRevoke = new sponsorship.revoke_user_grant_arguments(sponsor, user);
   expect(() => {
     contract.revoke_user_grant(pendingRevoke);
@@ -224,7 +237,12 @@ function deactivate(sponsor: Uint8Array): void {
   MockVM.commitTransaction();
 }
 
-function grant(sponsor: Uint8Array, user: Uint8Array, dailyOps: u32 = 50, expiresAt: u64 = 0): void {
+function grant(
+  sponsor: Uint8Array,
+  user: Uint8Array,
+  dailyOps: u32 = 50,
+  expiresAt: u64 = 0
+): void {
   Testing.authorize([sponsor]);
   contract.set_user_grant(grantArgs(sponsor, user, dailyOps, expiresAt));
   MockVM.commitTransaction();
@@ -248,7 +266,10 @@ function sponsorOrFail(sponsor: Uint8Array): sponsorship.sponsor_record {
   return rec!;
 }
 
-function grantOf(sponsor: Uint8Array | null, user: Uint8Array | null): sponsorship.user_grant | null {
+function grantOf(
+  sponsor: Uint8Array | null,
+  user: Uint8Array | null
+): sponsorship.user_grant | null {
   return contract.get_user_grant(new sponsorship.get_user_grant_arguments(sponsor, user)).value;
 }
 
@@ -265,7 +286,10 @@ function list(start: Uint8Array | null, limit: u32): Array<sponsorship.sponsor_r
 function expectListed(values: Array<sponsorship.sponsor_record>, expected: Uint8Array[]): void {
   expect(values.length).toBe(expected.length, "listed count");
   for (let i = 0; i < expected.length; i++) {
-    expect(Arrays.equal(values[i].sponsor!, expected[i])).toBe(true, "values[" + i.toString() + "]");
+    expect(Arrays.equal(values[i].sponsor!, expected[i])).toBe(
+      true,
+      "values[" + i.toString() + "]"
+    );
   }
 }
 
@@ -310,7 +334,10 @@ describe("sponsorship: set_sponsor", () => {
     const ev = lastEvent();
     expect(ev.name).toBe("osp.sponsorship.sponsor_set");
     expectImpacted(ev, [SPONSOR_A]);
-    const data = Protobuf.decode<sponsorship.sponsor_set_event>(ev.data, sponsorship.sponsor_set_event.decode);
+    const data = Protobuf.decode<sponsorship.sponsor_set_event>(
+      ev.data,
+      sponsorship.sponsor_set_event.decode
+    );
     expect(Arrays.equal(data.sponsor!, SPONSOR_A)).toBe(true);
     expect(data.endpoint!).toBe(ENDPOINT);
     expect(data.policy_version).toBe(3);
@@ -326,7 +353,15 @@ describe("sponsorship: set_sponsor", () => {
     Testing.authorize([SPONSOR_A]);
     const newEndpoint = "https://v2.sponsor.example.com/api";
     contract.set_sponsor(
-      sponsorArgs(SPONSOR_A, newEndpoint, "", [allowedCall(PUBLICATIONS, [PUBLISH_ENTRY_POINT])], 1024, false, 2)
+      sponsorArgs(
+        SPONSOR_A,
+        newEndpoint,
+        "",
+        [allowedCall(PUBLICATIONS, [PUBLISH_ENTRY_POINT])],
+        1024,
+        false,
+        2
+      )
     );
 
     const rec = sponsorOrFail(SPONSOR_A);
@@ -342,7 +377,10 @@ describe("sponsorship: set_sponsor", () => {
     expect(eventCount()).toBe(1);
     const ev = lastEvent();
     expect(ev.name).toBe("osp.sponsorship.sponsor_set");
-    const data = Protobuf.decode<sponsorship.sponsor_set_event>(ev.data, sponsorship.sponsor_set_event.decode);
+    const data = Protobuf.decode<sponsorship.sponsor_set_event>(
+      ev.data,
+      sponsorship.sponsor_set_event.decode
+    );
     expect(data.endpoint!).toBe(newEndpoint);
     expect(data.policy_version).toBe(2);
     expect(data.active).toBe(false);
@@ -372,7 +410,10 @@ describe("sponsorship: set_sponsor", () => {
   it("rejects an update signed by someone other than the sponsor", () => {
     registerSponsor(SPONSOR_A);
     Testing.authorize([SPONSOR_B, USER]);
-    expectSetSponsorRevert(sponsorArgs(SPONSOR_A, ENDPOINT, POLICY_URI, [], MAX_BYTES, false, 9), "authorization failed");
+    expectSetSponsorRevert(
+      sponsorArgs(SPONSOR_A, ENDPOINT, POLICY_URI, [], MAX_BYTES, false, 9),
+      "authorization failed"
+    );
     const rec = sponsorOrFail(SPONSOR_A);
     expect(rec.policy_version).toBe(1);
     expect(rec.active).toBe(true);
@@ -403,12 +444,30 @@ describe("sponsorship: set_sponsor", () => {
 
   it("rejects non-https endpoints", () => {
     Testing.authorize([SPONSOR_A]);
-    expectSetSponsorRevert(sponsorArgs(SPONSOR_A, "http://sponsor.example.com"), "endpoint must use https");
-    expectSetSponsorRevert(sponsorArgs(SPONSOR_A, "ftp://sponsor.example.com"), "endpoint must use https");
-    expectSetSponsorRevert(sponsorArgs(SPONSOR_A, "sponsor.example.com"), "endpoint must use https");
-    expectSetSponsorRevert(sponsorArgs(SPONSOR_A, "https:/sponsor.example.com"), "endpoint must use https");
-    expectSetSponsorRevert(sponsorArgs(SPONSOR_A, "HTTPS://sponsor.example.com"), "endpoint must use https");
-    expectSetSponsorRevert(sponsorArgs(SPONSOR_A, "http://localhost.example.com"), "endpoint must use https");
+    expectSetSponsorRevert(
+      sponsorArgs(SPONSOR_A, "http://sponsor.example.com"),
+      "endpoint must use https"
+    );
+    expectSetSponsorRevert(
+      sponsorArgs(SPONSOR_A, "ftp://sponsor.example.com"),
+      "endpoint must use https"
+    );
+    expectSetSponsorRevert(
+      sponsorArgs(SPONSOR_A, "sponsor.example.com"),
+      "endpoint must use https"
+    );
+    expectSetSponsorRevert(
+      sponsorArgs(SPONSOR_A, "https:/sponsor.example.com"),
+      "endpoint must use https"
+    );
+    expectSetSponsorRevert(
+      sponsorArgs(SPONSOR_A, "HTTPS://sponsor.example.com"),
+      "endpoint must use https"
+    );
+    expectSetSponsorRevert(
+      sponsorArgs(SPONSOR_A, "http://localhost.example.com"),
+      "endpoint must use https"
+    );
     expectSetSponsorRevert(sponsorArgs(SPONSOR_A, "http://localhostx"), "endpoint must use https");
     expect(sponsorOf(SPONSOR_A) == null).toBe(true);
   });
@@ -423,16 +482,24 @@ describe("sponsorship: set_sponsor", () => {
     const longestPolicy = repeat("p", 256);
     contract.set_sponsor(sponsorArgs(SPONSOR_A, ENDPOINT, longestPolicy));
     expect(sponsorOrFail(SPONSOR_A).policy_uri!.length).toBe(256);
-    expectSetSponsorRevert(sponsorArgs(SPONSOR_A, ENDPOINT, longestPolicy + "p"), "policy_uri too long");
+    expectSetSponsorRevert(
+      sponsorArgs(SPONSOR_A, ENDPOINT, longestPolicy + "p"),
+      "policy_uri too long"
+    );
   });
 
   it("enforces the allowed-call list limits", () => {
     Testing.authorize([SPONSOR_A]);
     contract.set_sponsor(sponsorArgs(SPONSOR_A, ENDPOINT, POLICY_URI, allowedList(32)));
     expect(sponsorOrFail(SPONSOR_A).allowed.length).toBe(32);
-    expectSetSponsorRevert(sponsorArgs(SPONSOR_A, ENDPOINT, POLICY_URI, allowedList(33)), "too many allowed calls");
+    expectSetSponsorRevert(
+      sponsorArgs(SPONSOR_A, ENDPOINT, POLICY_URI, allowedList(33)),
+      "too many allowed calls"
+    );
 
-    contract.set_sponsor(sponsorArgs(SPONSOR_A, ENDPOINT, POLICY_URI, [allowedCall(PUBLICATIONS, entryPoints(64))]));
+    contract.set_sponsor(
+      sponsorArgs(SPONSOR_A, ENDPOINT, POLICY_URI, [allowedCall(PUBLICATIONS, entryPoints(64))])
+    );
     expect(sponsorOrFail(SPONSOR_A).allowed[0].entry_points.length).toBe(64);
     expectSetSponsorRevert(
       sponsorArgs(SPONSOR_A, ENDPOINT, POLICY_URI, [allowedCall(PUBLICATIONS, entryPoints(65))]),
@@ -444,7 +511,10 @@ describe("sponsorship: set_sponsor", () => {
       "allowed contract_id must be a 25-byte address"
     );
     expectSetSponsorRevert(
-      sponsorArgs(SPONSOR_A, ENDPOINT, POLICY_URI, [allowedCall(PUBLICATIONS, []), allowedCall(null, [1])]),
+      sponsorArgs(SPONSOR_A, ENDPOINT, POLICY_URI, [
+        allowedCall(PUBLICATIONS, []),
+        allowedCall(null, [1]),
+      ]),
       "allowed contract_id is required"
     );
   });
@@ -455,7 +525,10 @@ describe("sponsorship: set_sponsor", () => {
     expect(sponsorOrFail(SPONSOR_A).max_bytes_per_op).toBe(65536);
     contract.set_sponsor(sponsorArgs(SPONSOR_A, ENDPOINT, POLICY_URI, [], 0));
     expect(sponsorOrFail(SPONSOR_A).max_bytes_per_op).toBe(0);
-    expectSetSponsorRevert(sponsorArgs(SPONSOR_A, ENDPOINT, POLICY_URI, [], 65537), "max_bytes_per_op too large");
+    expectSetSponsorRevert(
+      sponsorArgs(SPONSOR_A, ENDPOINT, POLICY_URI, [], 98305),
+      "max_bytes_per_op too large"
+    );
   });
 
   it("round-trips a maximum-size record through get_sponsor and list_sponsors", () => {
@@ -467,7 +540,9 @@ describe("sponsorship: set_sponsor", () => {
     for (let i = 0; i < 32; i++) allowed.push(allowedCall(PUBLICATIONS, entryPointsMax(64)));
     const endpoint = "https://" + repeat("e", 248);
     const policy = repeat("中", 256);
-    contract.set_sponsor(sponsorArgs(SPONSOR_A, endpoint, policy, allowed, 65536, true, 4_000_000_000));
+    contract.set_sponsor(
+      sponsorArgs(SPONSOR_A, endpoint, policy, allowed, 65536, true, 4_000_000_000)
+    );
 
     const rec = sponsorOrFail(SPONSOR_A);
     expect(rec.endpoint!.length).toBe(256);
@@ -487,7 +562,10 @@ describe("sponsorship: set_sponsor", () => {
     expect(listed[0].endpoint!).toBe(endpoint);
 
     const ev = lastEvent();
-    const data = Protobuf.decode<sponsorship.sponsor_set_event>(ev.data, sponsorship.sponsor_set_event.decode);
+    const data = Protobuf.decode<sponsorship.sponsor_set_event>(
+      ev.data,
+      sponsorship.sponsor_set_event.decode
+    );
     expect(data.endpoint!).toBe(endpoint);
   });
 
@@ -511,7 +589,9 @@ describe("sponsorship: deactivate_sponsor", () => {
 
   it("deactivates a sponsor and emits osp.sponsorship.sponsor_deactivated", () => {
     Testing.authorize([SPONSOR_A]);
-    contract.set_sponsor(sponsorArgs(SPONSOR_A, ENDPOINT, POLICY_URI, allowedList(2), MAX_BYTES, true, 5));
+    contract.set_sponsor(
+      sponsorArgs(SPONSOR_A, ENDPOINT, POLICY_URI, allowedList(2), MAX_BYTES, true, 5)
+    );
     MockVM.commitTransaction();
     clearEvents();
 
@@ -608,7 +688,10 @@ describe("sponsorship: set_user_grant", () => {
     const ev = lastEvent();
     expect(ev.name).toBe("osp.sponsorship.user_grant_set");
     expectImpacted(ev, [SPONSOR_A, USER]);
-    const data = Protobuf.decode<sponsorship.user_grant_set_event>(ev.data, sponsorship.user_grant_set_event.decode);
+    const data = Protobuf.decode<sponsorship.user_grant_set_event>(
+      ev.data,
+      sponsorship.user_grant_set_event.decode
+    );
     expect(Arrays.equal(data.sponsor!, SPONSOR_A)).toBe(true);
     expect(Arrays.equal(data.user!, USER)).toBe(true);
     expect(data.daily_ops).toBe(25);
@@ -624,13 +707,22 @@ describe("sponsorship: set_user_grant", () => {
     expect(grantOrFail(SPONSOR_A, USER).expires_at).toBe(T0 + 1);
     MockVM.commitTransaction();
 
-    expectSetGrantRevert(grantArgs(SPONSOR_A, USER2, 1, T0), "expires_at must be 0 or in the future");
-    expectSetGrantRevert(grantArgs(SPONSOR_A, USER2, 1, T0 - 1), "expires_at must be 0 or in the future");
+    expectSetGrantRevert(
+      grantArgs(SPONSOR_A, USER2, 1, T0),
+      "expires_at must be 0 or in the future"
+    );
+    expectSetGrantRevert(
+      grantArgs(SPONSOR_A, USER2, 1, T0 - 1),
+      "expires_at must be 0 or in the future"
+    );
     expect(grantOf(SPONSOR_A, USER2) == null).toBe(true);
 
     // The clock moves: an expiry that was valid earlier is now rejected.
     Testing.setTime(T0 + DAY);
-    expectSetGrantRevert(grantArgs(SPONSOR_A, USER2, 1, T0 + 1), "expires_at must be 0 or in the future");
+    expectSetGrantRevert(
+      grantArgs(SPONSOR_A, USER2, 1, T0 + 1),
+      "expires_at must be 0 or in the future"
+    );
     contract.set_user_grant(grantArgs(SPONSOR_A, USER2, 1, T0 + DAY + 1));
     expect(grantOrFail(SPONSOR_A, USER2).expires_at).toBe(T0 + DAY + 1);
   });
@@ -651,7 +743,10 @@ describe("sponsorship: set_user_grant", () => {
     Testing.authorize([SPONSOR_A]);
     expectSetGrantRevert(grantArgs(filled(5, 1), USER, 10, 0), "sponsor must be a 25-byte address");
     expectSetGrantRevert(grantArgs(null, USER, 10, 0), "sponsor is required");
-    expectSetGrantRevert(grantArgs(SPONSOR_A, filled(26, 1), 10, 0), "user must be a 25-byte address");
+    expectSetGrantRevert(
+      grantArgs(SPONSOR_A, filled(26, 1), 10, 0),
+      "user must be a 25-byte address"
+    );
     expectSetGrantRevert(grantArgs(SPONSOR_A, null, 10, 0), "user is required");
   });
 
@@ -900,7 +995,10 @@ describe("sponsorship: reads", () => {
     const page1 = list(null, 1000);
     expect(page1.length).toBe(100);
     for (let i = 0; i < 100; i++) {
-      expect(Arrays.equal(page1[i].sponsor!, syntheticAddress(i))).toBe(true, "page1[" + i.toString() + "]");
+      expect(Arrays.equal(page1[i].sponsor!, syntheticAddress(i))).toBe(
+        true,
+        "page1[" + i.toString() + "]"
+      );
       expect(page1[i].policy_version).toBe(<u32>i);
     }
     expect(list(null, 0).length).toBe(100);

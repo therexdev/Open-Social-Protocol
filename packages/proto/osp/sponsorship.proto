@@ -24,6 +24,7 @@ message sponsor_record {
   string policy_uri = 3;
   uint32 policy_version = 4;
   repeated allowed_call allowed = 5;
+  // Policy v3 counts one work unit per music batch chunk; other operations use one.
   uint64 max_rc_per_op = 6 [jstype = JS_STRING];
   uint32 max_ops_per_user_per_day = 7;
   uint32 max_bytes_per_op = 8;
@@ -53,6 +54,7 @@ message set_sponsor_arguments {
   string policy_uri = 3;
   uint32 policy_version = 4;
   repeated allowed_call allowed = 5;
+  // Policy v3 counts one work unit per music batch chunk; other operations use one.
   uint64 max_rc_per_op = 6 [jstype = JS_STRING];
   uint32 max_ops_per_user_per_day = 7;
   uint32 max_bytes_per_op = 8;

@@ -15,11 +15,7 @@ const args = parseArgs(process.argv.slice(2)),
   { name: network } = networkFromArgs(args);
 const deployment = loadDeployment(readDeployment(network)),
   client = new ProtocolClient({ deployment });
-assert.equal(
-  await client.provider.getChainId(),
-  deployment.chainId,
-  "RPC chain mismatch"
-);
+assert.equal(await client.provider.getChainId(), deployment.chainId, "RPC chain mismatch");
 const config = await musicConfig(client);
 console.log(
   JSON.stringify(
@@ -32,15 +28,19 @@ console.log(
     2
   )
 );
+assert.equal(config.version, 2, "Upgrade publications for Music v2");
 assert(config.enabled, "Music uploads are not enabled");
+await client.reads.publications.list_music_requests({ owner: config.recipient });
+await client.reads.publications.list_music_comments({ id: new Uint8Array(32) });
+await client.reads.token.get_music_payment({ id: new Uint8Array(32) });
+
 assert.equal(
   (await client.provider.invokeGetContractAddress?.("koin"))?.value.address,
   config.native_token,
   "Native token does not match Koinos name service"
 );
 if (!args["contracts-only"]) {
-  const endpoint =
-    typeof args.sponsor === "string" ? args.sponsor : deployment.sponsors?.[0];
+  const endpoint = typeof args.sponsor === "string" ? args.sponsor : deployment.sponsors?.[0];
   assert(endpoint, "Specify --sponsor");
   const json = async (path: string) => {
     const r = await fetch(`${endpoint.replace(/\/+$/, "")}${path}`, {
@@ -49,9 +49,7 @@ if (!args["contracts-only"]) {
     assert(r.ok, `HTTP ${r.status}`);
     return r.json();
   };
-  const discovery = (await json(
-    "/.well-known/osp-sponsor.json"
-  )) as SponsorDiscovery;
+  const discovery = (await json("/.well-known/osp-sponsor.json")) as SponsorDiscovery;
   const health = await json("/healthz");
   assert.equal(
     health.features?.musicUploads,
@@ -59,44 +57,46 @@ if (!args["contracts-only"]) {
     "Restart the updated sponsor after upgrading the contract"
   );
   assert(verifySponsorDiscovery(discovery).valid, "Invalid sponsor signature");
-  assert.equal(
-    discovery.network.chainId,
-    deployment.chainId,
-    "Sponsor chain mismatch"
-  );
+  assert.equal(discovery.network.chainId, deployment.chainId, "Sponsor chain mismatch");
   assert.equal(
     discovery.sponsor,
     config.recipient,
     "Music fees must reach this sponsor for sponsored uploads"
   );
+  assert.equal(health.features?.musicBatching, 1, "Restart the Music v2 sponsor");
   const policy = discovery.policy;
+  assert(policy.version >= 3, "Music batching requires sponsor policy v3");
   assert(
-    policy.maxBytesPerOp >= 24576 && Number(policy.maxOpsPerTx) >= 3,
-    "Sponsor needs 24 KiB arguments and 3 operations per transaction"
+    policy.maxBytesPerOp >= 73728 && Number(policy.maxOpsPerTx) >= 3,
+    "Sponsor needs 72 KiB arguments and 3 operations per transaction"
   );
   for (const [address, entry] of [
     [config.native_token, NATIVE_APPROVE_ENTRY],
-    ...["begin_music", "append_music"].map((method) => [
+    ...[
+      "begin_music",
+      "append_music",
+      "append_music_batch",
+      "request_music_access",
+      "grant_music_access",
+      "refund_music_access",
+      "comment_music",
+      "delete_music_comment",
+    ].map((method) => [
       deployment.contracts.publications.address,
       ABIS.publications.methods[method]!.entry_point,
     ]),
   ] as Array<[string, number]>) {
     assert(
-      policy.allowed.some(
-        (x) => x.contract === address && x.entryPoints.includes(entry)
-      ),
+      policy.allowed.some((x) => x.contract === address && x.entryPoints.includes(entry)),
       `Missing sponsored entry point ${address}:${entry}`
     );
   }
-  const registered = (
-    await client.reads.sponsorship.get_sponsor({ sponsor: discovery.sponsor })
-  )?.value;
+  const registered = (await client.reads.sponsorship.get_sponsor({ sponsor: discovery.sponsor }))
+    ?.value;
   assert(registered?.active, "Sponsor on-chain registration is not active");
   assert(
     registered.allowed.some(
-      (x) =>
-        x.contract_id === config.native_token &&
-        x.entry_points.includes(NATIVE_APPROVE_ENTRY)
+      (x) => x.contract_id === config.native_token && x.entry_points.includes(NATIVE_APPROVE_ENTRY)
     ),
     "Sponsor must refresh its on-chain native payment policy"
   );

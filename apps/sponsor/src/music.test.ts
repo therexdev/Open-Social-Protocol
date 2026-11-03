@@ -1,10 +1,5 @@
 import { beforeEach, expect, it, vi } from "vitest";
-import {
-  contentHash,
-  identityFromSeed,
-  ProtocolClient,
-  type MusicRecord,
-} from "@osp/sdk";
+import { contentHash, identityFromSeed, ProtocolClient, type MusicRecord } from "@osp/sdk";
 import { fakeProvider, fixtureDeployment } from "./__tests__/helpers.js";
 import { musicAllowance } from "./music.js";
 import { QuotaStore } from "./quota.js";
@@ -31,12 +26,11 @@ beforeEach(() => {
     mime: "audio/mpeg",
     duration_ms: 210000,
   };
-  vi.spyOn(client.reads.publications, "get_music").mockImplementation(
-    async () => ({ value: record })
-  );
+  vi.spyOn(client.reads.publications, "get_music").mockImplementation(async () => ({
+    value: record,
+  }));
 });
-const append = () =>
-  client.ops.publications.append_music({ owner: alice, id, index: 0, data });
+const append = () => client.ops.publications.append_music({ owner: alice, id, index: 0, data });
 it("provides a bounded paid quota that carries a 513-chunk upload past the free-post limit", async () => {
   const paid = await musicAllowance(client, sponsor, alice, [await append()]);
   expect(paid?.limit).toBe(1026);
@@ -45,12 +39,7 @@ it("provides a bounded paid quota that carries a 513-chunk upload past the free-
     limits: { dailyOps: 200, burstOps: 180, burstWindowSec: 60 },
   });
   for (let i = 0; i < 513; i++) {
-    const hold = quota.reserve(
-      paid!.key,
-      1,
-      1700000000000 + i * 1000,
-      paid!.limit
-    );
+    const hold = quota.reserve(paid!.key, 1, 1700000000000 + i * 1000, paid!.limit);
     expect(hold.ok).toBe(true);
     if (hold.ok) hold.commit();
   }
@@ -60,29 +49,19 @@ it("provides a bounded paid quota that carries a 513-chunk upload past the free-
 it("refuses unpaid uploads, other treasuries, stale/replayed chunks and corrupt bytes", async () => {
   const op = await append();
   record!.recipient = alice;
-  await expect(musicAllowance(client, sponsor, alice, [op])).rejects.toThrow(
-    "paid music"
-  );
+  await expect(musicAllowance(client, sponsor, alice, [op])).rejects.toThrow("paid music");
   record!.recipient = sponsor;
   record!.received = 1;
-  await expect(musicAllowance(client, sponsor, alice, [op])).rejects.toThrow(
-    "Refresh"
-  );
+  await expect(musicAllowance(client, sponsor, alice, [op])).rejects.toThrow("Refresh");
   record!.received = 0;
   record!.chunk_hashes[0] = new Uint8Array(32);
-  await expect(musicAllowance(client, sponsor, alice, [op])).rejects.toThrow(
-    "Refresh"
-  );
+  await expect(musicAllowance(client, sponsor, alice, [op])).rejects.toThrow("Refresh");
   record = undefined;
-  await expect(musicAllowance(client, sponsor, alice, [op])).rejects.toThrow(
-    "paid music"
-  );
+  await expect(musicAllowance(client, sponsor, alice, [op])).rejects.toThrow("paid music");
 });
 it("rejects mixed bundles and leaves ordinary operations on their normal quota", async () => {
   const op = await append();
-  await expect(
-    musicAllowance(client, sponsor, alice, [op, op])
-  ).rejects.toThrow("one operation");
+  await expect(musicAllowance(client, sponsor, alice, [op, op])).rejects.toThrow("one operation");
   expect(
     await musicAllowance(client, sponsor, alice, [
       await client.ops.publications.react({
@@ -143,9 +122,9 @@ it("only sponsors exact native payment bundles to this sponsor", async () => {
   };
   expect(await validateOperations(bundle, alice, context)).toHaveLength(3);
   expect(await musicAllowance(client, sponsor, alice, bundle)).toBeUndefined();
-  await expect(
-    validateOperations([bundle[0]!], alice, context)
-  ).rejects.toThrow("exact music payment");
+  await expect(validateOperations([bundle[0]!], alice, context)).rejects.toThrow(
+    "exact music payment"
+  );
   await expect(
     validateOperations([bundle[0]!, bundle[1]!, bundle[0]!], alice, context)
   ).rejects.toThrow("exact music payment");
@@ -154,4 +133,42 @@ it("only sponsors exact native payment bundles to this sponsor", async () => {
   await expect(musicAllowance(client, sponsor, alice, bundle)).rejects.toThrow(
     "configured account"
   );
+});
+
+it("checks every chunk in a batch and charges quota per chunk", async () => {
+  const op = await client.ops.publications.append_music_batch({
+    owner: alice,
+    id,
+    index: 0,
+    chunks: [data, data, data, data],
+  });
+  const allowance = await musicAllowance(client, sponsor, alice, [op]);
+  expect(allowance?.units).toBe(4);
+  expect(allowance?.limit).toBe(1026);
+  record!.chunk_hashes[3] = new Uint8Array(32);
+  await expect(musicAllowance(client, sponsor, alice, [op])).rejects.toThrow("Refresh");
+});
+it("rejects oversized or mixed batches, skipped indexes and a forged owner", async () => {
+  const batch = (changes = {}) =>
+    client.ops.publications.append_music_batch({
+      owner: alice,
+      id,
+      index: 0,
+      chunks: [data, data, data, data],
+      ...changes,
+    });
+  await expect(
+    musicAllowance(client, sponsor, alice, [
+      await batch({ chunks: [data, data, data, data, data] }),
+    ])
+  ).rejects.toThrow();
+  await expect(
+    musicAllowance(client, sponsor, alice, [await batch({ index: 1 })])
+  ).rejects.toThrow();
+  await expect(
+    musicAllowance(client, sponsor, alice, [await batch({ owner: sponsor })])
+  ).rejects.toThrow();
+  await expect(
+    musicAllowance(client, sponsor, alice, [await batch(), await append()])
+  ).rejects.toThrow();
 });

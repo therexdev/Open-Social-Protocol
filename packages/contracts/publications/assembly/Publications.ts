@@ -1,3 +1,4 @@
+import { MusicAccess } from "./MusicAccess";
 // Open Social Protocol - publications contract (protocol v1).
 //
 // Signed, versioned publications (posts, replies), lifecycle facts,
@@ -32,7 +33,7 @@ import { Util } from "./common/util";
 // (publish envelopes are up to 4 KiB and key packages up to 16 KiB). Enlarged at
 // module initialization: imported modules run their top-level statements before
 // the generated index.ts calls main().
-const SYSTEM_BUFFER_SIZE: u32 = 32 * 1024;
+const SYSTEM_BUFFER_SIZE: u32 = 96 * 1024;
 System.setSystemBufferSize(SYSTEM_BUFFER_SIZE);
 
 // State spaces (one per map / object).
@@ -70,12 +71,23 @@ const MAX_LIFECYCLE_STATE: i32 = <i32>publications.lifecycle_state.superseded;
 const MAX_OUTCOME_STATE: i32 = <i32>publications.outcome_state.reconcile_required;
 
 export class Publications {
+  musicAccess: MusicAccess = new MusicAccess();
+  musicToken(): Uint8Array { return Util.requireAddress(this.get_token_contract(new publications.get_token_contract_arguments()).value, "OSAT contract"); }
+  append_music_batch(args: publications.append_music_batch_arguments): publications.append_music_batch_result { this.music.appendBatch(args, this.identityContract()); return new publications.append_music_batch_result(); }
+  request_music_access(args: publications.request_music_access_arguments): publications.request_music_access_result { this.musicAccess.request(args, this.identityContract(), this.relationshipsContract(), this.musicToken()); return new publications.request_music_access_result(); }
+  grant_music_access(args: publications.grant_music_access_arguments): publications.grant_music_access_result { this.musicAccess.grant(args, this.identityContract(), this.relationshipsContract(), this.musicToken()); return new publications.grant_music_access_result(); }
+  refund_music_access(args: publications.refund_music_access_arguments): publications.refund_music_access_result { this.musicAccess.refund(args, this.identityContract(), this.relationshipsContract(), this.musicToken()); return new publications.refund_music_access_result(); }
+  get_music_access(args: publications.get_music_access_arguments): publications.get_music_access_result { return this.musicAccess.read(args, this.relationshipsContract()); }
+  list_music_requests(args: publications.list_music_requests_arguments): publications.list_music_requests_result { return this.musicAccess.requests(args); }
+  comment_music(args: publications.comment_music_arguments): publications.comment_music_result { this.musicAccess.comment(args, this.identityContract(), this.relationshipsContract(), this.musicToken()); return new publications.comment_music_result(); }
+  delete_music_comment(args: publications.delete_music_comment_arguments): publications.delete_music_comment_result { this.musicAccess.deleteComment(args, this.identityContract()); return new publications.delete_music_comment_result(); }
+  list_music_comments(args: publications.list_music_comments_arguments): publications.list_music_comments_result { return this.musicAccess.listComments(args); }
   music: MusicLibrary = new MusicLibrary();
   set_music_config(args: publications.set_music_config_arguments): publications.set_music_config_result { this.music.setConfig(args); return new publications.set_music_config_result(); }
   get_music_config(args: publications.get_music_config_arguments): publications.get_music_config_result { return new publications.get_music_config_result(this.music.settings()); }
   begin_music(args: publications.begin_music_arguments): publications.begin_music_result { this.music.begin(args, this.identityContract()); return new publications.begin_music_result(); }
   append_music(args: publications.append_music_arguments): publications.append_music_result { this.music.append(args, this.identityContract()); return new publications.append_music_result(); }
-  get_music(args: publications.get_music_arguments): publications.get_music_result { return new publications.get_music_result(this.music.tracks.get(this.music.id(args.id))); }
+  get_music(args: publications.get_music_arguments): publications.get_music_result { return new publications.get_music_result(this.music.get(this.music.id(args.id))); }
   get_music_chunk(args: publications.get_music_chunk_arguments): publications.get_music_chunk_result { return this.music.chunks.get(Util.concat([this.music.id(args.id), Util.u32be(args.index)])) || new publications.get_music_chunk_result(); }
   list_music(args: publications.list_music_arguments): publications.list_music_result { return this.music.list(args); }
 

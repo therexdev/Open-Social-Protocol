@@ -1,73 +1,167 @@
-# Profile Music and native upload fees
+# Music v2: uploads, audiences, OSAT access and comments
 
-Personal profiles have a **Music** tab with public tracks, verified playback, an upload quote, progress, pause, and resume. The initial rate is **86.1 native KOIN per decimal MB, rounded up to a whole KOIN**. Harbinger labels the payment **tKOIN**. Administrators can change the rate and size limit without rebuilding the frontend.
+Profiles have a Music tab. Each completed track has its own `/music/:id` page with
+an artist name, description, verified player, comments, replies and comment
+deletion. Group tracks also appear on their group page. Artist names are supplied
+by uploaders; they are not verified artist identities.
 
-| File                   |      Bytes | Initial upload fee |
-| ---------------------- | ---------: | -----------------: |
-| 3:30 MP3 at 192 kbps   |  5,041,885 |   435 KOIN / tKOIN |
-| 3:30 MP3 at 320 kbps   |  8,403,113 |   724 KOIN / tKOIN |
-| Maximum supported file | 10,485,760 |   903 KOIN / tKOIN |
+## Visibility and access
 
-These are application prices based on the earlier audio benchmark, **not exact Mana predictions**. The earlier 192 kbps standalone-contract test consumed 439.34 Mana. Its projected 320 kbps data-upload cost was about 724 Mana. The new shared contract has different metadata, transaction batching and execution overhead, and resource prices change. Duration is displayed, but byte size determines the fee. The fee is spent native tokens, separate from regenerative transaction Mana; existing payment preferences still control the transaction payer.
+- **Public, free:** anyone can download and play the original on-chain audio.
+- **Friends only:** audio and comments are encrypted. Current friendship and
+  blocks are checked on chain before a new reading key is delivered.
+- **Group:** audio and comments are encrypted. Current group membership and
+  closure are checked on chain before key delivery.
+- **OSAT unlock:** optional for any audience. A price does not override friends
+  or group membership. Only whole transferable OSAT can pay, not free usage
+  credits or tokens still recharging.
 
-## Storage and payment
+Titles, artist names, descriptions, uploader addresses, audience/group references,
+prices, purchase records and comment routing metadata are public. The upload
+form states this explicitly. The audience options restrict audio and comment
+content; they do not conceal the existence of a track. Do not put secrets in a
+track's title or description.
 
-Audio bytes are stored in publications contract state, in 16 KiB chunks. This differs from the history-backed photo path: audio playback and profile listing read the contract directly and do not need an indexer database migration. Full public files, titles, owners, fees and chunk commitments are publicly readable. Up to 10 MiB and one hour are supported. The browser validates playable audio before charging and verifies every downloaded chunk and the complete file hash before making an audio URL. The contract enforces byte commitments and metadata bounds, not the semantic truth of a declared audio format or duration.
+Private and paid files are encrypted with a random XChaCha20-Poly1305 key before
+chunking. Authenticated data binds ciphertext and recipient-sealed keys to the
+chain, publications contract and track. The uploader's sealed recovery key is
+stored with the manifest; another device with the same identity seed can recover
+it. No server receives the plaintext audio key. Private comments bind their track,
+comment id and author into authenticated data.
 
-Storage spaces 40–43 contain the music policy, immutable upload records, chunk bytes, and completed-track directory. Completion adds the track to its owner's paginated directory. There is no automatic post or OSAT charge. Existing photo, group, poll and messaging paths are unchanged.
+Free private uploads deliver sealed keys to verified friends/group members when
+the upload completes. If this stage is interrupted, Resume finishes sharing
+without another upload fee. Later eligible members can request access. Removing
+a friend or group member prevents new delivery and the client rechecks membership
+when opening protected audio. Already delivered keys, decrypted audio and comments
+can be retained or redistributed; this is access distribution, not DRM.
 
-The payment is one signed, atomic transaction: native KOIN approval for exactly the quote, `begin_music`, and approval cleanup to zero. The deployed KOIN contract requires this allowance for a nested transfer. `begin_music` independently requires publish authority and payer authority, resolves native KOIN through the chain's name service, checks the configuration revision and exact quote, and transfers the fee to the configured recipient. Failed payment creates no reservation. Identical reservation retries never transfer again; changed commitments are rejected. Cleanup also prevents a retry from leaving an allowance behind. No unlimited allowance or payment based on an external transaction-id claim is accepted.
+## Paid unlocks and refunds
 
-The browser saves an encrypted reservation before signing. Reloading, locking, or navigating away pauses uploads. Select the original file and resume; the client reads on-chain progress and skips completed chunks. Network errors and unknown transaction outcomes retain the reservation. New quotes do not change an already paid reservation, and pausing new uploads does not block paid resumptions. Abandoned reservations are not refunded. Forgetting a saved reservation only removes that device's recovery record; it does not delete public bytes or refund a payment.
+1. The buyer submits `request_music_access` with the exact immutable OSAT price.
+   Publications checks the signature, completed track and current audience.
+2. The configured OSAT contract reserves transferable tokens in escrow. Free
+   usage credits cannot be debited. The reservation and access request are atomic.
+3. While the uploader's app is open and unlocked, it reads pending requests,
+   recovers its track key, and seals it to the encryption public key recorded in
+   that request. The uploader can also use **Deliver access** on the track page.
+4. `grant_music_access` rechecks eligibility and the 24-hour deadline, publishes
+   the sealed key and releases escrow to the uploader in one transaction.
+5. The buyer verifies the sealed key against the committed key hash, verifies all
+   audio chunks and the complete ciphertext digest, then decrypts locally.
+6. If delivery has not occurred after 24 hours, the buyer can refund. Loss of
+   audience eligibility also permits an earlier refund. Refunds do not consume
+   OSAT usage credits. Settlement, delivery and refund retries cannot pay twice.
 
-The fee recipient should be the existing Mana sponsor. That sponsor only covers music paid to its own address. Exact approval/payment/cleanup bundles are the only native approvals it accepts. A verified paid archive gets its own bounded quota of two attempts per chunk per UTC day; ordinary social actions retain their original quota. Stale, corrupted, unpaid, mixed, or already completed chunk requests are refused. Per-operation Mana limits and burst limits still apply. Uploads can pause if the sponsor's available Mana runs low.
+Delivery is asynchronous and requires an unlocked uploader client. No always-on
+key server was introduced. Expired requests do not settle. The client scans
+pending requests with cursors and backs off failed deliveries.
+
+**Trust boundary:** the chain validates the shape and intended recipient/version
+of a key delivery, but cannot prove that a sealed key decrypts the promised song.
+The client detects a wrong key; the protocol does not automatically refund an
+already delivered, invalid key. Purchase only from an uploader you trust. Likewise,
+no protocol can stop someone who has decrypted audio from copying it.
+
+## Storage, pricing and compatibility
+
+Audio remains in contract state in 16 KiB chunks. Public/free audio keeps its
+original bytes. Encryption adds 16 bytes per file and does not re-encode audio.
+The size limit is 10 MiB including encryption; duration is at most one hour.
+Supported browser-playable formats are MP3, M4A, Ogg, WAV and WebM.
+
+New uploads use `append_music_batch` with up to four contiguous chunks per
+transaction. A fixed manifest holds the commitments; a separate small progress
+record changes during upload. Existing v1 records remain readable and migrate
+progress lazily when resumed. Already-paid drafts resume without repaying, even
+if uploads are paused or the upload rate changes. Old drafts retain the legacy
+single-chunk submission path. New saved drafts include encrypted recovery data
+and reproduce identical ciphertext from the original file on resume.
+
+| State space | Purpose |
+| --- | --- |
+| Publications 40–43 | Existing pricing, track manifests, chunk bytes, profile directory |
+| Publications 44 | Compact progress |
+| Publications 45–46 | Access receipts and pending deliveries |
+| Publications 47–48 | Comments and chronological comment directory |
+| Publications 49 | Completed group-track directory |
+| OSAT token 15 | Music escrow receipts |
+
+The native upload fee is separate from OSAT unlock prices and transaction Mana.
+It remains **86.1 KOIN per decimal MB, rounded up to a whole token** (tKOIN on
+Harbinger). A native approval/payment/cleanup bundle reserves each upload once;
+failed payment creates no reservation. Abandoned upload fees are not refunded.
+Changing implementation efficiency does not automatically lower this application
+fee. Measure live Mana before changing the rate.
+
+The sponsor only funds uploads paid to its own configured account. Policy v3
+allows 72 KiB operation arguments. A batch counts one resource/quota unit per
+chunk: the default 2-Mana ceiling remains 2 Mana for an ordinary action and up to
+8 Mana for four committed audio chunks. A paid track retains its two attempts
+per chunk per UTC day; batching does not multiply that allowance. Mixed bundles,
+unpaid tracks, stale indexes, uncommitted data and oversized batches are rejected.
+The sponsorship registry's maximum permitted argument policy is now 96 KiB.
 
 ## Rollout
 
-This change is not activated just by replacing frontend files. Keep a backup of the current frontend and deploy the publications and sponsor updates first.
+This release requires **token, publications and sponsorship** contract upgrades,
+the sponsor service update, and the frontend. Existing track state is preserved.
+Music reads directly from chain state; no indexer database migration is required.
+An indexer rebuild/restart with the shared SDK is recommended for recognizing the
+new events in its raw event log, but it does not grant audio access.
 
-1. Merge this branch into the active `codex/protocol-polls` branch. Start a new run of the existing `deploy-testnet` workflow on that branch, with network `harbinger`, contracts `publications`, dry run and force unchecked, and **Enable Music at 86.1 tKOIN per MB, paid to the current Mana sponsor** checked. No other contract upgrade is needed.
-2. The workflow upgrades and verifies the contract, saves the deployment manifest, then activates Music with the existing GitHub Secrets `OSP_CONTRACT_SEED` and `KOINOS_HARBINGER_DEPLOYER_WIF`. No local copy or replacement seed is needed. Activation checks that the seed derives the existing publications address and verifies the current sponsor's signed discovery document before using its address as the fee recipient. The rate is 86.1 tKOIN per decimal MB, rounded up to whole tokens (724 tKOIN for the 8,403,113-byte benchmark), with a 10 MiB file limit. Dry runs never activate Music. The activation checkbox defaults off for later unrelated deployments; selecting it again explicitly restores this policy, and an already matching policy sends no transaction.
-3. Rebuild/restart the sponsor from this revision with on-chain registration enabled, then run the readiness check. There is no indexer migration for Music.
-4. Install the frontend ZIP contents directly in Hostinger `public_html`, including `.htaccess`, `sw.js`, `index.html`, and `assets/`. Retain old hashed assets briefly for cached tabs.
-5. Make one small paid audio upload, reload and play it, then try the 8.4 MB / 3:30 test. Verify fee recipient balance, pause/resume, and that only one fee was paid. This rollout still needs that broadcast end-to-end check.
+After the reviewed branch is available on GitHub:
 
-The commands below are an optional alternative for operators who already hold the original credentials in their environment. Skip them when using the GitHub workflow above. Do not retrieve or replace GitHub secrets to run these commands. Never put credentials in the frontend or shell history. `--recipient ADDRESS` explicitly selects another treasury; a different treasury requires self-paid uploads or a sponsor at that address.
-
-```bash
-npm ci
-npm run build -w packages/proto -w packages/sdk
-node packages/contracts/scripts/build.mjs release publications
-node --import tsx scripts/deploy-contracts.ts --network harbinger --only publications --dry-run
-node --import tsx scripts/deploy-contracts.ts --network harbinger --only publications
-node --import tsx scripts/configure-music.ts --network harbinger
-node --import tsx scripts/configure-music.ts --network harbinger --execute
-```
-
-On the existing VPS, after pulling the merged revision:
+1. Merge it into the deployment branch. In `deploy-testnet`, select network
+   `harbinger`, contracts **music**, and first run **dry run**.
+2. Inspect that run, then deploy the same revision with dry run disabled. Leave
+   **Enable Music at 86.1 tKOIN per MB** unchecked for an already-enabled network
+   to preserve its price/recipient settings. The workflow uses existing repository
+   secrets; no new private key is required on the VPS or frontend.
+3. Pull that revision on the VPS, build services, restart/re-register the sponsor
+   using policy version 3, then run the readiness check:
 
 ```bash
 npm ci
-npm run build -w packages/proto -w packages/sdk -w apps/sponsor
-OSP_SPONSOR_MAX_BYTES_PER_OP=24576 OSP_SPONSOR_MAX_OPS_PER_TX=4 OSP_SPONSOR_REGISTER=true pm2 restart osp-sponsor --update-env
+npm run build -w packages/proto -w packages/sdk -w apps/sponsor -w apps/indexer
+OSP_SPONSOR_POLICY_VERSION=3 OSP_SPONSOR_MAX_BYTES_PER_OP=73728 OSP_SPONSOR_MAX_OPS_PER_TX=4 OSP_SPONSOR_REGISTER=true pm2 restart osp-sponsor --update-env
+pm2 restart osp-indexer
 pm2 save
 node --import tsx scripts/verify-music.ts --network harbinger
 ```
 
-Change the approximate rate with `configure-music.ts --rate-per-mb 86.1 --execute`. Use `--pause --execute` to stop new paid reservations while allowing existing uploads to finish. Readiness fails if Music is paused or the sponsor has not loaded the new payment policy. Restart the sponsor after upgrading the contract; its startup resolves native KOIN and registers the narrowly scoped approval entry point.
+4. Install the frontend ZIP into `public_html`, retaining `.htaccess`, `sw.js`,
+   `index.html`, and `assets/`. Retain old hashed assets briefly for open tabs.
+5. Perform a small Harbinger upload first. Verify public playback, a private
+   upload, a paid request from another identity, key delivery, encrypted comments,
+   and pause/resume. Verify the expected OSAT balances and native fee recipient.
+   Then run the same-file resource comparison before changing upload prices.
 
-## Verification
-
-The release includes contract tests for quote boundaries, authority, underpayment, failed native transfers, idempotent payment, paused resumptions, immutable commitments, chunk integrity, ownership and profile listing. SDK/web/sponsor tests cover the exact 8,403,113-byte / 513-chunk case, four concurrent reads, corrupt playback data, interrupted uploads, stale quotes, native approval restrictions, and paid quota isolation.
-
-A Harbinger **non-broadcast simulation** deployed a temporary copy, registered a temporary identity, funded it within the simulation, ran the payment bundle twice, appended/retried audio bytes and read the track/chunk/directory. It emitted exactly one native upload-fee transfer and one `music_paid` event, with allowance cleanup after both attempts. The simulation committed no state or token movement. It is not a live installed frontend test or a new full-track blockchain upload. The earlier standalone 3:30 audio test remains separate evidence.
-
-Validation for this revision: 1,300 tests passed across protocol, SDK, contracts, indexer, sponsor, web, extension and deployment scripts; two existing web tests remain skipped. Production builds and shipped-bundle smoke checks passed after the frontend type-check fix. The largest 640-chunk / 10 MiB manifest fits the 24 KiB sponsor argument and 32 KiB contract buffers. Desktop/mobile browser playback has not been manually tested for this Music UI.
-
-Reproduce the non-broadcast native-token check with a funded testnet wallet in `KOINOS_HARBINGER_DEPLOYER_WIF`:
+CLI deployment, only where the original deployment credentials are already
+configured, is equivalent to selecting **music** in the workflow:
 
 ```bash
-node --import tsx scripts/rehearse-music.ts --network harbinger
+npm run build -w packages/proto -w packages/sdk -w packages/contracts
+node --import tsx scripts/deploy-contracts.ts --network harbinger --only token,publications,sponsorship --dry-run
+node --import tsx scripts/deploy-contracts.ts --network harbinger --only token,publications,sponsorship
 ```
 
-The saved result is [music-native-simulation.json](evidence/music-native-simulation.json).
+Never switch the active publication contract back to v1 after v2 uploads begin:
+v1 cannot see the separate progress or access records. Rollback the frontend or
+fix forward with compatible contracts. Do not remove the configured token or
+publications contract while escrow payments are pending.
+
+## Evidence and remaining live check
+
+See [music-v2-benchmark.md](music-v2-benchmark.md) and
+[evidence/music-v2-byte-benchmark.json](evidence/music-v2-byte-benchmark.json).
+Contract tests cover escrow authorization and conservation, exactly-once
+settlement/refund, delivery deadlines, audience revocation, comment permissions,
+legacy progress, replayed batches and immutable commitments. SDK and UI tests
+cover encryption integrity, recipient/track binding, exact pricing, resumable
+ciphertext, withheld access, pending delivery and encrypted comments.
+
+The v1 [native simulation](evidence/music-native-simulation.json) remains prior
+historical evidence; it does not validate v2 escrow or a full v2 song upload.
+A live v2 Mana comparison still needs a funded Harbinger payer. Both existing
+standalone audio test wallets had zero Mana when checked for this release.

@@ -43,6 +43,45 @@ export class Token {
     token.reward_state.encode,
     null
   );
+  musicEscrows: Storage.Map<Uint8Array, token.music_escrow> = new Storage.Map<Uint8Array, token.music_escrow>(this.id, 15, token.music_escrow.decode, token.music_escrow.encode, null);
+  musicCaller(): void {
+    const caller = System.getCaller().caller;
+    System.require(caller != null && Arrays.equal(caller!, this.cfg().publications!), "only publications may manage music escrow");
+  }
+  reserve_music_payment(args: token.reserve_music_payment_arguments): token.reserve_music_payment_result {
+    this.musicCaller();
+    const id = Util.requireBytes(args.id, 32, "payment id"), buyer = Util.requireAddress(args.buyer, "buyer"), seller = Util.requireAddress(args.seller, "seller");
+    System.require(id.length == 32 && !Arrays.equal(buyer, seller), "invalid music payment");
+    // Publications already checked the buyer signature. Only that configured
+    // contract may debit this bounded escrow; delegated devices cannot purchase.
+    System.require(!this.musicEscrows.has(id), "payment already reserved");
+    const a = this.open(buyer);
+    System.require(args.amount > 0 && args.amount <= a.state.paid_ready, "insufficient transferable OSAT");
+    a.value.balance -= args.amount;
+    a.state.paid_ready -= args.amount;
+    this.save(buyer, a);
+    const value = new token.music_escrow(buyer, seller, args.amount, 1);
+    this.musicEscrows.put(id, value);
+    System.event("osp.token.music_payment", Protobuf.encode(new token.music_payment_event(id, value), token.music_payment_event.encode), [buyer, seller]);
+    return new token.reserve_music_payment_result();
+  }
+  settle_music_payment(args: token.settle_music_payment_arguments): token.settle_music_payment_result {
+    this.musicCaller();
+    const id = Util.requireBytes(args.id, 32, "payment id"), value = this.musicEscrows.get(id);
+    System.require(value != null && value!.status == 1, "music payment is not pending");
+    const target = args.refund ? value!.buyer! : value!.seller!, a = this.open(target);
+    System.require(a.value.balance <= u64.MAX_VALUE - value!.amount && a.state.paid_ready <= u64.MAX_VALUE - value!.amount, "balance overflow");
+    a.value.balance += value!.amount;
+    a.state.paid_ready += value!.amount;
+    this.save(target, a);
+    value!.status = args.refund ? 3 : 2;
+    this.musicEscrows.put(id, value!);
+    System.event("osp.token.music_payment", Protobuf.encode(new token.music_payment_event(id, value), token.music_payment_event.encode), [value!.buyer!, value!.seller!]);
+    return new token.settle_music_payment_result();
+  }
+  get_music_payment(args: token.get_music_payment_arguments): token.get_music_payment_result {
+    return new token.get_music_payment_result(this.musicEscrows.get(Util.requireBytes(args.id, 32, "payment id")));
+  }
   cfg(): token.config {
     const c = this.config.get();
     System.require(c != null, "token not configured");
