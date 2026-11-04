@@ -86,6 +86,34 @@ export class MusicLibrary {
       "invalid sealed music key"
     );
   }
+  validateCover(cover: publications.music_cover | null, owner: Uint8Array, audience: u32): void {
+    if (cover == null) return;
+    const c = cover!, photo = new PhotoLibrary().photos.get(this.id(c.photo_id));
+    this.id(c.digest);
+    System.require(photo != null && Arrays.equal(photo!.owner!, owner) && photo!.received == photo!.chunk_hashes.length &&
+      photo!.size == c.size && Arrays.equal(photo!.digest!, c.digest!) && c.size > 0 && c.size <= 327680, "complete matching cover archive required");
+    System.require(c.mime == "image/jpeg" || c.mime == "image/png" || c.mime == "image/webp", "unsupported cover image");
+    System.require(c.encrypted == (audience != 0), "restricted artwork must be encrypted");
+    System.require(c.encrypted ? c.nonce != null && c.nonce!.length == 24 && c.size > 16 : Util.isEmpty(c.nonce), "invalid artwork nonce");
+  }
+  sameCover(a: publications.music_cover | null, b: publications.music_cover | null): bool {
+    if (a == null || b == null) return a == null && b == null;
+    return Arrays.equal(Protobuf.encode(a!, publications.music_cover.encode), Protobuf.encode(b!, publications.music_cover.encode));
+  }
+  setCover(args: publications.set_music_cover_arguments, identity: Uint8Array): void {
+    const owner = Util.requireAddress(args.owner, "owner"), id = this.id(args.id), value = this.get(id);
+    Actor.requireAuthorized(identity, owner, null, 0);
+    System.require(value != null && Arrays.equal(value!.owner!, owner), "track not owned");
+    const v = value!;
+    System.require(v.received == v.chunk_hashes.length, "complete the track before changing artwork");
+    if (this.sameCover(v.cover, args.cover)) return; // A confirmed retry never replaces a newer cover.
+    System.require(v.cover_revision == args.expected_revision && v.cover_revision < u32.MAX_VALUE, "artwork changed; refresh before saving");
+    this.validateCover(args.cover, owner, v.audience);
+    v.cover = args.cover;
+    v.cover_revision++;
+    this.tracks.put(id, v);
+    System.event("osp.publications.music_cover_updated", Protobuf.encode(new publications.music_cover_updated_event(id, owner, v.cover, v.cover_revision), publications.music_cover_updated_event.encode), [owner]);
+  }
   id(value: Uint8Array | null): Uint8Array {
     System.require(value != null && value!.length == 32, "expected 32-byte music id");
     return value!;
@@ -109,6 +137,7 @@ export class MusicLibrary {
       args.rate_per_mb > 0 && args.rate_per_mb <= 1000000000000,
       "rate must be 0-10000 KOIN per MB"
     );
+    System.require(args.flat_fee <= 1000000000000, "flat fee must be at most 10000 KOIN");
     System.require(
       args.max_bytes > 0 && args.max_bytes <= MAX_BYTES,
       "music size limit must be at most 10 MiB"
@@ -122,11 +151,14 @@ export class MusicLibrary {
         args.recipient,
         args.rate_per_mb,
         args.max_bytes,
-        args.enabled
+        args.enabled,
+        null,
+        args.flat_fee
       )
     );
   }
-  fee(size: u32, rate: u64): u64 {
+  fee(size: u32, rate: u64, flat: u64 = 0): u64 {
+    if (flat > 0) return flat;
     // Decimal MB, rounded UP to a whole KOIN. The bounded inputs prevent overflow.
     const divisor: u64 = 1000000 * COIN;
     return ((<u64>size * rate + divisor - 1) / divisor) * COIN;
@@ -194,6 +226,7 @@ export class MusicLibrary {
         "active group membership required"
       );
     } else System.require(Util.isEmpty(args.group_id), "group id only allowed for group music");
+    this.validateCover(args.cover, owner, args.audience);
     const payer = Util.requireAddress(args.payer, "payer");
     const old = this.get(id);
     if (old != null) {
@@ -214,6 +247,7 @@ export class MusicLibrary {
           Arrays.equal(old.group_id, args.group_id) &&
           Arrays.equal(old.nonce, args.nonce) &&
           Arrays.equal(old.key_hash, args.key_hash) &&
+          this.sameCover(old.cover, args.cover) &&
           old.chunk_hashes.length == args.chunk_hashes.length,
         "music id already used"
       );
@@ -228,7 +262,7 @@ export class MusicLibrary {
     System.require(c.enabled && c.recipient != null, "music uploads are not enabled");
     System.require(args.config_revision == c.revision, "music price changed; review the new quote");
     System.require(args.size <= c.max_bytes, "audio exceeds configured size limit");
-    const price = this.fee(args.size, c.rate_per_mb);
+    const price = this.fee(args.size, c.rate_per_mb, c.flat_fee);
     System.require(args.max_fee == price, "music fee does not match the accepted quote");
     System.require(!Arrays.equal(payer, c.recipient!), "payer cannot be the music fee recipient");
     System.requireAuthority(authority.authorization_type.contract_call, payer);
@@ -262,6 +296,7 @@ export class MusicLibrary {
     value.unlock_price = args.unlock_price;
     value.version = 2;
     value.key_hash = args.key_hash;
+    value.cover = args.cover;
     this.tracks.put(id, value);
     System.event(
       "osp.publications.music_paid",

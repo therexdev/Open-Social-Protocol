@@ -14,7 +14,9 @@ import { Button, Card, Empty, Field, Notice, Spinner } from "../../components/ui
 import { useVault, useVaultStore } from "../../vault/context";
 import type { EncryptedStore } from "../../vault/encryptedStore";
 import type { UnlockLease } from "../../vault/store";
-import { MusicTrack } from "./MusicTrack";
+import { MusicGallery } from "./MusicGallery";
+import { MusicArtworkPicker } from "./MusicArtworkPicker";
+import { supportsMusicArt } from "./musicArtwork";
 import { shareFreeMusic } from "./musicAccessService";
 import { readCollection, type Collection } from "../library/libraryService";
 import { useSubmitContext } from "../session";
@@ -49,6 +51,8 @@ function MusicPanel({ owner }: { owner: string }) {
     submit = useSubmitContext();
   const mine = account === owner,
     currency = resolved.network === "mainnet" ? "KOIN" : "tKOIN";
+  const [artSelecting, setArtSelecting] = useState(false);
+  const [artSupported, setArtSupported] = useState(false), [artworkBytes, setArtworkBytes] = useState<Uint8Array>();
   const [config, setConfig] = useState<MusicConfig>(),
     [loading, setLoading] = useState(true),
     [error, setError] = useState("");
@@ -131,6 +135,7 @@ function MusicPanel({ owner }: { owner: string }) {
         const c = await musicConfig(protocol);
         if (!alive.current) return;
         setConfig(c);
+        setArtSupported(await supportsMusicArt(protocol));
         await list();
         if (session && mine) {
           const saved = await musicDraftStore(session, protocol),
@@ -241,6 +246,7 @@ function MusicPanel({ owner }: { owner: string }) {
           identity: session.identity,
           client: protocol,
           ...source,
+          artworkBytes,
           config,
         });
       await store.save(pending); // Must succeed before any payment, including the first attempt.
@@ -284,7 +290,8 @@ function MusicPanel({ owner }: { owner: string }) {
       setUnlockPrice("0");
       setPaid(false);
       setTotal(0);
-      setNotice("Your track is published on your profile.");
+      setArtworkBytes(undefined);
+      setNotice("Your track is published on your profile and in the feed for its audience.");
       await list();
     } catch (e) {
       if (alive.current) setError(message(e));
@@ -314,7 +321,7 @@ function MusicPanel({ owner }: { owner: string }) {
       const next = {
         ...draft,
         configRevision: c.revision,
-        fee: musicFee(draft.size, c.rate_per_mb),
+        fee: musicFee(draft.size, c.rate_per_mb, c.flat_fee),
         recipient: c.recipient,
       };
       await store.save(next);
@@ -350,7 +357,7 @@ function MusicPanel({ owner }: { owner: string }) {
   const fee =
     draft?.fee ??
     (source && config && quoteSize <= config.max_bytes
-      ? musicFee(quoteSize, config.rate_per_mb)
+      ? musicFee(quoteSize, config.rate_per_mb, config.flat_fee)
       : undefined);
   return (
     <section className="stack" aria-label="Profile music">
@@ -362,9 +369,7 @@ function MusicPanel({ owner }: { owner: string }) {
           <Spinner label="Loading music" />
         ) : (
           <>
-            {tracks.map((track) => (
-              <MusicTrack key={track.id} {...track} />
-            ))}
+            <MusicGallery items={tracks}/>
             {!tracks.length && <Empty>No music uploaded yet.</Empty>}
             {more && (
               <Button onClick={() => void list(after).catch((e) => setError(message(e)))}>
@@ -501,6 +506,8 @@ function MusicPanel({ owner }: { owner: string }) {
               />
             )}
           </Field>
+          {artSupported && !draft && <MusicArtworkPicker value={artworkBytes} onChange={setArtworkBytes} disabled={busy} privateArt={audience !== 0} onBusyChange={setArtSelecting}/>}
+          {draft?.artwork && <p className="hint">Cover artwork is saved with this upload and will resume automatically.</p>}
           {selecting && <Spinner label="Reading audio" />}
           {source && quoteSize > config.max_bytes && (
             <Notice kind="error">
@@ -539,7 +546,7 @@ function MusicPanel({ owner }: { owner: string }) {
             </div>
           )}
           <p className="hint">
-            Current rate: {Number(config.rate_per_mb) / 100000000} {currency} per MB, rounded up.
+            {BigInt(config.flat_fee ?? "0") > 0n ? `Flat upload fee: ${musicTokens(config.flat_fee!)} ${currency} per song, at any supported size.` : `Current rate: ${Number(config.rate_per_mb) / 100000000} ${currency} per MB, rounded up.`}
             This is a token payment, separate from Mana. Your payment settings determine who
             supplies transaction Mana.
           </p>
@@ -575,7 +582,7 @@ function MusicPanel({ owner }: { owner: string }) {
                 Number(unlockPrice) > 1000000 ||
                 !submit ||
                 !store ||
-                selecting ||
+                selecting || artSelecting ||
                 (!config.enabled && !paid) ||
                 (!draft && !!source && quoteSize > config.max_bytes)
               }

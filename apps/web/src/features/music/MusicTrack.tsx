@@ -5,6 +5,8 @@ import { useServices } from "../../api/services";
 import { Button, Notice } from "../../components/ui";
 import { useVault } from "../../vault/context";
 import { toArrayBuffer } from "../../util/bytes";
+import { Icon } from "../../components/Icon";
+import { MusicCover } from "./MusicCover";
 import { musicDuration } from "./musicService";
 import { playableMusic } from "./musicAccessService";
 export const musicAudienceLabel = (record: MusicRecord) =>
@@ -37,7 +39,7 @@ export function MusicTrack({
       if (blob.current) URL.revokeObjectURL(blob.current);
       blob.current = "";
     };
-  }, [id, protocol, session]);
+  }, [id, protocol, session, playbackLocked]);
   const load = async () => {
     if (!protocol || busy) return;
     const c = new AbortController();
@@ -62,16 +64,15 @@ export function MusicTrack({
     }
   };
   return (
-    <article className="music-track">
-      <div>
+    <article className={`music-track${expanded ? " music-track-expanded" : ""}`}>
+      <MusicCover id={id} record={record}/>
+      <div className="music-track-body">
+      <div className="music-track-badges"><span><Icon name={record.audience ? "lock" : "globe"} size={13}/>{musicAudienceLabel(record)}</span><span>{BigInt(record.unlock_price ?? "0") > 0n ? `${Number(record.unlock_price).toLocaleString()} OSAT` : "Free to listen"}</span></div>
+      <div className="music-track-copy">
         <h3>{expanded ? record.title : <Link to={`/music/${id}`}>{record.title}</Link>}</h3>
         {record.artist && <p className="music-artist">{record.artist}</p>}
         <p className="hint">
-          {musicDuration(record.duration_ms)} · {(record.size / 1000000).toFixed(2)} MB ·{" "}
-          {musicAudienceLabel(record)}
-          {BigInt(record.unlock_price ?? "0") > 0n
-            ? ` · ${Number(record.unlock_price).toLocaleString()} OSAT to unlock`
-            : ""}
+          {musicDuration(record.duration_ms)} · {(record.size / 1000000).toFixed(2)} MB
         </p>
         {record.description && (
           <p className={expanded ? "music-description" : "music-description music-excerpt"}>
@@ -79,16 +80,21 @@ export function MusicTrack({
           </p>
         )}
       </div>
-      {url ? (
+      <div className="music-track-actions">
+      {url && !playbackLocked ? (
         <audio controls preload="metadata" src={url} aria-label={`Play ${record.title}`} />
-      ) : playbackLocked ? (
+       ) : playbackLocked ? (
         <p className="hint">Unlock access below to play this track.</p>
+      ) : record.encrypted && !expanded ? (
+        <Link className="btn btn-primary" to={`/music/${id}`}><Icon name="play" size={17}/>Listen / access</Link>
       ) : (
-        <Button busy={busy} onClick={() => void load()}>
+        <Button variant="primary" busy={busy} onClick={() => void load()}>
+          {!busy && <Icon name="play" size={17}/>}
           {busy ? `Loading audio ${percent}%` : "Load & play"}
         </Button>
       )}
-      {!expanded && <Link to={`/music/${id}`}>Open track & comments</Link>}
+      {!expanded && <Link className="music-comment-link" title="Track & comments" aria-label="Track & comments" to={`/music/${id}`}><Icon name="message" size={16}/>Track & comments</Link>}
+      </div>
       {error && (
         <Notice kind="error">
           {error}
@@ -100,6 +106,7 @@ export function MusicTrack({
           )}
         </Notice>
       )}
+      </div>
     </article>
   );
 }

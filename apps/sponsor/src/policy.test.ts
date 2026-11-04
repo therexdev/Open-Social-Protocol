@@ -9,7 +9,7 @@ describe("default allowlist", () => {
   it("covers every write method of the social and messaging contracts except the admin setters", () => {
     const entries = defaultAllowlist(deployment);
     const names = entries.map((e) => `${e.contract}.${e.method}`);
-    expect(names).toHaveLength(59);
+    expect(names).toHaveLength(60);
     expect(names).toContain("identity.register");
     expect(names).toContain("publications.answer_poll");
     expect(names).toContain("messaging.send_message");
@@ -60,7 +60,7 @@ describe("allowlist override", () => {
     const entries = parseAllowlist("publications:publish, relationships:follow\nrelationships:follow", deployment);
     expect(entries.map((e) => `${e.contract}.${e.method}`)).toEqual(["publications.publish", "relationships.follow"]);
     const wildcard = parseAllowlist("publications:*", deployment);
-    expect(wildcard.map((e) => e.method).sort()).toEqual(["answer_poll", "append_music", "append_music_batch", "append_photo", "begin_music", "begin_photo", "comment_music", "delete_music_comment", "distribute_keys", "grant_music_access", "publish", "react", "record_cross_post", "refund_music_access", "request_music_access", "save_collection", "set_album_item", "set_lifecycle"]);
+    expect(wildcard.map((e) => e.method).sort()).toEqual(["answer_poll", "append_music", "append_music_batch", "append_photo", "begin_music", "begin_photo", "comment_music", "delete_music_comment", "distribute_keys", "grant_music_access", "publish", "react", "record_cross_post", "refund_music_access", "request_music_access", "save_collection", "set_album_item", "set_lifecycle", "set_music_cover"]);
     const sponsorship = parseAllowlist("sponsorship:set_user_grant", deployment);
     expect(sponsorship[0]?.entryPoint).toBe(ABIS.sponsorship.methods.set_user_grant?.entry_point);
   });

@@ -10,11 +10,12 @@ import { editMentionText, findMentionQuery, insertMention, readMentionText, writ
 interface Person { account: string; name: string }
 interface Props extends Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, "value" | "onChange"> {
   account?: string;
+  showHint?: boolean;
   value: string;
   onValueChange: (value: string) => void;
 }
 
-export function MentionTextarea({ account, value, onValueChange, ...props }: Props) {
+export function MentionTextarea({ account, value, onValueChange, showHint = true, ...props }: Props) {
   const { indexer } = useServices();
   const id = useId(), input = useRef<HTMLTextAreaElement>(null);
   const editor = useRef<HTMLDivElement>(null);
@@ -144,7 +145,7 @@ export function MentionTextarea({ account, value, onValueChange, ...props }: Pro
     <textarea {...props} ref={input} value={draft.text}
       aria-autocomplete="list" aria-haspopup="listbox" aria-controls={open ? `${id}-options` : undefined}
       aria-activedescendant={open && active >= 0 ? `${id}-${active}` : undefined}
-      aria-describedby={[props["aria-describedby"], `${id}-hint`].filter(Boolean).join(" ")}
+      aria-describedby={[props["aria-describedby"], showHint && `${id}-hint`].filter(Boolean).join(" ")}
       onFocus={event => { setActivated(true); setFocused(true); setDismissed(false); updateSelection(event.currentTarget); props.onFocus?.(event); }}
       onClick={event => { setDismissed(false); updateSelection(event.currentTarget); props.onClick?.(event); }}
       onSelect={event => updateSelection(event.currentTarget)}
@@ -170,7 +171,7 @@ export function MentionTextarea({ account, value, onValueChange, ...props }: Pro
         if (event.key === "Enter" || event.key === "Tab") setDismissed(true);
         props.onKeyDown?.(event);
       }} />
-    <p className="hint mention-hint" id={`${id}-hint`}>Type @ followed by a name or address to tag someone.</p>
+    {showHint && <p className="hint mention-hint" id={`${id}-hint`}>Type @ followed by a name or address to tag someone.</p>}
     {open && <div className="mention-dropdown" data-placement={placement.above ? "above" : "below"}>
       <p className="hint">Friends first · type a name or address to filter</p>
       <div id={`${id}-options`} role="listbox" aria-label="People to tag" className="mention-options" style={{ maxHeight: placement.height }}>

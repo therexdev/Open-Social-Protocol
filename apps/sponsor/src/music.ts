@@ -43,7 +43,7 @@ export async function musicAllowance(
       config.recipient !== sponsor ||
       args.payer !== payee ||
       args.config_revision !== config.revision ||
-      args.max_fee !== musicFee(Number(args.size), config.rate_per_mb)
+      args.max_fee !== musicFee(Number(args.size), config.rate_per_mb, config.flat_fee)
     )
       refuse("This sponsor only funds music uploads paid to its configured account");
     return undefined;

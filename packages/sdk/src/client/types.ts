@@ -1,4 +1,4 @@
-import type { MusicConfig, MusicRecord, MusicKey, MusicAccess, MusicComment, BeginMusicArgs } from "../music.js";
+import type { MusicConfig, MusicRecord, MusicKey, MusicAccess, MusicComment, BeginMusicArgs, MusicCover } from "../music.js";
 import type { PhotoArchiveRecord, CollectionRecord, AlbumItemRecord } from "../photoLibrary.js";
 /**
  * Typed arguments, results and event payloads for every contract method
@@ -365,8 +365,9 @@ export interface PublicationsDependencies {
 }
 
 export interface PublicationsWriteMethods {
-  set_music_config: { recipient: Address; rate_per_mb: U64; max_bytes: number; enabled: boolean };
+  set_music_config: { recipient: Address; rate_per_mb: U64; max_bytes: number; enabled: boolean; flat_fee?: U64 };
   begin_music: BeginMusicArgs;
+  set_music_cover: { owner: Address; id: Bytes; cover?: MusicCover; expected_revision: number };
   append_music_batch: { owner: Address; id: Bytes; index: number; chunks: Bytes[]; device?: Address };
   request_music_access: { buyer: Address; id: Bytes; max_price: U64 };
   grant_music_access: { owner: Address; id: Bytes; buyer: Address; key: MusicKey };
@@ -393,6 +394,7 @@ export interface PublicationsReadMethods {
   list_music_requests: [{ owner: Address; after?: Bytes }, { items: MusicAccess[]; next: Bytes }];
   list_music_comments: [{ id: Bytes; after?: Bytes }, { items: MusicComment[]; next: Bytes }];
   get_music_config: [Record<string, never>, ValueResult<MusicConfig>];
+  get_music_art_version: [Record<string, never>, { version: number }];
   get_music: [{ id: Bytes }, ValueResult<MusicRecord>];
   get_music_chunk: [{ id: Bytes; index: number }, { data: Bytes }];
   get_music_chunks: [{ id: Bytes; index: number; count: number }, { chunks: Bytes[] }];

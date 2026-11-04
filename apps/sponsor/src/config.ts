@@ -23,7 +23,7 @@ export const DEFAULTS = {
   maxBytesPerOp: 272384,
   maxRcPerOp: "200000000",
   maxOpsPerTx: 4,
-  policyVersion: 4,
+  policyVersion: 5,
   register: true,
 } as const;
 

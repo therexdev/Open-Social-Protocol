@@ -3,7 +3,7 @@ import { fromBase64url, musicConfig, toBase64url, type MusicRecord } from "@osp/
 import { useServices } from "../../api/services";
 import { useVault } from "../../vault/context";
 import { Button, Card, Empty, Notice, Spinner } from "../../components/ui";
-import { MusicTrack } from "./MusicTrack";
+import { MusicGallery } from "./MusicGallery";
 export function GroupMusic({ groupId }: { groupId: string }) {
   const { protocol } = useServices(),
     session = useVault((s) => s.session);
@@ -32,6 +32,7 @@ export function GroupMusic({ groupId }: { groupId: string }) {
         });
         if (
           record &&
+          record.received === record.chunk_hashes.length &&
           record.audience === 2 &&
           toBase64url(record.group_id!) === groupId &&
           access?.eligible
@@ -59,9 +60,7 @@ export function GroupMusic({ groupId }: { groupId: string }) {
   if (!session) return null;
   return (
     <Card title="Group music">
-      {items.map((x) => (
-        <MusicTrack key={x.id} {...x} />
-      ))}
+      <MusicGallery items={items}/>
       {loading ? (
         <Spinner />
       ) : (

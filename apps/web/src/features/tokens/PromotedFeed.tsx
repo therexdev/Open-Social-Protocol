@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { eligiblePromotion, insertPromotions, promotionKey } from "@osp/sdk";
-import type { PostView } from "../../api/indexer";
+import { isMusicFeedItem, type TimelineItem, type PostView } from "../../api/indexer";
 import { useServices } from "../../api/services";
 import { useSettings } from "../../stores/settings";
 import { useEconomy } from "./EconomyContext";
+import { MusicFeedCard } from "../music/MusicFeedCard";
 import { PostCard } from "../feed/PostCard";
 
 function loadSeen(key: string): Set<string> {
@@ -24,7 +25,7 @@ function Placement({ post, seen, storageKey, onChanged }: { post: PostView; seen
   }, [post.postId, post.promoted?.opportunity, post.promoted?.nonce, seen, storageKey]);
   return <div ref={ref}><PostCard post={post} onChanged={onChanged}/></div>;
 }
-export function PromotedFeed({ items, viewer, scope, active, onChanged }: { items: PostView[]; viewer?: string; scope: string; active: boolean; onChanged: () => void }) {
+export function PromotedFeed({ items, viewer, scope, active, onChanged }: { items: TimelineItem[]; viewer?: string; scope: string; active: boolean; onChanged: () => void }) {
   const { policy } = useEconomy(), { indexer, protocol, resolved } = useServices(), muted = useSettings(s => s.muted);
   const [promotions, setPromotions] = useState<PostView[]>([]);
   const storageKey = `osp.promotions:${resolved.chainId}:${viewer ?? "guest"}`;
@@ -53,6 +54,6 @@ export function PromotedFeed({ items, viewer, scope, active, onChanged }: { item
       return [...selected.values()].slice(0, 2);
     });
   }, [promotions, muted, seen]);
-  const rendered = insertPromotions(items, placements, new Set());
-  return <div className="post-list">{rendered.map(post => <Placement key={`${post.postId}:${post.contentHash}`} post={post} seen={seen} storageKey={storageKey} onChanged={onChanged}/>)}</div>;
+  const rendered = insertPromotions<TimelineItem>(items, placements, new Set());
+  return <div className="post-list">{rendered.filter(post => !muted.includes(post.author)).map(post => isMusicFeedItem(post) ? <MusicFeedCard key={post.postId} item={post}/> : <Placement key={`${post.postId}:${post.contentHash}`} post={post} seen={seen} storageKey={storageKey} onChanged={onChanged}/>)}</div>;
 }

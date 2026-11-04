@@ -358,6 +358,32 @@ export class Publications {
     return res;
   }
 
+  get_music_art_version(
+    args: publications.get_music_art_version_arguments
+  ): publications.get_music_art_version_result {
+    // YOUR CODE HERE
+
+    const res = new publications.get_music_art_version_result();
+    // res.version = ;
+
+    return res;
+  }
+
+  set_music_cover(
+    args: publications.set_music_cover_arguments
+  ): publications.set_music_cover_result {
+    // const owner = args.owner;
+    // const id = args.id;
+    // const cover = args.cover;
+    // const expected_revision = args.expected_revision;
+
+    // YOUR CODE HERE
+
+    const res = new publications.set_music_cover_result();
+
+    return res;
+  }
+
   set_music_config(
     args: publications.set_music_config_arguments
   ): publications.set_music_config_result {
@@ -365,6 +391,7 @@ export class Publications {
     // const rate_per_mb = args.rate_per_mb;
     // const max_bytes = args.max_bytes;
     // const enabled = args.enabled;
+    // const flat_fee = args.flat_fee;
 
     // YOUR CODE HERE
 
@@ -408,6 +435,7 @@ export class Publications {
     // const owner_key = args.owner_key;
     // const unlock_price = args.unlock_price;
     // const key_hash = args.key_hash;
+    // const cover = args.cover;
 
     // YOUR CODE HERE
 

@@ -140,3 +140,15 @@ it.each([AUDIENCE.EVERYONE, AUDIENCE.FRIENDS])("preserves a saved mention target
   await click(`Publish to ${audience === AUDIENCE.EVERYONE ? "Everyone" : "Friends"}`);
   expect(transport.start.mock.calls[0]![0].draft.text).toBe(text);
 });
+
+it("puts the poll button below the framed content box and omits the removed prompts", async () => {
+  container = document.createElement("div"); document.body.appendChild(container); root = createRoot(container);
+  await act(async () => root.render(<MemoryRouter><ComposerForm/></MemoryRouter>));
+  expect(container.textContent).not.toContain("What's on your mind?");
+  expect(container.textContent).not.toContain("Type @ followed by a name or address to tag someone.");
+  const content = container.querySelector(".composer-content")!, tools = container.querySelector(".composer-tools")!;
+  expect(content.querySelector("textarea")).toBeTruthy();
+  expect(content.compareDocumentPosition(tools) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(tools.textContent).toContain("Add photos"); expect(tools.textContent).toContain("Add poll");
+  await click("Add poll"); expect(container.querySelector(".poll-editor")).toBeTruthy();
+});

@@ -1,4 +1,4 @@
-// Run while the two PM2 services are stopped, before migration 6.
+// Run while the two PM2 services are stopped, before an indexer database migration.
 // Only copies SQLite files and their WAL/SHM companions; never prints environment secrets.
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';

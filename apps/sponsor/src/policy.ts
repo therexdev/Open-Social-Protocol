@@ -53,6 +53,7 @@ export const ACTOR_FIELDS: Readonly<Partial<Record<ContractName, Readonly<Record
     begin_music: "owner",
     append_music: "owner",
     append_music_batch: "owner",
+    set_music_cover: "owner",
     request_music_access: "buyer",
     grant_music_access: "owner",
     refund_music_access: "buyer",

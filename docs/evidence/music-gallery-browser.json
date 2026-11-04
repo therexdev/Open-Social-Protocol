@@ -1,0 +1,41 @@
+{
+  "source": "Chromium with deterministic in-memory contract/indexer fixtures; real components, artwork verification, MP3 playback and IndexedDB",
+  "checks": [
+    {
+      "mode": "gallery",
+      "width": 1280,
+      "errors": [],
+      "overflow": false
+    },
+    {
+      "mode": "gallery",
+      "width": 390,
+      "errors": [],
+      "overflow": false
+    },
+    {
+      "mode": "composer",
+      "width": 390,
+      "errors": [],
+      "overflow": false
+    },
+    {
+      "mode": "feed",
+      "width": 390,
+      "errors": [],
+      "overflow": false
+    },
+    {
+      "mode": "upload",
+      "width": 390,
+      "errors": [],
+      "overflow": false
+    },
+    {
+      "mode": "editor",
+      "width": 390,
+      "errors": [],
+      "overflow": false
+    }
+  ]
+}

@@ -7,6 +7,7 @@ import type { IndexerConfig } from "./config.js";
 import { IndexerDb } from "./db.js";
 import { buildApi } from "./api.js";
 import { Syncer, silentLogger, type Logger } from "./sync.js";
+import { backfillMusic } from "./musicProjection.js";
 
 export interface IndexerOptions {
   config: IndexerConfig;
@@ -34,6 +35,7 @@ export function createIndexer(options: IndexerOptions): Indexer {
   const { config } = options;
   const logger = options.logger ?? silentLogger;
   const db = options.db ?? new IndexerDb(config.dbPath);
+  backfillMusic(db);
   let chain = options.chain;
   let syncer: Syncer | undefined;
   if (config.deployment) {

@@ -87,6 +87,7 @@ it("only sponsors exact native payment bundles to this sponsor", async () => {
     enabled: true,
     rate_per_mb: "8610000000",
     max_bytes: 10485760,
+    flat_fee: "0",
   };
   vi.spyOn(client.reads.publications, "get_music_config").mockResolvedValue({
     value: config,
@@ -129,6 +130,10 @@ it("only sponsors exact native payment bundles to this sponsor", async () => {
     validateOperations([bundle[0]!, bundle[1]!, bundle[0]!], alice, context)
   ).rejects.toThrow("exact music payment");
   await expect(validateOperations(bundle, sponsor, context)).rejects.toThrow();
+  config.flat_fee = "10000000000";
+  const flatBundle = await musicPaymentOperations(client, { ...args, max_fee: "10000000000" }, native);
+  expect(await musicAllowance(client, sponsor, alice, flatBundle)).toBeUndefined();
+  await expect(musicAllowance(client, sponsor, alice, bundle)).rejects.toThrow();
   config.recipient = alice;
   await expect(musicAllowance(client, sponsor, alice, bundle)).rejects.toThrow(
     "configured account"

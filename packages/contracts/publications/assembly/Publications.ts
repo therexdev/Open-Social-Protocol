@@ -71,6 +71,8 @@ const MAX_LIFECYCLE_STATE: i32 = <i32>publications.lifecycle_state.superseded;
 const MAX_OUTCOME_STATE: i32 = <i32>publications.outcome_state.reconcile_required;
 
 export class Publications {
+  get_music_art_version(args: publications.get_music_art_version_arguments): publications.get_music_art_version_result { return new publications.get_music_art_version_result(1); }
+  set_music_cover(args: publications.set_music_cover_arguments): publications.set_music_cover_result { this.music.setCover(args, this.identityContract()); return new publications.set_music_cover_result(); }
   musicAccess: MusicAccess = new MusicAccess();
   musicToken(): Uint8Array { return Util.requireAddress(this.get_token_contract(new publications.get_token_contract_arguments()).value, "OSAT contract"); }
   append_music_batch(args: publications.append_music_batch_arguments): publications.append_music_batch_result { this.music.appendBatch(args, this.identityContract()); return new publications.append_music_batch_result(); }

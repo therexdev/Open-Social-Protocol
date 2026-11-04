@@ -95,6 +95,13 @@ export interface LabelView {
   txId?: string;
 }
 
+export interface MusicFeedView {
+  kind: "music"; trackId: string; postId: string; author: string; audience: number;
+  contentHash: string; state: number; createdAt: string; blockHeight: string; groupId: string; promoted?: undefined;
+}
+export type TimelineItem = PostView | MusicFeedView;
+export const isMusicFeedItem = (item: TimelineItem): item is MusicFeedView => "kind" in item && item.kind === "music";
+
 export interface PostView {
   collectionId?: string;
   galleryOnly?: boolean;
@@ -366,6 +373,11 @@ export class IndexerClient {
 
   feed(query: FeedQuery = {}): Promise<Page<PostView>> {
     return this.get<Page<PostView>>(`/v1/feed${qs({ viewer: query.viewer, scope: query.scope, cursor: query.cursor, limit: query.limit })}`);
+  }
+
+  async timeline(query: FeedQuery = {}): Promise<Page<TimelineItem>> {
+    try { return await this.get(`/v2/feed${qs({ viewer: query.viewer, scope: query.scope, cursor: query.cursor, limit: query.limit })}`); }
+    catch (error) { if (error instanceof IndexerError && error.notFound) return this.feed(query); throw error; }
   }
 
   photoChunks(id: string): Promise<{chunks: string[]}> { return this.get(`/v1/photos/${encodeURIComponent(id)}/chunks`); }

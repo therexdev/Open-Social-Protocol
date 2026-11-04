@@ -1,4 +1,5 @@
 import { System, Arrays, Base58, MockVM, Protobuf, chain, system_calls } from "@koinos/sdk-as";
+import { PhotoLibrary } from "../PhotoLibrary";
 import { MusicLibrary } from "../MusicLibrary";
 import { publications } from "../proto/publications";
 import { identity } from "../proto/identity";
@@ -303,4 +304,65 @@ it("rejects restricted plaintext, a missing paid key and unbounded batches", ():
       IDENTITY
     );
   }).toThrow();
+});
+
+function coverFixture(): publications.music_cover {
+  const photoId = new Uint8Array(32).fill(73), digest = lib.hash(DATA);
+  const photo = new publications.photo_archive_record();
+  photo.owner = ALICE; photo.digest = digest; photo.size = DATA.length;
+  photo.chunk_hashes = [digest]; photo.received = 1;
+  new PhotoLibrary().photos.put(photoId, photo);
+  MockVM.commitTransaction();
+  return new publications.music_cover(photoId, digest, DATA.length, "image/jpeg", false);
+}
+describe("flat pricing and track artwork", (): void => {
+  it("charges exactly 100 native tokens regardless of audio size", (): void => {
+    expect(lib.fee(1, 8610000000, 10000000000)).toBe(10000000000);
+    expect(lib.fee(8403298, 8610000000, 10000000000)).toBe(10000000000);
+    expect(lib.fee(10485760, 8610000000, 10000000000)).toBe(10000000000);
+    Testing.authorize([CONTRACT]); config.flat_fee = 10000000000; lib.setConfig(config); MockVM.commitTransaction();
+    begin.config_revision = 2; begin.max_fee = 10000000000; start();
+    expect(lib.get(ID)!.fee).toBe(10000000000);
+    auth(); lib.begin(begin, IDENTITY); // No second native transfer on retry.
+  });
+  it("keeps previously paid reservations resumable after switching to flat pricing", (): void => {
+    start(); Testing.authorize([CONTRACT]); config.flat_fee = 10000000000; lib.setConfig(config); MockVM.commitTransaction();
+    auth(); lib.begin(begin, IDENTITY); auth(); lib.append(append, IDENTITY);
+    expect(lib.get(ID)!.fee).toBe(100000000);
+    expect(lib.get(ID)!.received).toBe(1);
+  });
+  it("validates completed cover ownership, commitment and audience encryption", (): void => {
+    const cover = coverFixture(); lib.validateCover(cover, ALICE, 0);
+    expect(() => lib.validateCover(coverFixture(), BOB, 0)).toThrow();
+    expect(() => lib.validateCover(coverFixture(), ALICE, 1)).toThrow();
+    cover.encrypted = true; cover.nonce = new Uint8Array(24).fill(1); lib.validateCover(cover, ALICE, 1);
+    cover.nonce = new Uint8Array(0);
+    expect(() => { const c = coverFixture(); c.encrypted = true; lib.validateCover(c, ALICE, 1); }).toThrow();
+    expect(() => { const c = coverFixture(); c.digest = new Uint8Array(32); lib.validateCover(c, ALICE, 0); }).toThrow();
+    expect(() => { const c = coverFixture(); const p = new PhotoLibrary().photos.get(c.photo_id!)!; p.received = 0; new PhotoLibrary().photos.put(c.photo_id!, p); lib.validateCover(c, ALICE, 0); }).toThrow();
+  });
+  it("adds artwork without altering audio or fee and makes retries idempotent", (): void => {
+    start(); auth(); lib.append(append, IDENTITY); MockVM.commitTransaction();
+    const args = new publications.set_music_cover_arguments(ALICE, ID, coverFixture(), 0);
+    auth(); lib.setCover(args, IDENTITY); MockVM.commitTransaction();
+    expect(lib.get(ID)!.cover_revision).toBe(1);
+    expect(lib.get(ID)!.fee).toBe(100000000);
+    expect(Arrays.equal(lib.get(ID)!.digest, begin.digest)).toBe(true);
+    auth(); lib.setCover(args, IDENTITY); // repeated confirmation does not increment
+    expect(lib.get(ID)!.cover_revision).toBe(1);
+    args.cover = null; args.expected_revision = 1; auth(); lib.setCover(args, IDENTITY);
+    expect(lib.get(ID)!.cover == null).toBe(true); expect(lib.get(ID)!.cover_revision).toBe(2);
+  });
+  it("rejects stale cover writes, another owner, and incomplete tracks", (): void => {
+    start();
+    expect(() => { auth(); lib.setCover(new publications.set_music_cover_arguments(ALICE, ID, coverFixture(), 0), IDENTITY); }).toThrow();
+    auth(); lib.append(append, IDENTITY); MockVM.commitTransaction();
+    expect(() => { auth(); lib.setCover(new publications.set_music_cover_arguments(ALICE, ID, coverFixture(), 1), IDENTITY); }).toThrow();
+    expect(() => { auth(BOB); lib.setCover(new publications.set_music_cover_arguments(BOB, ID, coverFixture(), 0), IDENTITY); }).toThrow();
+  });
+  it("includes the cover reference in the paid reservation", (): void => {
+    begin.cover = coverFixture(); start();
+    expect(lib.get(ID)!.cover != null).toBe(true);
+    expect(Arrays.equal(lib.get(ID)!.cover!.photo_id, begin.cover!.photo_id)).toBe(true);
+  });
 });

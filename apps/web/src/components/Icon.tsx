@@ -1,6 +1,12 @@
 import type { CSSProperties } from "react";
 
 const paths = {
+  music: "M9 18V5l12-3v13M9 8l12-3M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0m12-3a3 3 0 1 1-6 0 3 3 0 0 1 6 0",
+  grid: "M3 3h7v7H3zm11 0h7v7h-7zM3 14h7v7H3zm11 0h7v7h-7z",
+  list: "M8 5h13M8 12h13M8 19h13M3 5h.01M3 12h.01M3 19h.01",
+  play: "m8 4 12 8-12 8z",
+  photo: "M3 3h18v18H3zm0 13 5-5 4 4 4-5 5 6M8 7h.01",
+  poll: "M5 20V10m7 10V4m7 16v-7M3 20h18",
   back: "M20 12H4m6-6-6 6 6 6",
   send: "m22 2-7 20-4-9-9-4zm0 0L11 13",
   compass: "M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0m-6-4-3 7-7 3 3-7z",

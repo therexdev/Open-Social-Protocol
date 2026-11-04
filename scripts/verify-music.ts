@@ -23,13 +23,17 @@ console.log(
     {
       network,
       music: config,
-      benchmarkFee: musicFee(8403113, config.rate_per_mb),
+      benchmarkFee: musicFee(8403113, config.rate_per_mb, config.flat_fee),
     },
     null,
     2
   )
 );
 assert.equal(config.version, 3, "Upgrade publications for Music v3 transfers");
+if (args.gallery) {
+  assert.equal((await client.reads.publications.get_music_art_version({}))?.version, 1, "Upgrade publications for music artwork and flat fees");
+  assert.equal(config.flat_fee, "10000000000", "Activate the flat 100 tKOIN music fee");
+}
 assert(config.enabled, "Music uploads are not enabled");
 await client.reads.publications.list_music_requests({ owner: config.recipient });
 await client.reads.publications.list_music_comments({ id: new Uint8Array(32) });
@@ -67,6 +71,7 @@ if (!args["contracts-only"]) {
   );
   assert(health.features?.musicBatching >= 2, "Restart the Music v3 sponsor");
   const policy = discovery.policy;
+  if (args.gallery) assert(policy.version >= 5, "Restart the sponsor with policy version 5");
   assert(policy.version >= 4, "Sixteen-chunk music batching requires sponsor policy v4");
   assert(
     policy.maxBytesPerOp >= MUSIC_BATCH_ARGUMENT_BYTES && Number(policy.maxOpsPerTx) >= 3,
@@ -83,6 +88,7 @@ if (!args["contracts-only"]) {
       "refund_music_access",
       "comment_music",
       "delete_music_comment",
+      ...(args.gallery ? ["set_music_cover"] : []),
     ].map((method) => [
       deployment.contracts.publications.address,
       ABIS.publications.methods[method]!.entry_point,
@@ -95,6 +101,7 @@ if (!args["contracts-only"]) {
   }
   const registered = (await client.reads.sponsorship.get_sponsor({ sponsor: discovery.sponsor }))
     ?.value;
+  if (args.gallery) assert((registered?.policy_version ?? 0) >= 5, "Register sponsor policy version 5");
   assert(registered?.active, "Sponsor on-chain registration is not active");
   assert(registered.max_bytes_per_op >= MUSIC_BATCH_ARGUMENT_BYTES && registered.policy_version >= 4,
     "Upgrade sponsorship registry and refresh the on-chain policy v4 registration");
@@ -104,6 +111,14 @@ if (!args["contracts-only"]) {
     ),
     "Sponsor must refresh its on-chain native payment policy"
   );
+}
+if (args.gallery && !args["contracts-only"]) {
+  const endpoint = typeof args.indexer === "string" ? args.indexer : deployment.indexers?.[0];
+  assert(endpoint, "Specify --indexer for the music feed check");
+  const response = await fetch(`${String(endpoint).replace(/\/+$/, "")}/v1/status`, { signal: AbortSignal.timeout(20000) });
+  assert(response.ok, "Indexer status unavailable");
+  const status = await response.json();
+  assert.equal(status.features?.musicFeed, 1, "Restart the updated indexer for music in the feed");
 }
 console.log(
   "MUSIC READY — deploy the frontend and perform a small paid upload before the full 3:30 test."

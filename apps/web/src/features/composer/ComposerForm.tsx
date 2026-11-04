@@ -200,10 +200,11 @@ export function ComposerForm({ draft, replyTo, edit, defaultAudience = AUDIENCE.
       {collectionId && <p className="hint">Only current group members receive this post. Membership is checked again before publishing.</p>}
       {galleryOnly && !edit && <label className="gallery-also-post"><input type="checkbox" checked={alsoPost} onChange={e=>setAlsoPost(e.target.checked)}/>Also share as a post</label>}
       {media.length > 0 && <p className="hint">Remove attachments before changing who can see this post.</p>}
-      {!galleryOnly && !collectionId && !edit && !draft?.edit && !replyTo && <Button variant="ghost" disabled={encrypted || busy || !!draft?.publication} aria-pressed={pollEnabled} onClick={() => setPollEnabled(v => !v)}>{pollEnabled ? "Remove poll" : "Add poll"}</Button>}
-      <Field label={pollEnabled ? "Your poll question" : edit ? "Edit your post" : replyTo ? "Your reply" : "What's on your mind?"} hint={tooLong ? `${-remaining} bytes over the limit` : `${remaining} bytes left`}>
+      <div className="composer-content">
+      <Field label={pollEnabled ? "Your poll question" : edit ? "Edit your post" : replyTo ? "Your reply" : "Post content"} hint={tooLong ? `${-remaining} bytes over the limit` : `${remaining} bytes left`}>
         {(id) => (
           <MentionTextarea
+            showHint={false}
             id={id}
             account={account}
             value={text}
@@ -216,6 +217,11 @@ export function ComposerForm({ draft, replyTo, edit, defaultAudience = AUDIENCE.
           />
         )}
       </Field>
+      </div>
+      <div className="composer-tools">
+        <Button disabled={attaching || !can.ok || media.length >= LIMITS.maxMediaRefs} onClick={() => photoInput.current?.click()}><Icon name="photo" size={18}/>Add photos</Button>
+      {!galleryOnly && !collectionId && !edit && !draft?.edit && !replyTo && <Button variant={pollEnabled ? "primary" : "default"} disabled={encrypted || busy || !!draft?.publication} aria-pressed={pollEnabled} onClick={() => setPollEnabled(v => !v)}><Icon name="poll" size={18}/>{pollEnabled ? "Remove poll" : "Add poll"}</Button>}
+      </div>
       {pollEnabled && <fieldset className="poll-editor"><legend>Poll answers</legend>
         <p className="hint">Use the post text as your question. Answers are public. Answering adds participation, not an upvote. The question and answers cannot be edited after publishing.</p>
         {pollOptions.map((option, i) => <div className="row" key={i}><Field label={`Answer ${i + 1}`}>{id => <input id={id} value={option} maxLength={120} required onChange={e => setPollOptions(items => items.map((v, j) => j === i ? e.target.value : v))}/>}</Field>
@@ -228,7 +234,6 @@ export function ComposerForm({ draft, replyTo, edit, defaultAudience = AUDIENCE.
         <Field label="Photo size budget">{id=><select id={id} value={photoLimit} disabled={attaching} onChange={e=>setPhotoLimit(Number(e.target.value))}>{[1,2,4,7,10].map(rate=><option key={rate} value={rate*32768}>Up to {rate*32} KiB · {rate} usage {rate===1?'unit':'units'}</option>)}</select>}</Field>
         <input ref={photoInput} className="visually-hidden" type="file" accept="image/*" multiple aria-label="Choose photos" disabled={attaching || !can.ok} onChange={e => { const input = e.currentTarget; const files = Array.from(input.files ?? []); void addPhotos(files).finally(() => { input.value = ""; }); }}/>
         <input ref={fileInput} className="visually-hidden" type="file" multiple aria-label="Choose photo files" disabled={attaching || !can.ok} onChange={e => { const input = e.currentTarget; const files = Array.from(input.files ?? []); void addPhotos(files).finally(() => { input.value = ""; }); }}/>
-        <Button disabled={attaching || !can.ok || media.length >= LIMITS.maxMediaRefs} onClick={() => photoInput.current?.click()}>Add photos</Button>
         {fileReadFailed && <Button variant="ghost" disabled={attaching || !can.ok} onClick={() => fileInput.current?.click()}>Choose from files</Button>}
         {uploadStatus && <span role="status">{uploadStatus}</span>}
         <p className="hint">Photos are prepared locally. Saving uses free capacity first, then regenerating OSAT capacity. The exact cost is shown before publishing.</p>

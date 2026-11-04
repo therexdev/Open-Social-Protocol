@@ -21,6 +21,7 @@ export const MUSIC_MIMES = [
   "audio/webm",
 ] as const;
 export interface MusicConfig {
+  flat_fee?: string;
   native_token: string;
   version: number;
   revision: number;
@@ -55,7 +56,17 @@ export interface MusicComment {
   created_at: string;
   deleted: boolean;
 }
+export interface MusicCover {
+  photo_id: Uint8Array;
+  digest: Uint8Array;
+  size: number;
+  mime: string;
+  encrypted: boolean;
+  nonce?: Uint8Array;
+}
 export interface MusicRecord {
+  cover?: MusicCover;
+  cover_revision?: number;
   artist?: string;
   description?: string;
   audience?: number;
@@ -79,6 +90,7 @@ export interface MusicRecord {
   payer: string;
 }
 export interface BeginMusicArgs {
+  cover?: MusicCover;
   artist?: string;
   description?: string;
   audience?: number;
@@ -102,9 +114,11 @@ export interface BeginMusicArgs {
   device?: Address;
 }
 /** Atomic units; exact integer arithmetic and the same whole-token rounding as the contract. */
-export function musicFee(size: number, rate = MUSIC_DEFAULT_RATE): string {
+export function musicFee(size: number, rate = MUSIC_DEFAULT_RATE, flatFee = "0"): string {
   if (!Number.isSafeInteger(size) || size < 1 || size > MUSIC_MAX_BYTES)
     throw new Error("Audio must be between 1 byte and 10 MiB.");
+  if (!/^\d+$/.test(flatFee) || BigInt(flatFee) > 1000000000000n) throw new Error("Invalid flat music fee.");
+  if (BigInt(flatFee) > 0n) return BigInt(flatFee).toString();
   if (!/^\d+$/.test(rate) || BigInt(rate) < 1n || BigInt(rate) > 1000000000000n)
     throw new Error("Invalid music upload rate.");
   const unit = 100000000n,

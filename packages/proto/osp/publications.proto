@@ -453,6 +453,8 @@ message music_config {
   uint32 max_bytes = 5;
   bool enabled = 6;
   bytes native_token = 7 [(koinos.btype) = ADDRESS];
+  // Nonzero charges one flat native-token fee per track; zero retains legacy per-MB pricing.
+  uint64 flat_fee = 8 [jstype = JS_STRING];
 }
 message music_record {
   bytes owner = 1 [(koinos.btype) = ADDRESS];
@@ -477,6 +479,36 @@ message music_record {
   uint64 unlock_price = 19 [jstype = JS_STRING];
   uint32 version = 20;
   bytes key_hash = 21;
+  music_cover cover = 22;
+  uint32 cover_revision = 23;
+}
+// A committed photo archive. Restricted artwork uses the track key and a distinct nonce/context.
+message music_cover {
+  bytes photo_id = 1;
+  bytes digest = 2;
+  uint32 size = 3;
+  string mime = 4;
+  bool encrypted = 5;
+  bytes nonce = 6;
+}
+// @description Music artwork capability (1 supports on-chain track covers)
+// @read-only true
+message get_music_art_version_arguments {}
+message get_music_art_version_result { uint32 version = 1; }
+// @description Update artwork on an existing track without changing its audio or licenses
+// @read-only false
+message set_music_cover_arguments {
+  bytes owner = 1 [(koinos.btype) = ADDRESS];
+  bytes id = 2;
+  music_cover cover = 3;
+  uint32 expected_revision = 4;
+}
+message set_music_cover_result {}
+message music_cover_updated_event {
+  bytes id = 1;
+  bytes owner = 2 [(koinos.btype) = ADDRESS];
+  music_cover cover = 3;
+  uint32 revision = 4;
 }
 // @description Set native KOIN music pricing (contract authority only)
 // @read-only false
@@ -485,6 +517,7 @@ message set_music_config_arguments {
   uint64 rate_per_mb = 2 [jstype = JS_STRING];
   uint32 max_bytes = 3;
   bool enabled = 4;
+  uint64 flat_fee = 5 [jstype = JS_STRING];
 }
 message set_music_config_result {}
 // @description Music upload pricing and availability
@@ -515,6 +548,7 @@ message begin_music_arguments {
   music_key owner_key = 19;
   uint64 unlock_price = 20 [jstype = JS_STRING];
   bytes key_hash = 21;
+  music_cover cover = 22;
 }
 message begin_music_result {}
 // @description Append a committed music chunk; identical retries are free

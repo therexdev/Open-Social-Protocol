@@ -15,6 +15,7 @@ import * as q from "./queries.js";
 import type { Syncer } from "./sync.js";
 import { PrivateUpdates } from "./privateUpdates.js";
 import { registerMusicMirror } from "./musicMirror.js";
+import { timeline } from "./musicFeed.js";
 
 export interface ApiOptions {
   db: IndexerDb;
@@ -122,7 +123,7 @@ export function statusView(options: ApiOptions): Record<string, unknown> {
     ? Object.fromEntries(Object.entries(deployment.contracts).map(([name, entry]) => [name, entry.address]))
     : null;
   return {
-    features: { tokenEconomy: 1, privateMessaging: 2, privateUpdates: 1, photoLibrary: 1,
+    features: { tokenEconomy: 1, privateMessaging: 2, privateUpdates: 1, photoLibrary: 1, musicFeed: 1,
       ...(config.musicCache && deployment && { musicGateway: 1 }) },
     network: config.network,
     chainId: deployment?.chainId ?? null,
@@ -319,6 +320,14 @@ export function buildApi(options: ApiOptions): FastifyInstance {
       ...(query(request, "cursor") !== undefined && { cursor: parseCursor(query(request, "cursor")) }),
       limit: parseLimit(query(request, "limit"), 20, 100),
     });
+  });
+
+  app.get("/v2/feed", async (request) => {
+    const viewer = parseAddress(query(request, "viewer"), "viewer", false);
+    const scope = query(request, "scope") ?? "public";
+    if (scope !== "all" && scope !== "friends" && scope !== "public") throw new ApiError(400, "invalid_request", "invalid feed scope");
+    if (scope === "friends" && !viewer) throw new ApiError(400, "invalid_request", "viewer is required for scope=friends");
+    return timeline(db, { viewer, scope, cursor: parseCursor(query(request, "cursor")), limit: parseLimit(query(request, "limit"), 20, 100) });
   });
 
   app.get("/v1/accounts/:account/posts", async (request) => {

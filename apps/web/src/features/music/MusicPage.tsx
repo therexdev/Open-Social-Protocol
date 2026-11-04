@@ -18,6 +18,7 @@ import { useVault, useVaultStore } from "../../vault/context";
 import { submitAction } from "../../tx/submit";
 import { useSubmitContext } from "../session";
 import { deliverMusicRequest, readingKey, trackContext } from "./musicAccessService";
+import { MusicArtworkEditor } from "./MusicArtworkEditor";
 import { MusicTrack } from "./MusicTrack";
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -311,6 +312,7 @@ function TrackPage({ id }: { id: string }) {
               Uploaded by <Link to={`/u/${record.owner}`}>{record.owner}</Link>
             </p>
           </Card>
+          {mine && <MusicArtworkEditor id={id} record={record} onSaved={refresh}/>}
           {record.encrypted && !mine && (
             <Card title="Track access">
               {!session ? (

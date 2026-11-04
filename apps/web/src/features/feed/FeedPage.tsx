@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import type { PostView } from "../../api/indexer";
+import { isMusicFeedItem, type TimelineItem, type PostView } from "../../api/indexer";
 import { useServices } from "../../api/services";
 import { Button, Empty, Notice, Tabs } from "../../components/ui";
 import { errorMessage } from "../../util/format";
@@ -15,10 +15,10 @@ import { useProfileName } from "../profile/useProfileName";
 
 type Tab = "all" | "public" | "friends";
 
-export function usePagedPosts(load: (cursor?: string) => Promise<{ items: PostView[]; nextCursor: string | null }>, deps: unknown[]) {
+export function usePagedPosts<T extends { postId: string } = PostView>(load: (cursor?: string) => Promise<{ items: T[]; nextCursor: string | null }>, deps: unknown[]) {
   const version = useRef(0);
   const paging = useRef(false);
-  const [items, setItems] = useState<PostView[]>([]);
+  const [items, setItems] = useState<T[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | undefined>();
@@ -82,9 +82,9 @@ export function FeedSkeleton() {
 
 function FeedPanel({ scope, viewer, active }: { scope: Tab; viewer: string | undefined; active: boolean }) {
   const { indexer } = useServices();
-  const feed = usePagedPosts(async cursor => {
+  const feed = usePagedPosts<TimelineItem>(async cursor => {
     if (scope === "friends" && !viewer) return { items: [], nextCursor: null };
-    return indexer.feed({ scope, ...(viewer && { viewer }), ...(cursor && { cursor }), limit: 20 });
+    return indexer.timeline({ scope, ...(viewer && { viewer }), ...(cursor && { cursor }), limit: 20 });
   }, [indexer, scope, viewer]);
   const publishing = usePublishing();
   const pending = publishing.posts.filter(d => !d.galleryOnly && !d.collectionId && !d.replyTo && (scope !== "public" || d.audience === 0));
@@ -100,7 +100,7 @@ function FeedPanel({ scope, viewer, active }: { scope: Tab; viewer: string | und
     {feed.error && <Notice kind="error">{feed.error}</Notice>}
     {!indexer.configured && <Empty>Configure an indexer in Settings to load posts.</Empty>}
     {indexer.configured && !feed.loading && feed.items.length === 0 && !hasPending && !feed.error && !(scope === "friends" && !viewer) && <Empty>{scope === "friends" ? "Nothing from your friends yet. Posts you and your friends publish appear here." : "No posts yet. Be the first to say hello."}</Empty>}
-    <PendingPosts posts={pending} indexed={feed.items}/>
+    <PendingPosts posts={pending} indexed={feed.items.filter((item): item is PostView => !isMusicFeedItem(item))}/>
     <PromotedFeed items={feed.items} viewer={viewer} scope={scope} active={active} onChanged={() => void feed.refresh()}/>
     {feed.loading && feed.items.length === 0 && !hasPending && <FeedSkeleton/>}
     <div className="row feed-pagination"><Button variant="ghost" onClick={() => void feed.refresh()} disabled={feed.loading}><Icon name="refresh"/> {feed.loading && feed.items.length > 0 ? "Refreshing…" : "Refresh"}</Button>{feed.hasMore && <Button onClick={() => void feed.more()} busy={feed.loading}>Load more</Button>}</div>

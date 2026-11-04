@@ -15,7 +15,7 @@ on:
         type: choice
         options: [harbinger]
       contracts:
-        description: Contracts to upgrade (choose music for Music v3 transfers)
+        description: Contracts to upgrade (publications for music artwork and flat fees)
         default: all
         type: choice
         options: [all, publications, music]
@@ -28,7 +28,7 @@ on:
         default: false
         type: boolean
       activate_music:
-        description: Enable Music at 86.1 tKOIN per MB, paid to the current Mana sponsor
+        description: Enable Music at a flat 100 tKOIN per song, paid to the current Mana sponsor
         default: false
         type: boolean
 
@@ -111,7 +111,7 @@ jobs:
           KOINOS_HARBINGER_DEPLOYER_WIF: ${{ secrets.KOINOS_HARBINGER_DEPLOYER_WIF }}
           OSP_CONTRACT_SEED: ${{ secrets.OSP_CONTRACT_SEED }}
           KOINOS_RPC: ${{ vars.KOINOS_RPC }}
-        run: node --import tsx scripts/configure-music.ts --network "${{ inputs.network }}" --execute
+        run: node --import tsx scripts/configure-music.ts --network "${{ inputs.network }}" --flat-fee 100 --execute
       - name: Preserve progress after a failed deployment
         if: ${{ failure() && !inputs.dry_run }}
         run: |

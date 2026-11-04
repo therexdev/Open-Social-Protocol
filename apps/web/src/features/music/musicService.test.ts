@@ -559,3 +559,12 @@ it.each(["cold", "corrupt", "oversized", "bad range", "offline"])("falls back to
   expect(fetcher).toHaveBeenCalledTimes(1);
   expect(client.reads.publications.get_music_chunks).toHaveBeenCalledTimes(3);
 });
+
+it("charges a flat 100 tKOIN once and keeps old paid drafts resumable after activation", async () => {
+  config.flat_fee = "10000000000";
+  draft = newMusicDraft({ owner: alice.account, payer: alice.account, bytes, config, title: "Flat fee", mime: "audio/mpeg", durationMs: 10000 });
+  expect(draft.fee).toBe("10000000000");
+  await uploadMusic(ctx, draft, bytes, () => {}, () => {});
+  expect(paid).toBe(1); expect(record?.fee).toBe("10000000000");
+  await uploadMusic(ctx, draft, bytes, () => {}, () => {}); expect(paid).toBe(1);
+});

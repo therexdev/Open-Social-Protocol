@@ -49,7 +49,12 @@ assert(
   Number.isInteger(max_bytes) && max_bytes > 0 && max_bytes <= 10485760,
   "Size limit must be 1–10485760 bytes"
 );
+const flat = typeof args["flat-fee"] === "string" ? args["flat-fee"] : "100";
+assert(/^\d+(\.\d{1,8})?$/.test(flat), "Flat fee must have at most 8 decimals; use 0 for legacy per-MB pricing");
+const flat_fee = utils.parseUnits(flat, 8);
+musicFee(1, rate_per_mb, flat_fee);
 const policy = {
+  flat_fee,
   recipient,
   rate_per_mb,
   max_bytes,
@@ -64,17 +69,21 @@ const current = (await contract.functions.get_music_config!({})).result as
   | { value?: MusicConfig }
   | undefined;
 assert(
-  current?.value?.version === 1 || current?.value?.version === 2,
+  [1, 2, 3].includes(current?.value?.version ?? 0),
   "Upgrade publications before configuring Music"
 );
+if (BigInt(flat_fee) > 0n) {
+  const art = (await contract.functions.get_music_art_version!({})).result as { version?: number } | undefined;
+  assert.equal(art?.version, 1, "Upgrade publications for flat music pricing before configuring it");
+}
 console.log(
   JSON.stringify(
     {
       network,
       contract: contract.getId(),
-      current: current.value,
+      current: current?.value,
       proposed: policy,
-      benchmarkFee: musicFee(8403113, rate_per_mb),
+      benchmarkFee: musicFee(8403113, rate_per_mb, flat_fee),
       mode: args.execute ? "execute" : "read-only",
     },
     null,
@@ -82,7 +91,8 @@ console.log(
   )
 );
 if (
-  current.value?.recipient === recipient &&
+  (current?.value?.flat_fee ?? "0") === flat_fee &&
+  current?.value?.recipient === recipient &&
   current.value.rate_per_mb === rate_per_mb &&
   current.value.max_bytes === max_bytes &&
   current.value.enabled === policy.enabled

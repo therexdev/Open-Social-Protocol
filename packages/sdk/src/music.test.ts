@@ -131,3 +131,10 @@ it("weights batch RC limits by committed chunks without raising ordinary action 
     ])
   ).toBe(1);
 });
+
+it("uses a bounded flat fee for every supported size while retaining legacy pricing", () => {
+  for (const size of [1, 402381, 8403298, MUSIC_MAX_BYTES]) expect(musicFee(size, MUSIC_DEFAULT_RATE, "10000000000")).toBe("10000000000");
+  expect(musicFee(8403298, MUSIC_DEFAULT_RATE, "0")).toBe("72400000000");
+  for (const flat of ["-1", "1.1", "no", "1000000000001"]) expect(() => musicFee(1, MUSIC_DEFAULT_RATE, flat)).toThrow();
+  for (const size of [0, MUSIC_MAX_BYTES + 1]) expect(() => musicFee(size, MUSIC_DEFAULT_RATE, "10000000000")).toThrow();
+});

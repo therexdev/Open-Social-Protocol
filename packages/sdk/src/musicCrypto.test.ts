@@ -4,6 +4,7 @@ import { contentHash } from "./ids.js";
 import { newEpochKey } from "./crypto/audience.js";
 import {
   musicCipher,
+  musicCoverCipher,
   musicCommentCipher,
   musicKeyContext,
   openMusicKey,
@@ -72,4 +73,13 @@ it("comments authenticate their track, comment id and author", () => {
   expect(() =>
     musicCommentCipher(context, key, nonce, new Uint8Array(32), buyer.account).decrypt(encrypted)
   ).toThrow();
+});
+
+it("separates artwork encryption from audio and binds it to the track", () => {
+  const key = newEpochKey(), nonce = new Uint8Array(24).fill(33), image = new Uint8Array([255, 216, 255, 1]);
+  const encrypted = musicCoverCipher(context, key, nonce).encrypt(image);
+  expect(musicCoverCipher(context, key, nonce).decrypt(encrypted)).toEqual(image);
+  expect(() => musicCipher(context, key, nonce).decrypt(encrypted)).toThrow();
+  const other = musicKeyContext(deployment.chainId, deployment.contracts.publications.address, new Uint8Array(32).fill(55), owner.account);
+  expect(() => musicCoverCipher(other, key, nonce).decrypt(encrypted)).toThrow();
 });

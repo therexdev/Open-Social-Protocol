@@ -35,8 +35,10 @@ import { defaultStorage } from "../../vault/storage";
 import type { Session } from "../../vault/store";
 import { musicCache, musicCacheKey } from "./musicCache";
 import { hasMusicGateway, readMusicGateway } from "./musicGateway";
+import { prepareMusicArtwork, archiveMusicArtwork, artworkRecord, type MusicArtworkDraft } from "./musicArtwork";
 
 export interface MusicDraft {
+  artwork?: MusicArtworkDraft;
   artist?: string;
   description?: string;
   audience?: number;
@@ -136,6 +138,7 @@ export async function prepareAudio(
   }
 }
 export function newMusicDraft(input: {
+  artworkBytes?: Uint8Array;
   owner: string;
   payer: string;
   title: string;
@@ -151,6 +154,7 @@ export function newMusicDraft(input: {
   identity?: Identity;
   client?: ProtocolClient;
 }): MusicDraft {
+  if (input.artworkBytes && !input.client) throw new Error("Connect to a network before preparing track artwork.");
   const title = input.title.trim();
   if (!title || new TextEncoder().encode(title).length > 240)
     throw new Error("Enter a title no longer than 240 UTF-8 bytes.");
@@ -199,6 +203,7 @@ export function newMusicDraft(input: {
   if (stored.length > input.config.max_bytes)
     throw new Error("Audio including encryption exceeds the upload size limit.");
   return {
+    ...(input.artworkBytes && input.client && { artwork: prepareMusicArtwork(input.client, id, input.owner, audience, input.artworkBytes, key) }),
     id: toBase64url(id),
     owner: input.owner,
     payer: input.payer,
@@ -215,7 +220,7 @@ export function newMusicDraft(input: {
     mime: input.mime,
     durationMs: input.durationMs,
     configRevision: input.config.revision,
-    fee: musicFee(stored.length, input.config.rate_per_mb),
+    fee: musicFee(stored.length, input.config.rate_per_mb, input.config.flat_fee),
     recipient: input.config.recipient,
     batchSize: musicBatchChunks(input.config.version),
     ...(key && nonce && ownerKey
@@ -291,10 +296,11 @@ export async function uploadMusic(
       !config.enabled ||
       config.revision !== draft.configRevision ||
       config.recipient !== draft.recipient ||
-      musicFee(draft.size, config.rate_per_mb) !== draft.fee
+      musicFee(draft.size, config.rate_per_mb, config.flat_fee) !== draft.fee
     )
       throw new Error("The music price changed. Refresh the quote before paying.");
     const args: BeginMusicArgs = {
+      ...(draft.artwork && { cover: artworkRecord(draft.artwork) }),
       owner: draft.owner,
       payer: draft.payer,
       id,
@@ -318,6 +324,7 @@ export async function uploadMusic(
       config_revision: draft.configRevision,
       max_fee: draft.fee,
     };
+    if (draft.artwork) await archiveMusicArtwork(ctx, draft.owner, draft.artwork, assertActive);
     await submitAction(ctx, await musicPaymentOperations(client, args, config.native_token), {
       label: "Paying for music upload",
       quietProgress: true,

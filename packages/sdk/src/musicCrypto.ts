@@ -77,6 +77,9 @@ export function openMusicKey(
 export function musicCipher(context: AudienceContext, key: Uint8Array, nonce: Uint8Array) {
   return xchacha20poly1305(key, nonce, concat(utf8("osp/music/audio/v2"), context.audienceId!));
 }
+export function musicCoverCipher(context: AudienceContext, key: Uint8Array, nonce: Uint8Array) {
+  return xchacha20poly1305(key, nonce, concat(utf8("osp/music/cover/v1"), context.audienceId!));
+}
 export function musicCommentCipher(
   context: AudienceContext,
   key: Uint8Array,

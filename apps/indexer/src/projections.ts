@@ -12,6 +12,7 @@ import { encode, parseKeyPackageSet, toBase58, toBase64url, type ContractName, t
 import { toJsonValue } from "./hash.js";
 import type { IndexerDb, Row } from "./db.js";
 import { decodeEventDataFixed } from "./decode.js";
+import { applyMusicEvent } from "./musicProjection.js";
 
 export interface LogEvent {
   height: number;
@@ -428,6 +429,9 @@ interface PostRow extends Row {
 }
 
 function applyPublications(db: IndexerDb, event: LogEvent): void {
+  if (["osp.publications.music_paid", "osp.publications.music_completed", "osp.publications.music_cover_updated"].includes(event.name)) {
+    applyMusicEvent(db, event); return;
+  }
   const d = event.data;
   const ts = timestampOf(event);
   switch (event.name) {

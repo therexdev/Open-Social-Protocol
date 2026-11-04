@@ -1,0 +1,50 @@
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { MemoryRouter } from "react-router-dom";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { contentHash, identityFromSeed, ProtocolClient, toBase64url, type MusicRecord } from "@osp/sdk";
+import { fakeProvider, fixtureDeployment } from "../../testing/fixtures";
+import { MusicGallery, MUSIC_VIEW_KEY } from "./MusicGallery";
+import { MusicFeedCard } from "./MusicFeedCard";
+import type { MusicFeedView } from "../../api/indexer";
+const mocks = vi.hoisted(() => ({ services: {} as any, session: undefined as any }));
+vi.mock("../../api/services", () => ({ useServices: () => mocks.services }));
+vi.mock("../../vault/context", () => ({ useVault: (select: any) => select({ session: mocks.session }) }));
+vi.mock("../profile/useProfileName", () => ({ useProfileName: () => "The artist" }));
+const owner = identityFromSeed(new Uint8Array(32).fill(12)), buyer = identityFromSeed(new Uint8Array(32).fill(13));
+const id = toBase64url(new Uint8Array(32).fill(55));
+const record: MusicRecord = { owner: owner.account, title: "Evening Signals", artist: "Mira", description: "Recorded at dusk.", digest: contentHash(new Uint8Array([1])), size: 1, chunk_hashes: [contentHash(new Uint8Array([1]))], received: 1, mime: "audio/mpeg", duration_ms: 210000, fee: "10000000000", payer: owner.account, recipient: buyer.account, audience: 0, encrypted: false, unlock_price: "0" };
+let box: HTMLDivElement, root: Root;
+beforeEach(() => {
+  mocks.services = { protocol: new ProtocolClient({ rpc: fakeProvider(), deployment: fixtureDeployment() }) };
+  mocks.session = undefined; localStorage.clear(); box = document.createElement("div"); document.body.append(box); root = createRoot(box);
+});
+afterEach(async () => { await act(async () => root.unmount()); box.remove(); vi.useRealTimers(); });
+const show = async (element: React.ReactNode) => { await act(async () => { root.render(<MemoryRouter>{element}</MemoryRouter>); }); };
+it("switches between list and tiles and remembers the choice after remount", async () => {
+  await show(<MusicGallery items={[{ id, record }]}/>);
+  expect(box.querySelector(".music-view-tiles")).toBeTruthy(); expect(box.textContent).toContain("Mira");
+  await act(async () => (Array.from(box.querySelectorAll("button")).find(b => b.textContent === "List")!).click());
+  expect(box.querySelector(".music-view-list")).toBeTruthy(); expect(localStorage.getItem(MUSIC_VIEW_KEY)).toBe("list");
+  await show(<MusicGallery key="remount" items={[{ id, record }]}/>); expect(box.querySelector('button[aria-pressed="true"]')?.textContent).toBe("List");
+});
+it("checks actual audience instead of trusting a public indexer label, and hides a track on revocation or lock", async () => {
+  vi.useFakeTimers(); const protocol = mocks.services.protocol as ProtocolClient;
+  vi.spyOn(protocol.reads.publications, "get_music").mockResolvedValue({ value: { ...record, audience: 1, encrypted: true } });
+  const access = vi.spyOn(protocol.reads.publications, "get_music_access").mockResolvedValue({ eligible: true } as never);
+  const item: MusicFeedView = { kind: "music", trackId: id, postId: `music:${id}`, author: owner.account, audience: 0, contentHash: toBase64url(record.digest), state: 0, createdAt: "1000", blockHeight: "1", groupId: "" };
+  await show(<MusicFeedCard item={item}/>); expect(box.textContent).not.toContain(record.title); expect(access).not.toHaveBeenCalled();
+  mocks.session = { identity: buyer }; await show(<MusicFeedCard item={item}/>); expect(box.textContent).toContain(record.title);
+  access.mockResolvedValue({ eligible: false } as never);
+  await act(async () => { await vi.advanceTimersByTimeAsync(30000); }); expect(box.textContent).not.toContain(record.title);
+  access.mockResolvedValue({ eligible: true } as never);
+  await act(async () => { await vi.advanceTimersByTimeAsync(30000); }); expect(box.textContent).toContain(record.title);
+  mocks.session = undefined; await show(<MusicFeedCard item={item}/>); expect(box.textContent).not.toContain(record.title);
+});
+it("lists paid public previews without fetching audio or requiring an unlocked account", async () => {
+  const protocol = mocks.services.protocol as ProtocolClient;
+  const read = vi.spyOn(protocol.reads.publications, "get_music_chunk");
+  vi.spyOn(protocol.reads.publications, "get_music").mockResolvedValue({ value: { ...record, encrypted: true, unlock_price: "250" } });
+  const item: MusicFeedView = { kind: "music", trackId: id, postId: `music:${id}`, author: owner.account, audience: 0, contentHash: toBase64url(record.digest), state: 0, createdAt: "1000", blockHeight: "1", groupId: "" };
+  await show(<MusicFeedCard item={item}/>); expect(box.textContent).toContain("250 OSAT"); expect(box.textContent).toContain("Listen / access"); expect(read).not.toHaveBeenCalled();
+});
