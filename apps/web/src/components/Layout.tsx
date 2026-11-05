@@ -8,6 +8,7 @@ import { useVault } from "../vault/context";
 import { useNotificationsBadge } from "../features/notifications/badge";
 import { FriendKeySync } from "../features/friends/FriendKeySync";
 import { Avatar, Icon, type IconName } from "./Icon";
+import { HeaderOsat } from "./HeaderOsat";
 import { SocialRail } from "./SocialRail";
 import { Button } from "./ui";
 import { useSwipeTabs } from "./useSwipeTabs";
@@ -117,7 +118,7 @@ export function Layout({ children }: { children: ReactNode }) {
       <header className="topbar">
         <Link to="/" className="brand mobile-brand" aria-label="Open Social home"><span>Open<span className="brand-light"> Social</span></span></Link>
         <form className="header-search" role="search" onSubmit={event => { event.preventDefault(); const data = new FormData(event.currentTarget); navigate(`/people?q=${encodeURIComponent(String(data.get("q") ?? ""))}`); }}><Icon name="search"/><input name="q" aria-label="Find people by nickname" placeholder="Find your people…" maxLength={64}/><button type="submit" aria-label="Search people"><Icon name="arrow" size={18}/></button></form>
-        <div className="topbar-actions">{status === "locked" && <Link className="btn btn-ghost header-unlock" to="/welcome" state={{ from: `${location.pathname}${location.search}${location.hash}` }}>Unlock</Link>}<Link className="icon-button mobile-search" to="/people" aria-label="Find people"><Icon name="search"/></Link><Link className="icon-button notification-link" to="/notifications" aria-label={unread ? `Activity, ${unread} new` : "Activity"}><Icon name="bell"/>{unread > 0 && <span className="notification-dot"/>}</Link>{account && <Link className="header-avatar" to={ownProfile} aria-label="Your profile"><Avatar account={account} name={name}/></Link>}</div>
+        <div className="topbar-actions">{status === "locked" && <Link className="btn btn-ghost header-unlock" to="/welcome" state={{ from: `${location.pathname}${location.search}${location.hash}` }}>Unlock</Link>}<HeaderOsat/><Link className="icon-button notification-link" to="/notifications" aria-label={unread ? `Activity, ${unread} new` : "Activity"}><Icon name="bell"/>{unread > 0 && <span className="notification-dot"/>}</Link>{account && <Link className="header-avatar" to={ownProfile} aria-label="Your profile"><Avatar account={account} name={name}/></Link>}</div>
       </header>
       <div className="app-banners"><DeploymentBanner/><IndexerBanner/><RegistrationBanner/><PwaStatus/></div>
       <div className="content-grid">

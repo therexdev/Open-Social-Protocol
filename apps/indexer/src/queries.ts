@@ -838,6 +838,24 @@ export function pendingRewards(db: IndexerDb, author: string, after: string, lim
   return { items: rows.slice(0,limit).map(row => getPost(db,row.post_id,author)).filter((p): p is PostView => !!p), nextCursor: rows.length > limit ? rows[limit - 1]!.post_id : null };
 }
 
+/** Page all unsettled targets from closed epochs, including archived media and zero-value rewards. */
+export function dueSettlements(db: IndexerDb, afterEpoch: string, afterId: string, limit: number): Page<string> {
+  const rows = db.all<{ epoch: string; post_id: string }>(
+    `SELECT epoch, post_id FROM token_rewards
+     WHERE settled=0 AND (epoch, post_id) > (?, ?) AND epoch IN (
+       SELECT id FROM token_epochs WHERE CAST(json_extract(data_json, '$.end_block') AS INTEGER) <= ?
+     )
+     ORDER BY epoch, post_id LIMIT ?`,
+    afterEpoch, afterId, db.lastCheckpoint()?.height ?? 0, limit + 1,
+  );
+  const page = rows.slice(0, limit);
+  const last = page.at(-1);
+  return {
+    items: page.map(row => row.post_id),
+    nextCursor: rows.length > limit && last ? `${last.epoch}.${last.post_id}` : null,
+  };
+}
+
 export function collectionPosts(db: IndexerDb, collectionId: string, cursor: PositionCursor | undefined, limit: number, viewer?: string): Page<PostView> {
   return pagePosts(db, "p.collection_id = ? AND p.state NOT IN (1,2)", [collectionId], cursor, limit, viewer);
 }

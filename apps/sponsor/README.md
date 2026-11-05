@@ -107,6 +107,8 @@ SDK's `verifySponsorResult` checks before trusting a sponsor's answer.
 | `OSP_SPONSOR_ALLOWLIST` | default policy | `contract:method,...` override |
 | `OSP_SPONSOR_POLICY_VERSION` | `2` | Policy version in discovery and on chain; bump when the policy changes |
 | `OSP_SPONSOR_REGISTER` | `true` | Register/update the on-chain sponsor record on start |
+| `OSP_AUTO_SETTLE_REWARDS` | `true` on Harbinger, `false` elsewhere | Pay Mana to settle matured OSAT rewards to their authors |
+| `OSP_REWARD_INDEXER_URL` | `http://127.0.0.1:8787` | Indexer to poll for matured rewards when automatic settlement is enabled |
 | `OSP_SPONSOR_LOG_LEVEL` | `info` | Fastify/pino log level |
 
 ## API

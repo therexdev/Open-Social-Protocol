@@ -9,7 +9,7 @@ import { humanizeError } from "../../tx/submit";
 import { useMe } from "../session";
 import { capacityLabel, tokenResources } from "./resources";
 export function TokensPage() {
-  const { policy } = useEconomy();
+  const { policy, automaticSettlement } = useEconomy();
   const me = useMe(),
     { protocol, indexer } = useServices();
   const [account, setAccount] = useState<TokenAccount>(),
@@ -80,6 +80,7 @@ export function TokensPage() {
           Every account has a free allowance of 100 actions. Each action token adds one action of capacity. Posts, likes, friend requests,
           follows, message requests, messages and support use that capacity.
         </p>
+        {automaticSettlement && <p>Eligible rewards are credited to your balance automatically after voting closes, even when you are offline.</p>}
         <p>{policy ? `Upvotes and downvotes consume the paid weight you choose. Each public post has one reward period, and each account can vote on it once. The ${policy.period_budget} OSAT period budget is shared among authors with positive net scores. Votes do not change moderation.` : "The capped Support pilot remains active until reward voting is activated."}</p>
         <p>
           {v2 ? "Free capacity is used first. Partial recovery adds up immediately: 100 exhausted free units recover one usable action in about 72 minutes. Only fully charged tokens can be sent or burned. Holding more unused tokens does not speed up depleted tokens." : "This deployment still uses the legacy daily resource policy."}
@@ -88,7 +89,7 @@ export function TokensPage() {
           Koinos Mana is separate and must still be paid by you or a sponsor. {policy ? `These are testnet pilot settings: ${policy.period_budget} OSAT per ${policy.period_blocks}-block period. Tester allocations are issued by the operator, capped at 100 OSAT per account and 10,000 overall; registering extra accounts gives no voting tokens.` : "Reward voting and promotion are awaiting activation on this network."}
         </p>
       </Card>
-      {policy && <PendingRewards onSettled={() => void refresh()}/>}
+      {policy && me && <PendingRewards key={me.account} account={me.account} automaticSettlement={!!automaticSettlement}/>}
       <Card title="Send tokens"><p>Send OSAT or tKOIN from your Wallet, with Mana covered by Open Social.</p><Link className="btn btn-primary" to="/wallet">Open Wallet</Link></Card>
       <Card title="Recent activity">
         {activity.length === 0 ? (

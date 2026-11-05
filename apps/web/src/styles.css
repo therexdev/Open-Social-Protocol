@@ -632,15 +632,20 @@ a { text-underline-offset: 3px; }
 .avatar { --avatar-hue: 250; width: 43px; height: 43px; display: inline-flex; align-items: center; justify-content: center; background: hsl(var(--avatar-hue) 28% 25%); color: hsl(var(--avatar-hue) 65% 87%); border: 1px solid #00000005; border-radius: 50%; font-size: .82rem; font-weight: 750; flex-shrink: 0; letter-spacing: -.02em; }
 .app-workspace { margin-left: 220px; }
 .topbar { height: 72px; padding: 0 2rem; display: flex; align-items: center; gap: 1rem; border-bottom: 1px solid var(--border); background: var(--bg); }
-.header-search { display: flex; align-items: center; gap: .75rem; max-width: 420px; width: 100%; color: var(--muted); }
+.header-search { min-width: 0; display: flex; align-items: center; gap: .75rem; max-width: 420px; width: 100%; color: var(--muted); }
 .header-search input { border: 0; background: transparent; padding: .65rem 0; font-size: .85rem; }
 .header-search button { color: var(--muted); border: 0; background: var(--surface); border-radius: 8px; padding: .4rem; cursor: pointer; }
-.topbar-actions { margin-left: auto; display: flex; align-items: center; gap: 1rem; }
+.header-osat { display: grid; grid-template-columns: minmax(0, 1fr); align-content: center; gap: .15rem; min-height: 40px; min-width: 0; padding: .3rem .6rem; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--text); text-decoration: none; white-space: nowrap; line-height: 1.1; }
+.header-osat:is(:hover,:focus-visible) { border-color: var(--accent); }
+.header-osat strong { display: flex; align-items: baseline; gap: .25em; font-size: .83rem; font-variant-numeric: tabular-nums; }
+.header-osat strong span { overflow: hidden; text-overflow: ellipsis; }
+.header-osat small { color: var(--muted); font-size: .68rem; }
+.topbar-actions { flex: none; min-width: 0; margin-left: auto; display: flex; align-items: center; gap: 1rem; }
 .icon-button { width: 42px; height: 42px; display: inline-flex; align-items: center; justify-content: center; text-decoration: none; background: var(--surface); color: var(--muted); border: 1px solid var(--border); border-radius: 14px; }
 .notification-link { position: relative; }
 .notification-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); position: absolute; top: 7px; right: 8px; }
 .header-avatar { display: flex; text-decoration: none; }
-.mobile-brand, .mobile-search, .mobile-nav { display: none; }
+.mobile-brand, .mobile-nav { display: none; }
 .content-grid { display: grid; grid-template-columns: minmax(0, 760px) 260px; gap: 1.5rem; padding: 2rem 2rem 4rem; justify-content: center; align-items: start; }
 .main { min-width: 0; width: 100%; outline: none; touch-action: pan-y pinch-zoom; }
 .route-content { animation: page-arrive 160ms ease both; }
@@ -803,7 +808,6 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
   .mobile-brand .brand-mark svg { width: 26px; height: 26px; }
   .header-search, .header-avatar { display: none; }
   .topbar-actions { gap: .55rem; }
-  .mobile-search { display: inline-flex; }
   .icon-button { border: 0; width: 37px; height: 40px; }
   .content-grid { display: block; padding: 1.25rem .85rem calc(6rem + env(safe-area-inset-bottom)); max-width: 680px; margin: 0 auto; }
   .page { gap: 1.2rem; }
@@ -1136,7 +1140,9 @@ input, textarea { caret-color: var(--accent); }
 }
 @media (max-width: 760px) {
   .mobile-brand { font-size: 1.45rem; }
-  .topbar-actions { margin-right: 34px; gap: .25rem; }
+  .header-osat { padding-inline: .45rem; }
+  .topbar-actions .notification-link { flex: none; }
+  .topbar-actions { flex: 0 1 auto; margin-right: 38px; gap: .25rem; }
   .mobile-more { display: inline-flex; position: fixed; right: .55rem; top: 11px; z-index: 21; background: transparent; }
   .topbar, .mobile-nav { background: #071b2a; }
   .mobile-nav { padding-top: .4rem; }
@@ -1216,6 +1222,9 @@ select, .quick-composer select, .conversation-list select, .composer-identity se
 @media (max-width: 380px) {
   .topbar { padding-inline: .7rem; }
   .mobile-brand { font-size: 1.25rem; }
+  .topbar:has(.header-unlock) { gap: .4rem; }
+  .topbar:has(.header-unlock) .mobile-brand { font-size: 1.05rem; }
+  .topbar:has(.header-unlock) .osat-price-unit { display: none; }
   .topbar-actions .notification-link { display: none; }
   .quick-composer .btn { width: 100%; }
   .quick-composer .btn .icon { display: block; }

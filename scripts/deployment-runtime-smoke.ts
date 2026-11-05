@@ -155,6 +155,7 @@ export async function smokeDeploymentRuntime(log: (message: string) => void = co
   const config = (await invoke("token", "get_config")).value;
   for (const [key, value] of Object.entries(tokenDependencies)) assert.equal(config[key], value);
   assert.equal(config.resource_version, 2);
+  assert.equal((await invoke("token", "get_economy")).self_paid_settlement, true);
   const resources = (await invoke("token", "get_account", { account: admin })).value;
   assert.equal(resources.resource_version, 2);
   assert.equal(resources.free_ticks, "14400000");

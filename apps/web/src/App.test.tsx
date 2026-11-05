@@ -107,6 +107,39 @@ describe("App", () => {
     expect(storage.map.get(VAULT_KEY)).toEqual(saved);
   });
 
+  it("refreshes the confirmed OSAT balance in the header, keeping full token precision", async () => {
+    const vault = createVaultStore({ storage: memoryStorage(), kdf, passkey: unsupportedPasskey });
+    await vault.getState().init();
+    const identity = await vault.getState().create("correct horse battery");
+    const protocol = new ProtocolClient({ rpc: fakeProvider(), deployment: fixtureDeployment("harbinger") });
+    const balance = vi.spyOn(protocol.reads.token, "get_account");
+    const account = { free_credits: "0", token_credits: "0", updated_at: "0" };
+    balance.mockResolvedValue({ capacity: "0", value: { ...account, balance: "9007199254740993", resource_version: 2, transferable: "1" } });
+    const { container } = await render("/about", vault, resolved => ({ ...deployedServices([])!(resolved), protocol }));
+    const badge = container.querySelector<HTMLAnchorElement>("header .header-osat")!;
+    expect(balance).toHaveBeenCalledWith({ account: identity.account });
+    expect(badge.href).toMatch(/\/tokens$/);
+    expect(badge.textContent).toContain("9,007,199,254,740,993 OSAT");
+    expect(badge.textContent).toContain("Testnet $0.10/ea");
+    expect(container.querySelector("header .mobile-search")).toBeNull();
+
+    balance.mockResolvedValue({ capacity: "0", value: { ...account, balance: "0" } });
+    await act(async () => { window.dispatchEvent(new Event("focus")); });
+    expect(badge.querySelector("strong")?.textContent).toBe("0 OSAT");
+    balance.mockRejectedValue(new Error("Offline"));
+    await act(async () => { window.dispatchEvent(new Event("online")); });
+    expect(badge.querySelector("strong")?.textContent).toBe("— OSAT");
+    await act(async () => { vault.getState().lock(); });
+    expect(badge.querySelector("strong span")).toBeNull();
+  });
+
+  it("only displays the fixed USD price on Harbinger", async () => {
+    const { container } = await render("/about", undefined, resolved => notDeployedServices({ ...resolved, network: "mainnet" }));
+    const badge = container.querySelector("header .header-osat")!;
+    expect(badge.textContent?.trim()).toBe("OSAT");
+    expect(badge.getAttribute("aria-label")).not.toContain("$0.10");
+  });
+
   it("provides a working Unlock action from the public feed", async () => {
     const vault = createVaultStore({ storage: memoryStorage(), kdf, passkey: unsupportedPasskey });
     await vault.getState().init();

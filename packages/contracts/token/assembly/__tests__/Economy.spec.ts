@@ -1,4 +1,4 @@
-import { Arrays, Base58, Base64, MockVM, Protobuf, chain, system_calls } from "@koinos/sdk-as";
+import { Arrays, Base58, Base64, MockVM, Protobuf, chain, protocol, system_calls } from "@koinos/sdk-as";
 import { Token } from "../Token";
 import { Economy, HARBINGER } from "../Economy";
 import { token } from "../proto/token";
@@ -14,8 +14,15 @@ const ID = Base58.decode("122H3z8pc9z9xWpdirvsx1YsbTRwQHEEXu"),
 let c!: Token;
 let e!: Economy;
 function bytes(n: u8): Uint8Array { const b = new Uint8Array(32); b.fill(n); return b; }
+function setPayer(payer: Uint8Array, payee: Uint8Array = new Uint8Array(0)): void {
+  const header = new protocol.transaction_header();
+  header.payer = payer;
+  header.payee = payee;
+  MockVM.setTransaction(new protocol.transaction(new Uint8Array(0), header));
+}
 function setup(): void {
   Testing.setup(ID);
+  setPayer(ID);
   MockVM.setChainId(Base64.decode(HARBINGER));
   Testing.authorize([ID]);
   c = new Token();
@@ -141,6 +148,61 @@ describe("paid voting and reward accounting", (): void => {
     expect((): void => { settle(1); }).toThrow();
     expect((): void => { vote(1, C, B); }).toThrow();
     expect(c.cfg().supply).toBe(399);
+  });
+  it("lets an unregistered, self-paying signer settle an old reward to its offline author once", (): void => {
+    vote(1);
+    MockVM.commitTransaction();
+    setPayer(C);
+    Testing.authorize([C]);
+    const p = new publications.post_record(); p.author = B; p.latest_version = bytes(1);
+    // Only the publication lookup is available. The worker has no registered identity.
+    MockVM.setCallContractResults([response(Protobuf.encode(new publications.get_post_result(p), publications.get_post_result.encode))]);
+    expect((): void => { c.settle_reward(new token.settle_reward_arguments(C, bytes(1))); }).toThrow();
+    at(432001);
+    expect(c.get_economy(new token.get_economy_arguments()).self_paid_settlement).toBe(true);
+    setPayer(C);
+    Testing.authorize([C]);
+    MockVM.setCallContractResults([response(Protobuf.encode(new publications.get_post_result(p), publications.get_post_result.encode))]);
+    expect(c.settle_reward(new token.settle_reward_arguments(C, bytes(1))).reward).toBe(100);
+    MockVM.commitTransaction();
+    expect(c.load(B).balance).toBe(200);
+    expect(c.load(C).balance).toBe(100);
+    expect((): void => { c.settle_reward(new token.settle_reward_arguments(C, bytes(1))); }).toThrow();
+    expect(c.cfg().supply).toBe(400);
+  });
+  it("requires the payer's authority and rejects identity bypass in sponsored and delegated calls", (): void => {
+    vote(1);
+    MockVM.commitTransaction();
+    at(144001);
+    setPayer(C); Testing.authorize([B]);
+    Testing.mockResolveActor(false, null, "unregistered");
+    expect((): void => { c.settle_reward(new token.settle_reward_arguments(C, bytes(1))); }).toThrow();
+    setPayer(B); Testing.authorize([C]);
+    Testing.mockResolveActor(false, null, "unregistered");
+    expect((): void => { c.settle_reward(new token.settle_reward_arguments(C, bytes(1))); }).toThrow();
+    setPayer(C, B); Testing.authorize([C]);
+    Testing.mockResolveActor(false, null, "unregistered");
+    expect((): void => { c.settle_reward(new token.settle_reward_arguments(C, bytes(1))); }).toThrow();
+    setPayer(C); Testing.authorize([C]);
+    Testing.mockResolveActor(false, null, "unknown device");
+    expect((): void => { c.settle_reward(new token.settle_reward_arguments(C, bytes(1), A)); }).toThrow();
+    expect(e.posts.get(bytes(1))!.settled).toBe(false);
+    expect(c.cfg().supply).toBe(300);
+  });
+  it("still accepts the registered identity's authorized device when a third party pays the Mana", (): void => {
+    vote(1);
+    MockVM.commitTransaction();
+    at(144001);
+    const post = new publications.post_record(); post.author = B; post.latest_version = bytes(1);
+    setPayer(ID, A);
+    Testing.authorize([A]);
+    MockVM.setCallContractResults([
+      response(Protobuf.encode(new identity.resolve_actor_result(true, A), identity.resolve_actor_result.encode)),
+      response(Protobuf.encode(new publications.get_post_result(post), publications.get_post_result.encode)),
+    ]);
+    expect(c.settle_reward(new token.settle_reward_arguments(C, bytes(1), A)).reward).toBe(100);
+    expect(c.load(B).balance).toBe(200);
+    expect(c.load(C).balance).toBe(100);
   });
   it("a downvote removes only pending issuance; zero-score budgets are not minted", (): void => {
     vote(1, A, B, 2);

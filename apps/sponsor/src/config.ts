@@ -54,6 +54,8 @@ export interface SponsorConfig {
   policyVersion: number;
   /** Register/update the on-chain sponsor record on start. */
   register: boolean;
+  autoSettleRewards: boolean;
+  rewardIndexerUrl: string;
   /** Explicit deployment manifest path (overrides network lookup). */
   deploymentFile: string | undefined;
 }
@@ -117,6 +119,8 @@ export function loadConfig(env: Env = process.env): SponsorConfig {
   const burstOps = integer(env, "OSP_SPONSOR_BURST_OPS", DEFAULTS.burstOps, 1);
   return {
     media: loadMediaConfig(env),
+    autoSettleRewards: boolean(env, "OSP_AUTO_SETTLE_REWARDS", network === "harbinger"),
+    rewardIndexerUrl: text(env, "OSP_REWARD_INDEXER_URL") ?? "http://127.0.0.1:8787",
     network,
     rpc,
     wif: text(env, "OSP_SPONSOR_WIF"),

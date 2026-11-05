@@ -256,7 +256,7 @@ export function createBackground(options: BackgroundOptions): Background {
   const postIdSchema = str({ min: 43, max: 44, pattern: /^[A-Za-z0-9_-]{43}=?$/ });
   const wholeAmount = str({ min: 1, max: 7, pattern: /^[1-9]\d*$/ });
   let economyBusy = false;
-  const economySubmit = async (kind: "vote" | "promote" | "settle" | "cancel", p: { postId: string; version?: string; direction?: number; weight?: string; nonce?: string; slot?: number; opportunities?: number; burnAmount?: string }) => {
+  const economySubmit = async (kind: "vote" | "promote" | "cancel", p: { postId: string; version?: string; direction?: number; weight?: string; nonce?: string; slot?: number; opportunities?: number; burnAmount?: string }) => {
     if (economyBusy) throw new Error("Wait for the current token action to finish.");
     economyBusy = true;
     try {
@@ -271,7 +271,6 @@ export function createBackground(options: BackgroundOptions): Background {
         if (!device.authorized || ((device.capabilities ?? 0) & CAPABILITY.SUPPORT) === 0) throw new Error("Authorize this browser for reward voting first. Existing publishing permissions do not include voting.");
       }
       const op = kind === "vote" ? await client.ops.token.vote({ actor, post_id, version: bytesOf(p.version), direction: p.direction!, weight: p.weight!, device: session.deviceAddress })
-        : kind === "settle" ? await client.ops.token.settle_reward({ actor, post_id, device: session.deviceAddress })
         : kind === "cancel" ? await client.ops.token.cancel_promotion({ actor, post_id, nonce: p.nonce! })
         : await client.ops.token.promote({ actor, post_id, version: bytesOf(p.version), nonce: p.nonce!, slot: p.slot!, opportunities: p.opportunities!, burn_amount: p.burnAmount! });
       // Recheck the unlocked account after reads, before invoking any signer.
@@ -300,13 +299,12 @@ export function createBackground(options: BackgroundOptions): Background {
       const mapped = view ? { ...view, reward: view.reward ? { ...view.reward, post_id: toBase64url(view.reward.post_id), version: toBase64url(view.reward.version) } : undefined,
         promotion: view.promotion ? { ...view.promotion, post_id: toBase64url(view.promotion.post_id), version: toBase64url(view.promotion.version) } : undefined } : undefined;
       const verified = preview?.status === "plain" && preview.contentHash === (post?.value?.latest_version ? toBase64url(post.value.latest_version) : "");
-      return { preview: verified ? preview?.text ?? "" : undefined, policy: config?.value, view: mapped, account: account?.value, version: post?.value?.latest_version ? toBase64url(post.value.latest_version) : "",
+      return { preview: verified ? preview?.text ?? "" : undefined, policy: config?.value, automaticSettlement: config?.self_paid_settlement === true, view: mapped, account: account?.value, version: post?.value?.latest_version ? toBase64url(post.value.latest_version) : "",
         own: post?.value?.author === session.account, active: verified && post?.value?.state === 0 && post.value.audience === 0,
         canVote: device.authorized && ((device.capabilities ?? 0) & CAPABILITY.SUPPORT) !== 0, ownerAvailable: !!vault.signers(session).owner,
         slot: config?.value ? Array.from({length:config.value.promotion_slots},(_,i)=>i).find(i => !board?.values.some(p=>p.slot===i && !p.cancelled && BigInt(p.end_block)>BigInt(board.block))) : undefined };
     }}),
     "economy.vote": defineHandler({ source: "extension", validate: obj({ postId: postIdSchema, version: postIdSchema, direction: oneOf([1,2] as const), weight: wholeAmount }), handle: p => economySubmit("vote",p) }),
-    "economy.settle": defineHandler({ source: "extension", validate: obj({ postId: postIdSchema }), handle: p => economySubmit("settle",p) }),
     "economy.promote": defineHandler({ source: "extension", validate: obj({ postId: postIdSchema, version: postIdSchema, nonce: wholeAmount, slot: num({min:0,max:31,int:true}), opportunities: num({min:1,max:5,int:true}), burnAmount: wholeAmount }), handle: p => economySubmit("promote",p) }),
     "economy.cancel": defineHandler({ source: "extension", validate: obj({ postId: postIdSchema, nonce: wholeAmount }), handle: p => economySubmit("cancel",p) }),
 

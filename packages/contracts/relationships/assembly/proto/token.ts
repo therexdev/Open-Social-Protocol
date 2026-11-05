@@ -3300,6 +3300,11 @@ export namespace token {
         writer.uint32(24);
         writer.uint64(message.current_epoch);
       }
+
+      if (message.self_paid_settlement != false) {
+        writer.uint32(32);
+        writer.bool(message.self_paid_settlement);
+      }
     }
 
     static decode(reader: Reader, length: i32): get_economy_result {
@@ -3321,6 +3326,10 @@ export namespace token {
             message.current_epoch = reader.uint64();
             break;
 
+          case 4:
+            message.self_paid_settlement = reader.bool();
+            break;
+
           default:
             reader.skipType(tag & 7);
             break;
@@ -3333,15 +3342,18 @@ export namespace token {
     value: economy_config | null;
     block: u64;
     current_epoch: u64;
+    self_paid_settlement: bool;
 
     constructor(
       value: economy_config | null = null,
       block: u64 = 0,
-      current_epoch: u64 = 0
+      current_epoch: u64 = 0,
+      self_paid_settlement: bool = false
     ) {
       this.value = value;
       this.block = block;
       this.current_epoch = current_epoch;
+      this.self_paid_settlement = self_paid_settlement;
     }
   }
 

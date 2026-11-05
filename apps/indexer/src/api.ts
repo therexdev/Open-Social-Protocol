@@ -123,7 +123,7 @@ export function statusView(options: ApiOptions): Record<string, unknown> {
     ? Object.fromEntries(Object.entries(deployment.contracts).map(([name, entry]) => [name, entry.address]))
     : null;
   return {
-    features: { tokenEconomy: 1, privateMessaging: 2, privateUpdates: 1, photoLibrary: 1, musicFeed: 1,
+    features: { tokenEconomy: 1, rewardSettlementQueue: 1, privateMessaging: 2, privateUpdates: 1, photoLibrary: 1, musicFeed: 1,
       ...(config.musicCache && deployment && { musicGateway: 1 }) },
     network: config.network,
     chainId: deployment?.chainId ?? null,
@@ -266,6 +266,13 @@ export function buildApi(options: ApiOptions): FastifyInstance {
     const account = parseAddress(param(request,"account"),"account")!;
     const after = parseBase64url(query(request,"cursor"),"cursor",false) ?? "";
     return q.pendingRewards(db,account,after,parseLimit(query(request,"limit"),20,50));
+  });
+  app.get("/v1/token/settlements/due", async (request, reply) => {
+    const cursor = query(request, "cursor");
+    const match = cursor?.match(/^([1-9]\d{0,19})\.([A-Za-z0-9_-]{43,87}={0,2})$/);
+    if (cursor && !match) throw new ApiError(400, "invalid_cursor", "invalid settlement cursor");
+    reply.header("Cache-Control", "no-store");
+    return q.dueSettlements(db, match?.[1] ?? "", match?.[2] ?? "", parseLimit(query(request, "limit"), 25, 100));
   });
 
   // Every data route requires a deployment.

@@ -26,10 +26,11 @@ test allocations; new accounts receive free activity capacity, not voting tokens
 - The period's 100 OSAT budget is divided among positive-scoring posts. This is a
   shared budget, not 100 tokens per post. Pending amounts can change. Downvotes
   reduce pending allocation; they do not confiscate already owned tokens.
-- When voting closes, use **Settle author reward** on the post or **Tokens →
-  Pending rewards**. Anyone with signing permission may submit it; the payout
-  always goes to the recorded author. Settlement never refills the voter's used
-  capacity. Unclaimed rewards do not expire.
+- After the [automatic settlement update](automatic-osat.md), eligible OSAT is
+  credited to the recorded author after voting closes, including while the author
+  is offline. The Tokens page shows pending rewards and confirmed activity. Older
+  unclaimed rewards are processed as well. Voting capacity recharges on its
+  existing schedule.
 - On your public post, **Promote** offers one to five opportunities. Each costs
   one fully charged OSAT and lasts 1,200 blocks (about an hour). The confirmation
   binds the post version, price and campaign nonce. Burning is permanent; no

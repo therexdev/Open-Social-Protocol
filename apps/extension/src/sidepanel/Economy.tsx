@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import type { EconomyConfig, IndexedPostEconomy, TokenAccount } from "@osp/sdk";
 import { rpc } from "../shared/rpc";
+import { rewardStatus } from "../../../web/src/features/tokens/rewardStatus";
 import { tokenResources } from "../../../web/src/features/tokens/resources";
 export interface EconomyInspection {
   policy?: EconomyConfig; view?: IndexedPostEconomy; account?: TokenAccount; version: string;
-  preview?: string;
+  preview?: string; automaticSettlement?: boolean;
   own: boolean; active: boolean; canVote: boolean; ownerAvailable: boolean; slot?: number;
 }
 /** Runs only in a trusted extension page. Embedded Facebook cards can open it, never sign. */
@@ -13,11 +14,11 @@ export function EconomyPanel({ postId, initialDirection = 1 }: { postId: string;
   const [opportunities, setOpportunities] = useState(1), [busy, setBusy] = useState(false), [error, setError] = useState(""), [message, setMessage] = useState("");
   const load = async () => { setData(await rpc<EconomyInspection>("economy.inspect", { postId })); };
   useEffect(() => { void load().catch(e => setError(e.message)); }, [postId]);
-  const send = async (kind: "vote" | "promote" | "settle" | "cancel") => {
+  const send = async (kind: "vote" | "promote" | "cancel") => {
     if (!data?.policy || busy) return;
     setBusy(true); setError(""); setMessage("");
     try {
-      const payload = kind === "vote" ? { postId, version: data.version, direction, weight } : kind === "promote" ? { postId, version: data.version, nonce: (BigInt(data.view?.promotion?.nonce ?? "0") + 1n).toString(), slot: data.slot, opportunities, burnAmount: (BigInt(opportunities) * BigInt(data.policy.promotion_price)).toString() } : kind === "cancel" ? { postId, nonce: data.view!.promotion!.nonce } : { postId };
+      const payload = kind === "vote" ? { postId, version: data.version, direction, weight } : kind === "promote" ? { postId, version: data.version, nonce: (BigInt(data.view?.promotion?.nonce ?? "0") + 1n).toString(), slot: data.slot, opportunities, burnAmount: (BigInt(opportunities) * BigInt(data.policy.promotion_price)).toString() } : { postId, nonce: data.view!.promotion!.nonce };
       await rpc(`economy.${kind}`, payload);
       setMessage("Confirmed on the network."); await load();
     } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
@@ -50,7 +51,7 @@ export function EconomyPanel({ postId, initialDirection = 1 }: { postId: string;
           <button type="submit" className="primary" disabled={busy || data.slot === undefined || resources.ready < BigInt(opportunities) * BigInt(policy.promotion_price)}>Burn {(BigInt(opportunities) * BigInt(policy.promotion_price)).toString()} OSAT and promote</button>
         </form>}
       </section>}
-      {view?.reward && <section><h2>Author reward</h2><p>{view.reward.up} up · {view.reward.down} down · {view.epoch?.budget} OSAT shared period budget.</p>{view.reward.settled ? <p>{view.reward.reward} OSAT settled to the author.</p> : <><p>Voting closes at block {view.epoch?.end_block}. Editing or removing the evaluated version before settlement makes its reward zero.</p><button disabled={busy || !closed || !data.canVote} onClick={() => void send("settle")}>Settle author reward</button></>}</section>}
+      {view?.reward && <section><h2>Author reward</h2><p>{view.reward.up} up · {view.reward.down} down · {view.epoch?.budget} OSAT shared period budget.</p><p>{rewardStatus(view.reward, !!data.automaticSettlement, view.epoch?.end_block, view.block)}</p>{!view.reward.settled && <p>Editing or removing the evaluated version before settlement makes its reward zero.</p>}</section>}
     </>}
     <p><a href={chrome.runtime.getURL("src/sidepanel/index.html")}>Back to the feed</a></p>
   </div></div>;

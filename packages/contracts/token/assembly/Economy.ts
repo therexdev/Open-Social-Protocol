@@ -170,7 +170,9 @@ export class Economy {
   }
   settle(args: token.settle_reward_arguments): u64 {
     const actor = Util.requireAddress(args.actor, "actor"), id = this.engagementId(args.post_id), e = this.cfg(), c = this.owner.cfg();
-    Actor.requireAuthorized(c.identity!, actor, args.device, Capability.SUPPORT);
+    if (!Util.isEmpty(args.device) || !this.isSelfPayingSigner(actor)) {
+      Actor.requireAuthorized(c.identity!, actor, args.device, Capability.SUPPORT);
+    }
     const stored = this.storageId(id), reward = this.posts.get(stored);
     System.require(reward != null && !reward.settled, "no unsettled reward for this post");
     const epoch = this.epochs.get(Util.u64be(reward!.epoch));
@@ -199,6 +201,16 @@ export class Economy {
     this.owner.config.put(c);
     System.event("osp.token.reward_settled", Protobuf.encode(new token.reward_settled_event(actor, reward, epoch, Util.now()), token.reward_settled_event.encode), [actor, reward!.author!]);
     return amount;
+  }
+  // A keeper can pay Mana to settle a reward without having an OSP identity.
+  // Check the payer and nonce owner, as well as call authority. Sponsored and
+  // delegated calls continue to resolve the registered identity's authority.
+  private isSelfPayingSigner(actor: Uint8Array): bool {
+    const payer = System.getTransactionField("header.payer");
+    if (payer == null || !Actor.same(payer.bytes_value, actor)) return false;
+    const payee = System.getTransactionField("header.payee");
+    if (payee != null && !Util.isEmpty(payee.bytes_value) && !Actor.same(payee.bytes_value, actor)) return false;
+    return System.checkAccountAuthority(actor);
   }
   active(p: token.promotion | null, block: u64): bool {
     return p != null && !p.cancelled && p.end_block > block;
@@ -241,7 +253,7 @@ export class Economy {
   }
   view(): token.get_economy_result {
     const e = this.config.get(), block = height();
-    return new token.get_economy_result(e, block, e == null ? 0 : this.current(e, block));
+    return new token.get_economy_result(e, block, e == null ? 0 : this.current(e, block), true);
   }
   postView(args: token.get_post_economy_arguments): token.get_post_economy_result {
     const id = this.storageId(this.engagementId(args.post_id)), reward = this.posts.get(id);

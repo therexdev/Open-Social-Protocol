@@ -47,12 +47,15 @@ async function main(): Promise<void> {
 
   if (status.state === "serving" && config.register && service.client && service.signer && service.allowlist && service.address) {
     const desired = desiredRecord({ sponsor: service.address, publicUrl: config.publicUrl, allowlist: service.allowlist, limits: service.limits });
-    void ensureRegistered({ client: service.client, signer: service.signer, desired, log }).then((result) => {
+    const { client, signer } = service;
+    void service.withPayerNonce(() => ensureRegistered({ client, signer, desired, log })).then((result) => {
       log(`on-chain registration: ${result.status}${"error" in result ? ` (${result.error})` : ""}`);
-    });
+    }).catch(error => log(`registration unavailable: ${(error as Error).message}`));
   } else if (status.state === "serving") {
     log("on-chain registration disabled (OSP_SPONSOR_REGISTER=false)");
   }
+
+  service.rewards?.start(log);
 
   const shutdown = (signal: string) => {
     log(`${signal} received, shutting down`);

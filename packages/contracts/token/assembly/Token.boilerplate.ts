@@ -246,6 +246,7 @@ export class Token {
     // res.value = ;
     // res.block = ;
     // res.current_epoch = ;
+    // res.self_paid_settlement = ;
 
     return res;
   }

@@ -734,7 +734,7 @@ export interface TokenWriteMethods {
 }
 export interface TokenReadMethods {
   get_music_payment: [{ id: Bytes }, ValueResult<{ buyer: string; seller: string; amount: string; status: number }>];
-  get_economy: [Record<string, never>, { value?: EconomyConfig; block: string; current_epoch: string }];
+  get_economy: [Record<string, never>, { value?: EconomyConfig; block: string; current_epoch: string; self_paid_settlement?: boolean }];
   get_post_economy: [{ post_id: Bytes; viewer?: Address }, PostEconomy];
   get_promotions: [Record<string, never>, { values: Promotion[]; block: string }];
   get_config: [Record<string, never>, ValueResult<TokenConfig>];

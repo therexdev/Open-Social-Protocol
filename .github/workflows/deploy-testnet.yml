@@ -15,10 +15,10 @@ on:
         type: choice
         options: [harbinger]
       contracts:
-        description: Contracts to upgrade (social-media for voice, video and song voting)
+        description: Contracts to upgrade (token for automatic OSAT rewards)
         default: all
         type: choice
-        options: [all, publications, music, social-media]
+        options: [all, token, publications, music, social-media]
       dry_run:
         description: Simulate only (broadcast=false) and print the Mana/RC report
         default: false
@@ -81,6 +81,7 @@ jobs:
           case "$DEPLOY_CONTRACTS" in
             social-media) contract_args+=(--only publications,token) ;;
             music) contract_args+=(--only token,publications,sponsorship) ;;
+            token) contract_args+=(--only token) ;;
             publications) contract_args+=(--only publications) ;;
             all|"") ;;
             *) echo "Unknown contract selection"; exit 1 ;;
@@ -94,6 +95,11 @@ jobs:
         run: |
           node --import tsx scripts/verify-deployment.ts --network "${{ inputs.network }}"
           node --import tsx scripts/verify-photo-library.ts --network "${{ inputs.network }}" --contracts-only
+      - name: Verify the automatic settlement capability
+        if: ${{ !inputs.dry_run && inputs.contracts == 'token' }}
+        env:
+          KOINOS_RPC: ${{ vars.KOINOS_RPC }}
+        run: node --import tsx scripts/verify-automatic-rewards.ts --network harbinger --contracts-only
       - name: Commit deployment manifest
         if: ${{ !inputs.dry_run }}
         run: |

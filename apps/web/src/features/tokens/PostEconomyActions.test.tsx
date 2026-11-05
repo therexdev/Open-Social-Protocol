@@ -3,10 +3,10 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { toBase64url } from "@osp/sdk";
 import type { PostView } from "../../api/indexer";
-const h=vi.hoisted(()=>({me:{account:"alice"},policy:{version:1,max_vote_weight:"1000",promotion_price:"1",promotion_slots:32,max_opportunities:5,promotion_interval:"1200"},getPost:vi.fn(),getAccount:vi.fn(),getBoard:vi.fn(),vote:vi.fn(),promote:vi.fn(),settle:vi.fn(),submit:vi.fn()}));
-vi.mock("../session",()=>({useMe:()=>h.me,useCanAct:()=>({ok:true}),useSubmitContext:()=>({client:{ops:{token:{vote:h.vote,promote:h.promote,settle_reward:h.settle}}},signer:{getAddress:()=>h.me.account},payment:"sponsor-only"})}));
+const h=vi.hoisted(()=>({me:{account:"alice"},policy:{version:1,max_vote_weight:"1000",promotion_price:"1",promotion_slots:32,max_opportunities:5,promotion_interval:"1200"},getPost:vi.fn(),getAccount:vi.fn(),getBoard:vi.fn(),vote:vi.fn(),promote:vi.fn(),submit:vi.fn()}));
+vi.mock("../session",()=>({useMe:()=>h.me,useCanAct:()=>({ok:true}),useSubmitContext:()=>({client:{ops:{token:{vote:h.vote,promote:h.promote}}},signer:{getAddress:()=>h.me.account},payment:"sponsor-only"})}));
 vi.mock("../../api/services",()=>{const protocol={reads:{token:{get_post_economy:h.getPost,get_account:h.getAccount,get_promotions:h.getBoard}}};return {useServices:()=>({protocol})};});
-vi.mock("./EconomyContext",()=>({useEconomy:()=>({version:1,policy:h.policy})}));
+vi.mock("./EconomyContext",()=>({useEconomy:()=>({version:1,policy:h.policy,automaticSettlement:true})}));
 vi.mock("../../tx/submit",()=>({submitAction:h.submit,humanizeError:(e:Error)=>e.message}));
 import { PostEconomyActions } from "./PostEconomyActions";
 let root:Root|undefined,container:HTMLDivElement;
@@ -15,7 +15,7 @@ const post={postId:toBase64url(id),contentHash:toBase64url(version),author:"bob"
 async function render(p=post){container=document.createElement("div");document.body.append(container);root=createRoot(container);await act(async()=>{root!.render(<PostEconomyActions post={p}/>);});}
 async function click(label:string){const button=[...container.querySelectorAll("button")].find(b=>b.getAttribute("aria-label") === label || b.textContent?.includes(label));expect(button).toBeTruthy();await act(async()=>{button!.click();});}
 function ready(n="10"){return {value:{balance:n,resource_version:2,token_ticks:(BigInt(n)*144000n).toString(),free_ticks:"14400000",ticks_per_unit:"144000",transferable:n,locked:"0",free_credits:"100000",token_credits:"10000",updated_at:"0"}};}
-beforeEach(()=>{vi.clearAllMocks();h.me.account="alice";h.getPost.mockResolvedValue({block:"100"});h.getAccount.mockResolvedValue(ready());h.getBoard.mockResolvedValue({values:[],block:"100"});h.vote.mockResolvedValue({vote:true});h.promote.mockResolvedValue({promote:true});h.settle.mockResolvedValue({settle:true});h.submit.mockResolvedValue({});});
+beforeEach(()=>{vi.clearAllMocks();h.me.account="alice";h.getPost.mockResolvedValue({block:"100"});h.getAccount.mockResolvedValue(ready());h.getBoard.mockResolvedValue({values:[],block:"100"});h.vote.mockResolvedValue({vote:true});h.promote.mockResolvedValue({promote:true});h.submit.mockResolvedValue({});});
 afterEach(async()=>{await act(async()=>root?.unmount());container?.remove();});
 describe("token action controls",()=>{
   it("free activity cannot enable a paid vote",async()=>{
@@ -45,6 +45,20 @@ describe("token action controls",()=>{
     await act(async()=>{reject(new Error("Network rejected this vote"));});
     expect(container.textContent).toContain("Network rejected this vote");
     expect(container.textContent).not.toContain("Saving…");
+  });
+  it("updates a pending author reward to the confirmed payout without submitting an action",async()=>{
+    const reward={post_id:id,version,author:"bob",epoch:"1",up:"3",down:"1",score:"2",settled:false,reward:"0"};
+    const epoch={end_block:"100",budget:"20"};
+    const indexed={block:"100",epoch,reward:{...reward,post_id:post.postId,version:post.contentHash}};
+    h.getPost.mockResolvedValue({block:"100",epoch,reward});
+    await render({...post,economy:indexed} as PostView);
+    await click("Reward details");
+    expect(container.textContent).toContain("Awaiting automatic settlement");
+    expect(container.textContent).not.toContain("Settle author reward");
+    h.getPost.mockResolvedValue({block:"101",epoch,reward:{...reward,settled:true,reward:"7"}});
+    await act(async()=>{document.dispatchEvent(new Event("visibilitychange"));});
+    expect(container.textContent).toContain("7 OSAT credited to the author.");
+    expect(h.submit).not.toHaveBeenCalled();
   });
   it("binds a promotion to its exact burn amount, version, free slot and next nonce",async()=>{
     h.me.account="bob";h.getPost.mockResolvedValue({block:"100",promotion:{nonce:"7",end_block:"50",cancelled:false}});

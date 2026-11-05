@@ -84,7 +84,7 @@ export async function ensureRegistered(options: EnsureRegisteredOptions): Promis
     }
     log(`${existing?.value ? "updating" : "creating"} on-chain sponsor record for ${sponsor} (self-paid)`);
     const operation = await client.ops.sponsorship.set_sponsor(desired);
-    const result = await client.submit({ operations: [operation], signer, sponsor: null, selfPayFallback: true });
+    const result = await client.submit({ operations: [operation], signer, sponsor: null, selfPayFallback: true, waitForReceipt: true, waitTimeoutMs: 20_000 });
     if (result.receipt.reverted) {
       const logs = (result.receipt.logs ?? []).join("; ");
       log(`set_sponsor reverted: ${logs}`);

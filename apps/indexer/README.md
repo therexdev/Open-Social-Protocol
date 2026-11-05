@@ -167,6 +167,7 @@ cursors are opaque strings; CORS is enabled for every origin. Errors are
 
 | Route | Result |
 | --- | --- |
+| `GET /v1/token/settlements/due?cursor=&limit=` | All unsettled reward target IDs whose voting period has closed at the indexed height. Returns `{ items: string[], nextCursor }` in pages of up to 100. Includes posts, songs and song comments, even when the final payout is zero. Poll again from the start after the last page to pick up newly closed periods or chain reorganizations. |
 | `GET /v1/status` | `{ network, chainId, rpcChainId, chainIdMatch, contracts, head: { height, id }, lastIrreversible, indexed: { height, id, stateHash }, startHeight, healthy, version, deployed, sync: { running, lastSyncAt, lastError, lag, rollbacks, stalled }, rpc }` - `chainId` is the manifest's, `rpcChainId` the node's (`null` until fetched), `chainIdMatch` `true`/`false`/`null` (not yet compared) |
 | `GET /v1/profiles/:account` | `{ account, owner, encryptionKey, keyVersion, profileHash, profileUri, protocolVersion, deviceEpoch, registeredAt, updatedAt, counts: { posts, friends, followers, following }, recovery: { policy, pendingPolicy, pendingRecovery }, devices: [{ device, capabilities, expiresAt, deviceEpoch, revoked, label, authorizedAt }] }` or 404 |
 | `GET /v1/accounts/:account/devices` | `{ items: [{ device, capabilities, expiresAt, deviceEpoch, revoked, label, authorizedAt }] }` - every device ever authorized for the account (revoked ones flagged), the same list as `profiles[].devices`; `{ items: [] }` for unknown accounts |

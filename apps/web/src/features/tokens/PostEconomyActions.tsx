@@ -7,13 +7,14 @@ import { Icon } from "../../components/Icon";
 import { bytesOf } from "../../util/bytes";
 import { humanizeError, submitAction } from "../../tx/submit";
 import { useCanAct, useMe, useSubmitContext } from "../session";
+import { rewardStatus } from "./rewardStatus";
 import { tokenResources } from "./resources";
 import { useEconomy } from "./EconomyContext";
 
 type Panel = "vote" | "promote" | "reward";
 export type EconomyTarget = Pick<PostView, "author" | "postId" | "audience" | "state" | "economy" | "contentHash">;
 export function PostEconomyActions({ post, onChanged, children, song = false }: { post: EconomyTarget; onChanged?: () => void; children?: ReactNode; song?: boolean }) {
-  const { policy, version } = useEconomy(), me = useMe(), ctx = useSubmitContext(), can = useCanAct(), { protocol } = useServices();
+  const { policy, version, automaticSettlement } = useEconomy(), me = useMe(), ctx = useSubmitContext(), can = useCanAct(), { protocol } = useServices();
   const [panel, setPanel] = useState<Panel>(), [direction, setDirection] = useState(1), [weight, setWeight] = useState("1");
   const [opportunities, setOpportunities] = useState(1), [view, setView] = useState<PostEconomy>(), [account, setAccount] = useState<TokenAccount>();
   const [board, setBoard] = useState<Promotion[]>([]), [busy, setBusy] = useState(false), [loading, setLoading] = useState(false), [error, setError] = useState("");
@@ -24,7 +25,7 @@ export function PostEconomyActions({ post, onChanged, children, song = false }: 
     if (!protocol || !me) return;
     const [r, a, b] = await Promise.all([
       protocol.reads.token.get_post_economy({ post_id: bytesOf(post.postId), viewer: me.account }),
-      protocol.reads.token.get_account({ account: me.account }),
+      panel === "reward" ? Promise.resolve(undefined) : protocol.reads.token.get_account({ account: me.account }),
       panel === "promote" ? protocol.reads.token.get_promotions({}) : Promise.resolve(undefined),
     ]);
     if (current !== generation.current) return;
@@ -32,15 +33,28 @@ export function PostEconomyActions({ post, onChanged, children, song = false }: 
   };
   useEffect(() => {
     const current = ++generation.current;
-    let alive = true;
+    let alive = true, running = false;
+    const load = async () => {
+      if (running) return;
+      running = true;
+      try { await refresh(); if (alive) setError(""); }
+      catch (e) { if (alive) setError(humanizeError(e)); }
+      finally { running = false; if (alive) setLoading(false); }
+    };
     if (panel) {
       setView(undefined); setAccount(undefined); setError("");
-      setLoading(true);
-      void refresh().catch(e => { if (alive) setError(humanizeError(e)); }).finally(() => { if (alive) setLoading(false); });
+      setLoading(true); void load();
     }
-    return () => { alive = false; if (generation.current === current) generation.current++; };
+    const refreshVisible = () => { if (document.visibilityState !== "hidden") void load(); };
+    const timer = panel === "reward" ? window.setInterval(refreshVisible, 30000) : undefined;
+    if (panel === "reward") document.addEventListener("visibilitychange", refreshVisible);
+    return () => {
+      alive = false; window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", refreshVisible);
+      if (generation.current === current) generation.current++;
+    };
   }, [panel, protocol, me?.account, post.postId]); // Contract checks the approved version and current capacity atomically.
-  const perform = async (kind: "support" | "vote" | "promote" | "cancel" | "settle") => {
+  const perform = async (kind: "support" | "vote" | "promote" | "cancel") => {
     if (!ctx || !me || !can.ok || busy) return;
     setBusy(true); setError("");
     try {
@@ -53,8 +67,6 @@ export function PostEconomyActions({ post, onChanged, children, song = false }: 
         if (!/^[1-9]\d{0,3}$/.test(weight) || !policy || BigInt(weight) > BigInt(policy.max_vote_weight)) throw new Error("Choose a positive whole vote weight within the displayed limit.");
         op = await ctx.client.ops.token.vote({ actor, post_id: id, version: bytesOf(post.contentHash), direction, weight });
         label = direction === 1 ? "Recording your upvote" : "Recording your downvote"; success = "Vote confirmed. Used capacity is recharging.";
-      } else if (kind === "settle") {
-        op = await ctx.client.ops.token.settle_reward({ actor, post_id: id }); label = "Settling the post reward"; success = "Reward settled to the author";
       } else if (kind === "cancel") {
         if (!view?.promotion) throw new Error("Refresh this promotion first.");
         op = await ctx.client.ops.token.cancel_promotion({ actor, post_id: id, nonce: view.promotion.nonce }); label = "Stopping promotion"; success = "Promotion stopped. Burned tokens are not refunded.";
@@ -74,7 +86,7 @@ export function PostEconomyActions({ post, onChanged, children, song = false }: 
   };
   if (version === 0) return <div className="engagement-row">{children}{!song && !own && me ? <Button variant="ghost" disabled={!can.ok || post.state !== 0 || busy} onClick={() => void perform("support")}><Icon name="spark" size={18}/>Support</Button> : null}</div>;
   if (!policy || !me) return <div className="engagement-row">{children}</div>;
-  const reward = view?.reward ?? post.economy?.reward;
+  const reward = view ? view.reward : post.economy?.reward;
   const ballot = view?.vote ?? post.economy?.vote;
   const epoch = view?.epoch ?? post.economy?.epoch;
   const block = BigInt(view?.block ?? post.economy?.block ?? "0");
@@ -91,7 +103,7 @@ export function PostEconomyActions({ post, onChanged, children, song = false }: 
         <Button variant="ghost" className="engagement-icon" aria-label="Downvote" title="Downvote" disabled={!can.ok || busy} aria-pressed={ballot?.direction === 2} onClick={() => { setDirection(2); setPanel("vote"); }}><Icon name="down" size={18}/>{reward ? ` ${reward.down}` : ""}</Button></>}
       {children}
       {active && own && !song && <Button variant="ghost" disabled={!can.ok || busy} onClick={() => setPanel("promote")}><Icon name="spark" size={18}/>Promote</Button>}
-      {reward && <Button variant="ghost" disabled={busy} onClick={() => setPanel("reward")}>{reward.settled ? `${reward.reward} OSAT rewarded` : "Reward details"}</Button>}
+      {reward && <Button variant="ghost" disabled={busy} onClick={() => setPanel("reward")}>{reward.settled && reward.reward !== "0" ? `${reward.reward} OSAT rewarded` : "Reward details"}</Button>}
     </div>
     {busy && <p className="economy-saving" role="status">Saving… You can keep browsing.</p>}
     {!panel && error && <Notice kind="error">{error}</Notice>}
@@ -113,11 +125,11 @@ export function PostEconomyActions({ post, onChanged, children, song = false }: 
           <p>Burning permanently removes {cost.toString()} OSAT and its future capacity. No activity credits are used.</p>
           <Button type="submit" variant="primary" busy={busy} disabled={!can.ok || ready < cost}>Burn {cost.toString()} OSAT and promote</Button>
         </form>)}
+        {panel === "reward" && !reward && <p>No reward is recorded for this post.</p>}
         {panel === "reward" && reward && <>
           <p>{reward.up} up · {reward.down} down. Period budget: {epoch?.budget ?? "—"} OSAT shared across eligible posts.</p>
-          <p>{reward.settled ? `Settled: ${reward.reward} OSAT to the author.` : closed ? "Voting has closed. Anyone can settle this reward; it always goes to the recorded author." : `Voting closes at block ${epoch?.end_block}. Pending amounts can change until then.`}</p>
-          <p className="muted">Editing or removing the evaluated version before settlement makes its reward zero. Rounding and ineligible rewards remain unissued.</p>
-          {!reward.settled && <Button busy={busy} disabled={!can.ok || !closed} onClick={() => void perform("settle")}>Settle author reward</Button>}
+          <p>{rewardStatus(reward, !!automaticSettlement, epoch?.end_block, block.toString())}</p>
+          {!reward.settled && <p className="muted">Editing or removing the evaluated version before settlement makes its reward zero.</p>}
         </>}
       </>}
     </div>}

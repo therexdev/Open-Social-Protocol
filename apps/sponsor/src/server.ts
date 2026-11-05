@@ -1,3 +1,4 @@
+import { RewardSettler, type RewardSettlementStatus } from "./rewardSettlement.js";
 import { musicAllowance } from "./music.js";
 /**
  * Sponsor HTTP service (docs/sponsor-api.md): discovery, prepare, sponsor, utilization.
@@ -60,6 +61,7 @@ export interface SponsorServiceOptions {
 
 export interface StatusReport {
   features: { clipUploads: number; walletTransfers: number; musicUploads: number; musicBatching: number; privateMessaging: 2; messagingNonceOrdering: 1; messagingFastConfirmation: 1; messagingResponsiveAllocation: 1 };
+  rewardSettlement: RewardSettlementStatus;
   ok: boolean;
   state: ServiceState;
   message: string;
@@ -135,7 +137,8 @@ export class SponsorService {
   private readonly options: SponsorServiceOptions;
   private readonly now: () => number;
   private discoveryDoc: Promise<SponsorDiscovery> | undefined;
-  private allocationQueue: Promise<unknown> = Promise.resolve();
+  private payerQueue: Promise<void> = Promise.resolve();
+  readonly rewards: RewardSettler | undefined;
   private allocationJobs = new Map<string, Promise<{ grantId: string; pending: boolean }>>();
   private closing = false;
   private clipUploads = 0;
@@ -172,6 +175,9 @@ export class SponsorService {
       this.allowlist = buildAllowlist(options.deployment, c.allowlist);
       this.provider = options.provider ?? new Provider(options.deployment.rpc);
       this.client = new ProtocolClient({ rpc: this.provider, deployment: options.deployment });
+      if (c.autoSettleRewards && this.signer) {
+        this.rewards = new RewardSettler(this.client, this.signer, c, job => this.withPayerNonce(job));
+      }
     }
   }
 
@@ -216,6 +222,17 @@ export class SponsorService {
     };
   }
 
+  /** A self-paid transaction uses the sponsor nonce through inclusion. Regular user
+   * sponsorship has a separate nonce per payee and does not join this queue. */
+  withPayerNonce<T>(submit: () => Promise<T>): Promise<T> {
+    const job = this.payerQueue.then(() => {
+      if (this.closing) throw new SponsorRefusal("temporarily_unavailable", "Sponsor is restarting");
+      return submit();
+    });
+    this.payerQueue = job.then(() => undefined, () => undefined);
+    return job;
+  }
+
   /** Never copy the request's profile proof or reservation id into the grant transaction. */
   async allocatePrivateUsage(input: unknown): Promise<{ grantId: string; pending: boolean }> {
     if (this.closing) throw new SponsorRefusal("temporarily_unavailable", "Sponsor is restarting; retry this same reservation");
@@ -249,8 +266,7 @@ export class SponsorService {
       // Bound queued work. Retries of an existing job never consume another slot
       // or quota reservation, and the assignment survives process restarts.
       if (this.allocationJobs.size >= 32) throw new SponsorRefusal("temporarily_unavailable", "Message allowance queue is busy; retry this same reservation");
-      task = this.allocationQueue.catch(() => undefined).then(async () => {
-        if (this.closing) throw new SponsorRefusal("temporarily_unavailable", "Sponsor is restarting; retry this same reservation");
+      task = this.withPayerNonce(async () => {
         const held = this.quota.reserve(reservation.account, 1, this.now());
         if (!held.ok) throw new SponsorRefusal("quota_exceeded", held.message);
         try {
@@ -266,7 +282,6 @@ export class SponsorService {
         }
       });
       this.allocationJobs.set(grantId, task);
-      this.allocationQueue = task.then(() => undefined, () => undefined);
       void task.then(() => this.allocationJobs.delete(grantId), () => this.allocationJobs.delete(grantId));
     }
     // A pending response acknowledges the saved assignment, NOT on-chain credit.
@@ -291,6 +306,10 @@ export class SponsorService {
   status(): StatusReport {
     return {
       features: { clipUploads: this.clipUploads, walletTransfers: this.allowlist?.entries.some(e => e.contract === "native" && e.method === "transfer") && this.allowlist.entries.some(e => e.contract === "token" && e.method === "transfer") ? 1 : 0, musicBatching: 2, musicUploads: this.allowlist?.entries.some(e => e.contract === "native" && e.method === "approve") ? 1 : 0, privateMessaging: 2, messagingNonceOrdering: 1, messagingFastConfirmation: 1, messagingResponsiveAllocation: 1 },
+      rewardSettlement: this.rewards?.status ?? {
+        state: this.config.autoSettleRewards ? "degraded" : "disabled",
+        lastCheckedAt: null, lastSettledAt: null, lastError: this.config.autoSettleRewards ? stateMessage(this.state, this.options) : null,
+      },
       ok: this.state === "serving",
       state: this.state,
       message: stateMessage(this.state, this.options),
@@ -425,7 +444,8 @@ export class SponsorService {
 
   async close(): Promise<void> {
     this.closing = true;
-    await this.allocationQueue;
+    await this.rewards?.stop();
+    await this.payerQueue;
     this.quota.close();
   }
 }
