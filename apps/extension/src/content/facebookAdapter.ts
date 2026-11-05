@@ -10,6 +10,7 @@ import { CONTROL_ATTR, TOAST_ATTR, createBoundedObserver, scanAndInject, showToa
 import { FEED_ATTR, FEED_POST_SELECTOR, feedStructuralNode, feedCardNeedsRepair, maybeInsertFeedCards, resetFeedCards, type FeedCardsRuntime } from "./feedCards";
 import type { PublishReply } from "../shared/protocol";
 import { ComposerAttribution } from "./attribution";
+import { contextInvalidated, showRefreshNotice } from "./contextInvalidated";
 import { watchPublishedPost } from "./publishedPost";
 
 const SUBMIT_LABEL = /^(post|publish)$/i;
@@ -154,11 +155,11 @@ export function startFacebookAdapter(runtime: AdapterRuntime = defaultRuntime())
           const finished = () => { pending.delete(cancel); };
           cancel = watchPublishedPost(doc, text, url => {
             finished();
-            void Promise.resolve(runtime.sendMessage({ type: "crosspost.facebookComplete", payload: { attemptId, url } })).then(response => {
+            void Promise.resolve().then(() => runtime.sendMessage({ type: "crosspost.facebookComplete", payload: { attemptId, url } })).then(response => {
               if (stopped) return;
               const r = response as { ok?: boolean; result?: PublishReply; error?: { message?: string } };
               showToast(doc, r?.ok ? r.result?.message || "Open Social is confirming your post." : `Open Social needs attention: ${r?.error?.message || 'Open Post to finish the saved draft.'}`, 15000);
-            }).catch(() => { if (!stopped) showToast(doc, "Open Post to check this saved post before retrying.", 15000); });
+            }).catch(error => { if (contextInvalidated(error)) { stop(true); showRefreshNotice(doc, "Facebook", true); } else if (!stopped) showToast(doc, "Open Post to check this saved post before retrying.", 15000); });
           }, () => { finished(); if (!stopped) showToast(doc, "The Facebook post link was not detected. In Browser tools → Post, add its link to finish your saved Open Social draft.", 20000); });
           pending.add(cancel);
           showToast(doc, "Waiting for Facebook’s published post link…", 60_000);
@@ -166,7 +167,8 @@ export function startFacebookAdapter(runtime: AdapterRuntime = defaultRuntime())
         replaying = true;
         try { button.click(); } finally { replaying = false; }
       } catch (error) {
-        if (!stopped) showToast(doc, `Post paused: ${error instanceof Error ? error.message : String(error)}`, 15000);
+        if (contextInvalidated(error)) { stop(true); showRefreshNotice(doc, "Facebook"); }
+        else if (!stopped) showToast(doc, `Post paused: ${error instanceof Error ? error.message : String(error)}`, 15000);
       } finally { publishing = false; }
     })();
   };
@@ -187,7 +189,7 @@ export function startFacebookAdapter(runtime: AdapterRuntime = defaultRuntime())
         }
         if (!attributionEnabled || !optedIn(dialog)) editor.sync(false);
       }
-    } catch { /* Keep publishing available; do not override a preference we could not read. */ }
+    } catch (error) { if (contextInvalidated(error)) { stop(true); showRefreshNotice(doc, "Facebook"); } }
   }
 
   function showStatus() {
@@ -261,17 +263,7 @@ export function startFacebookAdapter(runtime: AdapterRuntime = defaultRuntime())
   scan();
   void loadPreferences();
 
-  return {
-    observer,
-    scan,
-    refresh() {
-      if (stopped) return;
-      void loadPreferences();
-      resetFeedCards(doc);
-      doc.querySelectorAll(`[${FEED_ATTR}]`).forEach((el) => el.remove());
-      resume();
-    },
-    stop() {
+  function stop(preserveDraft = false) {
       stopped = true;
       for (const cancel of pending) cancel(); pending.clear();
       observer.stop();
@@ -282,11 +274,23 @@ export function startFacebookAdapter(runtime: AdapterRuntime = defaultRuntime())
       doc.defaultView?.removeEventListener("scroll", wake);
       for (const unhook of hooks.values()) unhook();
       hooks.clear();
-      for (const { editor, unhook } of attributions.values()) { editor.sync(false); unhook(); }
+      for (const { editor, unhook } of attributions.values()) { if (!preserveDraft) editor.sync(false); unhook(); }
       attributions.clear();
       resetFeedCards(doc);
       doc.querySelectorAll(`[${CONTROL_ATTR}], [${FEED_ATTR}], [${TOAST_ATTR}], [${STATUS_ATTR}]`).forEach((el) => el.remove());
       root.removeAttribute(ADAPTER_ATTR);
+  }
+
+  return {
+    observer,
+    scan,
+    refresh() {
+      if (stopped) return;
+      void loadPreferences();
+      resetFeedCards(doc);
+      doc.querySelectorAll(`[${FEED_ATTR}]`).forEach((el) => el.remove());
+      resume();
     },
+    stop,
   };
 }

@@ -11,7 +11,7 @@ export function startXAdapter(runtime: FeedCardsRuntime & Partial<AdapterRuntime
   if (!win || !X_ORIGINS.includes(`${doc.location.origin}/*`)) return;
   const composers = new XComposerController({ ...runtime, location: runtime.location ?? (() => doc.location.href),
     randomAttemptId: runtime.randomAttemptId ?? (() => [...crypto.getRandomValues(new Uint8Array(16))].map(b => b.toString(16).padStart(2,"0")).join("")),
-    userGesture: runtime.userGesture ?? (() => true) });
+    userGesture: runtime.userGesture ?? (() => true) }, () => stop());
   let alive = true, timer: ReturnType<typeof setTimeout> | undefined, lastView = "";
   let controller: FeedController | undefined;
   const scan = () => {
@@ -39,9 +39,10 @@ export function startXAdapter(runtime: FeedCardsRuntime & Partial<AdapterRuntime
   doc.addEventListener("visibilitychange", schedule);
   const navigationTimer = setInterval(schedule, 1500); // SPA history can change without a popstate event.
   scan();
+  function stop() { alive = false; clearTimeout(timer); clearInterval(navigationTimer); observer.disconnect(); controller?.stop(); composers.stop();
+      win?.removeEventListener("popstate", schedule); win?.removeEventListener("focus", schedule); doc.removeEventListener("visibilitychange", schedule); }
   return {
     refresh() { void composers.refresh(); controller?.stop(); controller = undefined; schedule(); },
-    stop() { alive = false; clearTimeout(timer); clearInterval(navigationTimer); observer.disconnect(); controller?.stop(); composers.stop();
-      win.removeEventListener("popstate", schedule); win.removeEventListener("focus", schedule); doc.removeEventListener("visibilitychange", schedule); },
+    stop,
   };
 }

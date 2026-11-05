@@ -1,9 +1,9 @@
 # Open Social Chrome extension
 
-Version 0.7.0 is a standalone protocol frontend in the Chrome side panel, plus
+Version 0.7.1 is a standalone protocol frontend in the Chrome side panel, plus
 optional Facebook and X feed integration and composer cross-posting. It does not load the website
 or a separately bundled website application. The Social switch and Open in tab
-button are removed. See [release instructions](../../docs/chrome-extension-0.7.0.md).
+button are removed. See [release instructions](../../docs/chrome-extension-0.7.1.md).
 
 ## Build and install
 
@@ -119,8 +119,12 @@ native article within its measurement wrappers, leaving the native transforms
 unchanged. Recycled cells park cards by status ID until that tweet returns.
 Switching For you/Following resets placement; leaving Home removes all cards.
 Inline and modal X composers support the same default-on checkbox and Public/Friends
-selection as Facebook. A trusted Post action saves the text and adds the spaced
-profile invitation through native editing. The adapter then checks X's native
+selection as Facebook. A trusted Post action saves the text, settles the selection
+inside a Draft text leaf, and sends one plain-text paste event for the invitation.
+It verifies the original text plus exactly one footer after the editor renders.
+X does not use execCommand, replace editor DOM, or restore a stale selection.
+Rejected/unexpected updates stop further insertion and show the original text
+for recovery. The original draft is also retained in the existing saved queue. The adapter then checks X's native
 submit state instead of assuming a fixed character limit. If the invitation makes
 the draft invalid, it removes its added footer and leaves the draft for correction.
 Only a new success-toast permalink or matching own-account timestamp permalink
@@ -155,6 +159,8 @@ npm run smoke:facebook-post -w apps/extension
 npm run smoke:facebook-scroll -w apps/extension
 npm run smoke:x-feed -w apps/extension
 npm run smoke:x-post -w apps/extension
+npm ci --prefix apps/extension/scripts/fixtures/x-draft --ignore-scripts
+npm run smoke:x-draft -w apps/extension
 ```
 
 Build checks cover the MV3 manifest/CSP, classic content script, no-eval worker
@@ -169,6 +175,11 @@ reuse/unlock, OSAT value, native navigation, recording, video preparation, profi
 tabs, narrow layouts, settings, lock and messaging WASM under the shipped CSP.
 Card/adapter checks cover interactions/media, themes, delayed publishing, footer
 spacing, permalink matching, preferences, scroll and row recycling.
+
+The X Draft regression uses a real pinned Draft.js/React editor with committed
+state assertions, URL decorations, mention entities, selections, paragraph blocks,
+rejected/corrupt paste handling, native submission and stale-context recovery.
+Those dependencies are isolated in the test fixture and never shipped.
 
 Every automated network response is a fixture. Tests do not publish live
 transactions or replace manual acceptance in an installed extension on signed-in

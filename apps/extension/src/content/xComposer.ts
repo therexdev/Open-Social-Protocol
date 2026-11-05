@@ -1,5 +1,6 @@
 import { buildControl, CONTROL_ATTR, hookSubmit, showToast, type ComposerAdapter } from "./adapter";
-import { ComposerAttribution } from "./attribution";
+import { XAttribution } from "./xAttribution";
+import { contextInvalidated, showRefreshNotice } from "./contextInvalidated";
 import { watchXPublishedPost } from "./xPublishedPost";
 import type { AdapterRuntime } from "./facebookAdapter";
 import type { PublishReply } from "../shared/protocol";
@@ -30,7 +31,7 @@ const enabled = (button: HTMLElement | null) => !!button && !(button as HTMLButt
 /** Sharing uses the same explicit native Post event as Facebook. Never mutates the editor
  * while typing, never reads DMs, and never sends a host post through a private API. */
 export class XComposerController {
-  private entries = new Map<HTMLElement,{editor:ComposerAttribution;unhook:()=>void;manual:boolean}>();
+  private entries = new Map<HTMLElement,{editor:XAttribution;unhook:()=>void;manual:boolean;checked:boolean;audience:string}>();
   private attempts = new WeakMap<HTMLElement,{text:string;audience:number;id:string}>();
   private on = false;
   private auto = false;
@@ -40,7 +41,7 @@ export class XComposerController {
   private preparing = false;
   private replaying = false;
   private pending?: () => void;
-  constructor(private runtime: AdapterRuntime) { void this.refresh(); }
+  constructor(private runtime: AdapterRuntime, private invalidated?: () => void) { void Promise.resolve().then(() => this.refresh()); }
   private optedIn(root:HTMLElement) { return root.querySelector<HTMLInputElement>(`[${CONTROL_ATTR}] input`)?.checked === true; }
   async refresh() {
     const generation=++this.generation;
@@ -53,25 +54,35 @@ export class XComposerController {
       for(const [root,entry] of this.entries) {
         const check=root.querySelector<HTMLInputElement>(`[${CONTROL_ATTR}] input`),select=root.querySelector<HTMLSelectElement>(`[${CONTROL_ATTR}] select`);
         if(!entry.manual&&check&&select){check.checked=this.auto;select.disabled=!this.auto;}
-        if(!this.attribution||!this.optedIn(root))entry.editor.sync(false);
+        if(!this.attribution||!this.optedIn(root))void entry.editor.sync(false).catch(error=>showToast(this.runtime.document,String(error),15000));
       }
-    }catch { /* A failed preference read must not enable or silently change sharing. */ }
+    }catch(error) { if(contextInvalidated(error)){this.stop();this.invalidated?.();showRefreshNotice(this.runtime.document,"X");} }
   }
   scan() {
     if(this.stopped||!this.on)return;
     const roots=new Set(xComposerAdapter.findComposers(this.runtime.document));
-    for(const [root,entry] of this.entries)if(!root.isConnected||!roots.has(root)) {entry.unhook();root.querySelector(`[${CONTROL_ATTR}]`)?.remove();root.removeAttribute(ROOT);this.entries.delete(root);}
+    for(const [root,entry] of this.entries)if(!root.isConnected||!roots.has(root)) {entry.editor.dispose();entry.unhook();root.querySelector(`[${CONTROL_ATTR}]`)?.remove();root.removeAttribute(ROOT);this.entries.delete(root);}
     for(const root of roots) {
       if(this.entries.has(root)&&root.querySelector(`[${CONTROL_ATTR}]`))continue;
-      this.entries.get(root)?.unhook();
+      const prior=this.entries.get(root);prior?.unhook();
       const footer=xComposerAdapter.findFooter(root);if(!footer?.parentElement)continue;
       const control=buildControl(root.ownerDocument);footer.before(control.host);root.setAttribute(ROOT,'');
-      control.checkbox.checked=this.auto;control.audience.disabled=!this.auto;
-      const entry={editor:new ComposerAttribution(root,xComposerAdapter),unhook:()=>{},manual:false};
-      const change=(e:Event)=>{if(!(this.runtime.trustedEvent?.(e)??e.isTrusted))return;entry.manual=true;if(!this.optedIn(root))entry.editor.sync(false);};
-      control.checkbox.addEventListener('change',change);
+      control.checkbox.checked=prior?.manual ? prior.checked : this.auto;control.audience.disabled=!control.checkbox.checked;
+      if(prior)control.audience.value=prior.audience;
+      const entry=prior ?? {editor:new XAttribution(root,xComposerAdapter),unhook:()=>{},manual:false,checked:this.auto,audience:'0'};
+      entry.editor.showBackup();
+      const change=(e:Event)=>{if(!(this.runtime.trustedEvent?.(e)??e.isTrusted))return;if(e.target===control.checkbox)entry.manual=true;entry.checked=control.checkbox.checked;entry.audience=control.audience.value;if(!this.optedIn(root))void entry.editor.sync(false).catch(error=>showToast(this.runtime.document,String(error),15000));};
+      control.host.addEventListener('change',change);
+      const editingGuard=(event:Event)=>{
+        const button=xComposerAdapter.findSubmitButton(root),target=event.target as Node | null;
+        const key=event as KeyboardEvent;
+        if(entry.editor.editing && (event.type==='click' && !!target && !!button?.contains(target) || event.type==='keydown' && key.key==='Enter' && (key.ctrlKey||key.metaKey))) {
+          event.preventDefault();event.stopImmediatePropagation();showToast(this.runtime.document,'Finishing the profile link update. Your draft is kept; click Post again in a moment.');
+        }
+      };
+      root.addEventListener('click',editingGuard,true);root.addEventListener('keydown',editingGuard,true);
       const unhook=hookSubmit(root,xComposerAdapter,()=>control.host.isConnected?{...control,dialog:root}:null,(text,audience,event)=>this.submit(root,text,audience,event));
-      entry.unhook=()=>{unhook();control.checkbox.removeEventListener('change',change);};this.entries.set(root,entry);
+      entry.unhook=()=>{unhook();control.host.removeEventListener('change',change);root.removeEventListener('click',editingGuard,true);root.removeEventListener('keydown',editingGuard,true);};this.entries.set(root,entry);
     }
   }
   private submit(root:HTMLElement,text:string,audience:number,event:Event) {
@@ -81,6 +92,7 @@ export class XComposerController {
     if(this.preparing||this.pending){showToast(doc,'Waiting for your previous X post to finish. Your new draft is kept.');return;}
     if(root.querySelectorAll(EDITOR).length!==1){showToast(doc,'Cross-post one X post at a time. Uncheck Open Social to publish a multi-post thread on X.');return;}
     const editor=this.entries.get(root)?.editor;if(!editor)return;
+    if(editor.failed){showToast(doc,'Automatic link insertion is stopped for this draft. Copy the saved original text into a fresh X composer.',15000);return;}
     text=editor.text();if(!text)return;
     let attempt=this.attempts.get(root);
     if(!attempt||attempt.text!==text||attempt.audience!==audience){attempt={text,audience,id:this.runtime.randomAttemptId()};this.attempts.set(root,attempt);}
@@ -93,35 +105,35 @@ export class XComposerController {
         if(this.stopped)return;
         if(!reply?.ok||!reply.result?.awaitingX)throw Error(reply?.error?.message||'Open Social did not answer. Unlock Browser connections and try Post again.');
         if(!unchanged())throw Error('Your draft or settings changed. Review it and click Post again.');
-        if(this.attribution&&!editor.sync(true,reply.result.profileUrl))throw Error('X did not accept the profile link. Review the message beside the checkbox.');
+        if(this.attribution&&!await editor.sync(true,reply.result.profileUrl,()=>!this.stopped&&this.on&&generation===this.generation&&this.optedIn(root)))throw Error('X did not accept the profile link. Review the message beside the checkbox.');
         // Let native Draft input state and X's own limit/upload validation commit. No fixed
         // character limit is assumed: the same flow works with extended-length accounts.
         await new Promise(resolve=>setTimeout(resolve,150));
         if(!unchanged())throw Error('Your draft or settings changed. Review it and click Post again.');
         const button=xComposerAdapter.findSubmitButton(root);
         if(!enabled(button)) {
-          editor.sync(false);
+          await editor.sync(false);
           throw Error('X cannot submit this draft yet. Wait for uploads, shorten the text, or turn off the profile invitation link in Browser connections.');
         }
         this.pending=watchXPublishedPost(doc,text,url=>{
           this.pending=undefined;
-          void Promise.resolve(this.runtime.sendMessage({type:'crosspost.xComplete',payload:{attemptId,url}})).then(response=>{
+          void Promise.resolve().then(() => this.runtime.sendMessage({type:'crosspost.xComplete',payload:{attemptId,url}})).then(response=>{
             if(this.stopped)return;
             const r=response as {ok?:boolean;result?:PublishReply;error?:{message?:string}};
             showToast(doc,r?.ok?r.result?.message||'Open Social is confirming your post.':`Open Social needs attention: ${r?.error?.message||'Open Post to check your saved draft.'}`,15000);
-          }).catch(()=>{if(!this.stopped)showToast(doc,'Open Post to check your saved X draft before retrying.',15000);});
+          }).catch(error=>{if(contextInvalidated(error)){this.stop();this.invalidated?.();showRefreshNotice(doc,"X",true);}else if(!this.stopped)showToast(doc,'Open Post to check your saved X draft before retrying.',15000);});
         },()=>{this.pending=undefined;if(!this.stopped)showToast(doc,'The X post link was not detected. Open Browser tools → Post and paste its published link to finish your saved Open Social draft.',20000);});
         showToast(doc,'Waiting for X’s published post link…',60000);
         this.replaying=true;
         try { button!.click(); } finally { this.replaying=false; }
         this.attempts.delete(root);
-      }catch(error){if(!this.stopped)showToast(doc,`Post paused: ${error instanceof Error?error.message:String(error)}`,15000);}
+      }catch(error){if(contextInvalidated(error)){this.stop();this.invalidated?.();showRefreshNotice(doc,"X");}else if(!this.stopped)showToast(doc,`Post paused: ${error instanceof Error?error.message:String(error)}`,15000);}
       finally{this.preparing=false;}
     })();
   }
   private clear() {
     this.pending?.();this.pending=undefined;
-    for(const [root,entry] of this.entries){entry.editor.sync(false);entry.unhook();root.querySelector(`[${CONTROL_ATTR}]`)?.remove();root.removeAttribute(ROOT);}
+    for(const [root,entry] of this.entries){entry.editor.dispose();entry.unhook();root.querySelector(`[${CONTROL_ATTR}]`)?.remove();root.removeAttribute(ROOT);}
     this.entries.clear();
   }
   stop(){this.stopped=true;this.clear();}

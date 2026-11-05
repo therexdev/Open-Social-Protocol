@@ -16,6 +16,7 @@ try {
   await page.evaluate(profileUrl => {
     window.__calls = []; window.__nativePosts = []; window.__auto = true; window.__attribution = true; window.__prepareError = false;
     window.chrome = { runtime: { id: 'fixture', getURL: p => 'https://extension.test/' + p, onMessage: { addListener() {}, removeListener() {} }, sendMessage: async m => {
+      if (window.__invalidated) throw Error("Extension context invalidated.");
       window.__calls.push(m);
       if (m.type === 'adapter.preferences') return { ok: true, result: { facebookAttribution: window.__attribution, facebookAutoCheck: window.__auto } };
       if (m.type === 'feed.request') return { ok: true, result: { enabled: false, items: [] } };
@@ -97,6 +98,15 @@ try {
   // Per-post opt-out is a direct escape hatch even while the worker is locked.
   await box().uncheck(); await page.getByRole('button', { name: 'Post', exact: true }).click();
   assert.equal(await page.evaluate(() => window.__nativePosts.length), 3);
+  await page.evaluate(() => { window.__prepareError = false; window.__composer(); }); await page.addScriptTag({ content: script });
+  await box().waitFor(); await editor().fill('Keep my Facebook draft after reload'); await page.waitForTimeout(40);
+  await page.evaluate(() => window.__invalidated = true); await page.getByRole('button', {name:'Post',exact:true}).click();
+  await page.getByRole('alert').filter({hasText:'The extension was reloaded.'}).waitFor();
+  assert.equal(await editor().innerText(), 'Keep my Facebook draft after reload');
+  assert.equal(await page.locator('[data-osp-control]').count(), 0);
+  assert.equal(await page.evaluate(() => window.__nativePosts.length), 3);
+  await page.getByRole('button', {name:'Post',exact:true}).click();
+  assert.equal(await page.evaluate(() => window.__nativePosts.length), 4, 'Stale extension stops intercepting native Post');
   assert.equal(context.pages().length, 1); assert.deepEqual(errors, []);
   console.log('Facebook publishing browser checks passed: default and manual choices, native controlled-editor footer on trusted Post, delayed canonical permalink, unrelated navigation ignored, duplicate suppression, preparation failure and Facebook-only fallback; fixture network only');
   await page.evaluate(() => window.__ospFacebook.stop()); await context.close();

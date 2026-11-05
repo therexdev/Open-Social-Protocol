@@ -46,7 +46,18 @@ try {
       parent.innerHTML=!modal&&captured?captured:`<section><div><div contenteditable="true" role="textbox" data-testid="tweetTextarea_0"></div></div><div data-testid="toolBar"><button data-testid="${modal?'tweetButton':'tweetButtonInline'}">Post</button></div></section>`;
       let committed='';const editor=parent.querySelector('[contenteditable]'),button=parent.querySelector('[data-testid="tweetButtonInline"], [data-testid="tweetButton"]');
       editor.setAttribute('role','textbox');
-      editor.addEventListener('input',()=>{const value=editor.innerText;setTimeout(()=>{committed=value;button.disabled=value.length>window.__limit;button.setAttribute('aria-disabled',String(button.disabled));},20);});
+      const read=()=>{const blocks=[...editor.querySelectorAll('[data-block="true"]')];return blocks.length?blocks.map(b=>b.textContent).join('\n'):editor.innerText;};
+      editor.addEventListener('input',()=>{const value=read();setTimeout(()=>{committed=value;button.disabled=value.length>window.__limit;button.setAttribute('aria-disabled',String(button.disabled));},20);});
+      editor.addEventListener('paste',e=>{
+        e.preventDefault();const value=read()+e.clipboardData.getData('text/plain');
+        // This fixture supplies only the controlled-editor event contract. Actual
+        // selection, decorations and render behavior are tested in smoke-x-draft.
+        editor.replaceChildren(...value.split('\n').map(line=>{const b=document.createElement('div');b.dataset.block='true';b.textContent=line;return b;}));
+        editor.dispatchEvent(new InputEvent('input',{bubbles:true}));
+      });
+      editor.addEventListener('cut',e=>{e.preventDefault();document.getSelection().getRangeAt(0).deleteContents();
+        while(editor.lastElementChild?.dataset.block==='true'&&!editor.lastElementChild.textContent)editor.lastElementChild.remove();
+        editor.dispatchEvent(new InputEvent('input',{bubbles:true}));});
       button.addEventListener('click',()=>{
         window.__nativePosts.push(committed);parent.remove();
         window.__publishX=(id='1001',toast=false)=>{
