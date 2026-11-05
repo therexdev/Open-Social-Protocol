@@ -32,6 +32,7 @@ import { CrossPostOrchestrator } from "./crosspost";
 import { FeedService } from "./feed";
 import { EmbeddedActions } from "./embedActions";
 import { embeddedMedia } from "./embedMedia";
+import { ProfilePhotos } from "./profilePhotos";
 import { EncryptedStore, KeyStore, deriveAesKey, type KeyCache } from "./keystore";
 import { createRouter, defineHandler, type Handlers, type Router } from "./messages";
 import { authorizeDevice, lookupDeviceStatus, publishPost, recordCrossPostProof, submitOperations } from "./publish";
@@ -304,6 +305,7 @@ export function createBackground(options: BackgroundOptions): Background {
   const embedDeps = { clients: () => registry.get(), session: () => vault.current(), keys: keysFor, vault, now, feed, local,
     enabled: async () => { const settings = await loadSettings(); return settings.facebookAdapter && settings.feedInsertion; } };
   const embedded = new EmbeddedActions(embedDeps);
+  const profilePhotos = new ProfilePhotos(embedDeps);
   const targetFields = { postId: postIdSchema, targetId: optional(postIdSchema) };
   const actionFields = { ...targetFields, version: postIdSchema, userGesture: bool() };
   let mediaActive = 0;
@@ -433,6 +435,11 @@ export function createBackground(options: BackgroundOptions): Background {
         return { enabled: true, item: await feed.card(p.postId) };
       },
     }),
+    "embed.avatar": defineHandler({ source: "embed", validate: obj({ ...targetFields, hash: postIdSchema }), handle: p => mediaSlot(async () => {
+      const item = await embedded.target(p);
+      const image = await profilePhotos.load(item.author, p.hash);
+      await embedded.target(p); return image;
+    }) }),
     "embed.inspect": defineHandler({ source: "embed", validate: obj(targetFields), handle: async p => {
       const item = await embedded.target(p); return inspectEconomy(item.postId);
     } }),

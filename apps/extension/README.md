@@ -1,10 +1,17 @@
 # @osp/extension
 
-Chrome (Manifest V3) extension for Open Social Protocol. Version **0.3.0** bundles
+Chrome (Manifest V3) extension for Open Social Protocol. Version **0.3.1** bundles
 `apps/web` as the **Social** view, with the current feed, media, profiles, groups,
 wallet, and encrypted messages. The **Browser tools** view retains the original
 worker-isolated device account, Facebook adapter, quick composer, and unfinished
 cross-post recovery. No remotely hosted application code is loaded.
+
+## Version 0.3.1: profile photos in Facebook cards
+
+Author profile photos now appear in the post and comment headers. The worker
+verifies the profile reference and archived image bytes, reuses recent public
+photos across cards, and supports the current photo reference and legacy avatars.
+Cards refresh changed photos and retain initials if an image is missing or fails.
 
 ## Version 0.3.0: interact inside Facebook
 
@@ -90,7 +97,7 @@ runtime), `public/icons/*`. Everything is bundled; nothing is loaded from the ne
 To update an unpacked installation, replace the files in the **same folder** you originally loaded,
 then click **Reload** on its card in `chrome://extensions` (or `brave://extensions`). Keep the
 existing installation to preserve its local account/settings. Refresh Facebook after an extension
-upgrade so the page uses the new content script. Check version **0.3.0** in extension Settings.
+upgrade so the page uses the new content script. Check version **0.3.1** in extension Settings.
 
 When Facebook is enabled, existing granted Facebook tabs are attached immediately. Look for
 **Open Social enabled** at the bottom left; expand it for instructions. The cross-post checkbox
@@ -139,7 +146,7 @@ Every message is `{ type, payload? }` (no other keys); every reply is `{ ok: tru
 | Sender | Types |
 | --- | --- |
 | Side panel / options | `vault.status|touch|create|import|unlock|lock|export|destroy`, `device.authorize|status`, `settings.get|update`, `adapter.status|enable|disable`, `feed.get`, `post.publish`, `crosspost.list|create|confirm|retry|reconcile|markHost|recordProof|discard`, `page.current` |
-| Embedded card (granted Facebook tab, non-top extension frame, bound root post) | `embed.post`, `embed.inspect`, `embed.replies`, `embed.media`; trusted-click writes: `embed.vote`, `embed.poll`, `embed.react`, `embed.comment`. Child targets must have a chain-verified ancestry to the displayed root. No generic signing/vault access. |
+| Embedded card (granted Facebook tab, non-top extension frame, bound root post) | `embed.post`, `embed.inspect`, `embed.replies`, `embed.media`, `embed.avatar`; trusted-click writes: `embed.vote`, `embed.poll`, `embed.react`, `embed.comment`. Child targets must have a chain-verified ancestry to the displayed root. No generic signing/vault access. |
 | Facebook content script (granted origin, top frame, user gesture) | `crosspost.publish` `{ hostSite: "facebook", text, audience, attemptId, url, submitted, userGesture }` (legacy `crosspost.propose` remains draft-only), `feed.request` `{ limit?, cursor? }` (IDs only) |
 
 ### Storage layout

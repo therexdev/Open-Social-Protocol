@@ -92,6 +92,7 @@ export interface FeedItem {
   postId: string;
   author: string;
   authorName?: string;
+  authorAvatarHash?: string;
   viewer?: string;
   audience: number;
   epoch: number;

@@ -26,12 +26,14 @@ try {
   if(postId===ids.voice){base.text='A quick voice note for the group.';base.media=[media('audio/wav','osp-clip')];}
   let pollView={now:String(Date.now()),value:{definition:{question:'What should we build together next?',options:['More community events','Creative challenges','Learning sessions'],closes_at:String(Date.now()+86400000)},counts:[5,3,2],participants:10,engagement_milli:'1000'}};
   if(postId===ids.poll){base.text=pollView.value.definition.question;base.poll=pollView.value;}
-  let reaction=0,vote,comment;
+  if(postId===ids.photo)base.authorAvatarHash='j'.repeat(43)+'=';
+  let reaction=0,vote,comment,badAvatar=false;
   const inspection=()=>({policy:{max_vote_weight:'100'},account:{resource_version:2,token_ticks:'1000',ticks_per_unit:'100',transferable:'10'},version:base.contentHash,active:true,canVote:true,own:false,ownerAvailable:false,view:{block:'100',vote,...(vote&&{reward:{up:vote.direction===1?vote.weight:'0',down:vote.direction===2?vote.weight:'0'}})}});
   window.chrome={runtime:{getURL:p=>'https://extension.test/'+p,sendMessage:async m=>{
    window.__calls.push(m);
    const {type,payload}=m;
    if(type==='embed.post')return{ok:true,result:{enabled:true,item:{...base,viewer:window.__locked?undefined:'reader',viewerReaction:reaction,...(postId===ids.poll&&{pollView}),...(window.__locked&&base.audience===1?{status:'locked',text:undefined,media:undefined,message:'Unlock to read this private post.'}:{})}}};
+   if(type==='embed.avatar')return{ok:true,result:{data:badAvatar?'bm90IGFuIGltYWdl':image,mime:'image/png'}};
    if(type==='embed.media')return{ok:true,result:{data:postId===ids.video&&!payload.poster?video:postId===ids.voice?audio:image,mime:postId===ids.video&&!payload.poster?'video/mp4':postId===ids.voice?'audio/wav':'image/png'}};
    if(type==='embed.inspect')return{ok:true,result:inspection()};
    if(type==='embed.vote'){vote={direction:payload.direction,weight:payload.weight,block:'101'};return{ok:true,result:inspection()};}
@@ -42,6 +44,7 @@ try {
    throw Error('Unexpected card request '+type);
   }},storage:{onChanged:{addListener:f=>listeners.add(f),removeListener:f=>listeners.delete(f)}}};
   window.__lock=()=>{window.__locked=true;for(const f of listeners)f({'osp.session':{}},'session');};
+  window.__profile=(hash,bad=false)=>{base.authorAvatarHash=hash;badAvatar=bad;document.dispatchEvent(new Event('visibilitychange'));};
   window.__touch=()=>{for(const f of listeners)f({'osp.session':{oldValue:{account:'reader',unlockedAt:1,lastActivity:1},newValue:{account:'reader',unlockedAt:1,lastActivity:2}}},'session');};
  },{ids,image,video,audio:wav.toString('base64url')});
  await context.route('**/*',async route=>{
@@ -54,8 +57,26 @@ try {
  const page=await context.newPage();page.setDefaultTimeout(15000);page.on('pageerror',e=>errors.push(e.message));
  await page.goto('https://www.facebook.com/');
  const photo=page.frameLocator('iframe[title=photo]'),poll=page.frameLocator('iframe[title=poll]');
- await photo.locator('img').waitFor();await photo.locator('img').evaluate(i=>i.decode());assert.ok(await photo.locator('img').evaluate(i=>i.complete&&i.naturalWidth>0),'Archived image loads automatically');
+ await photo.locator('.card-photo img').waitFor();await photo.locator('.card-photo img').evaluate(i=>i.decode());assert.ok(await photo.locator('.card-photo img').evaluate(i=>i.complete&&i.naturalWidth>0),'Archived image loads automatically');
  assert.equal(await photo.locator('.social-card').evaluate(e=>getComputedStyle(e).backgroundColor),'rgb(255, 255, 255)');
+ const avatar=photo.locator('.card-header .card-avatar img');
+ await avatar.waitFor();await avatar.evaluate(i=>i.decode());
+ assert.ok(await avatar.evaluate(i=>i.naturalWidth>0&&getComputedStyle(i).objectFit==='cover'),'Profile photo decodes and fills its avatar circle');
+ const oldAvatar=await avatar.getAttribute('src');
+ await photo.locator('body').evaluate(()=>window.__profile('k'.repeat(43)+'='));
+ await avatar.waitFor();
+ await photo.locator('body').evaluate((_body,old)=>new Promise((resolve,reject)=>{const timeout=setTimeout(()=>reject(Error('Avatar replacement timed out')),5000);const check=()=>window.__revoked.includes(old)?(clearTimeout(timeout),resolve()):setTimeout(check,10);check();}),oldAvatar);
+ await avatar.evaluate(i=>i.decode());assert.notEqual(await avatar.getAttribute('src'),oldAvatar,'Profile refresh replaces the photo and revokes the old URL');
+ await photo.locator('body').evaluate(()=>window.__profile(undefined));
+ await avatar.waitFor({state:'detached'});assert.equal((await photo.locator('.card-avatar').textContent()).trim(),'AR','No profile photo falls back to initials');
+ await photo.locator('body').evaluate(()=>new Promise((resolve,reject)=>{
+  const timer=setTimeout(()=>reject(Error('Broken avatar did not reach its fallback')),10000);
+  const failed=e=>{if(e.target?.closest?.('.card-avatar')){document.removeEventListener('error',failed,true);clearTimeout(timer);setTimeout(resolve,0);}};
+  document.addEventListener('error',failed,true);window.__profile('l'.repeat(43)+'=',true);
+ }));
+ await avatar.waitFor({state:'detached'});assert.equal((await photo.locator('.card-avatar').textContent()).trim(),'AR','Unreadable photo keeps initials');
+ await photo.locator('body').evaluate(()=>window.__profile('j'.repeat(43)+'='));await avatar.waitFor();await avatar.evaluate(i=>i.decode());
+
  await photo.getByRole('button',{name:'React',exact:true}).click();
  await photo.getByRole('button',{name:'Happy',exact:true}).evaluate(b=>b.click());
  assert.equal(await photo.locator('body').evaluate(()=>window.__calls.filter(c=>c.type==='embed.react').length),0,'Synthetic clicks cannot submit reactions');
@@ -68,6 +89,7 @@ try {
  assert.equal(await photo.locator('body').evaluate(()=>window.__calls.find(c=>c.type==='embed.vote').payload.weight),'3');
  await photo.getByRole('button',{name:'Comment',exact:true}).click();await photo.getByRole('textbox',{name:'Write a comment'}).fill('Replying right here in the feed.');
  await photo.getByRole('button',{name:'Post comment',exact:true}).click();await photo.getByText('Replying right here in the feed.',{exact:true}).waitFor();
+ await photo.locator('.comment-card .card-avatar img').waitFor();await photo.locator('.comment-card .card-avatar img').evaluate(i=>i.decode());
  await photo.locator('body').evaluate(()=>window.__touch());
  await photo.getByText('Replying right here in the feed.',{exact:true}).waitFor();
  await poll.getByRole('radio').nth(1).check();await poll.getByRole('button',{name:'Vote in poll',exact:true}).click();await poll.getByRole('button',{name:'Change answer',exact:true}).waitFor();
@@ -98,6 +120,6 @@ try {
  await page.setViewportSize({width:1100,height:1000});await page.locator('iframe[title=photo]').scrollIntoViewIfNeeded();
  await page.screenshot({path:'/tmp/open-social-feed-desktop.png',fullPage:true});
  assert.deepEqual(errors,[]);
- console.log('Embedded browser checks passed: image auto-load, trusted reactions, up/down votes, poll changes, inline comments, activity preserves UI, audio, '+(video?'real MP4/poster and lock cleanup, ':'')+'no navigation, narrow layout; shipped CSP, fixture network only');
+ console.log('Embedded browser checks passed: profile photos/replacement/fallback and comment avatars, image auto-load, trusted reactions, up/down votes, poll changes, inline comments, activity preserves UI, audio, '+(video?'real MP4/poster and lock cleanup, ':'')+'no navigation, narrow layout; shipped CSP, fixture network only');
  await context.close();
 }finally{await browser.close();}

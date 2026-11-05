@@ -8,7 +8,8 @@ import type { Clients } from "./clients";
 import { openPost, toFeedItem } from "./decrypt";
 import type { KeyStore } from "./keystore";
 import type { UnlockedSession, VaultManager } from "./vault";
-import { type Promotion, decodeProfile, eligiblePromotion, insertPromotions, promotionKey } from "@osp/sdk";
+import { type Promotion, decodeProfile, decodeProfileUri, eligiblePromotion, insertPromotions, promotionKey } from "@osp/sdk";
+import { profileAvatarHash } from "./profilePhotos";
 import type { PostView } from "../shared/indexer";
 import type { KeyValueArea } from "../shared/storage";
 import { bytesOf } from "../shared/bytes";
@@ -148,8 +149,9 @@ export class FeedService {
     }
     try {
       const profile = await clients.indexer.profile(post.author);
-      const prefix = "data:application/x-osp-profile;base64,";
-      if (profile?.profileUri.startsWith(prefix)) item.authorName = decodeProfile(bytesOf(profile.profileUri.slice(prefix.length))).display_name;
+      const document = decodeProfileUri(profile?.profileUri);
+      item.authorName = document?.display_name;
+      item.authorAvatarHash = profileAvatarHash(document);
     } catch { /* Keep the post readable if only its profile is unavailable. */ }
     // A lock while the network request was running must not restore decrypted content.
     const current = await this.deps.session();

@@ -7,6 +7,7 @@ import { tokenResources } from "../../../web/src/features/tokens/resources";
 import { audienceName, formatTime, safeHttpUrl, shortAddress } from "../shared/format";
 import { rpc } from "../shared/rpc";
 import { CardMedia } from "./Media";
+import { Avatar } from "./Avatar";
 
 const SITE = "https://opensocial.online";
 type View = { enabled: boolean; item?: FeedItem };
@@ -82,7 +83,7 @@ export function PostCard({ item, rootId = item.postId, compact = false, depth = 
   const validWeight=/^[1-9]\d{0,6}$/.test(weight)&&BigInt(weight)<=available&&BigInt(weight)<=BigInt(economy?.policy?.max_vote_weight??0);
   return <article className={`social-card${compact?' comment-card':''}`} aria-label={`Post by ${name}`}>
     <header className="card-header">
-      <a className="card-avatar" href={`${SITE}/u/${encodeURIComponent(item.author)}`} target="_blank" rel="noopener noreferrer" aria-label={`${name}'s profile`}>{name.split(/\s+/).slice(0,2).map(w=>[...w][0]).join('').toUpperCase()}</a>
+      <a className="card-avatar" href={`${SITE}/u/${encodeURIComponent(item.author)}`} target="_blank" rel="noopener noreferrer" aria-label={`${name}'s profile`}><Avatar name={name} postId={rootId} targetId={item.postId} hash={item.authorAvatarHash}/></a>
       <div className="card-heading"><a className="card-author" href={`${SITE}/u/${encodeURIComponent(item.author)}`} target="_blank" rel="noopener noreferrer">{name}</a>
         <div className="card-meta"><time title={new Date(Number(item.createdAt)).toLocaleString()}>{formatTime(item.createdAt)}</time>{item.versionNumber>1&&' · edited'}<span aria-hidden="true"> · </span><span title={audienceName(item.audience)}><Icon name={item.audience===0?'globe':'lock'} size={12}/></span><span>{audienceName(item.audience)}</span></div>
       </div>
