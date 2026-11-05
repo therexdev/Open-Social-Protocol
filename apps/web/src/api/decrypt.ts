@@ -16,7 +16,7 @@ export interface OpenedContent {
   lang: string;
   created_at: string;
   external_ref: string;
-  media: (Required<MediaItem> & { mediaKey?: Uint8Array })[];
+  media: (Omit<Required<MediaItem>, "poster"> & { mediaKey?: Uint8Array; poster?: MediaItem["poster"] & { mediaKey?: Uint8Array } })[];
 }
 
 export type PostContent =
@@ -39,7 +39,10 @@ function tryDecrypt(envelope: Envelope, epochKey: Uint8Array, aad: AadInput): Op
     const content = decryptContent({ envelope, epochKey, aad }) as OpenedContent;
     if (content.media.some(m => m.wrapped_key?.length)) {
       const key = unwrapContentKey(envelope, epochKey, aad);
-      try { content.media = content.media.map(m => m.wrapped_key?.length ? { ...m, mediaKey: unwrapMediaKey(m.wrapped_key, key, m.content_hash) } : m); }
+      try { content.media = content.media.map(m => ({ ...m,
+        ...(m.wrapped_key?.length && { mediaKey: unwrapMediaKey(m.wrapped_key, key, m.content_hash) }),
+        ...(m.poster?.wrapped_key?.length && { poster: { ...m.poster, mediaKey: unwrapMediaKey(m.poster.wrapped_key, key, m.poster.content_hash!) } }),
+      })); }
       finally { key.fill(0); }
     }
     return content;

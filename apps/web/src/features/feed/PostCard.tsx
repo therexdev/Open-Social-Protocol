@@ -11,6 +11,7 @@ import { useSettings } from "../../stores/settings";
 import { ReactionPicker } from "./ReactionPicker";
 import { toBase64url } from "../../util/bytes";
 import { ClipPlayer } from "../media/ClipPlayer";
+import { posterReference } from "../media/posterReference";
 import { MediaPhoto } from "../../components/MediaPhoto";
 import { formatDateTime, timeAgo } from "../../util/format";
 import { Avatar, Icon } from "../../components/Icon";
@@ -35,6 +36,7 @@ function MediaList({ content }: { content: OpenedContent }) {
         const url = item.locations?.[0];
         if (url?.startsWith("osp-clip://")) return <li key={url} className="media-item"><ClipPlayer media={{
           url, mime: item.mime, size: Number(item.size), contentHash: item.content_hash, altText: item.alt_text,
+          videoPoster: posterReference(item),
           ...(item.mediaKey && { encryption: { key: toBase64url(item.mediaKey), nonce: toBase64url(item.nonce) } }),
         }}/></li>;
         const isImage = (item.mime ?? "").startsWith("image/");

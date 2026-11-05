@@ -54,7 +54,7 @@ export interface DraftRecord {
   audience: number;
   mediaUrls: string[];
   /** Attachment metadata is encrypted with the draft, so reload/retry preserves it. */
-  media?: Array<{ archiveBytes?: string; durationMs?: number; gzipOriginalSize?: number; url: string; mime: string; size: number; contentHash: string; altText?: string; encryption?: { key: string; nonce: string } }>;
+  media?: Array<{ videoPoster?: import("../features/composer/publish").MediaAttachment["videoPoster"]; archiveBytes?: string; durationMs?: number; gzipOriginalSize?: number; url: string; mime: string; size: number; contentHash: string; altText?: string; encryption?: { key: string; nonce: string } }>;
   scope?: string;
   publication?: { audienceId?: string; postId: string; contentHash: string; epoch: number; epochKey?: string; recipients: string[]; txId?: string; operations?: OperationJson[] };
   replyTo?: string;

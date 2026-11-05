@@ -19,6 +19,7 @@ import { usePostContent } from "../feed/usePostContent";
 import { useCanAct, useSubmitContext } from "../session";
 import { RevisionHistory } from "./RevisionHistory";
 import { Icon } from "../../components/Icon";
+import { posterReference } from "../media/posterReference";
 
 function EditDialog({ post, onDone, onCancel }: { post: PostView; onDone: () => void; onCancel: () => void }) {
   const content = usePostContent(post);
@@ -26,6 +27,7 @@ function EditDialog({ post, onDone, onCancel }: { post: PostView; onDone: () => 
   if (text === undefined) return <Notice kind="info">Open the current version first to edit it.</Notice>;
   const media = content && (content.status === "plain" || content.status === "decrypted") ? content.content.media.map(m => ({
     url: m.locations[0] ?? "",mime: m.mime,size: Number(m.size),contentHash: m.content_hash,altText: m.alt_text,
+    videoPoster: posterReference(m),
     ...(m.mediaKey && { encryption: { key: toBase64url(m.mediaKey),nonce: toBase64url(m.nonce) } }),
   })) : [];
   const editor: ComposerFormProps = {

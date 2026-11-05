@@ -1,0 +1,25 @@
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { MemoryRouter } from "react-router-dom";
+import { afterEach, expect, it, vi } from "vitest";
+import { PendingPosts } from "./PendingPosts";
+import type { DraftRecord } from "../../vault/store";
+const mocks = vi.hoisted(() => ({ progress: {} as any }));
+vi.mock("./PublishingProvider", () => ({ usePublishing: () => ({ progress: mocks.progress }) }));
+vi.mock("../profile/useProfileName", () => ({ useProfileName: () => "Alex" }));
+vi.mock("../session", () => ({ useSession: () => undefined }));
+vi.mock("../../components/Icon", () => ({ Avatar: () => null, Icon: () => null }));
+vi.mock("../feed/PostCard", () => ({ audienceLabel: () => "Everyone" }));
+let root: Root, box: HTMLDivElement;
+afterEach(async () => { await act(async () => root?.unmount()); });
+it("shows a spinner, confirmed percentage and remaining bytes, then stops spinning on failure", async () => {
+  box = document.createElement("div"); root = createRoot(box);
+  const draft = { id: "upload", account: "author", state: "submitting", text: "video", audience: 0 } as DraftRecord;
+  const show = async (value: DraftRecord) => { await act(async () => root.render(<MemoryRouter><PendingPosts posts={[value]} indexed={[]}/></MemoryRouter>)); };
+  mocks.progress = { upload: { stage: "uploading", uploadedBytes: 1048576, totalBytes: 4194304 } };
+  await show(draft); expect(box.textContent).toContain("Uploading · 25%"); expect(box.textContent).toContain("1.00 MiB of 4.00 MiB uploaded · 3.00 MiB left");
+  expect(box.querySelector(".spinner")).toBeTruthy(); expect(box.querySelector("progress")?.value).toBe(1048576);
+  mocks.progress.upload = { stage: "publishing", uploadedBytes: 4194304, totalBytes: 4194304 };
+  await show(draft); expect(box.textContent).toContain("Publishing post"); expect(box.textContent).toContain("Upload complete");
+  await show({ ...draft, state: "failed", lastError: "Offline" }); expect(box.querySelector(".spinner")).toBeNull(); expect(box.querySelector("progress")).toBeNull(); expect(box.textContent).toContain("Try again");
+});

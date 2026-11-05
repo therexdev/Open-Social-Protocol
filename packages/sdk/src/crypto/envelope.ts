@@ -17,14 +17,17 @@ export class EnvelopeError extends Error {
 }
 
 /** osp.envelope.media_item */
-export interface MediaItem {
+export interface MediaPoster {
   content_hash?: Uint8Array;
   mime?: string;
   size?: string | number | bigint;
   locations?: string[];
   wrapped_key?: Uint8Array;
   nonce?: Uint8Array;
+}
+export interface MediaItem extends MediaPoster {
   alt_text?: string;
+  poster?: MediaPoster;
 }
 
 /** osp.envelope.content (plaintext of a post). */
@@ -118,6 +121,14 @@ export function validateContent(content: Content): void {
     throw new EnvelopeError(`content has ${media.length} media refs, above the limit of ${LIMITS.maxMediaRefs}`);
   }
   media.forEach((item, index) => {
+    if (item.poster) {
+      const p = item.poster;
+      if (!item.mime?.startsWith("video/") || p.mime !== "image/jpeg" || !p.content_hash || p.content_hash.length !== 32 ||
+          Number(p.size) < 1 || Number(p.size) > 32768 || !Number.isInteger(Number(p.size)) ||
+          p.locations?.length !== 1 || !p.locations[0]?.startsWith("osp-photo://") || p.locations[0].length > LIMITS.maxLocationChars ||
+          (!!p.wrapped_key?.length !== !!item.wrapped_key?.length))
+        throw new EnvelopeError(`media[${index}] has an invalid video poster`);
+    }
     const locations = item.locations ?? [];
     if (locations.length > LIMITS.maxLocationsPerRef) {
       throw new EnvelopeError(`media[${index}] has ${locations.length} locations, above the limit of ${LIMITS.maxLocationsPerRef}`);

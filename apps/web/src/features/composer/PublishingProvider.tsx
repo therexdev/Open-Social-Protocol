@@ -5,11 +5,12 @@ import { useVaultStore, useVault } from "../../vault/context";
 import type { DraftRecord } from "../../vault/store";
 import { listDrafts, saveDraft, subscribeDrafts } from "./drafts";
 import { publicationRunning, publicationScope, startPublication } from "./backgroundPublishing";
-import { reconcileDraft, type PublishDeps, type PublishRequest } from "./publishDraft";
+import { reconcileDraft, type PublishDeps, type PublishRequest, type PublishProgress } from "./publishDraft";
 
 interface Publishing {
   ready: boolean;
   posts: DraftRecord[];
+  progress: Record<string, PublishProgress>;
   start(request: PublishRequest): Promise<DraftRecord>;
   check(): Promise<void>;
 }
@@ -17,10 +18,19 @@ const Context = createContext<Publishing | undefined>(undefined);
 export function PublishingProvider({ children }: { children: ReactNode }) {
   const services = useServices(), vault = useVaultStore(), session = useVault(s => s.session);
   const current = useRef(services); current.current = services;
+  const [activity, setActivity] = useState<{ session: typeof session; services: typeof services; values: Record<string, PublishProgress> }>();
   const deps = useMemo<PublishDeps | undefined>(() => {
     if (!session || !services.protocol) return;
     return { session, protocol: services.protocol, indexer: services.indexer, payment: services.resolved.payment,
-      background: true, verify: chainKeyVerifier(services.protocol), assertActive: () => {
+      background: true, verify: chainKeyVerifier(services.protocol),
+      onProgress: (id, value) => {
+        if (vault.getState().session !== session || current.current !== services) return;
+        setActivity(old => {
+          const values = old?.session === session && old.services === services ? { ...old.values } : {};
+          if (value) values[id] = value; else delete values[id];
+          return { session, services, values };
+        });
+      }, assertActive: () => {
         if (vault.getState().session !== session || current.current !== services) throw new Error("Unlock your account on this network to finish posting.");
       } };
   }, [session, services, vault]);
@@ -66,7 +76,7 @@ export function PublishingProvider({ children }: { children: ReactNode }) {
     await reload();
     return draft;
   }, [deps, reload]);
-  return <Context.Provider value={{ ready: !!deps, posts: snapshot && snapshot.deps === deps ? snapshot.posts : [], start, check }}>{children}</Context.Provider>;
+  return <Context.Provider value={{ ready: !!deps, posts: snapshot && snapshot.deps === deps ? snapshot.posts : [], progress: activity && activity.session === session && activity.services === services ? activity.values : {}, start, check }}>{children}</Context.Provider>;
 }
 export function usePublishing(): Publishing {
   const value = useContext(Context);

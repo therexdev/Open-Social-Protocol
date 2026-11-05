@@ -31,6 +31,13 @@ export function ProfilePage() {
   const { graph, refresh } = useGraph(viewer);
   const [editing, setEditing] = useState(false);
   const [tab, setTab] = useState<"posts" | "about" | "photos" | "groups" | "music" | "videos">("posts");
+  const [mobileTabs, setMobileTabs] = useState(() => window.matchMedia?.("(max-width: 700px)").matches ?? false);
+  useEffect(() => {
+    const query = window.matchMedia?.("(max-width: 700px)"); if (!query) return;
+    const changed = () => setMobileTabs(query.matches);
+    query.addEventListener("change", changed); return () => query.removeEventListener("change", changed);
+  }, []);
+  const tabOrder: typeof tab[] = mobileTabs ? ["posts", "groups", "about", "photos", "music", "videos"] : ["posts", "photos", "music", "videos", "groups", "about"];
   const posts = usePagedPosts((cursor) => indexer.accountPosts(account, { ...(cursor && { cursor }), ...(viewer && { viewer }), limit: 20 }), [indexer, account, viewer]);
   const mine = me === account;
   const view = info?.view;
@@ -72,7 +79,7 @@ export function ProfilePage() {
         </div>
         {editing && mine && view && <ProfileEditor key={account} account={account} view={view} onDone={() => setEditing(false)} />}
       </Card>
-      <Tabs value={tab} onChange={setTab} label="Profile views" options={[{ value: "posts", label: "Posts" }, { value: "photos", label: "Photos" }, { value: "music", label: "Music" }, { value: "videos", label: "Videos" }, { value: "groups", label: "Groups" }, { value: "about", label: "About" }]}/>
+      <Tabs value={tab} onChange={setTab} label="Profile views" options={tabOrder.map(value => ({ value, label: value[0]!.toUpperCase() + value.slice(1) }))}/>
       {tab === "videos" && <VideoSection key={`${account}:${viewer ?? "guest"}`} owner={account}/>}
       {tab === "music" && <MusicSection owner={account}/>}
       {tab === "photos" && <PhotoGallery key={`${account}:${viewer ?? "locked"}`} owner={account}/>}

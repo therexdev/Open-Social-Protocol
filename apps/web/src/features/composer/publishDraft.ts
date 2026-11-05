@@ -1,7 +1,7 @@
 import { archiveClip } from "../media/clipArchive";
 import { archivePhoto } from "./archivePhoto";
 /** Publication transport; UI may wait for it or run it in the background. */
-import { AUDIENCE, LIFECYCLE, requirePhotoLibrary, type ProtocolClient } from "@osp/sdk";
+import { AUDIENCE, LIFECYCLE, MUSIC_CHUNK_BYTES, requirePhotoLibrary, type ProtocolClient } from "@osp/sdk";
 import type { KeyVerifier } from "../../api/keystore";
 import type { PaymentPreference } from "../../stores/settings";
 import { ActionError, submitAction, type SubmitContext, type SubmitOptions } from "../../tx/submit";
@@ -32,6 +32,12 @@ export interface PublishDeps {
   submit?: (ctx: SubmitContext, operations: PublishPlan["operations"], options: SubmitOptions) => ReturnType<typeof submitAction>;
   background?: boolean;
   assertActive?: () => void;
+  onProgress?: (draftId: string, progress: PublishProgress | undefined) => void;
+}
+export interface PublishProgress {
+  stage: "preparing" | "uploading" | "publishing";
+  uploadedBytes: number;
+  totalBytes: number;
 }
 
 export async function planDraft(deps: PublishDeps, request: PublishRequest): Promise<PublishPlan> {
@@ -65,7 +71,7 @@ async function completeDraft(deps: PublishDeps, draft: DraftRecord, outcome: Pub
     if (p.epochKey) await deps.session.keys.put(ref, bytesOf(p.epochKey), { recipients: [draft.account, ...p.recipients] });
     else if (p.recipients.length) await deps.session.keys.addRecipients(ref, p.recipients);
   }
-  if (deps.background) await saveDraft(deps.session, { ...draft, media: draft.media?.map(({ archiveBytes, ...reference }) => reference), state: "published", lastError: undefined,
+  if (deps.background) await saveDraft(deps.session, { ...draft, media: draft.media?.map(({ archiveBytes, videoPoster, ...reference }) => reference), state: "published", lastError: undefined,
     publication: { postId: outcome.postId, contentHash: p?.contentHash ?? "", epoch: p?.epoch ?? 0, recipients: [], txId: outcome.txId ?? p?.txId }, updatedAt: Date.now() });
   else await removeDraft(deps.session, draft.id);
   return outcome;
@@ -129,12 +135,19 @@ export async function publishDraft(deps: PublishDeps, request: PublishRequest, p
   } };
   await saveDraft(session, draft);
   try {
-  for (const media of request.media ?? draft.media?.map(m => ({ ...m, contentHash: bytesOf(m.contentHash) })) ?? []) {
-    if (!media.archiveBytes) continue;
+  const uploads = (request.media ?? draft.media?.map(m => ({ ...m, contentHash: bytesOf(m.contentHash) })) ?? [])
+    .flatMap(m => [...(m.videoPoster ? [{ ...m.videoPoster, contentHash: bytesOf(m.videoPoster.contentHash) }] : []), m]).filter(m => m.archiveBytes);
+  const totalBytes = uploads.reduce((n, m) => n + m.size, 0);
+  let uploadedBytes = 0;
+  for (const media of uploads) {
     const ctx = { client: protocol, signer: me.signer, payment: deps.payment };
-    if (media.url.startsWith("osp-clip://")) await archiveClip(media, ctx, me.account, deps.assertActive);
-    else await archivePhoto(media, ctx, me.account, deps.assertActive);
+    const report = (bytes: number) => deps.onProgress?.(draft.id, { stage: "uploading", uploadedBytes: uploadedBytes + bytes, totalBytes });
+    report(0);
+    if (media.url.startsWith("osp-clip://")) await archiveClip(media, ctx, me.account, deps.assertActive, (received, total) => report(received >= total ? media.size : Math.min(media.size, received * MUSIC_CHUNK_BYTES)));
+    else await archivePhoto(media, ctx, me.account, deps.assertActive, report);
+    uploadedBytes += media.size;
   }
+    deps.onProgress?.(draft.id, { stage: "publishing", uploadedBytes: totalBytes, totalBytes });
     const result = await submit({ client: protocol, signer: me.signer, payment: deps.payment }, built.operations, {
       label,
       success: request.draft.edit ? "Edit saved" : request.draft.replyTo ? "Reply posted" : "Post published",

@@ -27,6 +27,17 @@ message media_item {
   bytes wrapped_key = 5;
   bytes nonce = 6;
   string alt_text = 7;
+  // Optional small video preview. Shares the enclosing post's visibility.
+  media_poster poster = 8;
+}
+
+message media_poster {
+  bytes content_hash = 1;
+  string mime = 2;
+  uint64 size = 3;
+  repeated string locations = 4;
+  bytes wrapped_key = 5;
+  bytes nonce = 6;
 }
 
 // Plaintext content of a post, before encryption.

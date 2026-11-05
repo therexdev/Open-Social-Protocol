@@ -1,5 +1,6 @@
 import { MediaCapture, type CapturedMedia, type ClipKind } from "../media/MediaCapture";
 import { prepareClip, prepareVideoClip } from "../media/clipArchive";
+import { createVideoPoster } from "../media/videoPoster";
 import { AttachmentDialog } from "./AttachmentDialog";
 import { GroupPicker } from "./GroupPicker";
 import { AccountPicker } from "../library/AccountPicker";
@@ -104,7 +105,7 @@ export function ComposerForm({ draft, replyTo, replyGuard, edit, initialMode = "
       return Number.POSITIVE_INFINITY;
     }
   }, [text, media, encrypted]);
-  const photoUnits = media.filter(m => m.archiveBytes && m.url.startsWith("osp-photo://")).reduce((sum, m) => sum + photoCost(m.size), 0);
+  const photoUnits = media.reduce((sum, m) => sum + (m.archiveBytes && m.url.startsWith("osp-photo://") ? photoCost(m.size) : 0) + (m.videoPoster?.archiveBytes ? photoCost(m.videoPoster.size) : 0), 0);
   const voiceUnits = media.filter(m => m.archiveBytes && m.url.startsWith("osp-clip://") && m.mime.startsWith("audio/")).reduce((sum, m) => sum + voiceStorageUnits(m.size), 0);
   const videoUploads = media.filter(m => m.archiveBytes && m.url.startsWith("osp-clip://") && m.mime.startsWith("video/")).length;
   const currency = resolved.network === "mainnet" ? "KOIN" : "tKOIN";
@@ -154,6 +155,13 @@ export function ComposerForm({ draft, replyTo, replyGuard, edit, initialMode = "
       if (controller.signal.aborted || vault.getState().session !== session) return;
       const source = { bytes, mime: value.mime, durationMs: value.durationMs };
       const item = mode === "video" ? await prepareVideoClip(source, protocol, encrypted) : prepareClip(source, mode, protocol, encrypted);
+      if (mode === "video") {
+        const poster = await createVideoPoster(value.file, controller.signal);
+        if (poster && !controller.signal.aborted) {
+          const photo = prepareArchivedPhoto(poster, protocol, encrypted);
+          item.videoPoster = { ...photo, contentHash: toBase64url(photo.contentHash) };
+        }
+      }
       if (controller.signal.aborted || vault.getState().session !== session) return;
       setMedia(items => [...items.filter(m => !m.url.startsWith("osp-clip://")), item]);
       setCaptured(value);
@@ -270,6 +278,7 @@ export function ComposerForm({ draft, replyTo, replyGuard, edit, initialMode = "
       {media.length > 0 && <p className="hint">Remove attachments before changing who can see this post.</p>}
       {mode !== "post" && <div className="clip-compose">
         <p className="hint">{mode === "video" ? `10–30 seconds · MP4 or WebM · up to 10 MiB · 100 ${currency} per upload` : "Up to 2 minutes · 1 usage unit per 32 KiB"}</p>
+        {clip?.videoPoster && <p className="hint">Video preview ready · 1 photo usage unit from your free/regenerating OSAT capacity.</p>}
         {clip && captured && captured.file.size > clip.size && <span className="hint">Lossless transfer: {(clip.size / 1024).toFixed(0)} KiB on chain · {(captured.file.size / 1024).toFixed(0)} KiB original</span>}
         {clip && !captured ? <div className="row"><span>{mode === "video" ? "Attached video" : "Attached voice recording"} · {(clip.size / 1024).toFixed(0)} KiB</span><Button onClick={() => void addClip(undefined)}>Remove attachment</Button></div> :
           <MediaCapture key={`${account}:${session ? "open" : "locked"}:${mode}`} kind={mode} value={captured} onChange={value => void addClip(value)} onBusyChange={setCapturing} disabled={!can.ok || needsGroup || attaching || busy}/>}

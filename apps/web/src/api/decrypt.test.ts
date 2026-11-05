@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { AUDIENCE, LIFECYCLE, buildKeyPackageSet, encode, encryptContent, identityFromSeed, newEpochKey, postId, toBase58, toBase64url } from "@osp/sdk";
+import { AUDIENCE, LIFECYCLE, buildKeyPackageSet, encode, encryptContent, identityFromSeed, newEpochKey, postId, toBase58, toBase64url, ProtocolClient, openMedia, fromBase64url } from "@osp/sdk";
 import { KeyStore } from "./keystore";
 import { openPost } from "./decrypt";
 import type { PostView, SealedKeyView } from "./indexer";
-import { HARBINGER_CHAIN_ID } from "../testing/fixtures";
+import { HARBINGER_CHAIN_ID, fakeProvider, fixtureDeployment } from "../testing/fixtures";
+import { prepareClip } from "../features/media/clipArchive";
+import { prepareArchivedPhoto } from "../features/composer/archivePhoto";
+import { buildContent } from "../features/composer/publish";
+import { posterReference } from "../features/media/posterReference";
 
 const seed = (label: string) => new Uint8Array(32).map((_, i) => (label.charCodeAt(i % label.length) + i) & 0xff);
 const author = identityFromSeed(seed("author"));
@@ -72,6 +76,27 @@ function source(items: SealedKeyView[]) {
 }
 
 describe("post decryption pipeline", () => {
+  it("round-trips a private video's poster through its encrypted envelope without exposing a public preview", async () => {
+    const client = new ProtocolClient({ rpc: fakeProvider(), deployment: fixtureDeployment() });
+    const clip = prepareClip({ bytes: new Uint8Array(100), mime: "video/mp4", durationMs: 15000 }, "video", client, true);
+    const pixels = Uint8Array.of(255,216,255,217), photo = prepareArchivedPhoto(pixels, client, true);
+    clip.videoPoster = { ...photo, contentHash: toBase64url(photo.contentHash) };
+    const epochKey = newEpochKey(), ck = newEpochKey();
+    const content = buildContent({ text: "Private video", media: [clip] }, ck);
+    const result = encryptContent({ content, contentKey: ck, epochKey, aad: { chainId, author: author.account, audience: 1, epoch: 8, versionNumber: 1 } });
+    const post = makePost({ envelope: toBase64url(result.bytes), audience: 1, epoch: 8, contentHash: toBase64url(result.contentHash), postId: toBase64url(new Uint8Array(32)) });
+    const keys = new KeyStore(); await keys.put({ author: author.account, audienceId: new Uint8Array(), epoch: 8 }, epochKey);
+    const opened = await openPost(post, { chainId, keys, me: author });
+    expect(opened.status).toBe("decrypted");
+    if (opened.status !== "decrypted") throw Error("Private video did not open");
+    const poster = posterReference(opened.content.media[0]!)!;
+    expect(poster.encryption).toEqual(photo.encryption);
+    expect(openMedia(fromBase64url(photo.archiveBytes!), fromBase64url(poster.contentHash), { key: fromBase64url(poster.encryption!.key), nonce: fromBase64url(poster.encryption!.nonce) })).toEqual(pixels);
+    expect((await openPost(post, { chainId })).status).toBe("locked");
+    expect(posterReference({ ...opened.content.media[0]!, poster: { ...opened.content.media[0]!.poster!, mediaKey: undefined, wrapped_key: new Uint8Array() } })).toBeUndefined();
+    const edited = buildContent({ text: "Edited video", media: [{ ...clip, videoPoster: poster }] }, newEpochKey());
+    expect(edited.media![0]!.poster!.content_hash).toEqual(photo.contentHash);
+  });
   it("shows everyone posts to anyone, even without a session", async () => {
     const { bytes, contentHash } = encryptContent({ content: { version: 1, text: "hello world" } });
     const post = makePost({ envelope: toBase64url(bytes), audience: AUDIENCE.EVERYONE, epoch: 0, contentHash: toBase64url(contentHash), postId: toBase64url(postId({ chainId, author: author.account, sequence: 1, contentHash })) });

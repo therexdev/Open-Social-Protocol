@@ -18,14 +18,23 @@ function PendingPost({ draft }: { draft: DraftRecord }) {
   const name = useProfileName(draft.account), publishing = usePublishing();
   const [localError, setLocalError] = useState("");
   const failed = draft.state === "failed", unknown = draft.state === "unknown";
+  const progress = publishing.progress?.[draft.id];
+  const active = !failed && !unknown && draft.state !== "published";
+  const percent = progress?.totalBytes ? Math.floor(progress.uploadedBytes / progress.totalBytes * 100) : 0;
+  const size = (n: number) => n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(2)} MiB` : `${(n / 1024).toFixed(1)} KiB`;
   return <article className={`post pending-post ${failed ? "post-needs-attention" : ""}`} aria-label={`Your ${draft.edit ? "edit" : "post"}: ${failed ? "not sent" : draft.state === "published" ? "published" : "posting"}`}>
     <header className="post-header">
       <Avatar account={draft.account} name={name}/>
       <div className="post-heading"><AccountLink account={draft.account} name={name} className="post-author"/>
-        <span className="post-meta" role="status">{failed ? "Not sent · saved on this device" : unknown ? "Still confirming · saved on this device" : draft.state === "published" ? "Published · updating your feed" : "Posting…"}</span>
+        <span className="post-meta pending-status" role="status">{active && <span className="spinner" aria-hidden="true"/>}{failed ? "Not sent · saved on this device" : unknown ? "Still confirming · saved on this device" : draft.state === "published" ? "Published · updating your feed" : progress?.stage === "uploading" ? `Uploading · ${percent}%` : progress?.stage === "publishing" ? "Publishing post…" : draft.state === "queued" && !progress ? "Queued for upload…" : "Preparing post…"}</span>
       </div>
       <span className={`chip chip-${draft.audience === AUDIENCE.EVERYONE ? "public" : "friends"}`}><Icon name={draft.audience === AUDIENCE.EVERYONE ? "globe" : "lock"} size={13}/>{audienceLabel(draft.audience)}</span>
     </header>
+    {active && progress && progress.totalBytes > 0 && <div className="pending-upload" aria-label="Upload progress">
+      <progress max={progress.totalBytes} value={progress.uploadedBytes} aria-label="Uploaded bytes"/>
+      <p className="hint">{size(progress.uploadedBytes)} of {size(progress.totalBytes)} uploaded · {size(Math.max(0, progress.totalBytes - progress.uploadedBytes))} left</p>
+      {progress.stage === "publishing" && <p className="hint">Upload complete. Waiting for the post to confirm.</p>}
+    </div>}
     {draft.edit && <p className="muted">Your updated post</p>}
     {draft.replyTo && <p className="muted">Reply to <Link to={`/post/${draft.replyTo}`}>a post</Link></p>}
     <div className="post-body"><p className="post-text"><RichText text={draft.text}/></p>

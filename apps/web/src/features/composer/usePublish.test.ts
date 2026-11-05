@@ -13,6 +13,8 @@ import { planDraft, publishDraft, type PublishDeps } from "./usePublish";
 import { startPublication, waitForPublication } from "./backgroundPublishing";
 import { reconcileDraft } from "./publishDraft";
 import { submitAction } from "../../tx/submit";
+import * as clips from "../media/clipArchive";
+import { MUSIC_CHUNK_BYTES } from "@osp/sdk";
 const deployment = fixtureDeployment();
 const friend = identityFromSeed(new Uint8Array(32).fill(9));
 
@@ -55,6 +57,22 @@ function chainFor(me: string) {
 }
 
 describe("publishDraft", () => {
+  it("reports resumed confirmed upload bytes, then publishing, and clears progress when finished", async () => {
+    const session = await openSession(), { protocol, indexer } = chainFor(session.identity.account);
+    const media = clips.prepareClip({ bytes: new Uint8Array(MUSIC_CHUNK_BYTES * 2 + 5), mime: "video/mp4", durationMs: 15000 }, "video", protocol, false);
+    const progress = vi.fn();
+    const upload = vi.spyOn(clips, "archiveClip").mockImplementation(async (_media, _ctx, _owner, _active, report) => { report!(1, 3); report!(3, 3); });
+    try {
+      const deps: PublishDeps = { session, protocol, indexer, payment: "self-only", onProgress: progress };
+      const draft = newDraft(session.identity.account, { text: "Video", audience: 0, mediaUrls: [] });
+      await startPublication(deps, { draft, media: [media] }); await waitForPublication(deps, draft.id);
+      const updates = progress.mock.calls.map(call => call[1]);
+      expect(updates).toContainEqual({ stage: "uploading", uploadedBytes: MUSIC_CHUNK_BYTES, totalBytes: media.size });
+      expect(updates).toContainEqual({ stage: "publishing", uploadedBytes: media.size, totalBytes: media.size });
+      expect(updates.at(-1)).toBeUndefined();
+      expect((await listDrafts(session))[0]!.state).toBe("published");
+    } finally { upload.mockRestore(); }
+  });
   it("does not publish a preview encrypted before a friend removal", async () => {
     const session = await openSession();
     const { protocol, indexer, provider, state } = chainFor(session.identity.account);

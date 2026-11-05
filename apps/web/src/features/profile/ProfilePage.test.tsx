@@ -14,7 +14,7 @@ vi.mock("./useProfileName", () => ({ useProfileInfo: () => ({ displayName: "Jim"
 vi.mock("../feed/FeedPage", () => ({ usePagedPosts: () => ({ items: [], loading: false }) }));
 vi.mock("../friends/RelationshipActions", () => ({ RelationshipActions: () => null, useGraph: () => ({ graph: { blocked: mocks.blocked }, refresh: vi.fn() }) }));
 let root: Root, box: HTMLDivElement;
-afterEach(async () => { await act(async () => root?.unmount()); box?.remove(); mocks.blocked = []; });
+afterEach(async () => { await act(async () => root?.unmount()); box?.remove(); mocks.blocked = []; vi.unstubAllGlobals(); });
 async function mount(account: string) {
   box = document.createElement("div"); root = createRoot(box);
   await act(async () => root.render(<MemoryRouter initialEntries={[`/u/${account}`]}><Routes><Route path="/u/:account" element={<ProfilePage />} /></Routes></MemoryRouter>));
@@ -37,4 +37,14 @@ it("opens Music for the selected personal profile", async () => {
   await act(async () => tab!.click());
   expect(box.querySelector("[data-music-owner]")?.getAttribute("data-music-owner")).toBe(peer);
   expect(tab!.getAttribute("aria-selected")).toBe("true");
+});
+it("uses the requested mobile order and keeps the existing desktop order", async () => {
+  let changed!: () => void;
+  const query = { matches: true, addEventListener: (_: string, fn: () => void) => { changed = fn; }, removeEventListener() {} };
+  vi.stubGlobal("matchMedia", () => query);
+  await mount(peer);
+  const labels = () => [...box.querySelectorAll('[role="tab"]')].map(tab => tab.textContent);
+  expect(labels()).toEqual(["Posts", "Groups", "About", "Photos", "Music", "Videos"]);
+  query.matches = false; await act(async () => changed());
+  expect(labels()).toEqual(["Posts", "Photos", "Music", "Videos", "Groups", "About"]);
 });

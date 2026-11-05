@@ -103,6 +103,8 @@ export interface PublishInput {
 }
 
 export interface MediaAttachment {
+  /** Preview is archived with the clip; its key stays in the enclosing post. */
+  videoPoster?: { url: string; mime: string; size: number; contentHash: string; archiveBytes?: string; encryption?: { key: string; nonce: string } };
   /** Prepared ciphertext persisted only inside the encrypted publication draft. */
   archiveBytes?: string;
   durationMs?: number;
@@ -158,6 +160,10 @@ export function buildContent(input: Pick<PublishInput, "text" | "media" | "lang"
       size: String(m.size),
       locations: [m.url],
       ...(m.altText && { alt_text: m.altText }),
+      ...(m.videoPoster && { poster: {
+        content_hash: bytesOf(m.videoPoster.contentHash), mime: m.videoPoster.mime, size: String(m.videoPoster.size), locations: [m.videoPoster.url],
+        ...(m.videoPoster.encryption && { nonce: bytesOf(m.videoPoster.encryption.nonce), wrapped_key: contentKey ? wrapMediaKey(bytesOf(m.videoPoster.encryption.key), contentKey, bytesOf(m.videoPoster.contentHash)) : new Uint8Array(73) }),
+      } }),
       ...(m.encryption && { nonce: bytesOf(m.encryption.nonce), wrapped_key: contentKey ? wrapMediaKey(bytesOf(m.encryption.key), contentKey, m.contentHash) : new Uint8Array(73) }),
     }));
   }

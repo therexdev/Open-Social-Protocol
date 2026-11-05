@@ -54,7 +54,8 @@ export async function archivePhoto(
   media: MediaAttachment,
   ctx: SubmitContext,
   owner: string,
-  assertActive?: () => void
+  assertActive?: () => void,
+  progress: (uploadedBytes: number) => void = () => {}
 ): Promise<void> {
   if (!media.archiveBytes) return;
   const client = ctx.client;
@@ -102,6 +103,8 @@ export async function archivePhoto(
     throw new Error(
       "Photo reservation could not be verified. Resume the saved post to check again."
     );
+  let uploadedBytes = chunks.slice(0, record.received).reduce((n, chunk) => n + chunk.length, 0);
+  progress(uploadedBytes);
   for (let index = record.received; index < chunks.length; index++) {
     assertActive?.();
     await submitAction(
@@ -121,6 +124,8 @@ export async function archivePhoto(
         beforeSubmit: async () => assertActive?.(),
       }
     );
+    uploadedBytes += chunks[index]!.length;
+    progress(uploadedBytes);
   }
   const final = (await client.reads.publications.get_photo({ id }))?.value;
   if (final?.received !== chunks.length)

@@ -35,13 +35,14 @@ export function startPublication(deps: PublishDeps, request: PublishRequest): Pr
         if (saved.some(d => d.id !== draft.id && d.scope === scope && (d.state === "unknown" || d.state === "submitting"))) return;
         // Build only when earlier publications have finished: each new post needs
         // the next author sequence and the current trusted friends-audience key.
+        deps.onProgress?.(draft.id, { stage: "preparing", uploadedBytes: 0, totalBytes: 0 });
         await publishDraft({ ...deps, background: true }, { draft: current });
       } catch (error) {
         const current = (await listDrafts(deps.session)).find(d => d.id === draft.id);
         if (current && current.state !== "unknown" && current.state !== "published") {
           await saveDraft(deps.session, { ...current, state: "failed", updatedAt: Date.now(), lastError: error instanceof Error ? error.message : String(error) });
         }
-      }
+      } finally { deps.onProgress?.(draft.id, undefined); }
     };
     const task = (accounts.get(accountKey) ?? Promise.resolve()).catch(() => undefined).then(async () => {
       if (typeof navigator !== "undefined" && navigator.locks) await navigator.locks.request(`osp-publish:${accountKey}`, work);
