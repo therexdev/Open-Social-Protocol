@@ -155,7 +155,7 @@ export function createRouter(options: RouterOptions): Router {
       if (typeof tabId !== "number" || tabId < 0) return reject("forbidden", "Content-script messages must come from a tab.");
       if (sender.frameId !== undefined && sender.frameId !== 0) return reject("forbidden", "Only the top frame may send messages.");
       if (!(CONTENT_SCRIPT_TYPES as readonly string[]).includes(type)) return reject("forbidden", `Content scripts may not send ${type}.`);
-      if (!feedHost(origin) || feedHost(origin) === "x" && type !== "feed.request") return reject("forbidden", "This host may only request its supported feed integration.");
+      if (!feedHost(origin) || feedHost(origin) === "x" && !["feed.request", "adapter.preferences", "crosspost.xPrepare", "crosspost.xComplete"].includes(type) || feedHost(origin) === "facebook" && ["crosspost.xPrepare", "crosspost.xComplete"].includes(type)) return reject("forbidden", "This message is not supported for this host.");
       const granted = originsFromPatterns(await options.grantedOrigins());
       if (!granted.includes(origin)) return reject("forbidden", `Origin ${origin} is not a granted host.`);
       if (rateLimited(tabId)) return reject("rate_limited", "Too many messages from this tab; try again shortly.");

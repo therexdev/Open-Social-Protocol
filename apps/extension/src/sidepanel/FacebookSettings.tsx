@@ -38,7 +38,7 @@ export function FacebookSettings() {
   const authorize = native.status === "unlocked" && !mismatch ? () => native.exportFile() : undefined;
   const expired = status.device && Number(status.device.expiresAt) <= Date.now();
   return <div className="page"><h1>Browser connections</h1>
-    <Card><p>Connect once to interact with Open Social posts inside Facebook and X, and cross-post from Facebook. This uses a separate, restricted browser authorization.</p>
+    <Card><p>Connect once to interact with Open Social posts inside Facebook and X, and cross-post from either composer. This uses a separate, restricted browser authorization.</p>
       {status.account && <p>Connected account: <strong>{name}</strong></p>}
       {mismatch && <Notice kind="warning">The site integration is connected to a different account from the one open in this panel. Facebook and X actions use {name}. Existing authorization has been preserved.</Notice>}
       {status.status === "empty" ? native.status === "unlocked" ? <form className="stack" onSubmit={e => { e.preventDefault(); setBusy(true); setFailure("");

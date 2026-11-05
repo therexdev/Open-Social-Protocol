@@ -44,6 +44,7 @@ try{
    const resize=new ResizeObserver(()=>{if(!pending){pending=true;requestAnimationFrame(()=>{pending=false;window.__layout();});}});
    window.__watch=()=>{for(const cell of lane.children)resize.observe(cell);window.__layout();};window.__watch();
    window.chrome={runtime:{id:'fixture',getURL:p=>'https://extension.test/'+p,onMessage:{addListener:f=>window.__listeners.add(f),removeListener:f=>window.__listeners.delete(f)},sendMessage:async m=>{
+    if(m.type==='adapter.preferences')return{ok:true,result:{xEnabled:false}};
     if(m.type!=='feed.request')throw Error('X script must only request post identifiers');window.__reads++;
     const start=Number(m.payload.cursor??0),limit=m.payload.limit??5;
     return{ok:true,result:{enabled:true,items:Array.from({length:limit},(_,i)=>({postId:btoa(String.fromCharCode(...new Uint8Array(32).fill(start+i+1))).replace(/\+/g,'-').replace(/\//g,'_')})),nextCursor:String(start+limit)}};

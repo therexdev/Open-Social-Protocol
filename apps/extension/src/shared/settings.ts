@@ -20,6 +20,9 @@ export interface Settings {
   /** Facebook adapter wanted by the user (the host permission must also be granted). */
   facebookAdapter: boolean;
   /** Optional X home-timeline feed, with independent audience preference. */
+  xAdapter: boolean;
+  xAutoCheck: boolean;
+  xAttribution: boolean;
   xFeedInsertion: boolean;
   xFeedScope: "public" | "friends" | "all";
   /** Preselect cross-posting on newly opened Facebook composers. */
@@ -42,6 +45,9 @@ export function defaultSettings(env: EnvDefaults = ENV): Settings {
     payment: "sponsor-then-self",
     autoLockMinutes: 15,
     facebookAdapter: false,
+    xAdapter: false,
+    xAutoCheck: true,
+    xAttribution: true,
     xFeedInsertion: false,
     xFeedScope: "all",
     facebookAttribution: true,
@@ -71,6 +77,10 @@ export function sanitizeSettings(raw: unknown, defaults: Settings = defaultSetti
     payment: validPayment,
     autoLockMinutes: autoLock,
     facebookAdapter: r.facebookAdapter === true,
+    // Preserve enabled X integration from 0.6, which only stored its feed toggle.
+    xAdapter: r.xAdapter === true || r.xAdapter === undefined && r.xFeedInsertion === true,
+    xAutoCheck: r.xAutoCheck !== false,
+    xAttribution: r.xAttribution !== false,
     xFeedInsertion: r.xFeedInsertion === true,
     xFeedScope: r.xFeedScope === "public" || r.xFeedScope === "friends" ? r.xFeedScope : "all",
     facebookAttribution: r.facebookAttribution !== false,

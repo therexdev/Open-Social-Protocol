@@ -1,9 +1,9 @@
 # Open Social Chrome extension
 
-Version 0.6.0 is a standalone protocol frontend in the Chrome side panel, plus
-optional Facebook and X feed integration, plus Facebook cross-posting. It does not load the website
+Version 0.7.0 is a standalone protocol frontend in the Chrome side panel, plus
+optional Facebook and X feed integration and composer cross-posting. It does not load the website
 or a separately bundled website application. The Social switch and Open in tab
-button are removed. See [release instructions](../../docs/chrome-extension-0.6.0.md).
+button are removed. See [release instructions](../../docs/chrome-extension-0.7.0.md).
 
 ## Build and install
 
@@ -106,9 +106,10 @@ answers do not implicitly cast reward votes.
 
 ## X integration
 
-X has its own permission/toggle and audience preference in Browser connections.
-Its content script requests only post IDs; cross-posting methods are not allowed
-from X. Cards use the same restricted worker identity and inline-action checks.
+X has independent site access, feed audience, feed visibility, default-checkbox
+and profile-invitation settings in Browser connections. Existing enabled 0.6.0
+X feed installs migrate to full integration. Fresh installs still require X access.
+Cards use the same restricted worker identity and inline-action checks.
 The actual tab origin determines which site's enablement applies; a card cannot
 impersonate the other site via its hash or request payload.
 
@@ -117,7 +118,24 @@ excluding quotes, suggestions and non-home pages. Cards are inserted after the
 native article within its measurement wrappers, leaving the native transforms
 unchanged. Recycled cells park cards by status ID until that tweet returns.
 Switching For you/Following resets placement; leaving Home removes all cards.
-X composer cross-posting is not included in this release.
+Inline and modal X composers support the same default-on checkbox and Public/Friends
+selection as Facebook. A trusted Post action saves the text and adds the spaced
+profile invitation through native editing. The adapter then checks X's native
+submit state instead of assuming a fixed character limit. If the invitation makes
+the draft invalid, it removes its added footer and leaves the draft for correction.
+Only a new success-toast permalink or matching own-account timestamp permalink
+completes the saved copy; unrelated users, navigation, quotes and old status IDs
+are ignored. Ambiguous/missing results remain recoverable from Unfinished browser
+posts. One automatic X publication is tracked at a time. Multi-post threads pause
+with an explanation; unchecking Open Social leaves native posting available.
+
+The worker binds the draft to account/tab/time, reserves signed-envelope space for
+the canonical status URL and appends that URL to the Open Social text and external
+reference. Public and Friends encryption/access use the existing protocol path.
+Completion and retry reuse the persisted idempotency key. The content script can
+only request feed identifiers, site preferences, X draft preparation and completion;
+it cannot use Facebook methods, read keys or access generic signing APIs. Native X
+media stays on X, reachable through the published link, as in Facebook cross-posts.
 
 `smoke:x-feed` exercises the shipped classic script with a virtualizer fixture;
 `X_SNAPSHOT` can replay anonymized row structure from a local capture. The same
@@ -136,6 +154,7 @@ npm run smoke:embed-browser -w apps/extension
 npm run smoke:facebook-post -w apps/extension
 npm run smoke:facebook-scroll -w apps/extension
 npm run smoke:x-feed -w apps/extension
+npm run smoke:x-post -w apps/extension
 ```
 
 Build checks cover the MV3 manifest/CSP, classic content script, no-eval worker
@@ -153,5 +172,5 @@ spacing, permalink matching, preferences, scroll and row recycling.
 
 Every automated network response is a fixture. Tests do not publish live
 transactions or replace manual acceptance in an installed extension on signed-in
-Facebook. Optional `FACEBOOK_SNAPSHOT` replays locally captured HTML with scripts
+Facebook and X. Optional `FACEBOOK_SNAPSHOT` replays locally captured HTML with scripts
 and external resources disabled; never commit or upload that private file.

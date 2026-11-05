@@ -8,6 +8,7 @@ import { bytesOf, fromHex, toBase64url, toHex } from "../shared/bytes";
 import { feedHost } from "../shared/hosts";
 import { knownNetworks } from "../shared/config";
 import { draftSizeError } from "../shared/draft";
+import { X_LINK_BYTES } from "../shared/xUrl";
 import { FACEBOOK_LINK_BYTES } from "../shared/facebookUrl";
 import type { FetchLike } from "../shared/indexer";
 import {
@@ -76,7 +77,7 @@ const AUDIENCE_VALUES = [AUDIENCE.EVERYONE, AUDIENCE.FRIENDS] as const;
 
 /** Shared-page URL or the actual published Facebook permalink, displayed below the post. */
 function externalRefOf(record: StoredCrossPost): string | undefined {
-  return record.adapter === "generic" ? record.url : record.adapter === "facebook" ? record.facebookPostUrl : undefined;
+  return record.adapter === "generic" ? record.url : record.adapter === "facebook" ? record.facebookPostUrl : record.adapter === "x" ? record.xPostUrl : undefined;
 }
 
 export function createBackground(options: BackgroundOptions): Background {
@@ -139,7 +140,8 @@ export function createBackground(options: BackgroundOptions): Background {
       if (!record.text) throw new Error("The draft has no text.");
       // Facebook uses its observed post permalink; the composer page URL is never published.
       // Also include it in visible text for clients that do not render external_ref yet.
-      const text = record.adapter === "facebook" && record.facebookPostUrl ? `${record.text}\n\n${record.facebookPostUrl}` : record.text;
+      const hostLink = record.adapter === "facebook" ? record.facebookPostUrl : record.adapter === "x" ? record.xPostUrl : undefined;
+      const text = hostLink ? `${record.text}\n\n${hostLink}` : record.text;
       const outcome = await publishPost(
         { text, audience: record.audience, attemptId: record.attemptId, ...(externalRefOf(record) && { externalRef: externalRefOf(record) }) },
         { client, indexer: clients.indexer, session, vault, keys: await keysFor(session), payment: clients.resolved.payment, sponsorUrls: clients.resolved.sponsorUrls, now },
@@ -258,6 +260,9 @@ export function createBackground(options: BackgroundOptions): Background {
     facebookAttribution: optional(bool()),
     facebookAutoCheck: optional(bool()),
     feedInsertion: optional(bool()),
+    xAdapter: optional(bool()),
+    xAutoCheck: optional(bool()),
+    xAttribution: optional(bool()),
     xFeedInsertion: optional(bool()),
     xFeedScope: optional(oneOf(["public", "friends", "all"] as const)),
     feedScope: optional(oneOf(["public", "friends", "all"] as const)),
@@ -311,8 +316,8 @@ export function createBackground(options: BackgroundOptions): Background {
   }
   const hostFeedEnabled = async (origin?: string) => {
     const settings = await loadSettings();
-    if (origin) return feedHost(origin) === "x" ? settings.xFeedInsertion : feedHost(origin) === "facebook" && settings.facebookAdapter && settings.feedInsertion;
-    return settings.xFeedInsertion || settings.facebookAdapter && settings.feedInsertion;
+    if (origin) return feedHost(origin) === "x" ? settings.xAdapter && settings.xFeedInsertion : feedHost(origin) === "facebook" && settings.facebookAdapter && settings.feedInsertion;
+    return settings.xAdapter && settings.xFeedInsertion || settings.facebookAdapter && settings.feedInsertion;
   };
   const embedDeps = { clients: () => registry.get(), session: () => vault.current(), keys: keysFor, vault, now, feed, local,
     enabled: hostFeedEnabled };
@@ -411,8 +416,9 @@ export function createBackground(options: BackgroundOptions): Background {
       },
     }),
     "adapter.status": defineHandler({ source: "extension", validate: empty, handle: async () => adapters.status(await loadSettings()) }),
-    "adapter.preferences": defineHandler({ source: "content", validate: empty, handle: async () => {
+    "adapter.preferences": defineHandler({ source: "content", validate: empty, handle: async (_p, ctx) => {
       const settings = await loadSettings();
+      if (feedHost(ctx.origin || "") === "x") return { xEnabled: settings.xAdapter, xAttribution: settings.xAttribution, xAutoCheck: settings.xAutoCheck };
       return { facebookAttribution: settings.facebookAdapter && settings.facebookAttribution, facebookAutoCheck: settings.facebookAutoCheck };
     } }),
     "adapter.enable": defineHandler({
@@ -421,7 +427,7 @@ export function createBackground(options: BackgroundOptions): Background {
       handle: async p => {
         if (p.adapter === "x") {
           if (!await adapters.xGranted()) throw Error("Grant the X host permission first.");
-          await updateSettings({ xFeedInsertion: true });
+          await updateSettings({ xAdapter: true, xFeedInsertion: true });
         } else {
           if (!await adapters.facebookGranted()) throw Error("Grant the Facebook host permission first.");
           await updateSettings({ facebookAdapter: true });
@@ -433,7 +439,7 @@ export function createBackground(options: BackgroundOptions): Background {
       source: "extension",
       validate: obj({ adapter: oneOf(["facebook", "x"] as const) }),
       handle: async p => {
-        await updateSettings(p.adapter === "x" ? { xFeedInsertion: false } : { facebookAdapter: false, feedInsertion: false });
+        await updateSettings(p.adapter === "x" ? { xAdapter: false, xFeedInsertion: false } : { facebookAdapter: false, feedInsertion: false });
         await adapters.disable(p.adapter);
         return adapters.status(await loadSettings());
       },
@@ -566,6 +572,26 @@ export function createBackground(options: BackgroundOptions): Background {
       const record = await crossposts.finishFacebook(p.attemptId, p.url, ctx.tabId);
       return { attemptId: record.attemptId, status: record.koinosStatus === "ok" ? "published" : "pending", message: record.koinosStatus === "ok" ? "Published to Open Social with the Facebook post link." : record.lastError || "Open Post to check this saved post." };
     } }),
+    "crosspost.xPrepare": defineHandler({ source: "content", requireGesture: true,
+      validate: obj({ text: str({ min: 1, max: MAX_POST_CHARS }), audience: oneOf(AUDIENCE_VALUES), attemptId: attemptIdSchema, url: httpUrl(), submitted: bool(), userGesture: bool() }),
+      handle: async (p, ctx) => {
+        if (feedHost(ctx.origin || "") !== "x" || new URL(p.url).origin !== ctx.origin || !p.submitted) throw Error("Cross-posting requires the X Post action.");
+        if (!(await loadSettings()).xAdapter) throw Error("The X integration is disabled.");
+        await requireDevice(await requireSession());
+        const reserved = "https://x.com/".padEnd(X_LINK_BYTES, "x");
+        const oversize = draftSizeError(`${p.text}\n\n${reserved}`, reserved);
+        if (oversize) throw Error("This post is too long to cross-post with its X link. Shorten it before posting.");
+        await vault.touch();
+        const prepared = await crossposts.prepareX({ text: p.text, audience: p.audience, adapter: "x", url: p.url }, p.attemptId, ctx.tabId!);
+        return { attemptId: p.attemptId, status: "pending", awaitingX: true, profileUrl: `https://opensocial.online/u/${encodeURIComponent(prepared.author!)}`, message: "Waiting for the published X post link." };
+      },
+    }),
+    "crosspost.xComplete": defineHandler({ source: "content", validate: obj({ attemptId: attemptIdSchema, url: httpUrl() }), handle: async (p, ctx) => {
+      if (!(await loadSettings()).xAdapter) throw Error("The X integration is disabled.");
+      const record = await crossposts.finishX(p.attemptId, p.url, ctx.tabId);
+      return { attemptId: record.attemptId, status: record.koinosStatus === "ok" ? "published" : "pending", message: record.koinosStatus === "ok" ? "Published to Open Social with the X post link." : record.lastError || "Open Post to check this saved post." };
+    } }),
+    "crosspost.finishX": defineHandler({ source: "extension", validate: obj({ attemptId: attemptIdSchema, url: httpUrl() }), handle: async p => queueItem(await crossposts.finishX(p.attemptId, p.url)) }),
     "crosspost.finishFacebook": defineHandler({ source: "extension", validate: obj({ attemptId: attemptIdSchema, url: httpUrl() }), handle: async p => queueItem(await crossposts.finishFacebook(p.attemptId, p.url)) }),
     "crosspost.propose": defineHandler({
       source: "content",

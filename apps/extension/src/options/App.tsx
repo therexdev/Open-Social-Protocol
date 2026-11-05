@@ -72,7 +72,7 @@ export function OptionsApp({ adaptersOnly = false }: { adaptersOnly?: boolean } 
   }
 
   async function enableX() {
-    await act("X feed enabled. Open or refresh your X Home timeline.", async () => {
+    await act("X enabled. Open your X timeline or composer.", async () => {
       if (!await chrome.permissions.request({ origins: X_ORIGINS })) throw Error("Permission was not granted.");
       await rpc("adapter.enable", { adapter: "x" });
     });
@@ -158,16 +158,25 @@ export function OptionsApp({ adaptersOnly = false }: { adaptersOnly?: boolean } 
       </section>
 
       <section className="card">
-        <h2>X feed integration</h2>
-        <p className="muted">Show Open Social posts between posts in your X Home timeline, with inline voting, polls, reactions, comments and media. Uses the same browser authorization as Facebook.</p>
+        <h2>X integration</h2>
+        <p className="muted">Cross-post from the X composer and show Open Social posts in your Home timeline, with inline voting, polls, reactions, comments and media. Uses the same browser authorization as Facebook.</p>
         <p>Status: {adapters.x?.registered ? "enabled" : adapters.x?.granted ? "permission granted, not active" : "off"}</p>
         {adapters.x?.attachmentWarning && <p className="notice">{adapters.x.attachmentWarning}</p>}
-        <div className="row">{adapters.x?.registered ? <button className="danger" onClick={() => act("X feed disabled and site access removed.", () => rpc("adapter.disable", { adapter: "x" }))}>Disable X and remove site access</button>
-          : <button className="primary" onClick={enableX}>Enable X feed (asks for site access)</button>}</div>
-        <label><span className="lbl">Posts to include in X</span><select disabled={!adapters.x?.registered} value={form.xFeedScope ?? "all"} onChange={e => act("X feed updated.", () => rpc("settings.update", { patch: { xFeedScope: e.target.value } }))}>
+        <div className="row">{adapters.x?.registered ? <button className="danger" onClick={() => act("X disabled and site access removed.", () => rpc("adapter.disable", { adapter: "x" }))}>Disable X and remove site access</button>
+          : <button className="primary" onClick={enableX}>Enable X (asks for site access)</button>}</div>
+        <label className="row" style={{ marginTop: 12 }}><input type="checkbox" style={{ width: "auto" }} checked={form.xAutoCheck !== false}
+          onChange={e => act("X cross-posting default updated.", () => rpc("settings.update", { patch: { xAutoCheck: e.target.checked } }))} />
+          <span>Automatically check “Also publish to Open Social” on new X posts</span></label>
+        <label className="row" style={{ marginTop: 12 }}><input type="checkbox" style={{ width: "auto" }} checked={form.xAttribution !== false}
+          onChange={e => act("X profile invitation updated.", () => rpc("settings.update", { patch: { xAttribution: e.target.checked } }))} />
+          <span>Add “Join Me On Open Social: ” and my profile link when I post on X</span></label>
+        <label className="row" style={{ marginTop: 12 }}><input type="checkbox" style={{ width: "auto" }} disabled={!adapters.x?.registered} checked={form.xFeedInsertion === true}
+          onChange={e => act("X feed updated.", () => rpc("settings.update", { patch: { xFeedInsertion: e.target.checked } }))} />
+          <span>Show Open Social post cards in the X Home timeline</span></label>
+        <label><span className="lbl">Posts to include in X</span><select disabled={!adapters.x?.registered || !form.xFeedInsertion} value={form.xFeedScope ?? "all"} onChange={e => act("X feed updated.", () => rpc("settings.update", { patch: { xFeedScope: e.target.value } }))}>
           <option value="all">Everyone and friends</option><option value="public">Everyone</option><option value="friends">Friends</option>
         </select></label>
-        <p className="muted">Unlock the browser connection to read private posts and interact. Public posts can be viewed while locked. Cards follow X’s light or dark appearance.</p>
+        <p className="muted">Cross-posting is checked by default; you can uncheck it on each post. The Open Social copy includes your text and published X link after X confirms posting. Choose Public or Friends independently of X’s audience. Native X attachments stay on X. Unlock the browser connection to cross-post or interact; cards follow X’s appearance.</p>
       </section>
 
       {!adaptersOnly && <>

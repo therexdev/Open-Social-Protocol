@@ -20,6 +20,7 @@ import type { Adapter, CreatePayload, ProposePayload, StoredCrossPost } from "..
 import { STALE_SUBMITTING_MS, explain, hostRefProblem, needsProof } from "../shared/queue";
 import type { KeyValueArea } from "../shared/storage";
 import { classifySubmitError, type ProofResult, type PublishOutcome } from "./publish";
+import { xPostUrl } from "../shared/xUrl";
 import { facebookPostUrl } from "../shared/facebookUrl";
 
 export const CROSSPOSTS_KEY = "osp.crossposts";
@@ -189,6 +190,7 @@ export class CrossPostOrchestrator {
       let record = file.records.find(r => r.attemptId === attemptId);
       if (record) {
         if (record.author !== account || record.audience !== payload.audience || record.adapter !== payload.adapter || (record.text !== undefined && record.text !== payload.text)) throw new CrossPostError("This publishing attempt belongs to a different draft.");
+        if (record.awaitingX) throw new CrossPostError("Add the published X link in Post to finish this draft.");
         if (record.awaitingFacebook) throw new CrossPostError("Add the published Facebook link in Post to finish this draft.");
         if (record.koinosStatus === "ok" || record.state === "submitting" || record.state === "reconcile_required") return record;
         if (record.state !== "draft") return this.retryRecord(file, record);
@@ -230,6 +232,39 @@ export class CrossPostOrchestrator {
     });
   }
 
+  prepareX(payload: Omit<CreatePayload, "adapter"> & { adapter: "x" }, attemptId: string, tabId: number): Promise<StoredCrossPost> {
+    return this.run(async () => {
+      const account = await this.deps.account();
+      if (!account) throw new CrossPostError("Unlock Open Social before cross-posting.");
+      const file = await this.load(), existing = file.records.find(r => r.attemptId === attemptId);
+      if (existing) {
+        if (existing.adapter !== "x" || existing.author !== account || existing.xTabId !== tabId || existing.text !== payload.text || existing.audience !== payload.audience)
+          throw new CrossPostError("This attempt belongs to a different X draft.");
+        return existing;
+      }
+      return this.update(file, { ...await this.fresh({ ...payload, adapter: "x", attemptId }), awaitingX: true, xTabId: tabId });
+    });
+  }
+
+  finishX(attemptId: string, value: string, tabId?: number): Promise<StoredCrossPost> {
+    return this.run(async () => {
+      const file = await this.load(), record = file.records.find(r => r.attemptId === attemptId);
+      const account = await this.deps.account(), url = xPostUrl(value);
+      if (!record || record.adapter !== "x" || record.xTabId === undefined || !account || record.author !== account)
+        throw new CrossPostError("This X draft is not available to your account.");
+      if (tabId !== undefined && (record.xTabId !== tabId || this.now() - record.createdAt > 10 * 60_000))
+        throw new CrossPostError("Open Post to finish this saved X draft.");
+      if (!url) throw new CrossPostError("Paste the published X post link, not the feed or a profile page.");
+      const linked = file.records.find(r => r.adapter === "x" && r.author === account && r.attemptId !== attemptId && r.xPostUrl?.split("/status/")[1] === url.split("/status/")[1]);
+      if (linked) throw new CrossPostError("This X post is already linked to another saved draft. Check Unfinished browser posts.");
+      if (record.xPostUrl && record.xPostUrl !== url) throw new CrossPostError("This draft already has a different X post link.");
+      if (record.koinosStatus === "ok" || record.state === "submitting" || record.state === "unknown" || record.state === "reconcile_required") return record;
+      if (record.state !== "draft") return this.retryRecord(file, record);
+      const prepared = { ...record, awaitingX: false, xPostUrl: url, hostSubmitted: true };
+      return this.publish(file, await this.update(file, merge(prepared, transition(baseRecord(prepared), { type: "retry", at: this.now() }))));
+    });
+  }
+
   /**
    * Confirmation for legacy proposals. New Facebook drafts must use finishFacebook so the
    * published permalink is included before the Open Social copy is signed.
@@ -239,6 +274,7 @@ export class CrossPostOrchestrator {
       const file = await this.load();
       const record = file.records.find((r) => r.attemptId === attemptId);
       if (!record) throw new CrossPostError("Unknown attempt.");
+      if (record.awaitingX) throw new CrossPostError("Add the published X link in Post to finish this draft.");
       if (record.awaitingFacebook) throw new CrossPostError("Add the published Facebook link in Post to finish this draft.");
       if (record.state !== "draft") throw new CrossPostError(`This attempt is ${record.state}; use retry or reconcile instead.`);
       const account = await this.deps.account();

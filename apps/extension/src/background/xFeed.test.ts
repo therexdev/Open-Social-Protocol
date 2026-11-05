@@ -4,7 +4,7 @@ import { X_SCRIPT_ID, FACEBOOK_SCRIPT_ID } from "./adapters";
 import { fromHex, toBase64url } from "@osp/sdk";
 import type { Reply, StoredCrossPost, FeedItem, FeedRequestReply } from "../shared/protocol";
 
-it("keeps X/Facebook permission, enablement and scope independent; X content cannot cross-post or read secrets",async()=>{
+it("keeps X/Facebook permission, enablement and scope independent; X content cannot invoke Facebook publishing or read secrets",async()=>{
  const t=createTestBackground({indexer:true,origins:['https://x.com/*','https://www.facebook.com/*']});
  const passphrase='correct horse battery';await t.call('vault.create',{passphrase});await t.call('device.authorize',{passphrase,keepOwnerSeed:false});
  const draft=await t.call<{record:StoredCrossPost}>('crosspost.create',{text:'Private X test',audience:1,adapter:'sidepanel'});
@@ -23,7 +23,8 @@ it("keeps X/Facebook permission, enablement and scope independent; X content can
  expect(refs).toMatchObject({ok:true,result:{items:[{postId}]}});expect(JSON.stringify(refs)).not.toContain('Private X test');
  expect(await dispatch('feed.request',{},fb)).toMatchObject({ok:true,result:{items:[]}});
  expect(await dispatch('embed.post',{postId},frame)).toMatchObject({ok:true,result:{item:{status:'decrypted',text:'Private X test'}}});
- for(const type of ['adapter.preferences','crosspost.publish','crosspost.propose','crosspost.facebookComplete','vault.export','settings.get','embed.react'])expect((await dispatch(type,{})).ok).toBe(false);
+ for(const type of ['crosspost.publish','crosspost.propose','crosspost.facebookComplete','vault.export','settings.get','embed.react'])expect((await dispatch(type,{})).ok).toBe(false);
+ expect(await dispatch('adapter.preferences',{})).toMatchObject({ok:true,result:{xEnabled:true,xAutoCheck:true,xAttribution:true}});
  const forged={...frame,tab:{...x.tab!,url:'https://x.com.evil.test/home'}};expect((await dispatch('embed.post',{postId},forged)).ok).toBe(false);
  await t.call('settings.update',{patch:{xFeedInsertion:false}});expect(await dispatch('embed.post',{postId},frame)).toMatchObject({ok:true,result:{enabled:false}});
  await t.call('adapter.disable',{adapter:'x'});

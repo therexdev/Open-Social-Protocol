@@ -13,7 +13,7 @@ const sites = {
   x: { origins: X_ORIGINS, id: X_SCRIPT_ID, file: X_SCRIPT_FILE, label: "X" },
 };
 type ChromeLike = Pick<typeof chrome, "permissions" | "scripting" | "tabs">;
-type AdapterSettings = Pick<Settings, "facebookAdapter" | "feedInsertion"> & Partial<Pick<Settings, "xFeedInsertion">>;
+type AdapterSettings = Pick<Settings, "facebookAdapter" | "feedInsertion"> & Partial<Pick<Settings, "xAdapter" | "xFeedInsertion">>;
 export type AdapterSettingsSource = AdapterSettings | (() => Promise<AdapterSettings>);
 
 export function adapterApi(api: ChromeLike = chrome) {
@@ -63,13 +63,13 @@ export function adapterApi(api: ChromeLike = chrome) {
   async function status(settings: AdapterSettings): Promise<AdapterStatusView> {
     const state = async (host: FeedHost, wanted: boolean) => ({ wanted, granted: (await grantedOrigins(host)).length > 0,
       registered: !!await registered(host), attachmentWarning: warnings[host] });
-    return { facebook: await state("facebook", settings.facebookAdapter), x: await state("x", settings.xFeedInsertion === true), feedInsertion: settings.feedInsertion };
+    return { facebook: await state("facebook", settings.facebookAdapter), x: await state("x", (settings.xAdapter ?? settings.xFeedInsertion) === true), feedInsertion: settings.feedInsertion };
   }
   function sync(source: AdapterSettingsSource): Promise<AdapterStatusView> {
     return serialized(async () => {
       const settings = typeof source === "function" ? await source() : source;
       for (const host of ["facebook", "x"] as const) {
-        const matches = await grantedOrigins(host), wanted = host === "facebook" ? settings.facebookAdapter : settings.xFeedInsertion;
+        const matches = await grantedOrigins(host), wanted = host === "facebook" ? settings.facebookAdapter : settings.xAdapter ?? settings.xFeedInsertion;
         if (wanted && matches.length) {
           await register(host);
           const revoked = sites[host].origins.filter(o => !matches.includes(o));

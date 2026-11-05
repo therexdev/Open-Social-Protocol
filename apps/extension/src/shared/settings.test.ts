@@ -22,3 +22,8 @@ it("preserves explicit custom endpoints and payment preferences", () => {
   expect(resolved.sponsorUrls).toEqual(["https://sponsor.test"]);
   expect(resolved.payment).toBe("self-only");
 });
+it("migrates X feed users to the full integration while preserving independent opt-outs", () => {
+  expect(defaultSettings()).toMatchObject({xAdapter:false,xAutoCheck:true,xAttribution:true});
+  expect(sanitizeSettings({xFeedInsertion:true})).toMatchObject({xAdapter:true,xAutoCheck:true,xAttribution:true});
+  expect(sanitizeSettings({xAdapter:false,xFeedInsertion:true,xAutoCheck:false,xAttribution:false,facebookAutoCheck:true})).toMatchObject({xAdapter:false,xAutoCheck:false,xAttribution:false,facebookAutoCheck:true});
+});

@@ -94,7 +94,7 @@ export class ComposerAttribution {
     if (!success && host) {
       const warning = editor.ownerDocument.createElement("small");
       warning.setAttribute("data-osp-attribution-warning", ""); warning.setAttribute("role", "status");
-      warning.textContent = enabled ? `Facebook did not accept the automatic link. Add it to your draft, then click Post again: ${footer}` : "Remove the Open Social link from the draft if you don't want it included.";
+      warning.textContent = enabled ? `${this.adapter.name === "x" ? "X" : "Facebook"} did not accept the automatic link. Add it to your draft, then click Post again: ${footer}` : "Remove the Open Social link from the draft if you don't want it included.";
       host.append(warning);
     }
     return success;

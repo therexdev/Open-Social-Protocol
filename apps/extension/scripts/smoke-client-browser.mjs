@@ -17,15 +17,15 @@ const browser=await chromium.launch({...(process.env.CHROMIUM_PATH&&{executableP
 try {
  const context=await browser.newContext({viewport:{width:390,height:900}}),requests=[],errors=[];
  await context.addInitScript(({account})=>{
-  const listeners=new Set();window.__xEnabled=false;window.__xScope="all";window.__permissions=[];
-  window.chrome={runtime:{getManifest:()=>({version:'0.6.0'}),getURL:p=>'https://extension.test/'+p,openOptionsPage:async()=>{},sendMessage:async({type,payload})=>{
+  const listeners=new Set();window.__xEnabled=false;window.__xFeed=false;window.__xAuto=true;window.__xAttribution=true;window.__xScope="all";window.__permissions=[];
+  window.chrome={runtime:{getManifest:()=>({version:'0.7.0'}),getURL:p=>'https://extension.test/'+p,openOptionsPage:async()=>{},sendMessage:async({type,payload})=>{
    if(type==='vault.status')return{ok:true,result:{status:'locked',account,mode:'device',deviceAuthorized:true,network:{deployed:true}}};
    if(type==='crosspost.list')return{ok:true,result:{items:[]}};
-   if(type==='settings.get')return{ok:true,result:{settings:{network:'harbinger',rpcUrls:[],indexerUrl:'',sponsorUrls:[],autoLockMinutes:15,payment:'sponsor-then-self',xFeedInsertion:window.__xEnabled,xFeedScope:window.__xScope},resolved:{network:'harbinger',deployed:true,rpcUrls:[],indexerUrl:'',sponsorUrls:[]},networks:['harbinger']}};
+   if(type==='settings.get')return{ok:true,result:{settings:{network:'harbinger',rpcUrls:[],indexerUrl:'',sponsorUrls:[],autoLockMinutes:15,payment:'sponsor-then-self',xAdapter:window.__xEnabled,xFeedInsertion:window.__xFeed,xAutoCheck:window.__xAuto,xAttribution:window.__xAttribution,xFeedScope:window.__xScope},resolved:{network:'harbinger',deployed:true,rpcUrls:[],indexerUrl:'',sponsorUrls:[]},networks:['harbinger']}};
    if(type==='adapter.status')return{ok:true,result:{facebook:{wanted:false,granted:false,registered:false},x:{wanted:window.__xEnabled,granted:window.__xEnabled,registered:window.__xEnabled},feedInsertion:false}};
-   if(type==='adapter.enable'&&payload.adapter==='x'){window.__xEnabled=true;return{ok:true,result:{}};}
+   if(type==='adapter.enable'&&payload.adapter==='x'){window.__xEnabled=true;window.__xFeed=true;return{ok:true,result:{}};}
    if(type==='adapter.disable'&&payload.adapter==='x'){window.__xEnabled=false;return{ok:true,result:{}};}
-   if(type==='settings.update'&&payload.patch.xFeedScope){window.__xScope=payload.patch.xFeedScope;return{ok:true,result:{}};}
+   if(type==='settings.update'){const p=payload.patch;if(p.xFeedScope)window.__xScope=p.xFeedScope;if(typeof p.xAutoCheck==='boolean')window.__xAuto=p.xAutoCheck;if(typeof p.xAttribution==='boolean')window.__xAttribution=p.xAttribution;if(typeof p.xFeedInsertion==='boolean')window.__xFeed=p.xFeedInsertion;return{ok:true,result:{}};}
    if(type==='vault.lock')return{ok:true,result:{}};
    throw Error('Unexpected fixture worker request '+type);
   }},permissions:{request:async({origins})=>{window.__permissions.push(origins);return true;}},storage:{onChanged:{addListener:f=>listeners.add(f),removeListener:f=>listeners.delete(f)}}};
@@ -94,14 +94,21 @@ try {
  assert.ok(publicKey,'Encrypted-messaging WASM initializes under the shipped CSP');
  await page.getByRole('button',{name:'More menu',exact:true}).click();await page.getByRole('link',{name:'Browser connections',exact:true}).click();
  await page.getByRole('heading',{name:'Browser connections',exact:true}).waitFor();
- const xSettings=page.locator('section').filter({has:page.getByRole('heading',{name:'X feed integration',exact:true})});
- await xSettings.getByRole('button',{name:'Enable X feed (asks for site access)',exact:true}).click();
+ const xSettings=page.locator('section').filter({has:page.getByRole('heading',{name:'X integration',exact:true})});
+ await xSettings.getByRole('button',{name:'Enable X (asks for site access)',exact:true}).click();
  await xSettings.getByRole('button',{name:'Disable X and remove site access',exact:true}).waitFor();
  await xSettings.getByRole('combobox').selectOption('friends');
  assert.deepEqual(await page.evaluate(()=>window.__permissions),[['https://x.com/*','https://www.x.com/*']]);
  assert.equal(await page.evaluate(()=>window.__xScope),'friends');
+ const auto=xSettings.getByRole('checkbox',{name:'Automatically check “Also publish to Open Social” on new X posts'});
+ const invite=xSettings.getByRole('checkbox',{name:'Add “Join Me On Open Social: ” and my profile link when I post on X'});
+ assert.equal(await auto.isChecked(),true);assert.equal(await invite.isChecked(),true);
+ await auto.uncheck();await page.waitForFunction(()=>window.__xAuto===false);await invite.uncheck();await page.waitForFunction(()=>window.__xAttribution===false);
+ await xSettings.getByRole('checkbox',{name:'Show Open Social post cards in the X Home timeline'}).uncheck();await page.waitForFunction(()=>window.__xFeed===false);
+ assert.equal(await page.evaluate(()=>window.__xEnabled),true,'Disabling feed leaves X composer integration active');
+
  assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'Connection settings fit the panel');
- await xSettings.getByRole('button',{name:'Disable X and remove site access',exact:true}).click();await xSettings.getByRole('button',{name:'Enable X feed (asks for site access)',exact:true}).waitFor();
+ await xSettings.getByRole('button',{name:'Disable X and remove site access',exact:true}).click();await xSettings.getByRole('button',{name:'Enable X (asks for site access)',exact:true}).waitFor();
  await page.getByRole('button',{name:'More menu',exact:true}).click();await page.getByRole('button',{name:'Lock account and site connections',exact:true}).click();
  await nav.getByRole('link',{name:'Groups',exact:true}).click();await page.getByRole('heading',{name:'Unlock your account'}).waitFor();
  assert.equal(context.pages().length,1,'Feature navigation stays inside the panel');assert.deepEqual(errors,[]);
