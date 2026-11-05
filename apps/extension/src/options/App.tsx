@@ -119,9 +119,14 @@ export function OptionsApp() {
           )}
         </div>
         <label className="row" style={{ marginTop: 12 }}>
+          <input type="checkbox" style={{ width: "auto" }} checked={form.facebookAutoCheck !== false}
+            onChange={e => act("Cross-posting default updated.", () => rpc("settings.update", { patch: { facebookAutoCheck: e.target.checked } }))} />
+          <span>Automatically check “Also publish to Open Social” on new Facebook posts</span>
+        </label>
+        <label className="row" style={{ marginTop: 12 }}>
           <input type="checkbox" style={{ width: "auto" }} checked={form.facebookAttribution !== false}
             onChange={e => act(e.target.checked ? "Open Social link enabled." : "Open Social link disabled.", () => rpc("settings.update", { patch: { facebookAttribution: e.target.checked } }))} />
-          <span>Add “Posted on Open Social” and the About-page link at the bottom of Facebook posts shared to Open Social</span>
+          <span>Add “Join Me On Open Social: ” and my profile link when I click Post</span>
         </label>
         <label className="row" style={{ marginTop: 12 }}>
           <input
@@ -141,7 +146,7 @@ export function OptionsApp() {
             <option value="friends">Friends</option>
           </select>
         </label>
-        <p className="muted">Friends-only posts require the extension to be unlocked. Post actions open the original post on Open Social.</p>
+        <p className="muted">Unlock Browser tools to cross-post or interact with feed cards. Cards automatically follow Facebook’s light or dark appearance.</p>
       </section>
 
       <section className="card">

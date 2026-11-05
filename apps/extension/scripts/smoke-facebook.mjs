@@ -15,23 +15,24 @@ dom.window.EventTarget.prototype.addEventListener = function(type, callback, opt
 };
 const trustedPost = () => {
   const dialog = dom.window.document.querySelector('[role="dialog"]');
-  capturedClicks.get(dialog).call(dialog, { target: dialog.querySelector('[role="button"]'), isTrusted: true });
+  capturedClicks.get(dialog).call(dialog, { target: dialog.querySelector('[role="button"]'), isTrusted: true, preventDefault() {}, stopImmediatePropagation() {} });
 };
 const listeners = new Set();
 const requests = [];
 const timers = new Set();
 let feedEnabled = false;
 let attributionEnabled = true;
+const profileUrl="https://opensocial.online/u/1JgvtKNBKCxT3D1xb8mmUJLCBpZnHqC3Rr";
 const chrome = { runtime: { id: "smokeextensionid", getURL: (path) => `chrome-extension://smokeextensionid/${path}`, onMessage: { addListener: (fn) => listeners.add(fn), removeListener: (fn) => listeners.delete(fn) },
   sendMessage: async (message) => {
     requests.push(message);
-    return { ok: true, result: message.type === "adapter.preferences" ? { facebookAttribution: attributionEnabled } : message.type === "feed.request" ? { enabled: feedEnabled, items: [{ postId: "q".repeat(43) + "=" }], nextCursor: null } : { status: "published", message: "Published to Open Social · Friends" } };
+    return { ok: true, result: message.type === "adapter.preferences" ? { facebookAttribution: attributionEnabled, facebookAutoCheck: true } : message.type === "feed.request" ? { enabled: feedEnabled, items: [{ postId: "q".repeat(43) + "=" }], nextCursor: null } : message.type === "crosspost.publish" ? { status: "pending", awaitingFacebook: true, profileUrl, message: "Waiting for Facebook" } : { status: "published", message: "Published to Open Social · Friends" } };
   },
 } };
 const context = vm.createContext({ document: dom.window.document, location: dom.window.location, navigator: dom.window.navigator, chrome,
   crypto: globalThis.crypto, MutationObserver: dom.window.MutationObserver,
   requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
-  setInterval: (fn, ms) => { const id = setInterval(fn, ms); timers.add(id); return id; }, clearInterval, URL,
+  setInterval: (fn, ms) => { const id = setInterval(fn, ms); timers.add(id); return id; }, clearInterval, URL, URLSearchParams,
   setTimeout: (fn, ms) => { const id = setTimeout(fn, ms); timers.add(id); return id; }, clearTimeout,
 }, { codeGeneration: { strings: false, wasm: false } });
 const script = new vm.Script(readFileSync(new URL("../dist/content/facebook.js", import.meta.url), "utf8"));
@@ -63,10 +64,17 @@ try {
   doc.body.insertAdjacentHTML("beforeend", '<section role="dialog"><div contenteditable="true" data-lexical-editor="true">My Facebook draft</div><footer><div role="button"><span>Post</span></div></footer></section>');
   await settle();
   assert.equal(doc.querySelectorAll("[data-osp-control]").length, 1, "A later composer must be detected");
+  assert.equal(doc.querySelector("[data-osp-control] input").checked,true,"Auto-check defaults on");
+  doc.querySelector("[data-osp-control] input").checked=false;
   trustedPost();
   assert.equal(requests.some((m) => m.type === "crosspost.publish"), false, "No opt-in means no draft capture");
   doc.querySelector("[data-osp-control] input").checked = true;
   doc.querySelector("[data-osp-control] select").value = "1";
+  let publishedCount=0;
+  doc.querySelector('[role="button"]').addEventListener('click',()=>{
+    const post=doc.createElement('article');post.setAttribute('role','article');post.textContent=doc.querySelector('[contenteditable]').textContent;
+    const link=doc.createElement('a');link.href=`https://www.facebook.com/tester/posts/${1000+(++publishedCount)}`;link.textContent='Just now';post.append(link);doc.body.append(post);
+  });
   doc.querySelector('[role="button"]').click();
   assert.equal(requests.some(m => m.type === "crosspost.publish"), false, "Page-generated clicks cannot authorize publishing");
   trustedPost();
@@ -75,7 +83,9 @@ try {
   assert.equal(proposals.length, 1);
   assert.equal(proposals[0].payload.text, "My Facebook draft");
   assert.equal(proposals[0].payload.audience, 1);
-  assert.equal(hostDraft, "My Facebook draft\n\nPosted on Open Social\nhttps://opensocial.online/about", "Facebook's editor receives the visible link while the protocol receives the original draft");
+  assert.equal(hostDraft, `My Facebook draft\n\nJoin Me On Open Social: ${profileUrl}`, "Facebook's editor receives the visible link while the protocol receives the original draft");
+  await settle();
+  assert.equal(requests.filter(m=>m.type==="crosspost.facebookComplete").length,1,"Published Facebook URL completes the saved draft");
   assert.equal(doc.querySelector("[data-osp-toast]")?.textContent.includes("Published to Open Social"), true);
   feedEnabled = true;
   inject();
@@ -107,7 +117,7 @@ try {
   doc.querySelector("[data-osp-control] input").checked = true;
   trustedPost();
   assert.equal(requests.filter((m) => m.type === "crosspost.publish").length, 2);
-  assert.ok(requests.every((m) => ["feed.request", "crosspost.publish", "adapter.preferences"].includes(m.type)), "Content script may only request feed identifiers and explicit audience-selected publication");
+  assert.ok(requests.every((m) => ["feed.request", "crosspost.publish", "crosspost.facebookComplete", "adapter.preferences"].includes(m.type)), "Content script may only request feed identifiers and explicit audience-selected publication");
   console.log("dist Facebook smoke passed (mixed loaded/placeholder feed, card recovery, attribution opt-out, native editing boundary, trusted publish + audience, lifecycle; isolated realm)");
 } finally {
   stop();

@@ -1,0 +1,44 @@
+import { expect, it } from "vitest";
+import { fromHex, toBase64url } from "@osp/sdk";
+import { createTestBackground } from "../test/support";
+
+it("saves an authorized draft, waits for a tab-bound Facebook permalink and publishes it once as the external reference", async () => {
+  const t = createTestBackground({ indexer: true, sponsor: false, origins: ["https://www.facebook.com/*"] });
+  const passphrase = "correct horse battery";
+  const { account } = await t.call<{ account: string }>("vault.create", { passphrase });
+  await t.call("device.authorize", { passphrase, keepOwnerSeed: true });
+  await t.call("settings.update", { patch: { payment: "self-only", facebookAdapter: true } });
+  const sender = t.chrome._contentSender("https://www.facebook.com/");
+  const send = (type: string, payload: unknown, from = sender) => t.background.router.handle({ type, payload }, from);
+  const attemptId = "ab".repeat(16), before = t.state.broadcasts.length;
+  const payload = { hostSite: "facebook", text: "Cross-posted content", audience: 0, attemptId, url: "https://www.facebook.com/", submitted: true, userGesture: true, waitForFacebook: true };
+  expect(await send("crosspost.publish", { ...payload, userGesture: false })).toMatchObject({ ok: false });
+  expect(await send("crosspost.publish", { ...payload, text: "界".repeat(1200) })).toMatchObject({ ok: false, error: { message: expect.stringContaining("too long") } });
+  expect(await send("crosspost.publish", payload)).toMatchObject({ ok: true, result: { awaitingFacebook: true, profileUrl: `https://opensocial.online/u/${account}` } });
+  expect(t.state.broadcasts.length).toBe(before);
+  expect(await t.background.crossposts.get(attemptId)).toMatchObject({ awaitingFacebook: true, text: payload.text, author: account });
+  await expect(t.call("crosspost.confirm", { attemptId })).rejects.toThrow(/Facebook link/);
+  expect(await send("crosspost.publish", { ...payload, waitForFacebook: false })).toMatchObject({ ok: false });
+  expect(t.state.broadcasts.length).toBe(before);
+  const url = "https://www.facebook.com/tester/posts/123456?__cft__=tracking";
+  expect(await send("crosspost.facebookComplete", { attemptId, url: "https://www.facebook.com/" })).toMatchObject({ ok: false });
+  expect(await send("crosspost.facebookComplete", { attemptId, url }, { ...sender, tab: { ...sender.tab!, id: 999 } })).toMatchObject({ ok: false });
+  expect(await send("crosspost.facebookComplete", { attemptId, url })).toMatchObject({ ok: true, result: { status: "published" } });
+  const record = (await t.background.crossposts.get(attemptId))!;
+  const card = await t.background.feed.card(toBase64url(fromHex(record.postId!)));
+  expect(card).toMatchObject({ text: `${payload.text}\n\nhttps://www.facebook.com/tester/posts/123456`, externalRef: "https://www.facebook.com/tester/posts/123456" });
+  const count = t.state.broadcasts.length;
+  expect(await send("crosspost.facebookComplete", { attemptId, url })).toMatchObject({ ok: true });
+  expect(t.state.broadcasts.length).toBe(count);
+  expect(await send("crosspost.facebookComplete", { attemptId, url: "https://www.facebook.com/tester/posts/999" })).toMatchObject({ ok: false });
+
+  const second = "cd".repeat(16);
+  await send("crosspost.publish", { ...payload, attemptId: second });
+  await t.call("vault.lock");
+  expect(await send("crosspost.facebookComplete", { attemptId: second, url })).toMatchObject({ ok: false });
+  await t.call("vault.unlock", { passphrase });
+  t.now.value += 11 * 60_000;
+  expect(await send("crosspost.facebookComplete", { attemptId: second, url })).toMatchObject({ ok: false });
+  await t.call("crosspost.finishFacebook", { attemptId: second, url });
+  expect((await t.background.crossposts.get(second))?.koinosStatus).toBe("ok");
+});

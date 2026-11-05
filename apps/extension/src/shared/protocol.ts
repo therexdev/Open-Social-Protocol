@@ -12,7 +12,7 @@ export interface Message<T extends string = string, P = unknown> {
 
 export type Reply<T = unknown> = { ok: true; result: T } | { ok: false; error: { code: string; message: string } };
 
-export const CONTENT_SCRIPT_TYPES = ["crosspost.propose", "crosspost.publish", "feed.request", "adapter.preferences"] as const;
+export const CONTENT_SCRIPT_TYPES = ["crosspost.propose", "crosspost.publish", "crosspost.facebookComplete", "feed.request", "adapter.preferences"] as const;
 export type ContentScriptType = (typeof CONTENT_SCRIPT_TYPES)[number];
 
 /** Payload size ceiling (bytes of the JSON encoding of the whole message). */
@@ -141,6 +141,9 @@ export interface StoredCrossPost extends CrossPostRecord {
    * side stays `pending` until the user marks it posted (with the post link) or failed.
    */
   hostSubmitted?: boolean;
+  awaitingFacebook?: boolean;
+  facebookTabId?: number;
+  facebookPostUrl?: string;
   title?: string;
   createdAt: number;
   /** hex sha256 of the envelope of the latest Koinos attempt (known before the node answers). */
@@ -181,6 +184,8 @@ export interface PublishReply {
   attemptId: string;
   status: "published" | "pending" | "failed";
   message: string;
+  awaitingFacebook?: boolean;
+  profileUrl?: string;
 }
 
 export interface CreatePayload {

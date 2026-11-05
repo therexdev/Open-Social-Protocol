@@ -21,7 +21,7 @@ try {
   const postId=new URLSearchParams(location.hash.slice(1)).get('post');
   const base={postId,author:'alex',authorName:'Alex River',viewer:'reader',audience:0,epoch:0,createdAt:String(Date.now()-600000),versionNumber:1,contentHash:'v'.repeat(43)+'=',status:'plain',reactions:2,viewerReaction:0,replyCount:1,labels:[],text:'A little room for something new. Our community can stay connected, wherever we choose to spend our time.'};
   const media=(mime,scheme)=>({mime,locations:[scheme+'://archive/'+postId],contentHash:'h'.repeat(43)+'=',size:'100',alt_text:mime.startsWith('image')?'Community photo':mime.startsWith('video')?'Test animation':'Voice note'});
-  if(postId===ids.photo)base.media=[media('image/png','osp-photo')];
+  if(postId===ids.photo){base.media=[media('image/png','osp-photo')];base.externalRef='https://www.facebook.com/tester/posts/1001';base.text+='\n\n'+base.externalRef;}
   if(postId===ids.video){base.audience=1;base.status='decrypted';base.text='A short animation, shared with friends.';base.media=[{...media('video/mp4','osp-clip'),poster:{...media('image/jpeg','osp-photo')}}];}
   if(postId===ids.voice){base.text='A quick voice note for the group.';base.media=[media('audio/wav','osp-clip')];}
   let pollView={now:String(Date.now()),value:{definition:{question:'What should we build together next?',options:['More community events','Creative challenges','Learning sessions'],closes_at:String(Date.now()+86400000)},counts:[5,3,2],participants:10,engagement_milli:'1000'}};
@@ -40,7 +40,7 @@ try {
    if(type==='embed.react'){reaction=payload.remove?0:payload.reaction;return{ok:true,result:{reaction}};}
    if(type==='embed.poll'){pollView={...pollView,ballot:{option:payload.option}};return{ok:true,result:{pollView}};}
    if(type==='embed.replies')return{ok:true,result:{items:comment?[comment]:[],nextCursor:null}};
-   if(type==='embed.comment'){comment={...base,postId:ids.comment,replyTo:postId,author:'reader',authorName:'You',media:undefined,text:payload.text,replyCount:0,reactions:0};return{ok:true,result:{postId:ids.comment,confirmed:true}};}
+   if(type==='embed.comment'){comment={...base,postId:ids.comment,replyTo:postId,author:'reader',authorName:'You',media:undefined,externalRef:undefined,text:payload.text,replyCount:0,reactions:0};return{ok:true,result:{postId:ids.comment,confirmed:true}};}
    throw Error('Unexpected card request '+type);
   }},storage:{onChanged:{addListener:f=>listeners.add(f),removeListener:f=>listeners.delete(f)}}};
   window.__lock=()=>{window.__locked=true;for(const f of listeners)f({'osp.session':{}},'session');};
@@ -59,6 +59,8 @@ try {
  const photo=page.frameLocator('iframe[title=photo]'),poll=page.frameLocator('iframe[title=poll]');
  await photo.locator('.card-photo img').waitFor();await photo.locator('.card-photo img').evaluate(i=>i.decode());assert.ok(await photo.locator('.card-photo img').evaluate(i=>i.complete&&i.naturalWidth>0),'Archived image loads automatically');
  assert.equal(await photo.locator('.social-card').evaluate(e=>getComputedStyle(e).backgroundColor),'rgb(255, 255, 255)');
+ assert.equal(await photo.locator('a[href="https://www.facebook.com/tester/posts/1001"]').count(),1,'Facebook permalink is clickable once below the post');
+ assert.equal((await photo.locator('.card-copy').innerText()).includes('https://www.facebook.com/'),false,'Visible-text compatibility footer is not duplicated in the card preview');
  const avatar=photo.locator('.card-header .card-avatar img');
  await avatar.waitFor();await avatar.evaluate(i=>i.decode());
  assert.ok(await avatar.evaluate(i=>i.naturalWidth>0&&getComputedStyle(i).objectFit==='cover'),'Profile photo decodes and fills its avatar circle');
@@ -119,7 +121,17 @@ try {
  await photo.getByRole('button',{name:'Change reaction, Surprised',exact:true}).click();
  await page.setViewportSize({width:1100,height:1000});await page.locator('iframe[title=photo]').scrollIntoViewIfNeeded();
  await page.screenshot({path:'/tmp/open-social-feed-desktop.png',fullPage:true});
+ await page.evaluate(()=>{for(const frame of document.querySelectorAll('iframe'))frame.contentWindow.postMessage({type:'osp.card.theme',theme:'dark'},'https://extension.test');});
+ await photo.locator('html[data-theme=dark]').waitFor();
+ assert.equal(await photo.locator('.social-card').first().evaluate(e=>getComputedStyle(e).backgroundColor),'rgb(36, 37, 38)');
+ await page.screenshot({path:'/tmp/open-social-feed-dark.png',fullPage:true});
+ // An iframe cannot spoof the host source, even if it supplies a valid theme value.
+ await photo.locator('body').evaluate(()=>window.dispatchEvent(new MessageEvent('message',{source:window,origin:'https://www.facebook.com',data:{type:'osp.card.theme',theme:'light'}})));
+ assert.equal(await photo.locator('html').getAttribute('data-theme'),'dark');
+ await page.evaluate(()=>{for(const frame of document.querySelectorAll('iframe'))frame.contentWindow.postMessage({type:'osp.card.theme',theme:'light'},'https://extension.test');});
+ await photo.locator('html[data-theme=light]').waitFor();
+ assert.equal(await photo.locator('.social-card').first().evaluate(e=>getComputedStyle(e).backgroundColor),'rgb(255, 255, 255)');
  assert.deepEqual(errors,[]);
- console.log('Embedded browser checks passed: profile photos/replacement/fallback and comment avatars, image auto-load, trusted reactions, up/down votes, poll changes, inline comments, activity preserves UI, audio, '+(video?'real MP4/poster and lock cleanup, ':'')+'no navigation, narrow layout; shipped CSP, fixture network only');
+ console.log('Embedded browser checks passed: live light/dark theme and source validation, profile photos/replacement/fallback and comment avatars, image auto-load, trusted reactions, up/down votes, poll changes, inline comments, activity preserves UI, audio, '+(video?'real MP4/poster and lock cleanup, ':'')+'no navigation, narrow layout; shipped CSP, fixture network only');
  await context.close();
 }finally{await browser.close();}

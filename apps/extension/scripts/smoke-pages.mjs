@@ -123,7 +123,7 @@ await smoke(manifest.side_panel.default_path, async ({ dom, calls, button, settl
 await smoke(manifest.options_page, async ({ dom, calls, settle }) => {
   const doc = dom.window.document;
   assert.ok(doc.body.textContent.includes("Facebook adapter"), "Options page must render");
-  const label = [...doc.querySelectorAll("label")].find(label => label.textContent.includes("Posted on Open Social"));
+  const label = [...doc.querySelectorAll("label")].find(label => label.textContent.includes("Join Me On Open Social:"));
   const toggle = label?.querySelector("input");
   assert.equal(toggle?.checked, true, "Attribution defaults on in the shipped Options page");
   toggle.click(); await settle();

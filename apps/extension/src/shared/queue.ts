@@ -63,6 +63,12 @@ export function explain(record: StoredCrossPost, now: number = Date.now()): Queu
   const hostPendingDetail = `${record.hostSubmitted ? `You pressed Post on ${host}. ` : ""}Once the ${host} post is visible, paste its link and mark it posted; if ${host} did not publish it, mark it failed. The proof is recorded on chain only once both sides are known.`;
   switch (record.state) {
     case "draft":
+      if (record.awaitingFacebook) return {
+        title: "Waiting for the Facebook post link",
+        detail: "The Open Social copy is saved. If the link was not detected, paste the published Facebook post link in Compose to finish it.",
+        actions: ["discard"],
+        attention: true,
+      };
       return {
         title: "Waiting for your confirmation",
         detail: host

@@ -41,7 +41,7 @@ describe("facebook composer adapter", () => {
     expect(sendMessage.mock.calls.some(call => (call as unknown as [{ type: string }])[0].type === "crosspost.publish")).toBe(false);
     running.stop();
   });
-  it("publishes the Friends selection immediately from a trusted Post action without changing Facebook's submit", async () => {
+  it("prepares the Friends selection and resumes Facebook once its editor has committed", async () => {
     document.body.innerHTML = fixture("composer.html");
     const sendMessage = vi.fn(async () => ({ ok: true, result: { status: "published", message: "Published to Open Social · Friends" } }));
     const running = startFacebookAdapter({ document, location: () => "https://www.facebook.com/", sendMessage, randomAttemptId: () => "bc".repeat(16), trustedEvent: () => true })!;
@@ -52,7 +52,8 @@ describe("facebook composer adapter", () => {
     expect(audience.disabled).toBe(false); audience.value = "1";
     const hostPost = vi.fn(); document.querySelector('[aria-label="Post"]')!.addEventListener("click", hostPost);
     document.querySelector<HTMLElement>('[aria-label="Post"]')!.click();
-    expect(hostPost).toHaveBeenCalledTimes(1);
+    expect(hostPost).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(hostPost).toHaveBeenCalledTimes(1));
     expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({ type: "crosspost.publish", payload: expect.objectContaining({ audience: 1, text: "Hello from the fixture composer" }) }));
     await vi.waitFor(() => expect(document.querySelector(`[${TOAST_ATTR}]`)?.textContent).toContain("Published to Open Social · Friends"));
     running.stop();
@@ -170,7 +171,7 @@ describe("facebook composer adapter", () => {
     expect(proposals).toHaveLength(1);
     expect(proposals[0]).toEqual({
       type: "crosspost.publish",
-      payload: { hostSite: "facebook", text: "Hello from the fixture composer", audience: 0, attemptId: "ab".repeat(16), url: "https://www.facebook.com/groups/42", submitted: true, userGesture: true },
+      payload: { hostSite: "facebook", text: "Hello from the fixture composer", audience: 0, attemptId: "ab".repeat(16), url: "https://www.facebook.com/groups/42", submitted: true, userGesture: true, waitForFacebook: true },
     });
     // a second activation of the same text within the debounce window does not propose twice
     document.querySelector('[aria-label="Post"]')!.dispatchEvent(new MouseEvent("click", { bubbles: true }));

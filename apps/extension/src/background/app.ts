@@ -7,6 +7,7 @@ import { CAPABILITY, AUDIENCE, type PostRef, type ProviderInterface, type ValueR
 import { bytesOf, fromHex, toBase64url, toHex } from "../shared/bytes";
 import { knownNetworks } from "../shared/config";
 import { draftSizeError } from "../shared/draft";
+import { FACEBOOK_LINK_BYTES } from "../shared/facebookUrl";
 import type { FetchLike } from "../shared/indexer";
 import {
   MAX_POST_CHARS,
@@ -72,9 +73,9 @@ export interface Background {
 
 const AUDIENCE_VALUES = [AUDIENCE.EVERYONE, AUDIENCE.FRIENDS] as const;
 
-/** The envelope's `external_ref`: the shared page's URL. Other adapters carry no page reference in the envelope. */
+/** Shared-page URL or the actual published Facebook permalink, displayed below the post. */
 function externalRefOf(record: StoredCrossPost): string | undefined {
-  return record.adapter === "generic" ? record.url : undefined;
+  return record.adapter === "generic" ? record.url : record.adapter === "facebook" ? record.facebookPostUrl : undefined;
 }
 
 export function createBackground(options: BackgroundOptions): Background {
@@ -135,9 +136,11 @@ export function createBackground(options: BackgroundOptions): Background {
       const clients = await registry.get();
       const client = requireProtocol(clients);
       if (!record.text) throw new Error("The draft has no text.");
-      // Only a shared page links the envelope to its URL; a Facebook proposal's page is the composer, not the post.
+      // Facebook uses its observed post permalink; the composer page URL is never published.
+      // Also include it in visible text for clients that do not render external_ref yet.
+      const text = record.adapter === "facebook" && record.facebookPostUrl ? `${record.text}\n\n${record.facebookPostUrl}` : record.text;
       const outcome = await publishPost(
-        { text: record.text, audience: record.audience, attemptId: record.attemptId, ...(externalRefOf(record) && { externalRef: externalRefOf(record) }) },
+        { text, audience: record.audience, attemptId: record.attemptId, ...(externalRefOf(record) && { externalRef: externalRefOf(record) }) },
         { client, indexer: clients.indexer, session, vault, keys: await keysFor(session), payment: clients.resolved.payment, sponsorUrls: clients.resolved.sponsorUrls, now },
       );
       feed.invalidate();
@@ -252,6 +255,7 @@ export function createBackground(options: BackgroundOptions): Background {
     autoLockMinutes: optional(num({ min: 0, max: 24 * 60 })),
     facebookAdapter: optional(bool()),
     facebookAttribution: optional(bool()),
+    facebookAutoCheck: optional(bool()),
     feedInsertion: optional(bool()),
     feedScope: optional(oneOf(["public", "friends", "all"] as const)),
   });
@@ -400,8 +404,7 @@ export function createBackground(options: BackgroundOptions): Background {
     "adapter.status": defineHandler({ source: "extension", validate: empty, handle: async () => adapters.status(await loadSettings()) }),
     "adapter.preferences": defineHandler({ source: "content", validate: empty, handle: async () => {
       const settings = await loadSettings();
-      // This is the only preference exposed to the host script; no account, endpoints or keys.
-      return { facebookAttribution: settings.facebookAdapter && settings.facebookAttribution };
+      return { facebookAttribution: settings.facebookAdapter && settings.facebookAttribution, facebookAutoCheck: settings.facebookAutoCheck };
     } }),
     "adapter.enable": defineHandler({
       source: "extension",
@@ -526,19 +529,31 @@ export function createBackground(options: BackgroundOptions): Background {
     "crosspost.publish": defineHandler({
       source: "content",
       requireGesture: true,
-      validate: obj({ hostSite: oneOf(["facebook"] as const), text: str({ min: 1, max: MAX_POST_CHARS }), audience: oneOf(AUDIENCE_VALUES), attemptId: attemptIdSchema, url: httpUrl(), submitted: bool(), userGesture: bool() }),
+      validate: obj({ hostSite: oneOf(["facebook"] as const), text: str({ min: 1, max: MAX_POST_CHARS }), audience: oneOf(AUDIENCE_VALUES), attemptId: attemptIdSchema, url: httpUrl(), submitted: bool(), userGesture: bool(), waitForFacebook: optional(bool()) }),
       handle: async (p, ctx): Promise<PublishReply> => {
         if (!ctx.origin || new URL(p.url).origin !== ctx.origin || !p.submitted) throw new Error("Publishing requires the Facebook Post action.");
         if (!(await loadSettings()).facebookAdapter) throw new Error("The Facebook adapter is disabled.");
         await requireDevice(await requireSession());
-        const oversize = draftSizeError(p.text);
-        if (oversize) throw new Error(oversize);
+        // Reserve room before Facebook publishes; the permalink is known only afterward.
+        const reservedLink = "https://www.facebook.com/".padEnd(FACEBOOK_LINK_BYTES, "x");
+        const oversize = p.waitForFacebook ? draftSizeError(`${p.text}\n\n${reservedLink}`, reservedLink) : draftSizeError(p.text);
+        if (oversize) throw new Error(p.waitForFacebook ? "This post is too long to cross-post with its Facebook link. Shorten the text and click Post again." : oversize);
         await vault.touch();
+        if (p.waitForFacebook) {
+          const prepared = await crossposts.prepareFacebook({ text: p.text, audience: p.audience, adapter: "facebook", url: p.url }, p.attemptId, ctx.tabId!);
+          return { attemptId: p.attemptId, status: "pending", awaitingFacebook: true, profileUrl: `https://opensocial.online/u/${encodeURIComponent(prepared.author!)}`, message: "Waiting for the published Facebook post link." };
+        }
         const record = await crossposts.publishDirect({ text: p.text, audience: p.audience, adapter: "facebook", url: p.url, hostSubmitted: true }, p.attemptId);
         const status = record.koinosStatus === "ok" ? "published" : ["pending", "unknown"].includes(record.koinosStatus) || record.state === "reconcile_required" ? "pending" : "failed";
         return { attemptId: record.attemptId, status, message: status === "published" ? `Published to Open Social · ${record.audience === AUDIENCE.FRIENDS ? "Friends" : "Public"}` : status === "pending" ? "Open Social is confirming your post. Check its status in Compose." : `Open Social could not publish: ${record.lastError || "Try again."}` };
       },
     }),
+    "crosspost.facebookComplete": defineHandler({ source: "content", validate: obj({ attemptId: attemptIdSchema, url: httpUrl() }), handle: async (p, ctx) => {
+      if (!(await loadSettings()).facebookAdapter) throw Error("The Facebook adapter is disabled.");
+      const record = await crossposts.finishFacebook(p.attemptId, p.url, ctx.tabId);
+      return { attemptId: record.attemptId, status: record.koinosStatus === "ok" ? "published" : "pending", message: record.koinosStatus === "ok" ? "Published to Open Social with the Facebook post link." : record.lastError || "Open Compose to check this saved post." };
+    } }),
+    "crosspost.finishFacebook": defineHandler({ source: "extension", validate: obj({ attemptId: attemptIdSchema, url: httpUrl() }), handle: async p => queueItem(await crossposts.finishFacebook(p.attemptId, p.url)) }),
     "crosspost.propose": defineHandler({
       source: "content",
       requireGesture: true,

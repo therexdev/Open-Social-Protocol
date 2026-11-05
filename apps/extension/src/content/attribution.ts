@@ -2,10 +2,10 @@
  * preserve the editor's undo stack; assigning textContent would only change its DOM view. */
 import { CONTROL_ATTR, readComposerText, type ComposerAdapter } from "./adapter";
 
-export const ATTRIBUTION_LABEL = "Posted on Open Social";
-export const ATTRIBUTION_URL = "https://opensocial.online/about";
-export const ATTRIBUTION_TEXT = `${ATTRIBUTION_LABEL}\n${ATTRIBUTION_URL}`;
-const footerPattern = /Posted on Open Social\s*https:\/\/opensocial\.online\/about/g;
+export const ATTRIBUTION_LABEL = "Join Me On Open Social:";
+export function attributionText(url: string): string {
+  return /^https:\/\/opensocial\.online\/u\/[1-9A-HJ-NP-Za-km-z]{25,40}$/.test(url) ? `${ATTRIBUTION_LABEL} ${url}` : "";
+}
 
 function textNodes(editor: HTMLElement): Text[] {
   const walker = editor.ownerDocument.createTreeWalker(editor, 4 /* SHOW_TEXT */);
@@ -15,15 +15,15 @@ function textNodes(editor: HTMLElement): Text[] {
   return nodes;
 }
 
-function footerRange(editor: HTMLElement): Range | undefined {
+function footerRange(editor: HTMLElement, footer: string): Range | undefined {
   const nodes = textNodes(editor);
   const text = nodes.map(node => node.data).join("");
-  const match = [...text.matchAll(footerPattern)].at(-1);
-  if (!match || match.index === undefined) return;
-  let start = match.index;
+  const index = footer ? text.lastIndexOf(footer) : -1;
+  if (index < 0) return;
+  let start = index;
   // insertText can represent the leading blank line as text or as paragraph boundaries.
-  while (start > 0 && text[start - 1] === "\n" && match.index - start < 2) start--;
-  const end = match.index + match[0].length;
+  while (start > 0 && text[start - 1] === "\n" && index - start < 2) start--;
+  const end = index + footer.length;
   const point = (offset: number): [Text, number] => {
     for (const node of nodes) { if (offset <= node.length) return [node, offset]; offset -= node.length; }
     return [nodes.at(-1)!, nodes.at(-1)!.length];
@@ -55,48 +55,48 @@ function edit(editor: HTMLElement, range: Range, text: string): boolean {
 }
 
 export class ComposerAttribution {
-  private inserted = false;
+  private inserted = "";
   private changing = false;
   constructor(private dialog: HTMLElement, private adapter: ComposerAdapter) {}
 
-  /** Only remove the footer this controller added, not a link the author wrote themselves. */
   text(): string {
     const text = readComposerText(this.dialog, this.adapter);
-    const footer = this.inserted ? [...text.matchAll(footerPattern)].at(-1) : undefined;
-    return footer?.index === undefined ? text : `${text.slice(0, footer.index)}${text.slice(footer.index + footer[0].length)}`.trim();
+    const index = this.inserted ? text.lastIndexOf(this.inserted) : -1;
+    return index < 0 ? text : `${text.slice(0, index)}${text.slice(index + this.inserted.length)}`.trim();
   }
 
-  sync(enabled: boolean): void {
-    if (this.changing) return;
+  /** Called on Post, never while typing or when auto-checking the control. */
+  sync(enabled: boolean, profileUrl = ""): boolean {
+    if (this.changing) return false;
     const editor = this.adapter.findTextbox(this.dialog);
-    if (!editor) return;
+    if (!editor) return false;
+    const footer = attributionText(profileUrl);
+    if (enabled && !footer) return false;
     const current = readComposerText(this.dialog, this.adapter);
-    const range = this.inserted ? footerRange(editor) : undefined;
-    if (!enabled && !range) { this.inserted = false; return; }
-    if (enabled && current.trimEnd().endsWith(ATTRIBUTION_URL) && footerRange(editor)) return;
-    // Do not turn an empty composer into a Facebook post consisting only of our link.
-    if (enabled && !this.text()) return;
+    const range = this.inserted ? footerRange(editor, this.inserted) : undefined;
+    if (!enabled && !range) { this.inserted = ""; return true; }
+    if (enabled && current.trimEnd().endsWith(footer) && footerRange(editor, footer)) return true;
+    if (enabled && !this.text()) return true;
     this.changing = true;
     let success = true;
     try {
       if (range) success = edit(editor, range, "");
-      if (success) this.inserted = false;
+      if (success) this.inserted = "";
       if (enabled && success) {
         const end = editor.ownerDocument.createRange(); end.selectNodeContents(editor); end.collapse(false);
-        success = edit(editor, end, `\n\n${ATTRIBUTION_TEXT}`);
-        // Verify the visible result too: some hosts decline the native edit.
-        this.inserted = success && !!footerRange(editor);
-        success = this.inserted;
+        success = edit(editor, end, `\n\n${footer}`);
+        this.inserted = success && footerRange(editor, footer) ? footer : "";
+        success = !!this.inserted;
       }
     } finally { this.changing = false; }
     const host = this.dialog.querySelector(`[${CONTROL_ATTR}]`);
     host?.querySelector('[data-osp-attribution-warning]')?.remove();
     if (!success && host) {
       const warning = editor.ownerDocument.createElement("small");
-      warning.setAttribute("data-osp-attribution-warning", "");
-      warning.setAttribute("role", "status");
-      warning.textContent = enabled ? `Facebook did not accept the automatic link. You can add it yourself: ${ATTRIBUTION_URL}` : "Facebook did not remove the Open Social link. Remove it from your draft if you don't want it included.";
+      warning.setAttribute("data-osp-attribution-warning", ""); warning.setAttribute("role", "status");
+      warning.textContent = enabled ? `Facebook did not accept the automatic link. Add it to your draft, then click Post again: ${footer}` : "Remove the Open Social link from the draft if you don't want it included.";
       host.append(warning);
     }
+    return success;
   }
 }

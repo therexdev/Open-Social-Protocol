@@ -1,9 +1,10 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { rpc } from "../shared/rpc";
 import { usePanel } from "./store";
 
 /** Recovery for interrupted/failed publications, not a step before posting. */
 export function UnfinishedPosts() {
+  const [facebookLinks, setFacebookLinks] = useState<Record<string, string>>({});
   const { queue, loadQueue, run, busy, status, setPrefill } = usePanel();
   const items = queue.filter(({ record: r }) => (r.koinosStatus !== "ok" || r.state === "reconcile_required") && (!r.author || r.author === status?.account));
   const waiting = items.some(({ record: r }) => ["pending", "unknown"].includes(r.koinosStatus) && r.state !== "draft");
@@ -23,8 +24,9 @@ export function UnfinishedPosts() {
       <p className="muted">{record.state === "draft" ? "Saved draft" : record.koinosStatus === "failed" ? "Publication failed" : "Confirming publication"} · {record.audience === 1 ? "Friends" : "Public"}</p>
       {record.text && <p className="text">{record.text}</p>}
       {record.lastError && <p className="error">{record.lastError}</p>}
+      {record.awaitingFacebook && <label>Published Facebook post link<input type="url" placeholder="https://www.facebook.com/…/posts/…" value={facebookLinks[record.attemptId] ?? ""} onChange={e => setFacebookLinks(previous => ({ ...previous, [record.attemptId]: e.target.value }))}/><small>The Open Social copy is saved and waiting for its Facebook link.</small></label>}
       <div className="row">
-        {record.state === "draft" ? <button disabled={busy} onClick={() => setPrefill({ text: record.text || "", audience: record.audience, attemptId: record.attemptId, adapter: record.adapter === "generic" ? "generic" : "sidepanel", ...(record.adapter === "generic" && { url: record.url, title: record.title }) })}>Continue draft</button> : <button disabled={busy} onClick={async () => { await run(() => rpc(record.koinosStatus === "failed" ? "crosspost.retry" : "crosspost.reconcile", { attemptId: record.attemptId })); await loadQueue(); }}>{record.koinosStatus === "failed" ? "Retry publish" : "Check status"}</button>}
+        {record.awaitingFacebook ? <button disabled={busy || !facebookLinks[record.attemptId]?.trim()} onClick={async () => { await run(() => rpc("crosspost.finishFacebook", { attemptId: record.attemptId, url: facebookLinks[record.attemptId]!.trim() })); await loadQueue(); }}>Publish with Facebook link</button> : record.state === "draft" ? <button disabled={busy} onClick={() => setPrefill({ text: record.text || "", audience: record.audience, attemptId: record.attemptId, adapter: record.adapter === "generic" ? "generic" : "sidepanel", ...(record.adapter === "generic" && { url: record.url, title: record.title }) })}>Continue draft</button> : <button disabled={busy} onClick={async () => { await run(() => rpc(record.koinosStatus === "failed" ? "crosspost.retry" : "crosspost.reconcile", { attemptId: record.attemptId })); await loadQueue(); }}>{record.koinosStatus === "failed" ? "Retry publish" : "Check status"}</button>}
         {record.state === "draft" && <button disabled={busy} onClick={async () => { await run(() => rpc("crosspost.discard", { attemptId: record.attemptId })); await loadQueue(); }}>Remove draft</button>}
       </div>
     </div>)}

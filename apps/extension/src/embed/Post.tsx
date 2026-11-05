@@ -31,6 +31,9 @@ export function PostCard({ item, rootId = item.postId, compact = false, depth = 
   const [overflowing,setOverflowing]=useState(false);
   const draft=useRef<{id:string;text:string}|undefined>(undefined);
   const name=item.authorName?.trim()||shortAddress(item.author), readable=['plain','decrypted'].includes(item.status);
+  // Cross-posts also carry the source link in text for older clients. Render it once, as
+  // the clickable source below this card, without repeating it in the text preview.
+  const externalRef=safeHttpUrl(item.externalRef), displayText=externalRef&&item.text?.endsWith(`\n\n${externalRef}`)?item.text.slice(0,-externalRef.length).trimEnd():item.text;
   const target={postId:rootId,targetId:item.postId}, action={...target,version:item.contentHash,userGesture:true};
   const selectedReaction=reaction??item.viewerReaction??(item.liked?1:0), choice=reactions.find(r=>r.code===selectedReaction);
   const reactionCount=Math.max(0,item.reactions+(reaction===undefined?0:Number(!!reaction)-Number(!!item.viewerReaction||!!item.liked)));
@@ -91,7 +94,7 @@ export function PostCard({ item, rootId = item.postId, compact = false, depth = 
     </header>
     {item.labels.length>0&&<div className="card-labels">{item.labels.map(l=><span key={`${l.communityId}-${l.label}`} title={l.reason}>{l.label}</span>)}</div>}
     {readable?<>
-      {item.text&&<div className="card-copy"><p ref={copy} className={!expanded?'clamped':''}>{currentPoll?.definition.question??item.text}</p>{(overflowing||expanded)&&<button className="text-button" onClick={()=>setExpanded(!expanded)}>{expanded?'See less':'See more'}</button>}</div>}
+      {displayText&&<div className="card-copy"><p ref={copy} className={!expanded?'clamped':''}>{currentPoll?.definition.question??displayText}</p>{(overflowing||expanded)&&<button className="text-button" onClick={()=>setExpanded(!expanded)}>{expanded?'See less':'See more'}</button>}</div>}
       {currentPoll&&<section className="card-poll" aria-label="Poll">
         {!item.text&&<p>{currentPoll.definition.question}</p>}
         <fieldset disabled={busy||closed||!item.viewer||!poll?.value}><legend>Choose an answer</legend>

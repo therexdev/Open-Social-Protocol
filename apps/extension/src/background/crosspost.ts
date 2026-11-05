@@ -9,9 +9,8 @@
  *  - an unknown outcome is looked up on chain (then the indexer) before anything is re-sent; the
  *    content hash, expected post id and transaction id of the attempt are kept so the lookup can
  *    match it and the transaction id survives reconciliation;
- *  - host-side publication is manual for adapters that cannot publish programmatically
- *    (Facebook): the host side stays pending until the user reports it with the post link (or as
- *    failed); retries never touch the host;
+ *  - new Facebook attempts wait for the observed published permalink (with manual recovery);
+ *    legacy host-proof proposals retain their manual outcome reporting; retries never touch the host;
  *  - once both sides are known the signed proof manifest is recorded (best effort, retryable);
  *    Koinos-only attempts (side panel, shared page) never record a proof.
  */
@@ -21,6 +20,7 @@ import type { Adapter, CreatePayload, ProposePayload, StoredCrossPost } from "..
 import { STALE_SUBMITTING_MS, explain, hostRefProblem, needsProof } from "../shared/queue";
 import type { KeyValueArea } from "../shared/storage";
 import { classifySubmitError, type ProofResult, type PublishOutcome } from "./publish";
+import { facebookPostUrl } from "../shared/facebookUrl";
 
 export const CROSSPOSTS_KEY = "osp.crossposts";
 export const MAX_RECORDS = 200;
@@ -189,6 +189,7 @@ export class CrossPostOrchestrator {
       let record = file.records.find(r => r.attemptId === attemptId);
       if (record) {
         if (record.author !== account || record.audience !== payload.audience || record.adapter !== payload.adapter || (record.text !== undefined && record.text !== payload.text)) throw new CrossPostError("This publishing attempt belongs to a different draft.");
+        if (record.awaitingFacebook) throw new CrossPostError("Add the published Facebook link in Compose to finish this draft.");
         if (record.koinosStatus === "ok" || record.state === "submitting" || record.state === "reconcile_required") return record;
         if (record.state !== "draft") return this.retryRecord(file, record);
       } else {
@@ -198,16 +199,47 @@ export class CrossPostOrchestrator {
     });
   }
 
+  prepareFacebook(payload: Omit<CreatePayload, "adapter"> & { adapter: "facebook" }, attemptId: string, tabId: number): Promise<StoredCrossPost> {
+    return this.run(async () => {
+      const account = await this.deps.account();
+      if (!account) throw new CrossPostError("Unlock Open Social before cross-posting.");
+      const file = await this.load(), existing = file.records.find(r => r.attemptId === attemptId);
+      if (existing) {
+        if (existing.author !== account || existing.facebookTabId !== tabId || existing.text !== payload.text || existing.audience !== payload.audience)
+          throw new CrossPostError("This attempt belongs to a different Facebook draft.");
+        return existing;
+      }
+      return this.update(file, { ...await this.fresh({ ...payload, adapter: "facebook", attemptId }), awaitingFacebook: true, facebookTabId: tabId });
+    });
+  }
+
+  finishFacebook(attemptId: string, value: string, tabId?: number): Promise<StoredCrossPost> {
+    return this.run(async () => {
+      const file = await this.load(), record = file.records.find(r => r.attemptId === attemptId);
+      const account = await this.deps.account(), url = facebookPostUrl(value);
+      if (!record || record.adapter !== "facebook" || record.facebookTabId === undefined || !account || record.author !== account)
+        throw new CrossPostError("This Facebook draft is not available to your account.");
+      if (tabId !== undefined && (record.facebookTabId !== tabId || this.now() - record.createdAt > 10 * 60_000))
+        throw new CrossPostError("Open Compose to finish this saved Facebook draft.");
+      if (!url) throw new CrossPostError("Paste the published Facebook post link, not the feed or a profile page.");
+      if (record.facebookPostUrl && record.facebookPostUrl !== url) throw new CrossPostError("This draft already has a different Facebook post link.");
+      if (record.koinosStatus === "ok" || record.state === "submitting" || record.state === "unknown" || record.state === "reconcile_required") return record;
+      if (record.state !== "draft") return this.retryRecord(file, record);
+      const prepared = { ...record, awaitingFacebook: false, facebookPostUrl: url, hostSubmitted: true };
+      return this.publish(file, await this.update(file, merge(prepared, transition(baseRecord(prepared), { type: "retry", at: this.now() }))));
+    });
+  }
+
   /**
-   * The explicit confirmation: the only path that publishes a draft. The host side of a Facebook
-   * proposal stays pending: pressing Post on Facebook does not prove Facebook published it, so
-   * the user reports the outcome (with the post link) from the queue.
+   * Confirmation for legacy proposals. New Facebook drafts must use finishFacebook so the
+   * published permalink is included before the Open Social copy is signed.
    */
   confirm(attemptId: string, options: { audience?: number } = {}): Promise<StoredCrossPost> {
     return this.run(async () => {
       const file = await this.load();
       const record = file.records.find((r) => r.attemptId === attemptId);
       if (!record) throw new CrossPostError("Unknown attempt.");
+      if (record.awaitingFacebook) throw new CrossPostError("Add the published Facebook link in Compose to finish this draft.");
       if (record.state !== "draft") throw new CrossPostError(`This attempt is ${record.state}; use retry or reconcile instead.`);
       const account = await this.deps.account();
       if (!account) throw new CrossPostError("Unlock your account first.");

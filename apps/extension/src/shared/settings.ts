@@ -19,7 +19,9 @@ export interface Settings {
   autoLockMinutes: number;
   /** Facebook adapter wanted by the user (the host permission must also be granted). */
   facebookAdapter: boolean;
-  /** Add the visible About link to opted-in Facebook posts. */
+  /** Preselect cross-posting on newly opened Facebook composers. */
+  facebookAutoCheck: boolean;
+  /** Add a visible personal profile link when submitting cross-posted Facebook posts. */
   facebookAttribution: boolean;
   /** Labeled protocol posts inserted into the host feed (off by default). */
   feedInsertion: boolean;
@@ -38,6 +40,7 @@ export function defaultSettings(env: EnvDefaults = ENV): Settings {
     autoLockMinutes: 15,
     facebookAdapter: false,
     facebookAttribution: true,
+    facebookAutoCheck: true,
     feedInsertion: false,
     feedScope: "all",
   };
@@ -64,6 +67,7 @@ export function sanitizeSettings(raw: unknown, defaults: Settings = defaultSetti
     autoLockMinutes: autoLock,
     facebookAdapter: r.facebookAdapter === true,
     facebookAttribution: r.facebookAttribution !== false,
+    facebookAutoCheck: r.facebookAutoCheck !== false,
     feedInsertion: r.feedInsertion === true,
     feedScope: r.feedScope === "public" || r.feedScope === "friends" ? r.feedScope : "all",
   };

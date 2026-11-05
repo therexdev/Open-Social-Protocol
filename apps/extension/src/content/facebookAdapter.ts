@@ -1,14 +1,16 @@
 /**
  * Facebook composer adapter (isolated world). Detects composer dialogs by ARIA roles, injects the
  * labeled "Also publish to Open Social Protocol" control, and when the user activates the
- * dialog's submit control with the checkbox on, sends ONLY the composer text to the service worker
- * with the selected Open Social audience. That Post action publishes immediately.
+ * dialog's submit control with the checkbox on, saves the composer text with its selected audience.
+ * It adds the profile footer through native editing on Post, then observes the published Facebook
+ * permalink before completing the Open Social copy. Uncertain results remain recoverable.
  * If the selectors fail nothing breaks: the side panel composer keeps working (sidebar fallback).
  */
 import { CONTROL_ATTR, TOAST_ATTR, createBoundedObserver, scanAndInject, showToast, type BoundedObserver, type ComposerAdapter } from "./adapter";
 import { FEED_ATTR, FEED_POST_SELECTOR, feedStructuralNode, feedCardNeedsRepair, maybeInsertFeedCards, resetFeedCards, type FeedCardsRuntime } from "./feedCards";
 import type { PublishReply } from "../shared/protocol";
 import { ComposerAttribution } from "./attribution";
+import { watchPublishedPost } from "./publishedPost";
 
 const SUBMIT_LABEL = /^(post|publish)$/i;
 const TEXTBOX = '[contenteditable="true"][role="textbox"], [contenteditable="true"][data-lexical-editor="true"]';
@@ -105,6 +107,11 @@ export function startFacebookAdapter(runtime: AdapterRuntime = defaultRuntime())
   const now = runtime.now ?? (() => Date.now());
   const hooks = new Map<HTMLElement, () => void>();
   const attributions = new Map<HTMLElement, { editor: ComposerAttribution; unhook: () => void }>();
+  let autoCheck = false; // Apply the saved preference before preselecting a composer.
+  let replaying = false;
+  const manualChoices = new WeakSet<HTMLElement>();
+  const pending = new Set<() => void>();
+  const attempts = new WeakMap<HTMLElement, { text: string; audience: number; id: string }>();
   let attributionEnabled = false; // Wait for the stored preference before changing a draft.
   let preferenceGeneration = 0;
   let stopped = false;
@@ -112,48 +119,74 @@ export function startFacebookAdapter(runtime: AdapterRuntime = defaultRuntime())
   let publishing = false;
 
   const onSubmit = (text: string, audience: number, event: Event) => {
-    if (stopped || publishing || !(runtime.trustedEvent?.(event) ?? event.isTrusted)) return;
+    if (stopped || replaying || !(runtime.trustedEvent?.(event) ?? event.isTrusted)) return;
+    event.preventDefault(); event.stopImmediatePropagation();
+    if (publishing) return;
     const dialog = (event.target as Element | null)?.closest<HTMLElement>('[role="dialog"], dialog');
-    const attribution = dialog ? attributions.get(dialog)?.editor : undefined;
-    if (attribution) {
-      // Usually already visible since opt-in; repair its position if the author edited below it.
-      attribution.sync(attributionEnabled);
-      text = attribution.text();
-    }
-    if (!text) return;
-    // A double activation (click + keyboard) must not create two proposals.
-    if (lastSent && lastSent.text === text && lastSent.audience === audience && now() - lastSent.at < 2000) return;
+    if (!dialog) return;
+    const attribution = attributions.get(dialog)?.editor;
+    text = attribution?.text() ?? text;
+    if (!text || lastSent && lastSent.text === text && lastSent.audience === audience && now() - lastSent.at < 2000) return;
     lastSent = { text, audience, at: now() };
-    const payload = {
-      hostSite: "facebook" as const,
-      text,
-      audience,
-      attemptId: runtime.randomAttemptId(),
-      url: runtime.location(),
-      submitted: true,
-      userGesture: runtime.userGesture?.() ?? true,
-    };
+    let attempt = attempts.get(dialog);
+    if (!attempt || attempt.text !== text || attempt.audience !== audience) {
+      attempt = { text, audience, id: runtime.randomAttemptId() }; attempts.set(dialog, attempt);
+    }
+    const attemptId = attempt.id;
+    const payload = { hostSite: "facebook" as const, text, audience, attemptId, url: runtime.location(), submitted: true,
+      userGesture: runtime.userGesture?.() ?? true, waitForFacebook: true };
     publishing = true;
-    showToast(doc, `Publishing to Open Social · ${audience === 1 ? "Friends" : "Public"}…`, 60_000);
-    Promise.resolve(runtime.sendMessage({ type: "crosspost.publish", payload }))
-      .then((reply) => {
+    showToast(doc, "Preparing your Open Social copy…", 60_000);
+    void (async () => {
+      try {
+        const reply = await runtime.sendMessage({ type: "crosspost.publish", payload }) as { ok?: boolean; result?: PublishReply; error?: { message?: string } };
         if (stopped) return;
-        const r = reply as { ok?: boolean; result?: PublishReply; error?: { message?: string } } | undefined;
-        if (r?.ok && r.result) showToast(doc, r.result.message, r.result.status === "published" ? 5000 : 15000);
-        else showToast(doc, `Open Social did not publish: ${r?.error?.message ?? "the extension did not answer"}. Open the extension to unlock or check Compose.`, 15000);
-      })
-      .catch(() => { if (!stopped) showToast(doc, "Open Social could not confirm publication. Open Compose to check the saved post before retrying.", 15000); })
-      .finally(() => { publishing = false; });
+        if (!reply?.ok || !reply.result) throw Error(reply?.error?.message || "Open Social did not answer. Unlock it in Browser tools and try Post again.");
+        if (!dialog.isConnected || (attribution?.text() ?? text) !== text || !optedIn(dialog)) throw Error("Your draft changed. Review it and click Post again.");
+        if (attributionEnabled && attribution && !attribution.sync(true, reply.result.profileUrl)) throw Error("The profile link could not be added. Review the message below the checkbox before posting again.");
+        // Let the native input event commit to Facebook's editor before its Post handler runs.
+        await new Promise(resolve => setTimeout(resolve, 60));
+        if (stopped || !dialog.isConnected || !optedIn(dialog) || (attribution?.text() ?? text) !== text) return;
+        const button = facebookAdapter.findSubmitButton(dialog);
+        if (!button || button.getAttribute('aria-disabled') === 'true' || (button as HTMLButtonElement).disabled) throw Error("Facebook is still preparing this post. Click Post when it is ready.");
+        if (reply.result.awaitingFacebook) {
+          let cancel: () => void;
+          const finished = () => { pending.delete(cancel); };
+          cancel = watchPublishedPost(doc, text, url => {
+            finished();
+            void Promise.resolve(runtime.sendMessage({ type: "crosspost.facebookComplete", payload: { attemptId, url } })).then(response => {
+              if (stopped) return;
+              const r = response as { ok?: boolean; result?: PublishReply; error?: { message?: string } };
+              showToast(doc, r?.ok ? r.result?.message || "Open Social is confirming your post." : `Open Social needs attention: ${r?.error?.message || 'Open Compose to finish the saved draft.'}`, 15000);
+            }).catch(() => { if (!stopped) showToast(doc, "Open Compose to check this saved post before retrying.", 15000); });
+          }, () => { finished(); if (!stopped) showToast(doc, "The Facebook post link was not detected. In Browser tools → Compose, add its link to finish your saved Open Social draft.", 20000); });
+          pending.add(cancel);
+          showToast(doc, "Waiting for Facebook’s published post link…", 60_000);
+        } else showToast(doc, reply.result.message, 5000);
+        replaying = true;
+        try { button.click(); } finally { replaying = false; }
+      } catch (error) {
+        if (!stopped) showToast(doc, `Post paused: ${error instanceof Error ? error.message : String(error)}`, 15000);
+      } finally { publishing = false; }
+    })();
   };
 
   const optedIn = (dialog: HTMLElement) => dialog.querySelector<HTMLInputElement>(`[${CONTROL_ATTR}] input`)?.checked === true;
   async function loadPreferences() {
     const generation = ++preferenceGeneration;
     try {
-      const reply = await runtime.sendMessage({ type: "adapter.preferences" }) as { ok?: boolean; result?: { facebookAttribution?: boolean } };
+      const reply = await runtime.sendMessage({ type: "adapter.preferences" }) as { ok?: boolean; result?: { facebookAttribution?: boolean; facebookAutoCheck?: boolean } };
       if (stopped || generation !== preferenceGeneration || !reply?.ok || typeof reply.result?.facebookAttribution !== "boolean") return;
       attributionEnabled = reply.result.facebookAttribution;
-      for (const [dialog, { editor }] of attributions) editor.sync(attributionEnabled && optedIn(dialog));
+      autoCheck = reply.result.facebookAutoCheck !== false;
+      for (const [dialog, { editor }] of attributions) {
+        if (!manualChoices.has(dialog)) {
+          const checkbox = dialog.querySelector<HTMLInputElement>(`[${CONTROL_ATTR}] input`)!;
+          checkbox.checked = autoCheck;
+          dialog.querySelector<HTMLSelectElement>(`[${CONTROL_ATTR}] select`)!.disabled = !autoCheck;
+        }
+        if (!attributionEnabled || !optedIn(dialog)) editor.sync(false);
+      }
     } catch { /* Keep publishing available; do not override a preference we could not read. */ }
   }
 
@@ -165,7 +198,7 @@ export function startFacebookAdapter(runtime: AdapterRuntime = defaultRuntime())
     const summary = doc.createElement("summary");
     summary.textContent = "Open Social enabled";
     const hint = doc.createElement("p");
-    hint.textContent = 'In Facebook’s Create post box, enable “Also publish to Open Social Protocol” and choose Public or Friends. Clicking Post publishes the Open Social copy immediately while the extension is unlocked. The audience selection applies to Open Social; Facebook uses its own audience setting.';
+    hint.textContent = 'Cross-posting is checked by default; you can uncheck it for any post or change the default in Settings. Choose Public or Friends for the Open Social copy. After Facebook publishes, its post link is included on Open Social. Unlock Browser tools before posting.';
     status.append(summary, hint);
     (doc.body ?? root).append(status);
   }
@@ -181,9 +214,12 @@ export function startFacebookAdapter(runtime: AdapterRuntime = defaultRuntime())
       for (const dialog of hooks.keys()) {
         if (attributions.has(dialog)) continue;
         const editor = new ComposerAttribution(dialog, facebookAdapter);
+        const checkbox = dialog.querySelector<HTMLInputElement>(`[${CONTROL_ATTR}] input`)!;
+        checkbox.checked = autoCheck;
+        dialog.querySelector<HTMLSelectElement>(`[${CONTROL_ATTR}] select`)!.disabled = !autoCheck;
         const changed = (event: Event) => {
           if (!(runtime.trustedEvent?.(event) ?? event.isTrusted)) return;
-          if ((event.target as Element | null)?.matches(`[${CONTROL_ATTR}] input`)) editor.sync(attributionEnabled && optedIn(dialog));
+          if ((event.target as Element | null)?.matches(`[${CONTROL_ATTR}] input`)) { manualChoices.add(dialog); if (!optedIn(dialog)) editor.sync(false); }
         };
         dialog.addEventListener("change", changed);
         attributions.set(dialog, { editor, unhook: () => dialog.removeEventListener("change", changed) });
@@ -237,6 +273,7 @@ export function startFacebookAdapter(runtime: AdapterRuntime = defaultRuntime())
     },
     stop() {
       stopped = true;
+      for (const cancel of pending) cancel(); pending.clear();
       observer.stop();
       doc.defaultView?.removeEventListener("focus", resume);
       doc.removeEventListener("visibilitychange", onVisibility);

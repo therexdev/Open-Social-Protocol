@@ -1,5 +1,6 @@
 /** Scrolling host-feed placement. Only ids enter Facebook; content renders in extension iframes. */
 import type { FeedRequestReply } from "../shared/protocol";
+import { facebookTheme, watchFacebookTheme, type FacebookTheme } from "./facebookTheme";
 export const FEED_ATTR = "data-osp-feed";
 export const FEED_TITLE = "Open Social posts";
 const controllers = new WeakMap<Document, FeedController>();
@@ -104,10 +105,14 @@ export class FeedController {
   private now: () => number;
   private href: string;
   private generation = 0;
+  private theme: FacebookTheme = "light";
+  private stopTheme: () => void;
 
   constructor(private runtime: FeedCardsRuntime) {
     this.now = runtime.now ?? Date.now;
     this.href = runtime.document.location?.href ?? "";
+    this.theme = facebookTheme(runtime.document);
+    this.stopTheme = watchFacebookTheme(runtime.document, theme => { this.theme = theme; for (const frame of this.frames.values()) this.sendTheme(frame); });
     this.timer = setInterval(() => { if (runtime.document.visibilityState !== "hidden") void this.scan(true); }, 30_000);
     runtime.document.defaultView?.addEventListener("scroll", this.onScroll, { passive: true });
     runtime.document.defaultView?.addEventListener("message", this.onMessage);
@@ -130,6 +135,11 @@ export class FeedController {
       break;
     }
   };
+  private sendTheme(frame: HTMLIFrameElement): void {
+    const url = new URL(frame.src);
+    frame.style.colorScheme = this.theme;
+    frame.contentWindow?.postMessage({ type: "osp.card.theme", theme: this.theme }, `${url.protocol}//${url.host}`);
+  }
   private insert(postId: string, anchor: HTMLElement, location: FeedLocation): void {
     const doc = this.runtime.document;
     const frame = doc.createElement("iframe");
@@ -138,12 +148,15 @@ export class FeedController {
     host.setAttribute("aria-label", "Open Social post");
     Object.assign(host.style, { display: "block", width: "100%", minWidth: "0", boxSizing: "border-box", margin: "0 0 12px", flex: "0 0 auto", overflowAnchor: "none" });
     frame.src = this.runtime.frameUrl?.(postId) ?? `${chrome.runtime.getURL("src/embed/index.html")}#post=${encodeURIComponent(postId)}&host=${encodeURIComponent(doc.location.origin)}`;
+    const frameUrl = new URL(frame.src), params = new URLSearchParams(frameUrl.hash.slice(1));
+    params.set("theme", this.theme); frameUrl.hash = params.toString(); frame.src = frameUrl.href;
+    frame.addEventListener("load", () => this.sendTheme(frame));
     frame.title = "Open Social post";
     frame.loading = "lazy";
     frame.allow = "autoplay; fullscreen";
     frame.allowFullscreen = true;
     frame.referrerPolicy = "origin";
-    Object.assign(frame.style, { display: "block", width: "100%", height: "180px", border: "0", colorScheme: "normal" });
+    Object.assign(frame.style, { display: "block", width: "100%", height: "180px", border: "0", colorScheme: this.theme });
     host.append(frame);
     location.column.insertBefore(host, anchor.nextSibling);
     this.frames.set(postId, frame);
@@ -304,6 +317,7 @@ export class FeedController {
   }
   stop(): void {
     this.alive = false;
+    this.stopTheme();
     clearInterval(this.timer);
     clearTimeout(this.scrollTimer);
     this.runtime.document.defaultView?.removeEventListener("scroll", this.onScroll);

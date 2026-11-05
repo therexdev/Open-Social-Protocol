@@ -1,8 +1,10 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { ComposerAttribution, ATTRIBUTION_TEXT, ATTRIBUTION_URL } from "./attribution";
+import { ComposerAttribution, attributionText } from "./attribution";
 import { facebookAdapter, startFacebookAdapter, type RunningAdapter } from "./facebookAdapter";
 import { CONTROL_ATTR } from "./adapter";
 
+const ATTRIBUTION_URL = "https://opensocial.online/u/1JgvtKNBKCxT3D1xb8mmUJLCBpZnHqC3Rr";
+const ATTRIBUTION_TEXT = attributionText(ATTRIBUTION_URL);
 let running: RunningAdapter | null;
 afterEach(() => { running?.stop(); running = null; document.body.innerHTML = ""; vi.restoreAllMocks(); });
 
@@ -25,7 +27,7 @@ it("appends through native editing, keeps mentions intact, strips only its own f
   const { dialog, textbox } = composer();
   const mention = textbox.firstChild;
   const controller = new ComposerAttribution(dialog, facebookAdapter);
-  controller.sync(true); controller.sync(true);
+  controller.sync(true, ATTRIBUTION_URL); controller.sync(true, ATTRIBUTION_URL);
   expect(textbox.textContent).toBe(`Friend says hello\n\n${ATTRIBUTION_TEXT}`);
   expect(controller.text()).toBe("Friend says hello");
   expect(textbox.firstChild).toBe(mention);
@@ -38,7 +40,7 @@ it("appends through native editing, keeps mentions intact, strips only its own f
 it("moves the managed footer below later edits without duplicate links and leaves an author's own link alone", () => {
   const { dialog, textbox } = composer();
   const controller = new ComposerAttribution(dialog, facebookAdapter);
-  controller.sync(true); textbox.append(document.createTextNode("\nMore to say")); controller.sync(true);
+  controller.sync(true, ATTRIBUTION_URL); textbox.append(document.createTextNode("\nMore to say")); controller.sync(true, ATTRIBUTION_URL);
   expect(textbox.textContent?.endsWith(ATTRIBUTION_TEXT)).toBe(true);
   expect(textbox.textContent?.split(ATTRIBUTION_URL)).toHaveLength(2);
   expect(controller.text()).toBe("Friend says hello\nMore to say");
@@ -50,7 +52,7 @@ it("shows a visible failure when a host refuses native editing, without replacin
   const { dialog, textbox } = composer();
   const host = document.createElement("div"); host.setAttribute(CONTROL_ATTR, "1"); dialog.append(host);
   document.execCommand = vi.fn(() => false);
-  new ComposerAttribution(dialog, facebookAdapter).sync(true);
+  new ComposerAttribution(dialog, facebookAdapter).sync(true, ATTRIBUTION_URL);
   expect(textbox.textContent).toBe("Friend says hello");
   expect(host.textContent).toContain("Facebook did not accept");
 });
@@ -60,17 +62,17 @@ it.each([true, false])("honors the stored setting (%s), opt-in and trusted Post;
   let facebookDraft = textbox.textContent;
   textbox.addEventListener("input", () => { facebookDraft = textbox.textContent; });
   const sendMessage = vi.fn(async (message: unknown) => (message as { type: string }).type === "adapter.preferences"
-    ? { ok: true, result: { facebookAttribution: enabled } }
-    : { ok: true, result: { status: "published", message: "Published" } });
+    ? { ok: true, result: { facebookAttribution: enabled, facebookAutoCheck: true } }
+    : { ok: true, result: { status: "pending", awaitingFacebook: true, profileUrl: ATTRIBUTION_URL, message: "Waiting" } });
   running = startFacebookAdapter({ document, sendMessage, location: () => "https://www.facebook.com/", randomAttemptId: () => "ab".repeat(16), trustedEvent: () => true });
   await Promise.resolve(); await Promise.resolve();
   expect(textbox.textContent).toBe("Friend says hello");
   const checkbox = document.querySelector<HTMLInputElement>(`[${CONTROL_ATTR}] input`)!;
   checkbox.checked = true; checkbox.dispatchEvent(new Event("change", { bubbles: true }));
-  expect(facebookDraft?.includes(ATTRIBUTION_URL)).toBe(enabled);
+  expect(facebookDraft?.includes(ATTRIBUTION_URL)).toBe(false); // no draft edits until Post
   document.querySelector<HTMLButtonElement>('[aria-label="Post"]')!.click();
   expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({ type: "crosspost.publish", payload: expect.objectContaining({ text: "Friend says hello" }) }));
-  await Promise.resolve();
+  await vi.waitFor(() => expect(facebookDraft?.includes(ATTRIBUTION_URL)).toBe(enabled));
   checkbox.checked = false; checkbox.dispatchEvent(new Event("change", { bubbles: true }));
   expect(textbox.textContent).toBe("Friend says hello");
 });
