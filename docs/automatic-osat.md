@@ -2,7 +2,7 @@
 
 Eligible author rewards are credited on chain after their voting period closes. Authors can close the browser or stay signed out. The existing Mana sponsor checks the indexer's queue of matured rewards, verifies each against the Token contract and pays the transaction Mana using its existing key. Other self-paying operators can also settle an eligible reward. The contract always pays the recorded author and only settles each reward once.
 
-The indexer includes earlier unsettled rewards, including songs and song comments. After a restart the sponsor picks up the queue again. A busy queue, a lagging indexer or low sponsor Mana can delay settlement. The header links to Tokens and displays the confirmed account balance. The USD figure on Harbinger is a fixed test price of $0.10 per OSAT.
+The indexer includes earlier unsettled rewards, including songs and song comments. After a restart the sponsor picks up the queue again. A busy queue, a lagging indexer or low sponsor Mana can delay settlement. The header links to Tokens and displays the confirmed account balance. On Harbinger, the header shows the USD total for that balance using a fixed rate of $0.17 per OSAT. For example, 100 OSAT displays as **Total: $17.00**.
 
 ## 1. Upgrade Token
 
@@ -42,4 +42,4 @@ Wait for **AUTOMATIC OSAT READY**. A queue with zero eligible items is healthy. 
 
 ## 3. Publish the frontend
 
-Back up Hostinger's `public_html` and extract **OpenSocial-Automatic-OSAT.zip** directly into it. Keep the previous hashed assets for existing browser sessions. Visit `https://opensocial.online/release.json?v=automatic-osat` and confirm the release is `2026-11-04-automatic-osat`. For an unpacked browser extension, extract **OpenSocial-Automatic-OSAT-Extension.zip** over its current folder and choose **Reload** in the browser's extensions screen.
+Back up Hostinger's `public_html` and extract **OpenSocial-Automatic-OSAT.zip** directly into it. Keep the previous hashed assets for existing browser sessions. Visit `https://opensocial.online/release.json?v=osat-total` and confirm the release is `2026-11-04-osat-total`. For an unpacked browser extension, extract **OpenSocial-Automatic-OSAT-Extension.zip** over its current folder and choose **Reload** in the browser's extensions screen.

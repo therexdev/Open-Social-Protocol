@@ -5,6 +5,8 @@ import { useServices } from "../api/services";
 import { useMe } from "../features/session";
 
 const balanceFormat = new Intl.NumberFormat();
+const usdDollars = new Intl.NumberFormat("en-US");
+const harbingerCentsPerOsat = 17n;
 
 export function HeaderOsat() {
   const { protocol, resolved } = useServices();
@@ -42,14 +44,16 @@ export function HeaderOsat() {
     };
   }, [protocol, me]);
 
-  const amount = balance === undefined ? undefined : balanceFormat.format(BigInt(balance));
+  const tokens = balance === undefined ? undefined : BigInt(balance);
+  const amount = tokens === undefined ? undefined : balanceFormat.format(tokens);
   const balanceLabel = amount !== undefined ? `${amount} OSAT` : me ? "OSAT balance unavailable" : "OSAT";
-  const testnet = resolved.network === "harbinger";
-  const description = testnet ? `${balanceLabel}. Testnet price $0.10 USD per OSAT` : balanceLabel;
+  const cents = resolved.network === "harbinger" && tokens !== undefined ? tokens * harbingerCentsPerOsat : undefined;
+  const total = cents === undefined ? undefined : `Total: $${usdDollars.format(cents / 100n)}.${(cents % 100n).toString().padStart(2, "0")}`;
+  const description = total ? `${balanceLabel}. ${total}` : balanceLabel;
   return (
     <Link className="header-osat" to="/tokens" title={description} aria-label={`${description}. View token details`}>
       <strong>{me && <span>{amount ?? "—"}</span>} OSAT</strong>
-      {testnet && <small>Testnet $0.10<span className="osat-price-unit">/ea</span></small>}
+      {total && <small>{total}</small>}
     </Link>
   );
 }

@@ -639,7 +639,7 @@ a { text-underline-offset: 3px; }
 .header-osat:is(:hover,:focus-visible) { border-color: var(--accent); }
 .header-osat strong { display: flex; align-items: baseline; gap: .25em; font-size: .83rem; font-variant-numeric: tabular-nums; }
 .header-osat strong span { overflow: hidden; text-overflow: ellipsis; }
-.header-osat small { color: var(--muted); font-size: .68rem; }
+.header-osat small { color: var(--muted); font-size: .68rem; overflow: hidden; text-overflow: ellipsis; }
 .topbar-actions { flex: none; min-width: 0; margin-left: auto; display: flex; align-items: center; gap: 1rem; }
 .icon-button { width: 42px; height: 42px; display: inline-flex; align-items: center; justify-content: center; text-decoration: none; background: var(--surface); color: var(--muted); border: 1px solid var(--border); border-radius: 14px; }
 .notification-link { position: relative; }
@@ -1224,7 +1224,6 @@ select, .quick-composer select, .conversation-list select, .composer-identity se
   .mobile-brand { font-size: 1.25rem; }
   .topbar:has(.header-unlock) { gap: .4rem; }
   .topbar:has(.header-unlock) .mobile-brand { font-size: 1.05rem; }
-  .topbar:has(.header-unlock) .osat-price-unit { display: none; }
   .topbar-actions .notification-link { display: none; }
   .quick-composer .btn { width: 100%; }
   .quick-composer .btn .icon { display: block; }
