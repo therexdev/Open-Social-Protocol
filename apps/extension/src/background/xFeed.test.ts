@@ -1,0 +1,33 @@
+import { expect, it } from "vitest";
+import { createTestBackground } from "../test/support";
+import { X_SCRIPT_ID, FACEBOOK_SCRIPT_ID } from "./adapters";
+import { fromHex, toBase64url } from "@osp/sdk";
+import type { Reply, StoredCrossPost, FeedItem, FeedRequestReply } from "../shared/protocol";
+
+it("keeps X/Facebook permission, enablement and scope independent; X content cannot cross-post or read secrets",async()=>{
+ const t=createTestBackground({indexer:true,origins:['https://x.com/*','https://www.facebook.com/*']});
+ const passphrase='correct horse battery';await t.call('vault.create',{passphrase});await t.call('device.authorize',{passphrase,keepOwnerSeed:false});
+ const draft=await t.call<{record:StoredCrossPost}>('crosspost.create',{text:'Private X test',audience:1,adapter:'sidepanel'});
+ const done=await t.call<{record:StoredCrossPost}>('crosspost.confirm',{attemptId:draft.record.attemptId});
+ const postId=toBase64url(fromHex(done.record.postId!));
+ const x=t.chrome._contentSender('https://x.com/home'),fb=t.chrome._contentSender('https://www.facebook.com/');
+ const dispatch=(type:string,payload:unknown,sender:chrome.runtime.MessageSender=x)=>t.chrome._dispatch({type,payload},sender) as Promise<Reply<any>>;
+ const frame={...t.chrome._extensionSender('src/embed/index.html#post='+postId+'&host=https://www.facebook.com'),frameId:2,tab:x.tab};
+ await t.call('adapter.enable',{adapter:'facebook'});await t.call('settings.update',{patch:{feedInsertion:true}});
+ expect(await dispatch('feed.request',{})).toMatchObject({ok:true,result:{enabled:false}});
+ expect(await dispatch('embed.post',{postId},frame)).toMatchObject({ok:true,result:{enabled:false}});
+ expect(await dispatch('embed.react',{postId,version:'v'.repeat(43),userGesture:true,reaction:1,remove:false},frame)).toMatchObject({ok:false});
+ await t.call('adapter.enable',{adapter:'x'});await t.call('settings.update',{patch:{xFeedScope:'friends',feedScope:'public'}});
+ expect(t.chrome.scripting._registered.has(X_SCRIPT_ID)).toBe(true);
+ const refs=await dispatch('feed.request',{}) as Reply<FeedRequestReply>;
+ expect(refs).toMatchObject({ok:true,result:{items:[{postId}]}});expect(JSON.stringify(refs)).not.toContain('Private X test');
+ expect(await dispatch('feed.request',{},fb)).toMatchObject({ok:true,result:{items:[]}});
+ expect(await dispatch('embed.post',{postId},frame)).toMatchObject({ok:true,result:{item:{status:'decrypted',text:'Private X test'}}});
+ for(const type of ['adapter.preferences','crosspost.publish','crosspost.propose','crosspost.facebookComplete','vault.export','settings.get','embed.react'])expect((await dispatch(type,{})).ok).toBe(false);
+ const forged={...frame,tab:{...x.tab!,url:'https://x.com.evil.test/home'}};expect((await dispatch('embed.post',{postId},forged)).ok).toBe(false);
+ await t.call('settings.update',{patch:{xFeedInsertion:false}});expect(await dispatch('embed.post',{postId},frame)).toMatchObject({ok:true,result:{enabled:false}});
+ await t.call('adapter.disable',{adapter:'x'});
+ expect(t.chrome.scripting._registered.has(X_SCRIPT_ID)).toBe(false);expect(t.chrome.scripting._registered.has(FACEBOOK_SCRIPT_ID)).toBe(true);
+ expect((await t.chrome.permissions.getAll()).origins).toEqual(['https://www.facebook.com/*']);
+ expect((await dispatch('embed.post',{postId},frame)).ok).toBe(false);
+});

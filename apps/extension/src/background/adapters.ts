@@ -1,149 +1,96 @@
-/**
- * Host adapters are registered at runtime (no static content scripts): the Facebook adapter is
- * registered with chrome.scripting.registerContentScripts only while the optional host
- * permission is granted and the user enabled it in the options page. Disabling unregisters the
- * script and drops the permission.
- *
- * Every registration change runs through one promise chain: `permissions.onAdded` / `onRemoved`
- * and the options page's enable/disable can fire together, and an unserialized pair of syncs
- * could read stale settings, then unregister a script the other sync had just registered.
- * Callers pass a settings *loader* so the settings are re-read inside the chain, after any
- * save that was queued before.
- */
-import { FACEBOOK_ORIGINS } from "../shared/config";
+/** Optional host adapters. One queue serializes registration, revocation and refresh so
+ * overlapping permission/settings events cannot restore a stale registration. */
+import { FACEBOOK_ORIGINS, X_ORIGINS, type FeedHost } from "../shared/hosts";
 import type { AdapterStatusView } from "../shared/protocol";
 import type { Settings } from "../shared/settings";
 
 export const FACEBOOK_SCRIPT_ID = "osp-facebook-adapter";
 export const FACEBOOK_SCRIPT_FILE = "content/facebook.js";
-
+export const X_SCRIPT_ID = "osp-x-adapter";
+export const X_SCRIPT_FILE = "content/x.js";
+const sites = {
+  facebook: { origins: FACEBOOK_ORIGINS, id: FACEBOOK_SCRIPT_ID, file: FACEBOOK_SCRIPT_FILE, label: "Facebook" },
+  x: { origins: X_ORIGINS, id: X_SCRIPT_ID, file: X_SCRIPT_FILE, label: "X" },
+};
 type ChromeLike = Pick<typeof chrome, "permissions" | "scripting" | "tabs">;
-type AdapterSettings = Pick<Settings, "facebookAdapter" | "feedInsertion">;
+type AdapterSettings = Pick<Settings, "facebookAdapter" | "feedInsertion"> & Partial<Pick<Settings, "xFeedInsertion">>;
 export type AdapterSettingsSource = AdapterSettings | (() => Promise<AdapterSettings>);
 
 export function adapterApi(api: ChromeLike = chrome) {
   let chain: Promise<unknown> = Promise.resolve();
-  let attachmentWarning: string | undefined;
-
-  /** Registration covers future documents; attach/refresh already-open Facebook tabs as well. */
-  async function refreshOpenTabs(matches: string[]): Promise<void> {
-    const tabs = await api.tabs.query({ url: matches });
-    const results = await Promise.allSettled(tabs.filter((tab) => tab.id !== undefined).map((tab) =>
-      api.scripting.executeScript({ target: { tabId: tab.id!, frameIds: [0] }, files: [FACEBOOK_SCRIPT_FILE], world: "ISOLATED" }),
-    )); // A tab closing or navigating during enable must not prevent the others from attaching.
-    const failed = results.filter((result) => result.status === "rejected").length;
-    attachmentWarning = failed ? `Could not attach to ${failed} open Facebook tab${failed === 1 ? "" : "s"}. Reload those pages to activate Open Social.` : undefined;
-  }
-
-  async function stopOpenTabs(matches: string[] = FACEBOOK_ORIGINS): Promise<void> {
-    // Tab ids remain available after site access is revoked; URLs may no longer be readable.
-    const tabs = await api.tabs.query({});
-    await Promise.allSettled(tabs.filter((tab) => tab.id !== undefined).map((tab) =>
-      api.tabs.sendMessage(tab.id!, { type: "osp.facebook.stop", origins: matches }, { frameId: 0 }),
-    )); // Tabs without our content script have no receiving endpoint.
-  }
-
-  /** Serializes registration changes so concurrent syncs cannot interleave. */
+  const warnings: Partial<Record<FeedHost, string>> = {};
   function serialized<T>(fn: () => Promise<T>): Promise<T> {
-    const next = chain.then(fn, fn);
-    chain = next.catch(() => undefined);
-    return next;
+    const next = chain.then(fn, fn); chain = next.catch(() => undefined); return next;
   }
-
-  /** The Facebook host patterns the user currently grants (chrome://extensions lets them revoke one site at a time). */
-  async function facebookGrantedOrigins(): Promise<string[]> {
+  async function grantedOrigins(host: FeedHost): Promise<string[]> {
     const granted: string[] = [];
-    for (const origin of FACEBOOK_ORIGINS) {
-      try {
-        if (await api.permissions.contains({ origins: [origin] })) granted.push(origin);
-      } catch {
-        // treated as not granted
-      }
+    for (const origin of sites[host].origins) {
+      try { if (await api.permissions.contains({ origins: [origin] })) granted.push(origin); } catch { /* not granted */ }
     }
     return granted;
   }
-
-  async function facebookGranted(): Promise<boolean> {
-    return (await facebookGrantedOrigins()).length > 0;
+  async function registered(host: FeedHost) {
+    try { return (await api.scripting.getRegisteredContentScripts({ ids: [sites[host].id] })).find(s => s.id === sites[host].id); }
+    catch { return undefined; }
   }
-
-  async function registeredFacebookScript(): Promise<chrome.scripting.RegisteredContentScript | undefined> {
-    try {
-      const scripts = await api.scripting.getRegisteredContentScripts({ ids: [FACEBOOK_SCRIPT_ID] });
-      return scripts.find((s) => s.id === FACEBOOK_SCRIPT_ID);
-    } catch {
-      return undefined;
-    }
+  async function stopOpenTabs(host: FeedHost, origins = sites[host].origins) {
+    // After revocation URLs can be hidden; deliver to all top frames, whose handlers validate the origin.
+    const tabs = await api.tabs.query({});
+    await Promise.allSettled(tabs.filter(t => t.id !== undefined).map(t => api.tabs.sendMessage(t.id!, { type: `osp.${host}.stop`, origins }, { frameId: 0 })));
   }
-
-  async function facebookRegistered(): Promise<boolean> {
-    return (await registeredFacebookScript()) !== undefined;
+  async function refreshOpenTabs(host: FeedHost, matches: string[]) {
+    const tabs = await api.tabs.query({ url: matches });
+    const results = await Promise.allSettled(tabs.filter(t => t.id !== undefined).map(t => api.scripting.executeScript({
+      target: { tabId: t.id!, frameIds: [0] }, files: [sites[host].file], world: "ISOLATED",
+    })));
+    const failed = results.filter(r => r.status === "rejected").length;
+    warnings[host] = failed ? `Could not attach to ${failed} open ${sites[host].label} tab${failed === 1 ? "" : "s"}. Reload those pages to activate Open Social.` : undefined;
   }
-
-  /** Registers the adapter for exactly the granted Facebook origins (re-registers when the set changed). */
-  async function registerFacebook(): Promise<void> {
-    const matches = await facebookGrantedOrigins();
-    if (matches.length === 0) throw new Error("Grant the Facebook host permission first.");
-    const existing = await registeredFacebookScript();
+  async function register(host: FeedHost) {
+    const matches = await grantedOrigins(host);
+    if (!matches.length) throw Error(`Grant the ${sites[host].label} host permission first.`);
+    const existing = await registered(host);
     if (existing) {
-      const same = existing.matches?.length === matches.length && matches.every((m) => existing.matches?.includes(m));
-      if (same) return;
-      await api.scripting.unregisterContentScripts({ ids: [FACEBOOK_SCRIPT_ID] });
+      if (existing.matches?.length === matches.length && matches.every(m => existing.matches?.includes(m))) return;
+      await api.scripting.unregisterContentScripts({ ids: [sites[host].id] });
     }
-    await api.scripting.registerContentScripts([
-      {
-        id: FACEBOOK_SCRIPT_ID,
-        js: [FACEBOOK_SCRIPT_FILE],
-        matches,
-        runAt: "document_idle",
-        world: "ISOLATED",
-        persistAcrossSessions: true,
-        allFrames: false,
-      },
-    ]);
+    await api.scripting.registerContentScripts([{ id: sites[host].id, js: [sites[host].file], matches,
+      runAt: "document_idle", world: "ISOLATED", persistAcrossSessions: true, allFrames: false }]);
   }
-
-  async function unregisterFacebook(): Promise<void> {
-    if (!(await facebookRegistered())) return;
-    await api.scripting.unregisterContentScripts({ ids: [FACEBOOK_SCRIPT_ID] });
+  async function unregister(host: FeedHost) {
+    if (await registered(host)) await api.scripting.unregisterContentScripts({ ids: [sites[host].id] });
   }
-
-  /** Registers when wanted + granted; unregisters otherwise. Serialized; the settings are read inside the chain. */
+  async function status(settings: AdapterSettings): Promise<AdapterStatusView> {
+    const state = async (host: FeedHost, wanted: boolean) => ({ wanted, granted: (await grantedOrigins(host)).length > 0,
+      registered: !!await registered(host), attachmentWarning: warnings[host] });
+    return { facebook: await state("facebook", settings.facebookAdapter), x: await state("x", settings.xFeedInsertion === true), feedInsertion: settings.feedInsertion };
+  }
   function sync(source: AdapterSettingsSource): Promise<AdapterStatusView> {
     return serialized(async () => {
       const settings = typeof source === "function" ? await source() : source;
-      const matches = await facebookGrantedOrigins();
-      const granted = matches.length > 0;
-      if (settings.facebookAdapter && granted) {
-        await registerFacebook();
-        const revoked = FACEBOOK_ORIGINS.filter((origin) => !matches.includes(origin));
-        if (revoked.length) await stopOpenTabs(revoked);
-        await refreshOpenTabs(matches);
-      } else {
-        attachmentWarning = undefined;
-        await unregisterFacebook();
-        await stopOpenTabs();
+      for (const host of ["facebook", "x"] as const) {
+        const matches = await grantedOrigins(host), wanted = host === "facebook" ? settings.facebookAdapter : settings.xFeedInsertion;
+        if (wanted && matches.length) {
+          await register(host);
+          const revoked = sites[host].origins.filter(o => !matches.includes(o));
+          if (revoked.length) await stopOpenTabs(host, revoked);
+          await refreshOpenTabs(host, matches);
+        } else { warnings[host] = undefined; await unregister(host); await stopOpenTabs(host); }
       }
-      return { facebook: { wanted: settings.facebookAdapter, granted, registered: await facebookRegistered(), attachmentWarning }, feedInsertion: settings.feedInsertion };
+      return status(settings);
     });
   }
-
-  /** Unregisters the adapter and drops the host permission (serialized with the syncs). */
-  function disableFacebook(): Promise<void> {
+  function disable(host: FeedHost): Promise<void> {
     return serialized(async () => {
-      await unregisterFacebook();
-      await stopOpenTabs();
-      try {
-        await api.permissions.remove({ origins: FACEBOOK_ORIGINS });
-      } catch {
-        // the permission may already be gone
-      }
+      await unregister(host); await stopOpenTabs(host); warnings[host] = undefined;
+      try { await api.permissions.remove({ origins: sites[host].origins }); } catch { /* already revoked */ }
     });
   }
-
-  async function status(settings: AdapterSettings): Promise<AdapterStatusView> {
-    return { facebook: { wanted: settings.facebookAdapter, granted: await facebookGranted(), registered: await facebookRegistered(), attachmentWarning }, feedInsertion: settings.feedInsertion };
-  }
-
-  return { facebookGranted, facebookGrantedOrigins, facebookRegistered, registerFacebook, unregisterFacebook, sync, disableFacebook, status };
+  return { sync, status, disable,
+    facebookGranted: async () => (await grantedOrigins("facebook")).length > 0,
+    facebookGrantedOrigins: () => grantedOrigins("facebook"),
+    facebookRegistered: async () => !!await registered("facebook"),
+    registerFacebook: () => register("facebook"), unregisterFacebook: () => unregister("facebook"), disableFacebook: () => disable("facebook"),
+    xGranted: async () => (await grantedOrigins("x")).length > 0,
+  };
 }

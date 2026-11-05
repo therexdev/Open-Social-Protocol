@@ -19,6 +19,9 @@ export interface Settings {
   autoLockMinutes: number;
   /** Facebook adapter wanted by the user (the host permission must also be granted). */
   facebookAdapter: boolean;
+  /** Optional X home-timeline feed, with independent audience preference. */
+  xFeedInsertion: boolean;
+  xFeedScope: "public" | "friends" | "all";
   /** Preselect cross-posting on newly opened Facebook composers. */
   facebookAutoCheck: boolean;
   /** Add a visible personal profile link when submitting cross-posted Facebook posts. */
@@ -39,6 +42,8 @@ export function defaultSettings(env: EnvDefaults = ENV): Settings {
     payment: "sponsor-then-self",
     autoLockMinutes: 15,
     facebookAdapter: false,
+    xFeedInsertion: false,
+    xFeedScope: "all",
     facebookAttribution: true,
     facebookAutoCheck: true,
     feedInsertion: false,
@@ -66,6 +71,8 @@ export function sanitizeSettings(raw: unknown, defaults: Settings = defaultSetti
     payment: validPayment,
     autoLockMinutes: autoLock,
     facebookAdapter: r.facebookAdapter === true,
+    xFeedInsertion: r.xFeedInsertion === true,
+    xFeedScope: r.xFeedScope === "public" || r.xFeedScope === "friends" ? r.xFeedScope : "all",
     facebookAttribution: r.facebookAttribution !== false,
     facebookAutoCheck: r.facebookAutoCheck !== false,
     feedInsertion: r.feedInsertion === true,

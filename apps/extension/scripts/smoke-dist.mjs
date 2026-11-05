@@ -30,12 +30,15 @@ check(typeof manifest.side_panel?.default_path === "string" && existsSync(path.j
 check(typeof manifest.options_page === "string" && existsSync(path.join(dist, manifest.options_page)), "options page missing");
 check(manifest.content_scripts === undefined, "no static content_scripts allowed");
 check(JSON.stringify(manifest.permissions) === JSON.stringify(["storage", "sidePanel", "scripting", "alarms", "activeTab"]), "unexpected permissions");
-check(JSON.stringify(manifest.optional_host_permissions) === JSON.stringify(["https://www.facebook.com/*", "https://web.facebook.com/*"]), "unexpected optional_host_permissions");
+check(JSON.stringify(manifest.optional_host_permissions) === JSON.stringify(["https://www.facebook.com/*", "https://web.facebook.com/*", "https://x.com/*", "https://www.x.com/*"]), "unexpected optional_host_permissions");
 check(manifest.host_permissions === undefined, "no host_permissions allowed (optional only)");
 check(/script-src 'self'/.test(manifest.content_security_policy?.extension_pages ?? "") && !/\x27unsafe-eval\x27/.test(manifest.content_security_policy?.extension_pages ?? ""), "CSP must be script-src 'self' without unsafe-eval");
 check(!existsSync(path.join(dist, "social")), "The embedded website must not be packaged");
 check(existsSync(path.join(dist, "src/permissions/index.html")), "recording permission page missing");
 check(existsSync(path.join(dist, "content/facebook.js")), "dist/content/facebook.js missing");
+check(existsSync(path.join(dist, "content/x.js")), "dist/content/x.js missing");
+const xScript = readFileSync(path.join(dist, "content/x.js"), "utf8");
+check(!/^\s*(import|export)\s/m.test(xScript), "X content script must be a classic script");
 const facebookScript = existsSync(path.join(dist, "content/facebook.js")) ? readFileSync(path.join(dist, "content/facebook.js"), "utf8") : "";
 check(!/^\s*(import|export)\s/m.test(facebookScript), "content script must be a classic script (no import/export)");
 check(facebookScript.includes("Also publish to Open Social Protocol"), "content script lost its label");

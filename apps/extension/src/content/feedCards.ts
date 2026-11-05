@@ -20,6 +20,10 @@ export interface FeedCardsRuntime {
   sendMessage: (message: unknown) => Promise<unknown> | unknown;
   frameUrl?: (postId: string) => string;
   now?: () => number;
+  /** X measures absolute virtual rows; placing inside the row lets its own layout track height. */
+  insideRow?: boolean;
+  rowContainer?: (row: HTMLElement) => HTMLElement;
+  findLocation?: (doc: Document) => FeedLocation | null;
 }
 export interface FeedLocation { column: HTMLElement; posts: HTMLElement[]; keys: Map<HTMLElement, string>; positions: Map<HTMLElement, number> }
 
@@ -158,14 +162,15 @@ export class FeedController {
     frame.referrerPolicy = "origin";
     Object.assign(frame.style, { display: "block", width: "100%", height: "180px", border: "0", colorScheme: this.theme });
     host.append(frame);
-    location.column.insertBefore(host, anchor.nextSibling);
+    if (this.runtime.insideRow) (this.runtime.rowContainer?.(anchor) ?? anchor).append(host);
+    else location.column.insertBefore(host, anchor.nextSibling);
     this.frames.set(postId, frame);
     this.placements.set(postId, { anchor, key: location.keys.get(anchor), index: location.posts.indexOf(anchor) });
     this.reanchor = true;
   }
   private getLocation(): FeedLocation | null {
     if (this.locationDirty || !this.location?.column.isConnected || this.location.posts.some(post => post.parentElement !== this.location!.column)) {
-      this.location = findFeedLocation(this.runtime.document);
+      this.location = (this.runtime.findLocation ?? findFeedLocation)(this.runtime.document);
       this.locationDirty = false;
       this.reanchor = true;
     }
@@ -191,13 +196,13 @@ export class FeedController {
       this.placedAfter.set(anchor, location.keys.get(anchor) ?? ""); parkedCards.delete(host);
       const order = this.runtime.document.defaultView?.getComputedStyle(anchor).order || "0";
       if (host.style.order !== order) host.style.order = order;
-      const before = anchor.nextSibling;
-      if (before !== host || host.parentElement !== location.column) {
-        const parent = location.column as HTMLElement & { moveBefore?: (node: Node, before: Node | null) => void };
+      const parent = (this.runtime.insideRow ? this.runtime.rowContainer?.(anchor) ?? anchor : location.column) as HTMLElement & { moveBefore?: (node: Node, before: Node | null) => void };
+      const before = this.runtime.insideRow ? null : anchor.nextSibling;
+      if (host.parentElement !== parent || (this.runtime.insideRow ? host.nextSibling !== null : before !== host)) {
         if (parent.moveBefore && host.isConnected) parent.moveBefore(host, before);
         else parent.insertBefore(host, before);
       }
-      expectedPositions.set(host, { parent: location.column, next: host.nextSibling });
+      expectedPositions.set(host, { parent, next: host.nextSibling });
     }
   }
   private showNotice(message: string, location: FeedLocation): void {
@@ -206,7 +211,8 @@ export class FeedController {
       this.notice.setAttribute(FEED_ATTR, "notice");
       this.notice.setAttribute("role", "status");
       Object.assign(this.notice.style, { padding: "12px 16px", marginBottom: "12px", borderRadius: "12px", background: "#f6f7fb", color: "#5f6672", font: "14px/1.5 system-ui" });
-      location.column.insertBefore(this.notice, location.posts[0] ?? null);
+      if (this.runtime.insideRow && location.posts[0]) (this.runtime.rowContainer?.(location.posts[0]) ?? location.posts[0]).append(this.notice);
+      else location.column.insertBefore(this.notice, location.posts[0] ?? null);
     }
     if (this.notice.textContent !== message) this.notice.textContent = message;
   }

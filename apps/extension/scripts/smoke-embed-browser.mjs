@@ -6,6 +6,7 @@ import path from 'node:path';
 import { fileURLToPath,pathToFileURL } from 'node:url';
 const {chromium}=await import(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?pathToFileURL(path.join(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES,'playwright/index.mjs')).href:'playwright');
 const dist=path.resolve(fileURLToPath(new URL('../dist/',import.meta.url))),manifest=JSON.parse(readFileSync(path.join(dist,'manifest.json'),'utf8'));
+const hostOrigin=process.env.TEST_HOST==='x'?'https://x.com':'https://www.facebook.com';
 const ids={photo:'a'.repeat(43)+'=',poll:'b'.repeat(43)+'=',video:'c'.repeat(43)+'=',voice:'d'.repeat(43)+'=',comment:'e'.repeat(43)+'='};
 const image=process.env.TEST_IMAGE?readFileSync(process.env.TEST_IMAGE).toString('base64url'):'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFElEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==';
 const video=process.env.TEST_VIDEO?readFileSync(process.env.TEST_VIDEO).toString('base64url'):undefined;
@@ -49,13 +50,13 @@ try {
  },{ids,image,video,audio:wav.toString('base64url')});
  await context.route('**/*',async route=>{
   const u=new URL(route.request().url());
-  if(u.origin==='https://www.facebook.com')return route.fulfill({contentType:'text/html',body:`<!doctype html><html><head><style>body{margin:0;background:#f0f2f5;font:14px Arial}header{height:55px;background:white;border-bottom:1px solid #ddd;padding:16px}main{max-width:680px;margin:22px auto}iframe{display:block;border:0;width:100%;height:180px;margin:16px 0}article{background:white;padding:25px;border-radius:10px;color:#666}@media(max-width:700px){main{margin:8px}}</style></head><body><header>Feed preview</header><main><article>Native feed post</article>${Object.entries(ids).filter(([k])=>k!=='comment'&&(k!=='video'||video)).map(([k,id])=>`<iframe title="${k}" allow="autoplay; fullscreen" src="https://extension.test/src/embed/index.html#post=${encodeURIComponent(id)}&host=https%3A%2F%2Fwww.facebook.com"></iframe><article>Native feed post</article>`).join('')}</main><script>addEventListener('message',e=>{for(const f of document.querySelectorAll('iframe'))if(e.source===f.contentWindow&&e.origin==='https://extension.test'&&e.data.type==='osp.card.height')f.style.height=e.data.height+'px'})</script></body></html>`});
+  if(u.origin===hostOrigin)return route.fulfill({contentType:'text/html',body:`<!doctype html><html><head><style>body{margin:0;background:#f0f2f5;font:14px Arial}header{height:55px;background:white;border-bottom:1px solid #ddd;padding:16px}main{max-width:680px;margin:22px auto}iframe{display:block;border:0;width:100%;height:180px;margin:16px 0}article{background:white;padding:25px;border-radius:10px;color:#666}@media(max-width:700px){main{margin:8px}}</style></head><body><header>Feed preview</header><main><article>Native feed post</article>${Object.entries(ids).filter(([k])=>k!=='comment'&&(k!=='video'||video)).map(([k,id])=>`<iframe title="${k}" allow="autoplay; fullscreen" src="https://extension.test/src/embed/index.html#post=${encodeURIComponent(id)}&host=${encodeURIComponent(hostOrigin)}"></iframe><article>Native feed post</article>`).join('')}</main><script>addEventListener('message',e=>{for(const f of document.querySelectorAll('iframe'))if(e.source===f.contentWindow&&e.origin==='https://extension.test'&&e.data.type==='osp.card.height')f.style.height=e.data.height+'px'})</script></body></html>`});
   const file=path.resolve(dist,'.'+u.pathname);
   if(u.origin!=='https://extension.test'||!file.startsWith(dist+path.sep)||!existsSync(file))throw Error('Unexpected network request '+u.origin+u.pathname);
   return route.fulfill({contentType:({'.js':'text/javascript','.css':'text/css','.html':'text/html','.wasm':'application/wasm'})[path.extname(file)]||'application/octet-stream',headers:{'content-security-policy':manifest.content_security_policy.extension_pages},body:readFileSync(file)});
  });
  const page=await context.newPage();page.setDefaultTimeout(15000);page.on('pageerror',e=>errors.push(e.message));
- await page.goto('https://www.facebook.com/');
+ await page.goto(hostOrigin+'/');
  const photo=page.frameLocator('iframe[title=photo]'),poll=page.frameLocator('iframe[title=poll]');
  await photo.locator('.card-photo img').waitFor();await photo.locator('.card-photo img').evaluate(i=>i.decode());assert.ok(await photo.locator('.card-photo img').evaluate(i=>i.complete&&i.naturalWidth>0),'Archived image loads automatically');
  assert.equal(await photo.locator('.social-card').evaluate(e=>getComputedStyle(e).backgroundColor),'rgb(255, 255, 255)');
@@ -123,7 +124,7 @@ try {
  await page.screenshot({path:'/tmp/open-social-feed-desktop.png',fullPage:true});
  await page.evaluate(()=>{for(const frame of document.querySelectorAll('iframe'))frame.contentWindow.postMessage({type:'osp.card.theme',theme:'dark'},'https://extension.test');});
  await photo.locator('html[data-theme=dark]').waitFor();
- assert.equal(await photo.locator('.social-card').first().evaluate(e=>getComputedStyle(e).backgroundColor),'rgb(36, 37, 38)');
+ assert.equal(await photo.locator('.social-card').first().evaluate(e=>getComputedStyle(e).backgroundColor),hostOrigin==='https://x.com'?'rgb(0, 0, 0)':'rgb(36, 37, 38)');
  await page.screenshot({path:'/tmp/open-social-feed-dark.png',fullPage:true});
  // An iframe cannot spoof the host source, even if it supplies a valid theme value.
  await photo.locator('body').evaluate(()=>window.dispatchEvent(new MessageEvent('message',{source:window,origin:'https://www.facebook.com',data:{type:'osp.card.theme',theme:'light'}})));

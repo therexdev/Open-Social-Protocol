@@ -78,4 +78,4 @@ export const APP_VERSION = version;
 export const DEVICE_LABEL = "Chrome extension";
 /** Device authorizations last 30 days (spec section 3.1: devices carry an expiry). */
 export const DEVICE_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000;
-export const FACEBOOK_ORIGINS = ["https://www.facebook.com/*", "https://web.facebook.com/*"];
+export { FACEBOOK_ORIGINS } from "./hosts";

@@ -5,6 +5,7 @@
  * real tab, top frame, allowed types only, per-tab rate limit, user gesture where required),
  * strict payload schema, then the handler. Replies carry the minimum the caller needs.
  */
+import { FEED_ORIGINS, feedHost } from "../shared/hosts";
 import { CONTENT_SCRIPT_TYPES, MAX_MESSAGE_BYTES, type Reply } from "../shared/protocol";
 import { ValidationError, type Validator } from "../shared/validate";
 
@@ -131,7 +132,7 @@ export function createRouter(options: RouterOptions): Router {
     if (!handler) return reject("unknown_type", `Unknown message type ${type}.`);
 
     // 4. source classification
-    const origin = originFromSender(sender);
+    let origin = originFromSender(sender);
     if (!origin) return reject("forbidden", "Sender origin is unknown.");
     let source: Source;
     let tabId: number | undefined;
@@ -144,7 +145,8 @@ export function createRouter(options: RouterOptions): Router {
         const host = sender.tab?.url ? new URL(sender.tab.url).origin : "";
         const granted = originsFromPatterns(await options.grantedOrigins());
         tabId = sender.tab?.id;
-        if (!sender.frameId || typeof tabId !== "number" || tabId < 0 || !["https://www.facebook.com", "https://web.facebook.com"].includes(host) || !granted.includes(host)) return reject("forbidden", "Cards require a granted Facebook page.");
+        if (!sender.frameId || typeof tabId !== "number" || tabId < 0 || !FEED_ORIGINS.includes(host) || !granted.includes(host)) return reject("forbidden", "Cards require a granted supported host page.");
+        origin = host;
         if (handler.requireGesture && rateLimited(tabId)) return reject("rate_limited", "Too many actions from this tab; try again shortly.");
       }
     } else {
@@ -153,6 +155,7 @@ export function createRouter(options: RouterOptions): Router {
       if (typeof tabId !== "number" || tabId < 0) return reject("forbidden", "Content-script messages must come from a tab.");
       if (sender.frameId !== undefined && sender.frameId !== 0) return reject("forbidden", "Only the top frame may send messages.");
       if (!(CONTENT_SCRIPT_TYPES as readonly string[]).includes(type)) return reject("forbidden", `Content scripts may not send ${type}.`);
+      if (!feedHost(origin) || feedHost(origin) === "x" && type !== "feed.request") return reject("forbidden", "This host may only request its supported feed integration.");
       const granted = originsFromPatterns(await options.grantedOrigins());
       if (!granted.includes(origin)) return reject("forbidden", `Origin ${origin} is not a granted host.`);
       if (rateLimited(tabId)) return reject("rate_limited", "Too many messages from this tab; try again shortly.");

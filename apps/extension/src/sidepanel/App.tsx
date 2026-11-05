@@ -57,7 +57,8 @@ export function ExtensionRoutes() {
     <Route path="/tags/:tag" element={<HashtagPage/>}/>
     <Route path="/people" element={<PeoplePage/>}/>
     <Route path="/settings" element={<SettingsPage/>}/>
-    <Route path="/facebook" element={<FacebookSettings/>}/>
+    <Route path="/connections" element={<FacebookSettings/>}/>
+    <Route path="/facebook" element={<Navigate to="/connections" replace/>}/>
     <Route path="/browser-drafts" element={<div className="page"><h1>Unfinished browser posts</h1><FacebookDrafts/></div>}/>
     <Route path="/welcome" element={<Welcome/>}/>
     <Route path="/recover" element={<RecoveryPage/>}/>

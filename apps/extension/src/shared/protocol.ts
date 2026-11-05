@@ -209,6 +209,7 @@ export interface FeedRequestReply {
 // ---------------------------------------------------------------------------
 
 export interface AdapterStatusView {
+  x: { wanted: boolean; granted: boolean; registered: boolean; attachmentWarning?: string };
   facebook: { wanted: boolean; granted: boolean; registered: boolean; attachmentWarning?: string };
   feedInsertion: boolean;
 }

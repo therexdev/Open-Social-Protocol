@@ -15,8 +15,8 @@ import { PaymentError, lookupDeviceStatus, submitOperations } from "./publish";
 import { requireProtocol } from "./clients";
 import type { UnlockedSession } from "./vault";
 
-type Deps = FeedDeps & { feed: FeedService; local: KeyValueArea; enabled: () => Promise<boolean> };
-type Target = { postId: string; targetId?: string; version?: string };
+type Deps = FeedDeps & { feed: FeedService; local: KeyValueArea; enabled: (host?: string) => Promise<boolean> };
+type Target = { host?: string; postId: string; targetId?: string; version?: string };
 interface SavedReply {
   createdAt: number; parent: string; textHash: string; version: string; postId: string; audience: number; epoch: number;
   audienceId?: string; epochKey?: string; operations: OperationJson[];
@@ -29,7 +29,7 @@ export class EmbeddedActions {
   constructor(private deps: Deps) {}
 
   async target(p: Target): Promise<FeedItem> {
-    if (!await this.deps.enabled()) throw Error("The Facebook feed is disabled.");
+    if (!await this.deps.enabled(p.host)) throw Error("This site’s Open Social feed is disabled.");
     const root = await this.deps.feed.card(p.postId);
     if (!root || !["plain", "decrypted"].includes(root.status)) throw Error(root?.message || "This post is unavailable.");
     const targetId = p.targetId ?? p.postId;
@@ -61,7 +61,7 @@ export class EmbeddedActions {
       if (child?.replyTo === item.postId) items.push(child);
     }
     await this.target(p);
-    if (session) await this.active(session);
+    if (session) await this.active(session, p.host);
     return { items, nextCursor: page.nextCursor };
   }
 
@@ -76,7 +76,7 @@ export class EmbeddedActions {
       if (!device.authorized || ((device.capabilities ?? 0) & capability) !== capability)
         throw Error("This browser needs renewed interaction permission. Authorize it again in Browser tools.");
       const item = await this.target(p);
-      await this.active(session);
+      await this.active(session, p.host);
       const result = await operation(session, item);
       this.deps.feed.invalidate();
       await this.deps.vault.touch(); // explicit interactions count; reads/media/polling do not
@@ -84,14 +84,14 @@ export class EmbeddedActions {
     } finally { this.busy = false; }
   }
 
-  private async active(session: UnlockedSession) {
+  private async active(session: UnlockedSession, host?: string) {
     const current = await this.deps.session();
-    if (current?.account !== session.account || current.unlockedAt !== session.unlockedAt || !await this.deps.enabled()) throw Error("Your session changed. Unlock Open Social and try again.");
+    if (current?.account !== session.account || current.unlockedAt !== session.unlockedAt || !await this.deps.enabled(host)) throw Error("Your session changed. Unlock Open Social and try again.");
   }
 
-  private async submit(ops: OperationJson[], session: UnlockedSession) {
+  private async submit(ops: OperationJson[], session: UnlockedSession, host?: string) {
     const clients = await this.deps.clients(), client = requireProtocol(clients);
-    await this.active(session);
+    await this.active(session, host);
     const result = await submitOperations(ops, { client, session, vault: this.deps.vault, payment: clients.resolved.payment, sponsorUrls: clients.resolved.sponsorUrls });
     if (result.transaction.id) await client.provider.wait(result.transaction.id, "byTransactionId", 120000);
     return { txId: result.transaction.id };
@@ -101,7 +101,7 @@ export class EmbeddedActions {
     return this.run(p, CAPABILITY.REACT, async (session, item) => {
       const client = requireProtocol(await this.deps.clients());
       const result = await this.submit([await client.ops.publications.react({ actor: session.account, device: session.deviceAddress,
-        post_id: bytesOf(item.postId), reaction: p.reaction, remove: p.remove })], session);
+        post_id: bytesOf(item.postId), reaction: p.reaction, remove: p.remove })], session, p.host);
       return { ...result, reaction: p.remove ? 0 : p.reaction };
     });
   }
@@ -114,7 +114,7 @@ export class EmbeddedActions {
       if (p.option >= view.value.definition.options.length) throw Error("Choose an available answer.");
       if (view.ballot?.option === p.option) return { pollView: view };
       const result = await this.submit([await client.ops.publications.answer_poll({ actor: session.account, device: session.deviceAddress,
-        post_id: bytesOf(item.postId), option: p.option })], session);
+        post_id: bytesOf(item.postId), option: p.option })], session, p.host);
       return { ...result, pollView: await client.reads.publications.get_poll({ post_id: bytesOf(item.postId), viewer: session.account }) };
     });
   }
@@ -163,10 +163,10 @@ export class EmbeddedActions {
           epochKey: plan.epochKey && toBase64url(plan.epochKey), operations: plan.operations, state: "ready" };
         saved[replyAttempt] = draft; await store.save(saved);
       }
-      await this.target(p); await this.active(session);
+      await this.target(p); await this.active(session, p.host);
       draft.state = "submitted"; await store.save(saved);
       try {
-        const result = await this.submit(draft.operations,session);
+        const result = await this.submit(draft.operations,session,p.host);
         draft.state = "confirmed"; draft.txId = result.txId; await store.save(saved);
         if (draft.epochKey) await (await this.deps.keys(session)).put({ author: session.account, audienceId: bytesOf(draft.audienceId), epoch: draft.epoch },bytesOf(draft.epochKey));
         return { ...result, postId: draft.postId, confirmed: true };

@@ -17,14 +17,18 @@ const browser=await chromium.launch({...(process.env.CHROMIUM_PATH&&{executableP
 try {
  const context=await browser.newContext({viewport:{width:390,height:900}}),requests=[],errors=[];
  await context.addInitScript(({account})=>{
-  const listeners=new Set();
-  window.chrome={runtime:{getManifest:()=>({version:'0.5.0'}),getURL:p=>'https://extension.test/'+p,openOptionsPage:async()=>{},sendMessage:async({type})=>{
+  const listeners=new Set();window.__xEnabled=false;window.__xScope="all";window.__permissions=[];
+  window.chrome={runtime:{getManifest:()=>({version:'0.6.0'}),getURL:p=>'https://extension.test/'+p,openOptionsPage:async()=>{},sendMessage:async({type,payload})=>{
    if(type==='vault.status')return{ok:true,result:{status:'locked',account,mode:'device',deviceAuthorized:true,network:{deployed:true}}};
    if(type==='crosspost.list')return{ok:true,result:{items:[]}};
-   if(type==='settings.get')return{ok:true,result:{settings:{network:'harbinger',rpcUrls:[],indexerUrl:'',sponsorUrls:[],autoLockMinutes:15,payment:'sponsor-then-self'}}};
+   if(type==='settings.get')return{ok:true,result:{settings:{network:'harbinger',rpcUrls:[],indexerUrl:'',sponsorUrls:[],autoLockMinutes:15,payment:'sponsor-then-self',xFeedInsertion:window.__xEnabled,xFeedScope:window.__xScope},resolved:{network:'harbinger',deployed:true,rpcUrls:[],indexerUrl:'',sponsorUrls:[]},networks:['harbinger']}};
+   if(type==='adapter.status')return{ok:true,result:{facebook:{wanted:false,granted:false,registered:false},x:{wanted:window.__xEnabled,granted:window.__xEnabled,registered:window.__xEnabled},feedInsertion:false}};
+   if(type==='adapter.enable'&&payload.adapter==='x'){window.__xEnabled=true;return{ok:true,result:{}};}
+   if(type==='adapter.disable'&&payload.adapter==='x'){window.__xEnabled=false;return{ok:true,result:{}};}
+   if(type==='settings.update'&&payload.patch.xFeedScope){window.__xScope=payload.patch.xFeedScope;return{ok:true,result:{}};}
    if(type==='vault.lock')return{ok:true,result:{}};
    throw Error('Unexpected fixture worker request '+type);
-  }},storage:{onChanged:{addListener:f=>listeners.add(f),removeListener:f=>listeners.delete(f)}}};
+  }},permissions:{request:async({origins})=>{window.__permissions.push(origins);return true;}},storage:{onChanged:{addListener:f=>listeners.add(f),removeListener:f=>listeners.delete(f)}}};
  },{account:me.account});
  await context.route('**/*',async route=>{
   const req=route.request(),url=new URL(req.url());requests.push(url.href);
@@ -88,7 +92,17 @@ try {
  const wasmModule=readdirSync(path.join(dist,'assets')).find(p=>/^vodozemac-.*\.js$/.test(p));
  const publicKey=await page.evaluate(async url=>{const m=await import(url);await m.initAsync();const a=new m.Account();const key=a.curve25519_key;a.free();return key;},'https://extension.test/assets/'+wasmModule);
  assert.ok(publicKey,'Encrypted-messaging WASM initializes under the shipped CSP');
- await page.getByRole('button',{name:'More menu',exact:true}).click();await page.getByRole('button',{name:'Lock account and Facebook',exact:true}).click();
+ await page.getByRole('button',{name:'More menu',exact:true}).click();await page.getByRole('link',{name:'Browser connections',exact:true}).click();
+ await page.getByRole('heading',{name:'Browser connections',exact:true}).waitFor();
+ const xSettings=page.locator('section').filter({has:page.getByRole('heading',{name:'X feed integration',exact:true})});
+ await xSettings.getByRole('button',{name:'Enable X feed (asks for site access)',exact:true}).click();
+ await xSettings.getByRole('button',{name:'Disable X and remove site access',exact:true}).waitFor();
+ await xSettings.getByRole('combobox').selectOption('friends');
+ assert.deepEqual(await page.evaluate(()=>window.__permissions),[['https://x.com/*','https://www.x.com/*']]);
+ assert.equal(await page.evaluate(()=>window.__xScope),'friends');
+ assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'Connection settings fit the panel');
+ await xSettings.getByRole('button',{name:'Disable X and remove site access',exact:true}).click();await xSettings.getByRole('button',{name:'Enable X feed (asks for site access)',exact:true}).waitFor();
+ await page.getByRole('button',{name:'More menu',exact:true}).click();await page.getByRole('button',{name:'Lock account and site connections',exact:true}).click();
  await nav.getByRole('link',{name:'Groups',exact:true}).click();await page.getByRole('heading',{name:'Unlock your account'}).waitFor();
  assert.equal(context.pages().length,1,'Feature navigation stays inside the panel');assert.deepEqual(errors,[]);
  console.log('Standalone panel browser checks passed: encrypted account reuse/unlock, native composer/voice/video, groups/messages/friends, settings, lock, narrow layout, no website/iframe/new-tab navigation; fixture network only');

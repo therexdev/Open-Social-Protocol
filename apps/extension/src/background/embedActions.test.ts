@@ -3,8 +3,8 @@ import { CAPABILITY, ProtocolContracts, addressToString, parseKeyPackageSet, enc
 import { createTestBackground, type TestBackground } from "../test/support";
 import type { FeedItem, Reply, StoredCrossPost } from "../shared/protocol";
 
-async function setup(audience=0) {
-  const t=createTestBackground({indexer:true,sponsor:false,origins:['https://www.facebook.com/*']});
+async function setup(audience=0, host: "facebook" | "x" = "facebook") {
+  const t=createTestBackground({indexer:true,sponsor:false,origins:[host === 'x' ? 'https://x.com/*' : 'https://www.facebook.com/*']});
   const passphrase='correct horse battery';
   const {account}=await t.call<{account:string}>('vault.create',{passphrase});
   await t.call('device.authorize',{passphrase,keepOwnerSeed:true});
@@ -14,9 +14,9 @@ async function setup(audience=0) {
   const postId=toBase64url(fromHex(done.record.postId!));
   const post=t.state.posts.find(p=>p.postId===postId)!;
   if(audience===0)post.author=identityFromSeed(new Uint8Array(32).fill(77)).account;
-  await t.call('adapter.enable',{adapter:'facebook'});
+  await t.call('adapter.enable',{adapter:host});
   await t.call('settings.update',{patch:{feedInsertion:true}});
-  const content=t.chrome._contentSender('https://www.facebook.com/');
+  const content=t.chrome._contentSender(host === 'x' ? 'https://x.com/home' : 'https://www.facebook.com/');
   const frame={...t.chrome._extensionSender('src/embed/index.html#post='+postId),frameId:2,tab:content.tab};
   const send=<T=unknown>(type:string,payload:unknown,sender:chrome.runtime.MessageSender=frame)=>t.chrome._dispatch({type,payload},sender) as Promise<Reply<T>>;
   const action={postId,version:post.contentHash,userGesture:true};
@@ -31,9 +31,9 @@ function readOverride(t:TestBackground, method:string, value:()=>unknown) {
   });
 }
 
-describe('inline Facebook actions',()=>{
+describe.each(['facebook','x'] as const)('inline %s actions',host=>{
   it('binds signing to a granted card, displayed thread, version, user activation and device permissions',async()=>{
-    const {t,send,content,frame,action,account}=await setup();
+    const {t,send,content,frame,action,account}=await setup(0,host);
     const p={...action,reaction:2,remove:false}, count=t.state.broadcasts.length;
     expect((await send('embed.react',p,content)).ok).toBe(false);
     expect((await send('embed.react',p,{...frame,frameId:0})).ok).toBe(false);
@@ -54,7 +54,7 @@ describe('inline Facebook actions',()=>{
     await t.call('vault.lock');expect((await send('embed.react',p)).ok).toBe(false);
   });
   it('casts weighted up/down votes in place with the actor and current version fixed by the worker',async()=>{
-    const {t,send,action,account}=await setup();
+    const {t,send,action,account}=await setup(0,host);
     result(await send('embed.vote',{...action,direction:2,weight:'3'}));
     const op=t.state.broadcasts.at(-1)!.ops[0]!;
     expect(op).toMatchObject({method:'vote',args:{actor:account,direction:2,weight:'3'}});
@@ -65,7 +65,7 @@ describe('inline Facebook actions',()=>{
     const count=t.state.broadcasts.length;expect((await send('embed.vote',{...action,direction:1,weight:'1'})).ok).toBe(false);expect(t.state.broadcasts).toHaveLength(count);
   });
   it('answers and changes a poll without submitting a reward vote, and rejects closed polls',async()=>{
-    const {t,send,action}=await setup();
+    const {t,send,action}=await setup(0,host);
     let view:PollView={now:String(t.now.value),value:{definition:{question:'Pick one',options:['One','Two'],closes_at:String(t.now.value+50000)},counts:[0,0],participants:0,engagement_participants:0,engagement_milli:'0'}};
     readOverride(t,'get_poll',()=>view);
     result(await send('embed.poll',{...action,option:0}));
@@ -77,7 +77,7 @@ describe('inline Facebook actions',()=>{
     expect((await send('embed.poll',{...action,option:0})).ok).toBe(false);expect(t.state.broadcasts).toHaveLength(count);
   });
   it('publishes comments and nested replies inline, and reconciles retries without duplicates',async()=>{
-    const {t,send,action,postId}=await setup();
+    const {t,send,action,postId}=await setup(0,host);
     const p={...action,text:'A comment from the feed',attemptId:'11'.repeat(16)};
     const first=result(await send<{postId:string}>('embed.comment',p));
     const count=t.state.broadcasts.length;
@@ -92,7 +92,7 @@ describe('inline Facebook actions',()=>{
     expect((await send('embed.comment',{...p,text:'中'.repeat(3000),attemptId:'14'.repeat(16)})).ok).toBe(false);
   });
   it('encrypts private comments for the thread readers, not the commenter’s entire friends audience',async()=>{
-    const {t,send,action,postId,account}=await setup(1);
+    const {t,send,action,postId,account}=await setup(1,host);
     const friend=identityFromSeed(new Uint8Array(32).fill(44)),stranger=identityFromSeed(new Uint8Array(32).fill(45));
     t.state.registerIdentity(friend.account,friend.encryption.publicKey);t.state.registerIdentity(stranger.account,stranger.encryption.publicKey);
     t.state.befriend(account,friend.account);t.indexer.extraFriends.push(stranger.account);
@@ -108,7 +108,7 @@ describe('inline Facebook actions',()=>{
     await t.call('vault.lock');expect((await send('embed.replies',{postId})).ok).toBe(false);
   });
   it('reconciles a comment after a lost confirmation without broadcasting it again',async()=>{
-    const {t,send,action}=await setup();
+    const {t,send,action}=await setup(0,host);
     vi.spyOn(t.provider,'wait').mockRejectedValueOnce(Error('Confirmation connection lost'));
     const p={...action,text:'Only one copy after a timeout',attemptId:'31'.repeat(16)};
     expect((await send('embed.comment',p)).ok).toBe(false);
@@ -117,7 +117,7 @@ describe('inline Facebook actions',()=>{
     expect(t.state.broadcasts).toHaveLength(count);
   });
   it('does not submit a second action while another submission is in progress',async()=>{
-    const {t,send,action}=await setup();
+    const {t,send,action}=await setup(0,host);
     const original=t.provider.sendTransaction.bind(t.provider);let release!:()=>void;
     vi.spyOn(t.provider,'sendTransaction').mockImplementation(async(...args)=>{await new Promise<void>(r=>release=r);return original(...args);});
     const first=send('embed.react',{...action,reaction:1,remove:false});

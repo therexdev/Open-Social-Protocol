@@ -9,6 +9,7 @@ import path from "node:path";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const entries = {
   facebook: "src/content/facebook.ts",
+  x: "src/content/x.ts",
 };
 
 for (const [name, entry] of Object.entries(entries)) {

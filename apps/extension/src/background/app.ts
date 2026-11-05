@@ -5,6 +5,7 @@
  */
 import { CAPABILITY, AUDIENCE, type PostRef, type ProviderInterface, type ValueResult } from "@osp/sdk";
 import { bytesOf, fromHex, toBase64url, toHex } from "../shared/bytes";
+import { feedHost } from "../shared/hosts";
 import { knownNetworks } from "../shared/config";
 import { draftSizeError } from "../shared/draft";
 import { FACEBOOK_LINK_BYTES } from "../shared/facebookUrl";
@@ -257,6 +258,8 @@ export function createBackground(options: BackgroundOptions): Background {
     facebookAttribution: optional(bool()),
     facebookAutoCheck: optional(bool()),
     feedInsertion: optional(bool()),
+    xFeedInsertion: optional(bool()),
+    xFeedScope: optional(oneOf(["public", "friends", "all"] as const)),
     feedScope: optional(oneOf(["public", "friends", "all"] as const)),
   });
 
@@ -306,8 +309,13 @@ export function createBackground(options: BackgroundOptions): Background {
         canVote: device.authorized && ((device.capabilities ?? 0) & CAPABILITY.SUPPORT) !== 0, ownerAvailable: !!vault.signers(session).owner,
         slot: config?.value ? Array.from({length:config.value.promotion_slots},(_,i)=>i).find(i => !board?.values.some(p=>p.slot===i && !p.cancelled && BigInt(p.end_block)>BigInt(board.block))) : undefined };
   }
+  const hostFeedEnabled = async (origin?: string) => {
+    const settings = await loadSettings();
+    if (origin) return feedHost(origin) === "x" ? settings.xFeedInsertion : feedHost(origin) === "facebook" && settings.facebookAdapter && settings.feedInsertion;
+    return settings.xFeedInsertion || settings.facebookAdapter && settings.feedInsertion;
+  };
   const embedDeps = { clients: () => registry.get(), session: () => vault.current(), keys: keysFor, vault, now, feed, local,
-    enabled: async () => { const settings = await loadSettings(); return settings.facebookAdapter && settings.feedInsertion; } };
+    enabled: hostFeedEnabled };
   const embedded = new EmbeddedActions(embedDeps);
   const profilePhotos = new ProfilePhotos(embedDeps);
   const targetFields = { postId: postIdSchema, targetId: optional(postIdSchema) };
@@ -409,19 +417,24 @@ export function createBackground(options: BackgroundOptions): Background {
     } }),
     "adapter.enable": defineHandler({
       source: "extension",
-      validate: obj({ adapter: oneOf(["facebook"] as const) }),
-      handle: async () => {
-        if (!(await adapters.facebookGranted())) throw new Error("Grant the Facebook host permission first.");
-        await updateSettings({ facebookAdapter: true });
+      validate: obj({ adapter: oneOf(["facebook", "x"] as const) }),
+      handle: async p => {
+        if (p.adapter === "x") {
+          if (!await adapters.xGranted()) throw Error("Grant the X host permission first.");
+          await updateSettings({ xFeedInsertion: true });
+        } else {
+          if (!await adapters.facebookGranted()) throw Error("Grant the Facebook host permission first.");
+          await updateSettings({ facebookAdapter: true });
+        }
         return adapters.status(await loadSettings());
       },
     }),
     "adapter.disable": defineHandler({
       source: "extension",
-      validate: obj({ adapter: oneOf(["facebook"] as const) }),
-      handle: async () => {
-        await updateSettings({ facebookAdapter: false, feedInsertion: false });
-        await adapters.disableFacebook();
+      validate: obj({ adapter: oneOf(["facebook", "x"] as const) }),
+      handle: async p => {
+        await updateSettings(p.adapter === "x" ? { xFeedInsertion: false } : { facebookAdapter: false, feedInsertion: false });
+        await adapters.disable(p.adapter);
         return adapters.status(await loadSettings());
       },
     }),
@@ -433,9 +446,8 @@ export function createBackground(options: BackgroundOptions): Background {
     "embed.post": defineHandler({
       source: "embed",
       validate: obj({ postId: str({ min: 43, max: 44, pattern: /^[A-Za-z0-9_-]{43}=?$/ }) }),
-      handle: async (p) => {
-        const settings = await loadSettings();
-        if (!settings.facebookAdapter || !settings.feedInsertion) return { enabled: false };
+      handle: async (p, ctx) => {
+        if (!await hostFeedEnabled(ctx.origin)) return { enabled: false };
         return { enabled: true, item: await feed.card(p.postId) };
       },
     }),
@@ -579,14 +591,20 @@ export function createBackground(options: BackgroundOptions): Background {
     "feed.request": defineHandler({
       source: "content",
       validate: obj({ limit: optional(num({ min: 1, max: 20, int: true })), cursor: optional(str({ max: 512 })) }),
-      handle: async (p): Promise<FeedRequestReply> => {
+      handle: async (p, ctx): Promise<FeedRequestReply> => {
         const settings = await loadSettings();
-        if (!settings.feedInsertion || !settings.facebookAdapter) return { enabled: false, items: [], nextCursor: null };
-        return { enabled: true, ...await feed.references(settings.feedScope, p.cursor, p.limit ?? 5) };
+        if (!await hostFeedEnabled(ctx.origin)) return { enabled: false, items: [], nextCursor: null };
+        const scope = feedHost(ctx.origin || "") === "x" ? settings.xFeedScope : settings.feedScope;
+        return { enabled: true, ...await feed.references(scope, p.cursor, p.limit ?? 5) };
       },
     }),
   };
 
+  // The router derives the host from the real tab, never from frame hash/payload.
+  for (const handler of Object.values(handlers)) if (handler.source === "embed") {
+    const handle = handler.handle;
+    handler.handle = (payload, ctx) => handle({ ...payload, host: ctx.origin }, ctx);
+  }
   const router = createRouter({
     runtimeId: options.runtimeId,
     handlers,

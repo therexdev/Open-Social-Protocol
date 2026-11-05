@@ -1,3 +1,4 @@
+import { FEED_ORIGINS, feedHost } from "../shared/hosts";
 import { Icon } from "../../../web/src/components/Icon";
 import { useEffect, useRef, useState, type SyntheticEvent } from "react";
 import type { PollView } from "@osp/sdk";
@@ -167,7 +168,7 @@ export function EmbeddedPost() {
   },[]);
   useEffect(()=>{
     const host=new URLSearchParams(location.hash.slice(1)).get('host')||(document.referrer?new URL(document.referrer).origin:'');
-    if(!['https://www.facebook.com','https://web.facebook.com'].includes(host))return;
+    if(!FEED_ORIGINS.includes(host))return;
     const resize=()=>parent.postMessage({type:'osp.card.height',height:document.getElementById('root')!.getBoundingClientRect().height},host);
     const observer=new ResizeObserver(resize);observer.observe(document.getElementById('root')!);resize();return()=>observer.disconnect();
   },[]);

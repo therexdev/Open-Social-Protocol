@@ -1,9 +1,9 @@
 # Open Social Chrome extension
 
-Version 0.5.0 is a standalone protocol frontend in the Chrome side panel, plus
-optional Facebook feed and cross-post integration. It does not load the website
+Version 0.6.0 is a standalone protocol frontend in the Chrome side panel, plus
+optional Facebook and X feed integration, plus Facebook cross-posting. It does not load the website
 or a separately bundled website application. The Social switch and Open in tab
-button are removed. See [release instructions](../../docs/chrome-extension-0.5.0.md).
+button are removed. See [release instructions](../../docs/chrome-extension-0.6.0.md).
 
 ## Build and install
 
@@ -30,8 +30,8 @@ imported. The SDK/indexer are accessed directly in the extension, keeping format
 encryption and access rules consistent with other protocol clients.
 
 Feed, Post, Groups, Messages, Friends and Profile are the main navigation buttons.
-More includes people search, activity, wallet, rewards, settings, Facebook
-connection and unfinished browser posts. The client includes post revisions,
+More includes people search, activity, wallet, rewards, settings, browser
+connections and unfinished browser posts. The client includes post revisions,
 weighted voting, polls, reactions, comments, photos/albums, voice/video capture,
 music, groups, profiles, messaging/browser linking and token transfers.
 
@@ -45,9 +45,9 @@ The full panel account remains encrypted in extension-origin IndexedDB `osp-web`
 store `vault`, key `osp.web.vault`. The former Social view's full account, drafts,
 remembered sign-in and message history are reused in place. Signing/encryption for
 full-panel actions run in the privileged panel. This identity never enters a
-Facebook content script or embedded feed card.
+host content script or embedded feed card.
 
-Facebook retains its separate worker vault (`osp.vault` in local Chrome storage)
+Host integrations share the separate worker vault (`osp.vault` in local Chrome storage)
 and restricted device key. `osp.session` is session-only with trusted-context
 storage access. Adapter settings, reading keys and `osp.crossposts` are preserved.
 
@@ -58,12 +58,12 @@ cannot restore owner authority. Wrong identities are rejected and existing full
 accounts are never overwritten. Failed account lookup does not offer new-account
 creation until the saved account can be checked.
 
-More → Facebook connection manages the optional worker authorization. New
+More → Browser connections manages the optional worker authorization. New
 connections can explicitly copy the unlocked full identity. Renewal can use it
 ephemerally after verifying account, key version, reading key and passphrase.
 It preserves device/reading keys and drops the owner seed unless retention is
 selected. Different connected/full identities are shown without being replaced.
-The menu's Lock account and Facebook action locks both sessions; their individual
+The menu's Lock account and site connections action locks both sessions; their individual
 auto-lock/settings remain separate.
 
 Full-panel network preferences are initialized from worker settings only when
@@ -72,7 +72,7 @@ when switching networks.
 
 ## Facebook integration
 
-Optional host permissions are granted in Facebook connection or extension options.
+Optional host permissions are granted in Browser connections or extension options.
 Content scripts register dynamically only for granted origins. Revoking/disabling
 access removes adapter UI/listeners. The panel works independently of host DOM.
 
@@ -88,7 +88,7 @@ errors leave the editor intact.
 Feed insertion anchors one card after every three native posts, preserves order
 and repairs row replacement/recycling without collecting cards after the loading
 suffix. Facebook's palette supplies a validated light/dark enum. Feed cards are
-`src/embed/index.html` frames exposed only to granted Facebook origins; the panel
+`src/embed/index.html` frames exposed only to granted Facebook and X origins; the panel
 itself contains no embedded site.
 
 Cards support weighted votes, polls, reactions, comments, verified avatars,
@@ -104,6 +104,27 @@ Media uses verified attachment indexes, not caller-supplied keys or URLs. Lock
 clears plaintext/players; background reads do not keep the worker unlocked. Poll
 answers do not implicitly cast reward votes.
 
+## X integration
+
+X has its own permission/toggle and audience preference in Browser connections.
+Its content script requests only post IDs; cross-posting methods are not allowed
+from X. Cards use the same restricted worker identity and inline-action checks.
+The actual tab origin determines which site's enablement applies; a card cannot
+impersonate the other site via its hash or request payload.
+
+The Home timeline locator identifies measured cells by tweet timestamp permalinks,
+excluding quotes, suggestions and non-home pages. Cards are inserted after the
+native article within its measurement wrappers, leaving the native transforms
+unchanged. Recycled cells park cards by status ID until that tweet returns.
+Switching For you/Following resets placement; leaving Home removes all cards.
+X composer cross-posting is not included in this release.
+
+`smoke:x-feed` exercises the shipped classic script with a virtualizer fixture;
+`X_SNAPSHOT` can replay anonymized row structure from a local capture. The same
+card interaction browser suite accepts `TEST_HOST=x`. Captures/screenshots are
+never committed or included in the release. Both adapters have unit coverage for
+permission boundaries, private content and signed protocol actions.
+
 ## Validation
 
 ```sh
@@ -114,6 +135,7 @@ npm run smoke:client-browser -w apps/extension
 npm run smoke:embed-browser -w apps/extension
 npm run smoke:facebook-post -w apps/extension
 npm run smoke:facebook-scroll -w apps/extension
+npm run smoke:x-feed -w apps/extension
 ```
 
 Build checks cover the MV3 manifest/CSP, classic content script, no-eval worker

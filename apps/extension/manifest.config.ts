@@ -1,4 +1,5 @@
 import { version } from "./package.json" with { type: "json" };
+import { FACEBOOK_ORIGINS, X_ORIGINS, FEED_ORIGINS } from "./src/shared/hosts.ts";
 import { defineManifest } from "@crxjs/vite-plugin";
 
 /**
@@ -11,7 +12,7 @@ export default defineManifest({
   manifest_version: 3,
   name: "Open Social Protocol",
   version,
-  description: "Open Social: posts, voice, video, music, groups and encrypted messages, with optional Facebook cross-posting.",
+  description: "Open Social: posts, voice, video, music, groups and encrypted messages, with optional Facebook and X feed integration.",
   minimum_chrome_version: "116",
   icons: {
     16: "public/icons/icon-16.png",
@@ -34,10 +35,10 @@ export default defineManifest({
     default_path: "src/sidepanel/index.html",
   },
   options_page: "src/options/index.html",
-  web_accessible_resources: [{ resources: ["src/embed/index.html"], matches: ["https://www.facebook.com/*", "https://web.facebook.com/*"] }],
+  web_accessible_resources: [{ resources: ["src/embed/index.html"], matches: [...FACEBOOK_ORIGINS, ...X_ORIGINS] }],
   permissions: ["storage", "sidePanel", "scripting", "alarms", "activeTab"],
-  optional_host_permissions: ["https://www.facebook.com/*", "https://web.facebook.com/*"],
+  optional_host_permissions: [...FACEBOOK_ORIGINS, ...X_ORIGINS],
   content_security_policy: {
-    extension_pages: "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; frame-ancestors 'self' https://www.facebook.com https://web.facebook.com",
+    extension_pages: `script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; frame-ancestors 'self' ${FEED_ORIGINS.join(" ")}`,
   },
 });

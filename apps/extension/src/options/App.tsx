@@ -1,3 +1,4 @@
+import { X_ORIGINS } from "../shared/hosts";
 import { useCallback, useEffect, useState } from "react";
 import { APP_VERSION, FACEBOOK_ORIGINS } from "../shared/config";
 import { errorMessage } from "../shared/format";
@@ -15,7 +16,7 @@ function parseLines(text: string): string[] {
     .filter((s) => s.length > 0);
 }
 
-export function OptionsApp({ facebookOnly = false }: { facebookOnly?: boolean } = {}) {
+export function OptionsApp({ adaptersOnly = false }: { adaptersOnly?: boolean } = {}) {
   const [view, setView] = useState<SettingsView | undefined>();
   const [adapters, setAdapters] = useState<AdapterStatusView | undefined>();
   const [vault, setVault] = useState<VaultStatusView | undefined>();
@@ -70,6 +71,13 @@ export function OptionsApp({ facebookOnly = false }: { facebookOnly?: boolean } 
     await act("Facebook adapter disabled and permission removed.", () => rpc("adapter.disable", { adapter: "facebook" }));
   }
 
+  async function enableX() {
+    await act("X feed enabled. Open or refresh your X Home timeline.", async () => {
+      if (!await chrome.permissions.request({ origins: X_ORIGINS })) throw Error("Permission was not granted.");
+      await rpc("adapter.enable", { adapter: "x" });
+    });
+  }
+
   async function saveEndpoints() {
     await act("Settings saved.", () =>
       rpc("settings.update", {
@@ -91,7 +99,7 @@ export function OptionsApp({ facebookOnly = false }: { facebookOnly?: boolean } 
 
   return (
     <div className="options">
-      {!facebookOnly && <h1>Open Social Protocol</h1>}
+      {!adaptersOnly && <h1>Open Social Protocol</h1>}
       <p className="muted">
         Version {APP_VERSION} · network <strong>{view.resolved.network}</strong> · {view.resolved.deployed ? "contracts deployed" : view.resolved.deploymentMessage}
       </p>
@@ -146,10 +154,23 @@ export function OptionsApp({ facebookOnly = false }: { facebookOnly?: boolean } 
             <option value="friends">Friends</option>
           </select>
         </label>
-        <p className="muted">Unlock Browser tools to cross-post or interact with feed cards. Cards automatically follow Facebook’s light or dark appearance.</p>
+        <p className="muted">Unlock the browser connection to cross-post or interact with feed cards. Cards automatically follow Facebook’s light or dark appearance.</p>
       </section>
 
-      {!facebookOnly && <>
+      <section className="card">
+        <h2>X feed integration</h2>
+        <p className="muted">Show Open Social posts between posts in your X Home timeline, with inline voting, polls, reactions, comments and media. Uses the same browser authorization as Facebook.</p>
+        <p>Status: {adapters.x?.registered ? "enabled" : adapters.x?.granted ? "permission granted, not active" : "off"}</p>
+        {adapters.x?.attachmentWarning && <p className="notice">{adapters.x.attachmentWarning}</p>}
+        <div className="row">{adapters.x?.registered ? <button className="danger" onClick={() => act("X feed disabled and site access removed.", () => rpc("adapter.disable", { adapter: "x" }))}>Disable X and remove site access</button>
+          : <button className="primary" onClick={enableX}>Enable X feed (asks for site access)</button>}</div>
+        <label><span className="lbl">Posts to include in X</span><select disabled={!adapters.x?.registered} value={form.xFeedScope ?? "all"} onChange={e => act("X feed updated.", () => rpc("settings.update", { patch: { xFeedScope: e.target.value } }))}>
+          <option value="all">Everyone and friends</option><option value="public">Everyone</option><option value="friends">Friends</option>
+        </select></label>
+        <p className="muted">Unlock the browser connection to read private posts and interact. Public posts can be viewed while locked. Cards follow X’s light or dark appearance.</p>
+      </section>
+
+      {!adaptersOnly && <>
       <section className="card">
         <h2>Endpoints</h2>
         <label>
