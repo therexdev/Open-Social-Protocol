@@ -1,7 +1,7 @@
 /**
  * Feed reads: indexer pages opened with the key store (friends-only posts decrypted here, in the
  * service worker). Content scripts only receive post identifiers. Decrypted card content goes
- * directly to read-only extension frames, never into the host page's DOM or messages.
+ * directly to isolated extension frames, never into the host page's DOM or messages.
  */
 import type { FeedItem, FeedPage, FeedRequestReply, FeedScope } from "../shared/protocol";
 import type { Clients } from "./clients";
@@ -121,7 +121,7 @@ export class FeedService {
     }
   }
 
-  /** Read-only embedded extension page: same verification/decryption as the side-panel feed. */
+  /** Card content uses the same verification/decryption as the side-panel feed. */
   async card(postId: string): Promise<FeedItem | undefined> {
     const clients = await this.deps.clients();
     const session = await this.deps.session();
@@ -142,6 +142,10 @@ export class FeedService {
     }
     const item = toFeedItem(post, opened);
     item.viewer = session?.account;
+    if (item.poll && clients.protocol && (item.status === "plain" || item.status === "decrypted")) {
+      try { item.pollView = await clients.protocol.reads.publications.get_poll({ post_id: bytesOf(postId), ...(session && { viewer: session.account }) }); }
+      catch { /* A poll remains readable while the node is unavailable; voting waits for a fresh read. */ }
+    }
     try {
       const profile = await clients.indexer.profile(post.author);
       const prefix = "data:application/x-osp-profile;base64,";
@@ -149,7 +153,7 @@ export class FeedService {
     } catch { /* Keep the post readable if only its profile is unavailable. */ }
     // A lock while the network request was running must not restore decrypted content.
     const current = await this.deps.session();
-    if (opened.status === "decrypted" && current?.account !== session?.account) return { ...item, text: undefined, media: undefined, externalRef: undefined, status: "locked", message: "Unlock Open Social to read this post." };
+    if (opened.status === "decrypted" && (current?.account !== session?.account || current?.unlockedAt !== session?.unlockedAt)) return { ...item, text: undefined, media: undefined, shareWith: undefined, externalRef: undefined, status: "locked", message: "Unlock Open Social to read this post." };
     return item;
   }
 }

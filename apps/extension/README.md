@@ -1,17 +1,22 @@
 # @osp/extension
 
-Chrome (Manifest V3) extension for Open Social Protocol. Version **0.2.1** bundles
+Chrome (Manifest V3) extension for Open Social Protocol. Version **0.3.0** bundles
 `apps/web` as the **Social** view, with the current feed, media, profiles, groups,
 wallet, and encrypted messages. The **Browser tools** view retains the original
 worker-isolated device account, Facebook adapter, quick composer, and unfinished
 cross-post recovery. No remotely hosted application code is loaded.
 
-## Version 0.2.1: Facebook feed placement
+## Version 0.3.0: interact inside Facebook
 
-Facebook cards now follow numbered native feed rows, including virtualized rows,
-instead of the moving loading suffix. The first page and later pages are each
-interleaved one card after every three native posts. Replaced rows recover their
-matching cards; absent rows park their cards rather than collecting them at the tail.
+Feed cards now include weighted upvotes/downvotes, poll answers and changes,
+five reactions with change/removal, and text comments with nested replies.
+All these actions stay inside the card and use the unlocked Browser tools device
+account. Cards have a separate light theme, automatic archived photos, video
+previews and inline video/audio players. Private media uses the same verified
+loaders and decryption as the web client; keys remain in the worker.
+
+The 0.2.1 placement fix remains: one card after every three native posts, with
+stable numbered positions through Facebook's virtualized row replacements.
 
 ## Included full social client
 
@@ -54,8 +59,11 @@ check stops all tracks immediately; it never records or uploads.
 Social initially copies Browser tools' network, endpoints, payment preference,
 and lock timeout only when it has no saved settings. Afterward each view retains
 its own settings. Facebook cross-posting remains explicitly opted-in and text-only;
-new media creation is in Social. Embedded Facebook action icons open the bundled
-Social post; vote controls can still use the delegated browser account.
+new media creation is in Social. Facebook card interactions use the delegated
+Browser tools account, which must be unlocked. The Social account is separate.
+If an older device lacks an interaction capability, renew its authorization in
+Browser tools using the original identity backup; signing into Social alone does
+not unlock Browser tools.
 
 ### Build and test
 
@@ -82,7 +90,7 @@ runtime), `public/icons/*`. Everything is bundled; nothing is loaded from the ne
 To update an unpacked installation, replace the files in the **same folder** you originally loaded,
 then click **Reload** on its card in `chrome://extensions` (or `brave://extensions`). Keep the
 existing installation to preserve its local account/settings. Refresh Facebook after an extension
-upgrade so the page uses the new content script. Check version **0.2.1** in extension Settings.
+upgrade so the page uses the new content script. Check version **0.3.0** in extension Settings.
 
 When Facebook is enabled, existing granted Facebook tabs are attached immediately. Look for
 **Open Social enabled** at the bottom left; expand it for instructions. The cross-post checkbox
@@ -90,8 +98,9 @@ appears in Facebook's **Create post** dialog. The separate **Show Open Social po
 Everyone, Friends, or both. Open Social cards appear one at a time after every
 three Facebook posts as you scroll, including the initial page of cards. New posts are checked every 30 seconds
 while the tab is visible and inserted ahead of the reader, without prepending above their position.
-Friends-only content requires an unlocked extension. Support, Like, and Reply open the original
-post on Open Social. In Facebook's posting box, enable cross-posting and select **Public** or
+Friends-only content requires an unlocked extension. Voting, reactions, poll answers,
+comments, replies and media playback stay in the Facebook card. Profile and
+Open Social source links still open their destination explicitly. In Facebook's posting box, enable cross-posting and select **Public** or
 **Friends** for the Open Social copy. Clicking Facebook's Post publishes immediately while the
 extension is unlocked. Facebook retains its own audience setting. Browser tools has Feed and Compose;
 Compose also publishes directly. There is no Queue tab or second confirmation screen. Saved drafts
@@ -113,7 +122,7 @@ trusted extension page. Social is not a web-accessible resource.
 | Keys | For Browser tools, only the service worker holds secrets. Its pages and content scripts talk to it through `chrome.runtime.sendMessage`; they never receive key material or plaintext of other people's private posts beyond what they display. |
 | Vault at rest | `chrome.storage.local["osp.vault"]` holds an SDK `VaultBlob` (scrypt + XChaCha20-Poly1305 under the passphrase). |
 | Unlocked secrets | Memory + `chrome.storage.session` (trusted contexts only, never written to disk, cleared when the browser closes). Auto-lock via `chrome.alarms` (default 15 min of inactivity, configurable). |
-| Device authority | By default this browser holds **only a device key** (`publish | react | comment | relationships`, 30-day expiry, authorized with `identity.authorize_device` signed by the owner key) plus the X25519 encryption secret needed to read friends-only posts. The identity seed is discarded after authorization unless the user opts to keep it. A device can never rotate keys, authorize devices, block or recover. Revocation happens from the web client. |
+| Device authority | By default this browser holds **only a device key** (`publish | react | comment | relationships | support`, 30-day expiry, authorized with `identity.authorize_device` signed by the owner key) plus the X25519 encryption secret needed to read friends-only posts. The identity seed is discarded after authorization unless the user opts to keep it. A device can never rotate keys, authorize devices, block or recover. Revocation happens from the web client. |
 | Payment | A device key holds no KOIN, so a device-only vault **publishes through a sponsor** (`ProtocolClient.submit` with `selfPayFallback: false`); without a configured sponsor Compose reports the attempt as failed before anything is sent, and the options page disables "Always pay myself". When the identity seed was kept, self-pay signs the transaction twice: the device as payee (its nonce, the protocol action) and the owner as payer (`src/background/publish.ts`, `submitOperations`). |
 | Indexer trust | The indexer is an untrusted convenience (spec section 1). Friends epoch keys are sealed only to accounts the **chain** confirms (`relationships.get_relationship` = ACTIVE) with the encryption key the chain publishes (`identity.get_identity`); the indexer's graph is a candidate list and its profile keys are never used for sealing. Feed content and `external_ref` links from other users are rendered as text unless they are http(s) URLs. |
 | Message validation | Every message is checked in order: object shape and 32 KiB size cap, `sender.id === chrome.runtime.id`, known type, source classification by origin (extension pages vs content scripts), then for content scripts: a real tab, top frame only, origin among the *granted* optional host permissions, only `crosspost.publish`, legacy `crosspost.propose` and `feed.request`, per-tab rate limit, user gesture for publication/proposals; finally a strict per-type payload schema that rejects unknown keys. Replies carry minimal data. |
@@ -130,6 +139,7 @@ Every message is `{ type, payload? }` (no other keys); every reply is `{ ok: tru
 | Sender | Types |
 | --- | --- |
 | Side panel / options | `vault.status|touch|create|import|unlock|lock|export|destroy`, `device.authorize|status`, `settings.get|update`, `adapter.status|enable|disable`, `feed.get`, `post.publish`, `crosspost.list|create|confirm|retry|reconcile|markHost|recordProof|discard`, `page.current` |
+| Embedded card (granted Facebook tab, non-top extension frame, bound root post) | `embed.post`, `embed.inspect`, `embed.replies`, `embed.media`; trusted-click writes: `embed.vote`, `embed.poll`, `embed.react`, `embed.comment`. Child targets must have a chain-verified ancestry to the displayed root. No generic signing/vault access. |
 | Facebook content script (granted origin, top frame, user gesture) | `crosspost.publish` `{ hostSite: "facebook", text, audience, attemptId, url, submitted, userGesture }` (legacy `crosspost.propose` remains draft-only), `feed.request` `{ limit?, cursor? }` (IDs only) |
 
 ### Storage layout
@@ -140,6 +150,7 @@ Every message is `{ type, payload? }` (no other keys); every reply is `{ ok: tru
 | `osp.session` | session | unlocked session (hex secrets, activity timestamp) |
 | `osp.settings` | local | endpoints, payment preference, adapter toggles, auto-lock |
 | `osp.crossposts` | local | cross-post records (drafts keep their text until the Koinos side succeeded) |
+| `osp.embed-replies:<chainId>:<account>` | local | reply attempts, operations and reading keys, AES-GCM encrypted under an encryption-secret-derived key; uncertain submissions reconcile by their original idempotency key |
 | `osp.keys.<account>` | local | audience epoch keys, AES-GCM encrypted under a key derived from the encryption secret |
 
 ## Cross-posting and reconciliation (spec sections 7 and 8)
@@ -178,7 +189,28 @@ submit control through a real trusted event it sends `{ type: "crosspost.publish
 
 `src/content/feedCards.ts` locates the actual vertical row lane using numbered native posts, with legacy FeedUnit/article fallbacks and loading-skeleton exclusion. Each card retains its native post position and CSS order. Reordering/removal is repaired; disappeared positions park their cards until the corresponding row returns. This prevents collecting cards in the infinite-scroll loading suffix. Initial and later pages both place one card after every three native posts. Visible tabs poll every 30 seconds. Navigation resets the feed; replacement lanes restore matching positions. Scroll scans reuse the cached lane, and new arrivals go ahead of the reader.
 
-Each card is a `src/embed/index.html` iframe using the website's actual stylesheet. Only this HTML entry is web-accessible, only to the granted Facebook origins. Its `embed.post` message is separately classified and read-only: the worker returns chain-verified/decrypted content directly to the extension frame. The Facebook document and content script receive only post IDs and sizing messages, never plaintext private content or keys. Embedded frames cannot call vault, settings, feed-page or signing APIs. Lock/session changes clear displayed content, and background feed polling does not keep the vault unlocked. Visible cards refresh metadata every 30 seconds; offscreen cards pause their refreshes. Media is opt-in, URLs are restricted to HTTP(S), and post actions open the original post with `noopener`.
+Each card is a `src/embed/index.html` iframe with its own light stylesheet. Only
+this entry is web-accessible, limited to granted Facebook origins. The worker
+returns verified content directly to the frame. Facebook's DOM/content script
+receives only post identifiers and sizing messages, never private plaintext or
+keys. Cards have narrow, root-bound interaction APIs; actor, signing device,
+comment audience and recipients are derived in the worker. Mutations require a
+trusted iframe event, an unlocked authorized device and a current post version.
+No signing action is accepted through `postMessage`, and cards cannot access
+vault/settings or arbitrary transactions. Final weighted votes use the existing
+economy rules. Poll answers never implicitly cast a reward vote.
+
+Comments are persisted encrypted before signing. Retries/reloads reconcile
+uncertain submissions by their original idempotency key rather than republishing.
+Private replies use the web client's thread-audience planner and only seal keys
+to chain-verified readers. Media is selected by attachment index from verified
+post content; callers cannot supply URLs or keys to the worker. Archive manifests,
+chunks and fingerprints are verified, with the web client's clip/music loaders.
+Photos and video previews load near the viewport; video/audio play inline.
+Ordinary HTTP(S) attachments load in the iframe. Blob URLs are revoked on removal.
+Lock/session changes clear content and players; background refresh and media
+reads do not keep the vault unlocked. Only explicit interactions touch activity.
+Visible cards refresh every 30 seconds and offscreen cards pause refreshes.
 
 Settings changes refresh existing tabs; disabling or revoking access stops the adapter and removes its UI/listeners. The content script is built as a self-contained classic script (`scripts/build-content.mjs`, IIFE).
 
@@ -188,7 +220,7 @@ exactly one composer control is injected, the submit hook reads the composer tex
 ## Tests
 
 The build also runs the **shipped bundles** in fresh realms. `scripts/smoke-pages.mjs` renders Feed,
-Compose, direct Friends publication (including duplicate activation), repeat navigation, options, and embedded cards with string code generation forbidden; the card check verifies name, audience, action links, unsafe media rejection, resize messages and plaintext removal on lock.
+Compose, direct Friends publication (including duplicate activation), repeat navigation, options, and embedded cards with string code generation forbidden; the card check verifies name, audience, inline controls, unsafe media rejection, resize messages and plaintext removal on lock.
 It deliberately does not borrow the worker/unit-test protobuf initialization. `scripts/smoke-facebook.mjs`
 executes the built classic script and tests repeated injection, late composer detection, audience selection, synthetic-click rejection, feed changes, and stop/re-enable. These are DOM simulations, not authenticated Facebook acceptance tests.
 
@@ -203,6 +235,12 @@ service (`https://sponsor.test`: signed discovery, co-signs and broadcasts throu
 `instanceof` checks; a browser has one realm) and `src/test/setup.ts` (WebCrypto, `installNoEvalProtobuf`, code
 generation forbidden, chrome mock). Suites (`npm test -w apps/extension`):
 
+* `src/background/embedActions.test.ts` - frame/root binding, strict payloads,
+  device permissions, weighted votes, poll changes/closure, reactions, thread
+  ancestry, encrypted private replies with forged indexer candidates rejected,
+  duplicate and lost-confirmation reconciliation, and concurrent writes;
+* `src/background/embedMedia.test.ts` - archive hashes, private key isolation,
+  public/private compressed clips, video posters, corrupt data and lock races;
 * `src/background/messages.test.ts` - router validation (sender id, origin, types, size, gesture, frames, rate limit);
 * `src/background/crosspost.test.ts` - orchestrator persistence and transitions incl. the `koinosUnknown` lookup path (attempt
   data kept, pending tx id adopted, indexer match), duplicate-key resolution, host reporting with the post link, PARTIAL proofs,
@@ -265,3 +303,14 @@ and external resources disabled; it is never uploaded or committed. Optional
 the new script. All network requests are intercepted. The harness covers rendered
 interleaving, fast scroll, loading, external reordering/removal, anchor recycling,
 and observer settling. It does not replace an authenticated Facebook acceptance test.
+
+### Inline card browser checks
+
+`npm run smoke:embed-browser -w apps/extension` runs shipped card bundles in
+cross-origin iframes under the manifest CSP, with intercepted fixture data.
+Set `CHROMIUM_PATH` if the Playwright browser is elsewhere; `TEST_VIDEO` can point
+to a local MP4 for real decode/playback and poster-first checks. Without that
+fixture the script explicitly skips video decoding. It exercises trusted and
+synthetic clicks, up/down voting, poll changes, reaction changes, comments, audio,
+session activity versus lock cleanup, no navigation, and narrow layouts. It
+makes no live transactions and does not replace signed-in Facebook acceptance.

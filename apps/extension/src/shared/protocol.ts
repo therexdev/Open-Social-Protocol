@@ -80,6 +80,11 @@ export type FeedScope = "public" | "friends";
 export type PostContentStatus = "plain" | "decrypted" | "tombstone" | "hidden" | "unavailable" | "no-key" | "locked" | "error";
 
 export interface FeedItem {
+  replyTo?: string;
+  collectionId?: string;
+  shareWith?: string[];
+  pollView?: import("@osp/sdk").PollView;
+  viewerReaction?: number;
   poll?: import("@osp/sdk").PollRecord;
   contentHash?: string;
   economy?: IndexedPostEconomy;
@@ -94,7 +99,7 @@ export interface FeedItem {
   versionNumber: number;
   status: PostContentStatus;
   text?: string;
-  media?: Array<{ mime?: string; locations?: string[]; alt_text?: string; size?: string }>;
+  media?: FeedMedia[];
   liked?: boolean;
   externalRef?: string;
   message?: string;
@@ -102,6 +107,13 @@ export interface FeedItem {
   replyCount: number;
   labels: Array<{ communityId: string; label: string; reason: string }>;
 }
+
+/** Descriptors only: private attachment keys never leave the worker. */
+export interface FeedMedia {
+  mime?: string; locations?: string[]; alt_text?: string; size?: string;
+  contentHash?: string; encrypted?: boolean; poster?: FeedMedia;
+}
+export interface EmbeddedMedia { data: string; mime: string }
 
 export interface FeedPage {
   items: FeedItem[];

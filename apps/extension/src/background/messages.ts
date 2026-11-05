@@ -137,13 +137,15 @@ export function createRouter(options: RouterOptions): Router {
     let tabId: number | undefined;
     if (origin === extensionOrigin) {
       source = "extension";
-      // Web-accessible cards are a separate, read-only surface. They cannot reach vault/signing APIs.
+      // Cards have narrow, post-bound operations. General vault/signing APIs remain unavailable.
       const path = sender.url ? new URL(sender.url).pathname : "";
       if (path === "/src/embed/index.html") {
         source = "embed";
         const host = sender.tab?.url ? new URL(sender.tab.url).origin : "";
         const granted = originsFromPatterns(await options.grantedOrigins());
-        if (!sender.frameId || !granted.includes(host)) return reject("forbidden", "Cards require a granted Facebook page.");
+        tabId = sender.tab?.id;
+        if (!sender.frameId || typeof tabId !== "number" || tabId < 0 || !["https://www.facebook.com", "https://web.facebook.com"].includes(host) || !granted.includes(host)) return reject("forbidden", "Cards require a granted Facebook page.");
+        if (handler.requireGesture && rateLimited(tabId)) return reject("rate_limited", "Too many actions from this tab; try again shortly.");
       }
     } else {
       source = "content";
@@ -165,8 +167,12 @@ export function createRouter(options: RouterOptions): Router {
       if (error instanceof ValidationError) return reject("invalid_payload", error.message);
       return reject("invalid_payload", "Invalid payload.");
     }
-    if (source === "content" && handler.requireGesture && (payload as { userGesture?: boolean } | undefined)?.userGesture !== true) {
+    if ((source === "content" || source === "embed") && handler.requireGesture && (payload as { userGesture?: boolean } | undefined)?.userGesture !== true) {
       return reject("forbidden", "This action requires a user gesture.");
+    }
+    if (source === "embed" && type.startsWith("embed.")) {
+      const displayed = new URLSearchParams(new URL(sender.url!).hash.slice(1)).get("post");
+      if (!displayed || displayed !== (payload as { postId?: string }).postId) return reject("forbidden", "Cards may only act on their displayed thread.");
     }
 
     // 6. handler

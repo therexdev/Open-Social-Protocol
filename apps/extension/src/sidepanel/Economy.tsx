@@ -8,7 +8,7 @@ export interface EconomyInspection {
   preview?: string; automaticSettlement?: boolean;
   own: boolean; active: boolean; canVote: boolean; ownerAvailable: boolean; slot?: number;
 }
-/** Runs only in a trusted extension page. Embedded Facebook cards can open it, never sign. */
+/** Runs only in a trusted extension page. Facebook cards use their own restricted inline vote handlers. */
 export function EconomyPanel({ postId, initialDirection = 1 }: { postId: string; initialDirection?: number }) {
   const [data, setData] = useState<EconomyInspection>(), [direction, setDirection] = useState(initialDirection), [weight, setWeight] = useState("1");
   const [opportunities, setOpportunities] = useState(1), [busy, setBusy] = useState(false), [error, setError] = useState(""), [message, setMessage] = useState("");

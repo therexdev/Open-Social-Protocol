@@ -2,7 +2,7 @@
  * Opening PostViews: plaintext (everyone) directly, friends-only through the key store.
  * Decryption happens in the service worker; a missing key is a normal state, not an error.
  */
-import { AUDIENCE, LIFECYCLE, SUITE, bytesEqual, contentHash, decodeEnvelope, decryptContent, type Content, type ProtocolClient } from "@osp/sdk";
+import { AUDIENCE, LIFECYCLE, SUITE, bytesEqual, contentHash, decodeEnvelope, decryptContent, unwrapContentKey, unwrapMediaKey, toBase64url, type Content, type MediaItem, type ProtocolClient } from "@osp/sdk";
 import { bytesOf } from "../shared/bytes";
 import type { PostView } from "../shared/indexer";
 import type { FeedItem, PostContentStatus } from "../shared/protocol";
@@ -16,9 +16,10 @@ export interface OpenContext {
   keySource?: KeySource;
 }
 
+export type OpenedMedia = MediaItem & { mediaKey?: Uint8Array; poster?: MediaItem["poster"] & { mediaKey?: Uint8Array } };
 export interface OpenedPost {
   status: PostContentStatus;
-  content?: Content;
+  content?: Omit<Content, "media"> & { media?: OpenedMedia[] };
   message?: string;
 }
 
@@ -36,7 +37,7 @@ export async function openPost(post: PostView, ctx: OpenContext): Promise<Opened
       if (record.state === LIFECYCLE.DELETED) return { status: "tombstone" };
       if (record.state === LIFECYCLE.AUTHOR_HIDDEN) return { status: "hidden" };
       if (record.state === LIFECYCLE.UNAVAILABLE) return { status: "unavailable" };
-      if (record.author !== post.author || !bytesEqual(record.collection_id ?? new Uint8Array(),bytesOf(post.collectionId ?? "")) || record.audience !== post.audience || record.version_count !== post.versionNumber || !bytesEqual(record.latest_version, bytesOf(post.contentHash))) {
+      if (record.author !== post.author || !bytesEqual(record.reply_to ?? new Uint8Array(),bytesOf(post.replyTo ?? "")) || !bytesEqual(record.collection_id ?? new Uint8Array(),bytesOf(post.collectionId ?? "")) || record.audience !== post.audience || record.version_count !== post.versionNumber || !bytesEqual(record.latest_version, bytesOf(post.contentHash))) {
         return { status: "error", message: "The feed has not supplied the current verified version of this post. Refresh the feed to check again." };
       }
     } catch {
@@ -77,14 +78,30 @@ export async function openPost(post: PostView, ctx: OpenContext): Promise<Opened
       epoch: post.epoch,
       versionNumber: post.versionNumber,
     };
-    return { status: "decrypted", content: decryptContent({ envelope, aad, epochKey }) };
+    const content = decryptContent({ envelope, aad, epochKey });
+    if (content.media?.some(m => m.wrapped_key?.length || m.poster?.wrapped_key?.length)) {
+      const key = unwrapContentKey(envelope, epochKey, aad);
+      try {
+        content.media = content.media.map(m => ({ ...m,
+          ...(m.wrapped_key?.length && { mediaKey: unwrapMediaKey(m.wrapped_key, key, m.content_hash!) }),
+          ...(m.poster?.wrapped_key?.length && { poster: { ...m.poster, mediaKey: unwrapMediaKey(m.poster.wrapped_key, key, m.poster.content_hash!) } }),
+        }));
+      } finally { key.fill(0); }
+    }
+    return { status: "decrypted", content };
   } catch {
     return { status: "error", message: "The post could not be decrypted with the key you hold." };
   }
 }
 
 export function toFeedItem(post: PostView, opened: OpenedPost): FeedItem {
+  const media = (m: OpenedMedia): NonNullable<FeedItem["media"]>[number] => ({
+    mime: m.mime, locations: m.locations, alt_text: m.alt_text, size: String(m.size ?? 0),
+    contentHash: toBase64url(m.content_hash ?? new Uint8Array()), encrypted: !!m.wrapped_key?.length,
+    ...(m.poster && { poster: media(m.poster) }),
+  });
   return {
+    replyTo: post.replyTo, collectionId: post.collectionId, shareWith: opened.content?.share_with,
     postId: post.postId,
     contentHash: post.contentHash,
     economy: post.economy,
@@ -97,11 +114,12 @@ export function toFeedItem(post: PostView, opened: OpenedPost): FeedItem {
     versionNumber: post.versionNumber,
     status: opened.status,
     ...(opened.content?.text !== undefined && { text: opened.content.text }),
-    ...(opened.content?.media && { media: opened.content.media.map((item) => ({ mime: item.mime, locations: item.locations, alt_text: item.alt_text, ...(item.size !== undefined && { size: String(item.size) }) })) }),
+    ...(opened.content?.media && { media: opened.content.media.map(media) }),
     ...(opened.content?.external_ref && { externalRef: opened.content.external_ref }),
     ...(opened.message && { message: opened.message }),
     reactions: post.reactions?.total ?? 0,
     liked: (post.reactions?.viewer ?? []).includes(1),
+    viewerReaction: post.reactions?.viewer?.[0] ?? 0,
     replyCount: post.replyCount ?? 0,
     labels: (post.labels ?? []).map((label) => ({ communityId: label.communityId, label: label.label, reason: label.reason })),
   };

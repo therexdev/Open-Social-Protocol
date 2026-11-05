@@ -140,6 +140,8 @@ export class FeedController {
     frame.src = this.runtime.frameUrl?.(postId) ?? `${chrome.runtime.getURL("src/embed/index.html")}#post=${encodeURIComponent(postId)}&host=${encodeURIComponent(doc.location.origin)}`;
     frame.title = "Open Social post";
     frame.loading = "lazy";
+    frame.allow = "autoplay; fullscreen";
+    frame.allowFullscreen = true;
     frame.referrerPolicy = "origin";
     Object.assign(frame.style, { display: "block", width: "100%", height: "180px", border: "0", colorScheme: "normal" });
     host.append(frame);

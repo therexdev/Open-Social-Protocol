@@ -30,6 +30,8 @@ import { updateBadge } from "./badge";
 import { ClientRegistry, requireProtocol } from "./clients";
 import { CrossPostOrchestrator } from "./crosspost";
 import { FeedService } from "./feed";
+import { EmbeddedActions } from "./embedActions";
+import { embeddedMedia } from "./embedMedia";
 import { EncryptedStore, KeyStore, deriveAesKey, type KeyCache } from "./keystore";
 import { createRouter, defineHandler, type Handlers, type Router } from "./messages";
 import { authorizeDevice, lookupDeviceStatus, publishPost, recordCrossPostProof, submitOperations } from "./publish";
@@ -284,17 +286,12 @@ export function createBackground(options: BackgroundOptions): Background {
     } finally { economyBusy = false; }
   };
 
-  const handlers: Handlers = {
-    "economy.open": defineHandler({ source: "embed", validate: obj({ postId: postIdSchema, direction: oneOf([1,2] as const) }), handle: async p => {
-      await api.tabs.create({ url: api.runtime.getURL(`src/sidepanel/index.html#post=${encodeURIComponent(p.postId)}&direction=${p.direction}`) });
-      return {};
-    }}),
-    "economy.inspect": defineHandler({ source: "extension", validate: obj({ postId: postIdSchema }), handle: async (p): Promise<EconomyInspection> => {
+  async function inspectEconomy(postId: string): Promise<EconomyInspection> {
       const session = await requireSession(), clients = await registry.get(), client = requireProtocol(clients);
       const [config, view, account, post, board, device, preview] = await Promise.all([
-        client.reads.token.get_economy({}), client.reads.token.get_post_economy({ post_id: bytesOf(p.postId), viewer: session.account }),
-        client.reads.token.get_account({ account: session.account }), client.reads.publications.get_post({ post_id: bytesOf(p.postId) }),
-        client.reads.token.get_promotions({}), lookupDeviceStatus(client,session.account,session.deviceAddress,now()), feed.card(p.postId),
+        client.reads.token.get_economy({}), client.reads.token.get_post_economy({ post_id: bytesOf(postId), viewer: session.account }),
+        client.reads.token.get_account({ account: session.account }), client.reads.publications.get_post({ post_id: bytesOf(postId) }),
+        client.reads.token.get_promotions({}), lookupDeviceStatus(client,session.account,session.deviceAddress,now()), feed.card(postId),
       ]);
       const mapped = view ? { ...view, reward: view.reward ? { ...view.reward, post_id: toBase64url(view.reward.post_id), version: toBase64url(view.reward.version) } : undefined,
         promotion: view.promotion ? { ...view.promotion, post_id: toBase64url(view.promotion.post_id), version: toBase64url(view.promotion.version) } : undefined } : undefined;
@@ -303,7 +300,26 @@ export function createBackground(options: BackgroundOptions): Background {
         own: post?.value?.author === session.account, active: verified && post?.value?.state === 0 && post.value.audience === 0,
         canVote: device.authorized && ((device.capabilities ?? 0) & CAPABILITY.SUPPORT) !== 0, ownerAvailable: !!vault.signers(session).owner,
         slot: config?.value ? Array.from({length:config.value.promotion_slots},(_,i)=>i).find(i => !board?.values.some(p=>p.slot===i && !p.cancelled && BigInt(p.end_block)>BigInt(board.block))) : undefined };
+  }
+  const embedDeps = { clients: () => registry.get(), session: () => vault.current(), keys: keysFor, vault, now, feed, local,
+    enabled: async () => { const settings = await loadSettings(); return settings.facebookAdapter && settings.feedInsertion; } };
+  const embedded = new EmbeddedActions(embedDeps);
+  const targetFields = { postId: postIdSchema, targetId: optional(postIdSchema) };
+  const actionFields = { ...targetFields, version: postIdSchema, userGesture: bool() };
+  let mediaActive = 0;
+  const mediaQueue: Array<() => void> = [];
+  async function mediaSlot<T>(read: () => Promise<T>): Promise<T> {
+    if (mediaActive >= 3) await new Promise<void>(resolve => mediaQueue.push(resolve));
+    else mediaActive++;
+    try { return await read(); }
+    finally { const next = mediaQueue.shift(); if (next) next(); else mediaActive--; }
+  }
+  const handlers: Handlers = {
+    "economy.open": defineHandler({ source: "embed", validate: obj({ postId: postIdSchema, direction: oneOf([1,2] as const) }), handle: async p => {
+      await api.tabs.create({ url: api.runtime.getURL(`src/sidepanel/index.html#post=${encodeURIComponent(p.postId)}&direction=${p.direction}`) });
+      return {};
     }}),
+    "economy.inspect": defineHandler({ source: "extension", validate: obj({ postId: postIdSchema }), handle: p => inspectEconomy(p.postId) }),
     "economy.vote": defineHandler({ source: "extension", validate: obj({ postId: postIdSchema, version: postIdSchema, direction: oneOf([1,2] as const), weight: wholeAmount }), handle: p => economySubmit("vote",p) }),
     "economy.promote": defineHandler({ source: "extension", validate: obj({ postId: postIdSchema, version: postIdSchema, nonce: wholeAmount, slot: num({min:0,max:31,int:true}), opportunities: num({min:1,max:5,int:true}), burnAmount: wholeAmount }), handle: p => economySubmit("promote",p) }),
     "economy.cancel": defineHandler({ source: "extension", validate: obj({ postId: postIdSchema, nonce: wholeAmount }), handle: p => economySubmit("cancel",p) }),
@@ -417,6 +433,28 @@ export function createBackground(options: BackgroundOptions): Background {
         return { enabled: true, item: await feed.card(p.postId) };
       },
     }),
+    "embed.inspect": defineHandler({ source: "embed", validate: obj(targetFields), handle: async p => {
+      const item = await embedded.target(p); return inspectEconomy(item.postId);
+    } }),
+    "embed.vote": defineHandler({ source: "embed", requireGesture: true,
+      validate: obj({ ...actionFields, direction: oneOf([1,2] as const), weight: wholeAmount }),
+      handle: p => embedded.run(p, CAPABILITY.SUPPORT, async (_session, item) => {
+        await economySubmit("vote", { ...p, postId: item.postId });
+        return inspectEconomy(item.postId);
+      }),
+    }),
+    "embed.poll": defineHandler({ source: "embed", requireGesture: true,
+      validate: obj({ ...actionFields, option: num({ min: 0, max: 7, int: true }) }), handle: p => embedded.poll(p) }),
+    "embed.react": defineHandler({ source: "embed", requireGesture: true,
+      validate: obj({ ...actionFields, reaction: oneOf([1,2,3,4,5] as const), remove: bool() }), handle: p => embedded.react(p) }),
+    "embed.comment": defineHandler({ source: "embed", requireGesture: true,
+      validate: obj({ ...actionFields, text: str({ min: 1, max: MAX_POST_CHARS }), attemptId: attemptIdSchema }), handle: p => embedded.comment(p) }),
+    "embed.replies": defineHandler({ source: "embed", validate: obj({ ...targetFields, cursor: optional(str({ max: 512 })) }), handle: p => embedded.replies(p) }),
+    "embed.media": defineHandler({ source: "embed", validate: obj({ ...targetFields, index: num({ min: 0, max: 7, int: true }), poster: bool() }), handle: p => mediaSlot(async () => {
+      const item = await embedded.target(p);
+      const media = await embeddedMedia(embedDeps, item.postId, p.index, p.poster);
+      await embedded.target({ ...p, version: item.contentHash }); return media;
+    }) }),
     "crosspost.list": defineHandler({
       source: "extension",
       validate: empty,

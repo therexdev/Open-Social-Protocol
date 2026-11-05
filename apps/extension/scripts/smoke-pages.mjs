@@ -132,13 +132,15 @@ await smoke(manifest.options_page, async ({ dom, calls, settle }) => {
 });
 await smoke("src/embed/index.html", async ({ dom, calls, settle, lock, resizeMessages }) => {
   const doc = dom.window.document;
-  assert.ok(doc.querySelector(".post-author")?.textContent.includes("Jim Profits"));
-  assert.ok(doc.querySelector(".chip-friends")?.textContent.includes("Friends"));
-  assert.ok(doc.querySelector(".post-text")?.textContent.includes("Private friend text"));
+  assert.ok(doc.querySelector(".card-author")?.textContent.includes("Jim Profits"));
+  assert.ok(doc.querySelector(".card-meta")?.textContent.includes("Friends"));
+  assert.ok(doc.querySelector(".card-copy")?.textContent.includes("Private friend text"));
   assert.equal(doc.querySelector('a[href^="javascript:"]'), null);
-  assert.equal(doc.querySelector("img"), null, "Media must not load without opting in");
-  assert.ok([...doc.querySelectorAll(".post-footer a")].every((a) => a.target === "_blank" && a.href.startsWith("https://extension.test/social/index.html#/post/")));
-  assert.equal(calls.every((call) => call.type === "embed.post"), true, "Embedded cards only perform read-only calls");
+  assert.equal(doc.querySelector("img"), null, "Unsafe media must never load");
+  assert.ok(doc.querySelector('button[aria-label="React"]'));
+  assert.ok(doc.querySelector('button[aria-label="Comment"]'));
+  assert.equal(doc.querySelector('a[href*="social/index.html"]'), null, "Actions stay in the card");
+  assert.equal(calls.every((call) => call.type === "embed.post"), true, "An idle card never submits an action");
   assert.ok(resizeMessages.length > 0);
   assert.equal(resizeMessages[0].origin, "https://www.facebook.com");
   assert.equal(JSON.stringify(resizeMessages).includes("Private friend text"), false);

@@ -173,6 +173,14 @@ export class IndexerClient {
     return this.optional(this.get<PostView>(`/v1/posts/${encodeURIComponent(postId)}${qs({ viewer })}`));
   }
 
+  replies(postId: string, viewer?: string, cursor?: string): Promise<Page<PostView>> {
+    return this.get(`/v1/posts/${encodeURIComponent(postId)}/replies${qs({ viewer, cursor, limit: 10 })}`);
+  }
+
+  photoChunks(id: string): Promise<{ chunks: string[] }> {
+    return this.get(`/v1/photos/${encodeURIComponent(id)}/chunks`);
+  }
+
   async keys(account: string, filter: { author?: string; audienceId?: string; epoch?: number } = {}): Promise<SealedKeyView[]> {
     const body = await this.get<{ items: SealedKeyView[] }>(`/v1/keys/${encodeURIComponent(account)}${qs({ author: filter.author, audienceId: filter.audienceId, epoch: filter.epoch })}`);
     return body.items ?? [];

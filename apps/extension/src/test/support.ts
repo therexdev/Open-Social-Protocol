@@ -132,6 +132,7 @@ export function fakeChain(deployment: Deployment, state: ChainState): FakeProvid
         return encode("publications.get_post_result", post ? { value: {
           author: post.author, audience: post.audience, state: post.state,
           version_count: post.versionNumber, latest_version: fromBase64url(post.contentHash),
+          reply_to: fromBase64url(post.replyTo), collection_id: fromBase64url(post.collectionId ?? ""),
         } } : {});
       }
       case "get_post_by_idempotency_key": {
@@ -190,7 +191,8 @@ export function fakeChain(deployment: Deployment, state: ChainState): FakeProvid
             epoch: (d.args.epoch as number) ?? 0,
             envelope: toBase64url(d.args.envelope as Uint8Array),
             media: [],
-            replyTo: "",
+            replyTo: toBase64url((d.args.reply_to as Uint8Array | undefined) ?? new Uint8Array()),
+            collectionId: toBase64url((d.args.collection_id as Uint8Array | undefined) ?? new Uint8Array()),
             state: 0,
             stateReason: "",
             replacementId: "",
@@ -365,6 +367,9 @@ export function fakeIndexer(state: ChainState): FakeIndexer {
       if ((match = /^\/v1\/accounts\/([^/]+)\/posts$/.exec(path))) {
         const account = decodeURIComponent(match[1]!);
         return jsonResponse(200, { items: state.posts.filter((post) => post.author === account), nextCursor: null });
+      }
+      if ((match = /^\/v1\/posts\/([^/]+)\/replies$/.exec(path))) {
+        return jsonResponse(200, { items: state.posts.filter(p => p.replyTo === decodeURIComponent(match![1]!)), nextCursor: null });
       }
       if ((match = /^\/v1\/posts\/([^/]+)$/.exec(path))) {
         const id = decodeURIComponent(match[1]!);
