@@ -1,17 +1,21 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { contentHash, photoLocation, profilePhotoId, toBase64url } from "@osp/sdk";
+import { contentHash, PHOTO_MAX_BYTES, photoLocation, profilePhotoId, toBase64url } from "@osp/sdk";
 import { ProfileEditor } from "./ProfileEditor";
 import { buildProfileDocument, parseProfileUri } from "../../api/profiles";
 import type { ProfileView } from "../../api/indexer";
+import { PhotoReadError, preparePhoto } from "../composer/preparePhoto";
 import { archivePhoto } from "../composer/archivePhoto";
 import { submitAction } from "../../tx/submit";
 
 const mocks = vi.hoisted(() => ({ ctx: {} as any, session: {} as any }));
 vi.mock("../session", () => ({ useSubmitContext: () => mocks.ctx }));
 vi.mock("../../vault/context", () => ({ useVaultStore: () => ({ getState: () => ({ session: mocks.session }) }) }));
-vi.mock("../composer/preparePhoto", () => ({ preparePhoto: async () => Uint8Array.of(255, 216, 255, 217) }));
+vi.mock("../composer/preparePhoto", async importOriginal => ({
+  ...await importOriginal<typeof import("../composer/preparePhoto")>(),
+  preparePhoto: vi.fn(),
+}));
 vi.mock("../composer/archivePhoto", () => ({ archivePhoto: vi.fn() }));
 vi.mock("../../tx/submit", () => ({ submitAction: vi.fn() }));
 
@@ -23,6 +27,7 @@ const view = { profileUri: original.uri, profileHash: toBase64url(original.hash)
 let root: Root, container: HTMLDivElement;
 beforeEach(async () => {
   vi.clearAllMocks();
+  vi.mocked(preparePhoto).mockReset().mockResolvedValue(Uint8Array.of(255, 216, 255, 217));
   vi.stubGlobal("URL", class extends URL {
     static override createObjectURL() { return "blob:preview"; }
     static override revokeObjectURL() {}
@@ -69,4 +74,41 @@ it("checks the on-chain profile before reserving image storage for a stale edit"
   expect(container.textContent).toContain("Your profile changed");
   expect(archivePhoto).not.toHaveBeenCalled();
   expect(submitAction).not.toHaveBeenCalled();
+});
+
+
+it.each(["Profile picture", "Profile banner"])("retains the selected %s file until it has finished reading", async label => {
+  const input = Array.from(container.querySelectorAll<HTMLInputElement>('input[accept="image/*"]'))
+    .find(input => input.closest(".field")?.textContent?.includes(label))!;
+  let selection = "C:/fakepath/banner.jpg";
+  Object.defineProperty(input, "value", { configurable: true, get: () => selection, set: value => { selection = value; } });
+  Object.defineProperty(input, "files", { value: [new File(["photo"], "banner.jpg")] });
+  let finish!: (bytes: Uint8Array) => void;
+  vi.mocked(preparePhoto).mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+  await act(async () => input.dispatchEvent(new Event("change", { bubbles: true })));
+  expect(selection).toBe("C:/fakepath/banner.jpg");
+  await act(async () => finish(Uint8Array.of(255, 216, 255, 217)));
+  expect(selection).toBe("");
+  expect(container.querySelector(`img[alt="${label}"]`)).not.toBeNull();
+});
+
+it.each(["Profile picture", "Profile banner"])("can recover an unreadable %s via the unfiltered file picker", async label => {
+  const input = Array.from(container.querySelectorAll<HTMLInputElement>('input[accept="image/*"]'))
+    .find(input => input.closest(".field")?.textContent?.includes(label))!;
+  const file = new File(["photo"], "banner.jpg");
+  Object.defineProperty(input, "files", { value: [file] });
+  vi.mocked(preparePhoto).mockRejectedValueOnce(new PhotoReadError("NotReadableError"));
+  await act(async () => input.dispatchEvent(new Event("change", { bubbles: true })));
+  const retry = container.querySelector<HTMLInputElement>('input[aria-label="Choose profile image from files"]')!;
+  expect(retry.hasAttribute("accept")).toBe(false);
+  const open = vi.spyOn(retry, "click");
+  const button = Array.from(container.querySelectorAll("button")).find(button => button.textContent === "Choose from files")!;
+  await act(async () => button.click());
+  expect(open).toHaveBeenCalledOnce();
+  Object.defineProperty(retry, "files", { value: [file] });
+  await act(async () => retry.dispatchEvent(new Event("change", { bubbles: true })));
+  expect(preparePhoto).toHaveBeenLastCalledWith(file, expect.any(AbortSignal), label === "Profile picture" ? 131072 : PHOTO_MAX_BYTES);
+  expect(container.querySelector(`img[alt="${label}"]`)).not.toBeNull();
+  expect(container.textContent).not.toContain("could not read");
+  expect(archivePhoto).not.toHaveBeenCalled();
 });

@@ -45,7 +45,17 @@ export async function readPhotoSource(file: File, signal?: AbortSignal, maxBytes
       // Try FileReader if streaming is unsupported or the provider fails a read.
     } finally { clearTimeout(timer); signal?.removeEventListener("abort", abort); controller.abort(); }
   }
-  const bytes = new Uint8Array(await readFile(file, false, signal) as ArrayBuffer);
+  let buffer: ArrayBuffer;
+  try {
+    buffer = await readFile(file, false, signal) as ArrayBuffer;
+  } catch (error) {
+    if (signal?.aborted) throw cancelled();
+    // A sliced Blob avoids stale File metadata from some document providers.
+    // Keep the copy bounded, and retain the original error for an empty snapshot.
+    buffer = await readFile(file.slice(0, MAX_SOURCE_BYTES + 1), false, signal) as ArrayBuffer;
+    if (!buffer.byteLength) throw error;
+  }
+  const bytes = new Uint8Array(buffer);
   if (!bytes.length) throw unreadable();
   if (bytes.length > MAX_SOURCE_BYTES) throw new Error("Choose a photo smaller than 20 MB.");
   // A stale/zero size from a document provider must not reject successfully read bytes.

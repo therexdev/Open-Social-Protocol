@@ -7,7 +7,7 @@ import { Button, Field, Notice } from "../../components/ui";
 import { useProfiles } from "../../stores/profiles";
 import { submitAction } from "../../tx/submit";
 import { useVaultStore } from "../../vault/context";
-import { preparePhoto } from "../composer/preparePhoto";
+import { PhotoReadError, preparePhoto } from "../composer/preparePhoto";
 import { archivePhoto } from "../composer/archivePhoto";
 import { useSubmitContext } from "../session";
 
@@ -33,6 +33,8 @@ export function ProfileEditor({ account, view, onDone }: { account: string; view
   const [name, setName] = useState(base?.display_name ?? ""), [bio, setBio] = useState(base?.bio ?? "");
   const [photos, setPhotos] = useState<Partial<Record<Slot, SelectedPhoto>>>({});
   const [preparing, setPreparing] = useState(false), [saving, setSaving] = useState(false), [error, setError] = useState("");
+  const [failedPhoto, setFailedPhoto] = useState<Slot>();
+  const filePicker = useRef<HTMLInputElement>(null);
   const active = useRef(true), busy = useRef(false);
   const prepareController = useRef<AbortController | undefined>(undefined);
   useEffect(() => {
@@ -48,12 +50,15 @@ export function ProfileEditor({ account, view, onDone }: { account: string; view
   const choose = async (slot: Slot, file?: File) => {
     if (!file || busy.current) return;
     const controller = new AbortController(); prepareController.current = controller;
-    setPreparing(true); setError(""); busy.current = true;
+    setPreparing(true); setError(""); setFailedPhoto(undefined); busy.current = true;
     try {
       const bytes = await preparePhoto(file, controller.signal, slot === "avatar" ? 128 * 1024 : PHOTO_MAX_BYTES);
       if (active.current) setPhotos(previous => ({ ...previous, [slot]: { bytes, digest: contentHash(bytes) } }));
     } catch (e) {
-      if (active.current) setError(e instanceof Error ? e.message : String(e));
+      if (active.current) {
+        setError(e instanceof Error ? e.message : String(e));
+        if (e instanceof PhotoReadError) setFailedPhoto(slot);
+      }
     } finally {
       busy.current = false;
       if (active.current) setPreparing(false);
@@ -102,7 +107,9 @@ export function ProfileEditor({ account, view, onDone }: { account: string; view
       const label = slot === "avatar" ? "Profile picture" : "Profile banner", selected = photos[slot];
       return <div key={slot}>
         <Field label={label}>{id => <input id={id} type="file" accept="image/*" disabled={preparing || saving} onChange={e => {
-          const file = e.target.files?.[0]; e.target.value = ""; void choose(slot, file);
+          const input = e.currentTarget, file = input.files?.[0];
+          // Preserve the mobile provider's file handle until its bytes are copied.
+          void choose(slot, file).finally(() => { input.value = ""; });
         }}/>}</Field>
         {selected && <><Preview bytes={selected.bytes} label={label}/><p className="hint">{photoCost(selected.bytes.length)} photo usage units · {Math.ceil(selected.bytes.length / 1024)} KiB</p>
           <Button variant="ghost" disabled={saving} onClick={() => setPhotos(previous => ({ ...previous, [slot]: undefined }))}>Discard selection</Button></>}
@@ -110,7 +117,13 @@ export function ProfileEditor({ account, view, onDone }: { account: string; view
     })}</div>
     <p className="hint">{preparing ? "Preparing image…" : "Profile images are public. Saving uses the same free and regenerating OSAT capacity as other photos."}</p>
     {remaining < 0 && <Notice kind="warning">Shorten your bio or display name to fit the on-chain profile. The reference exceeds the limit by {-remaining} characters.</Notice>}
-    {error && <Notice kind="error">{error}</Notice>}
+    <input ref={filePicker} className="visually-hidden" type="file" aria-label="Choose profile image from files" disabled={preparing || saving} onChange={event => {
+      const input = event.currentTarget, slot = failedPhoto, file = input.files?.[0];
+      if (slot) void choose(slot, file).finally(() => { input.value = ""; });
+    }}/>
+    {error && <Notice kind="error">{error}
+      {failedPhoto && <div className="row"><Button disabled={preparing || saving} onClick={() => filePicker.current?.click()}>Choose from files</Button></div>}
+    </Notice>}
     <div className="row"><Button type="submit" variant="primary" busy={saving} disabled={preparing || remaining < 0 || !ctx}>Save profile</Button>
       <Button variant="ghost" onClick={onDone} disabled={saving}>Cancel</Button></div>
   </form>;

@@ -110,3 +110,27 @@ describe("mobile photo preparation", () => {
     expect(cancel).toHaveBeenCalledOnce();
   });
 });
+
+
+it("recovers a document provider whose File metadata blocks both reads", async () => {
+  const file = new File([jpeg], "phone-image.jpg", { type: "image/jpeg" });
+  Object.defineProperty(file, "stream", { value: () => { throw new DOMException("Stale metadata", "NotReadableError"); } });
+  const read = FileReader.prototype.readAsArrayBuffer;
+  vi.spyOn(FileReader.prototype, "readAsArrayBuffer").mockImplementation(function(this: FileReader, blob) {
+    if (blob === file) throw new DOMException("Stale metadata", "NotReadableError");
+    return read.call(this, blob);
+  });
+  expect(await preparePhoto(file)).toEqual(jpeg);
+  expect(close).toHaveBeenCalledOnce();
+});
+
+it("enforces the source limit on a fallback snapshot even when the provider reports zero size", async () => {
+  const file = new File([new Uint8Array(20 * 1024 * 1024 + 1)], "oversized.jpg");
+  Object.defineProperty(file, "size", { value: 0 });
+  const read = FileReader.prototype.readAsArrayBuffer;
+  vi.spyOn(FileReader.prototype, "readAsArrayBuffer").mockImplementation(function(this: FileReader, blob) {
+    if (blob === file) throw new DOMException("Stale metadata", "NotReadableError");
+    return read.call(this, blob);
+  });
+  await expect(readPhotoSource(file)).rejects.toThrow(/20 MB/);
+});
