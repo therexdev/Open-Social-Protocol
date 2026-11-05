@@ -4,6 +4,7 @@ import {
   toBase64url,
   x25519KeyPair,
   type PrivateScope,
+  type PrivateVoiceNote,
   type RatchetSetup,
   type RatchetState,
   type RatchetWire,
@@ -62,6 +63,7 @@ export interface AcceptanceEnvelope {
   wire: RatchetWire;
 }
 export interface LocalMessage {
+  voice?: PrivateVoiceNote;
   id: string;
   text: string;
   mine: boolean;
@@ -154,9 +156,12 @@ export interface PrivateFile {
   funding: Record<string, Funding>;
   closedRequests?: Array<{ id: string; peer: string; expiresAt: number }>;
   mirrors?: MirroredThread[];
-  deliveries?: Array<{ id: string; peer: string; threadId: string; text: string; createdAt: number; targets: Array<{ deviceId: string; packetId: string }> }>;
+  deliveries?: Array<{ id: string; peer: string; threadId: string; text: string; voice?: PrivateVoiceNote; createdAt: number; targets: Array<{ deviceId: string; packetId: string }> }>;
 }
 export interface QueuedPrivateMessage {
+  voice?: PrivateVoiceNote;
+  /** Ciphertext only. Retained until archive verification and ratchet commit. */
+  archiveBytes?: string;
   id: string;
   peer: string;
   chatId?: string;

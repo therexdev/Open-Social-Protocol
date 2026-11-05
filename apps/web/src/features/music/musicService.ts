@@ -9,6 +9,7 @@ import {
   MUSIC_BATCH_CHUNKS,
   MUSIC_CHUNK_BYTES,
   MUSIC_READ_BATCH_CHUNKS,
+  CLIP_KIND, VIDEO_UPLOAD_FEE,
   musicBatchChunks,
   type MusicKey,
   type Identity,
@@ -38,6 +39,9 @@ import { hasMusicGateway, readMusicGateway } from "./musicGateway";
 import { prepareMusicArtwork, archiveMusicArtwork, artworkRecord, type MusicArtworkDraft } from "./musicArtwork";
 
 export interface MusicDraft {
+  clipKind?: number;
+  gzipOriginalSize?: number;
+  clipEncrypted?: boolean;
   artwork?: MusicArtworkDraft;
   artist?: string;
   description?: string;
@@ -237,6 +241,8 @@ export function newMusicDraft(input: {
 }
 export function matchesMusic(draft: MusicDraft, record: MusicRecord): boolean {
   return (
+    (record.clip_kind ?? 0) === (draft.clipKind ?? 0) &&
+    (record.gzip_original_size ?? 0) === (draft.gzipOriginalSize ?? 0) &&
     record.owner === draft.owner &&
     record.payer === draft.payer &&
     record.title === draft.title &&
@@ -244,7 +250,7 @@ export function matchesMusic(draft: MusicDraft, record: MusicRecord): boolean {
     (record.description ?? "") === (draft.description ?? "") &&
     (record.audience ?? 0) === (draft.audience ?? 0) &&
     (record.unlock_price ?? "0") === (draft.unlockPrice ?? "0") &&
-    !!record.encrypted === !!draft.key &&
+    !!record.encrypted === !!(draft.clipEncrypted || draft.key) &&
     toBase64url(record.group_id ?? new Uint8Array()) === (draft.groupId ?? "") &&
     toBase64url(record.nonce ?? new Uint8Array()) === (draft.nonce ?? "") &&
     toBase64url(record.key_hash ?? new Uint8Array()) === (draft.keyHash ?? "") &&
@@ -292,11 +298,12 @@ export async function uploadMusic(
     throw new Error("Saved upload does not match the on-chain reservation.");
   if (!record) {
     const config = await musicConfig(client);
+    const expectedFee = draft.clipKind === CLIP_KIND.video ? VIDEO_UPLOAD_FEE : draft.clipKind === CLIP_KIND.voice ? "0" : musicFee(draft.size, config.rate_per_mb, config.flat_fee);
     if (
-      !config.enabled ||
+      !config.enabled || (draft.clipKind && config.clip_version !== 1) ||
       config.revision !== draft.configRevision ||
       config.recipient !== draft.recipient ||
-      musicFee(draft.size, config.rate_per_mb, config.flat_fee) !== draft.fee
+      expectedFee !== draft.fee
     )
       throw new Error("The music price changed. Refresh the quote before paying.");
     const args: BeginMusicArgs = {
@@ -313,7 +320,8 @@ export async function uploadMusic(
       audience: draft.audience,
       ...(draft.groupId && { group_id: fromBase64url(draft.groupId) }),
       unlock_price: draft.unlockPrice ?? "0",
-      encrypted: !!draft.key,
+      encrypted: !!(draft.clipEncrypted || draft.key),
+      ...(draft.clipKind && { clip_kind: draft.clipKind, gzip_original_size: draft.gzipOriginalSize }),
       ...(draft.nonce && { nonce: fromBase64url(draft.nonce) }),
       ...(draft.ownerKey && {
         owner_key: decode<MusicKey>("publications.music_key", fromBase64url(draft.ownerKey)),
@@ -325,8 +333,11 @@ export async function uploadMusic(
       max_fee: draft.fee,
     };
     if (draft.artwork) await archiveMusicArtwork(ctx, draft.owner, draft.artwork, assertActive);
-    await submitAction(ctx, await musicPaymentOperations(client, args, config.native_token), {
-      label: "Paying for music upload",
+    const operations = draft.clipKind === CLIP_KIND.voice
+      ? [await client.ops.publications.begin_music(args)]
+      : await musicPaymentOperations(client, args, config.native_token);
+    await submitAction(ctx, operations, {
+      label: draft.clipKind === CLIP_KIND.voice ? "Reserving voice storage" : draft.clipKind === CLIP_KIND.video ? "Paying for video upload" : "Paying for music upload",
       quietProgress: true,
       beforeSubmit: async () => assertActive(),
     });
@@ -373,7 +384,7 @@ export async function uploadMusic(
             data: batch[0]!,
           });
     await submitAction(ctx, [op], {
-      label: `Uploading audio ${index + batch.length}/${chunks.length}`,
+      label: `Uploading ${draft.clipKind === CLIP_KIND.video ? "video" : "audio"} ${index + batch.length}/${chunks.length}`,
       quietProgress: true,
       beforeSubmit: async () => assertActive(),
     });
@@ -390,7 +401,8 @@ export async function loadMusic(
   client: ProtocolClient,
   id: string,
   signal?: AbortSignal,
-  progress?: (received: number, total: number) => void
+  progress?: (received: number, total: number) => void,
+  validateRecord?: (record: MusicRecord) => void,
 ): Promise<{ record: MusicRecord; bytes: Uint8Array }> {
   let stopped = false;
   const check = () => {
@@ -407,6 +419,7 @@ export async function loadMusic(
     record.chunk_hashes.length !== Math.ceil(record.size / MUSIC_CHUNK_BYTES)
   )
     throw new Error("This track is not ready to play.");
+  validateRecord?.(record);
   check();
   const cache = musicCache(),
     cacheKey = musicCacheKey(client, key, record.digest),

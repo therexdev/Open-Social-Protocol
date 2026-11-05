@@ -13,6 +13,8 @@ import {
   AUDIENCE,
   utf8,
   type CollectionRecord,
+  type Deployment,
+  parseClipLocation,
   validatePoll,
   type PollDefinition,
   LIMITS,
@@ -31,6 +33,7 @@ import {
   type PublishArgs,
   type Recipient,
   type Rng,
+  readMediaResponse,
   wrapMediaKey,
   ipfsCid,
 } from "@osp/sdk";
@@ -39,6 +42,7 @@ import { bytesOf, fromHex, toBase64url } from "../../util/bytes";
 
 /** The parts of ProtocolClient the composer needs (mockable). */
 export interface PublishChain {
+  deployment: Deployment;
   chainId: string;
   ops: {
     publications: {
@@ -73,6 +77,7 @@ export interface PublishIdentity {
 }
 
 export interface PublishInput {
+  replyGuard?: { parentHash: string; friendsEpoch?: number };
   poll?: PollDefinition;
   chain: PublishChain;
   indexer: PublishIndexer;
@@ -100,6 +105,8 @@ export interface PublishInput {
 export interface MediaAttachment {
   /** Prepared ciphertext persisted only inside the encrypted publication draft. */
   archiveBytes?: string;
+  durationMs?: number;
+  gzipOriginalSize?: number;
   url: string;
   mime: string;
   size: number;
@@ -222,10 +229,13 @@ export async function buildPublishPlan(input: PublishInput): Promise<PublishPlan
   const key = idempotencyKey(input.me.account, attemptId);
   const contentKey = input.audience !== AUDIENCE.EVERYONE ? newEpochKey(input.rng) : undefined;
   for (const media of input.media ?? []) {
-    if (input.audience !== AUDIENCE.EVERYONE && !media.encryption) throw new PublishError("Linked media files are public at their original host. Remove the attachment and upload the photo again with private sharing selected.");
-    if (input.audience === AUDIENCE.EVERYONE && media.encryption) throw new PublishError("Remove private photos before changing this post to Public.");
+    const isClip = media.url.startsWith("osp-clip://");
+    if (isClip) parseClipLocation(media.url, input.chain.deployment.contracts.publications.address);
+    if (input.audience !== AUDIENCE.EVERYONE && !media.encryption) throw new PublishError("Linked media files are public at their original host. Remove the attachment and attach the file again with private sharing selected.");
+    if (input.audience === AUDIENCE.EVERYONE && media.encryption) throw new PublishError("Remove private attachments before changing this post to Public.");
     if (media.encryption) {
-      if ((!media.url.startsWith("ipfs://") && !media.url.startsWith("osp-photo://")) || bytesOf(media.encryption.key).length !== 32 || bytesOf(media.encryption.nonce).length !== 24) throw new PublishError("Invalid encrypted photo attachment");
+      const archived = isClip || media.url.startsWith("ipfs://") || media.url.startsWith("osp-photo://");
+      if (!archived || bytesOf(media.encryption.key).length !== 32 || bytesOf(media.encryption.nonce).length !== 24) throw new PublishError("Invalid encrypted attachment.");
       if (media.url.startsWith("ipfs://")) ipfsCid(media.url);
     }
   }
@@ -344,6 +354,7 @@ export async function buildPublishPlan(input: PublishInput): Promise<PublishPlan
       content_hash: hash,
       ...(input.audience === AUDIENCE.EVERYONE && input.media?.length && { media: mediaRefs(input.media) }),
       ...(input.replyTo && { reply_to: bytesOf(input.replyTo) }),
+      ...(input.replyTo && input.replyGuard && { reply_parent_version: bytesOf(input.replyGuard.parentHash), reply_friends_epoch: input.replyGuard.friendsEpoch }),
       idempotency_key: key,
     }),
   );
@@ -374,7 +385,7 @@ export async function findExistingPost(chain: PublishChain, account: string, att
 }
 
 /** Fetches a media URL and hashes the bytes (requires CORS on the media host). */
-export async function attachMediaFromUrl(url: string, fetchFn: typeof fetch = fetch, maxBytes = 50 * 1024 * 1024): Promise<MediaAttachment> {
+export async function attachMediaFromUrl(url: string, fetchFn: typeof fetch = fetch, maxBytes = 50 * 1024 * 1024, signal?: AbortSignal): Promise<MediaAttachment> {
   let parsed: URL;
   try {
     parsed = new URL(url);
@@ -385,14 +396,19 @@ export async function attachMediaFromUrl(url: string, fetchFn: typeof fetch = fe
   if (url.length > LIMITS.maxLocationChars) throw new PublishError(`Media URLs are limited to ${LIMITS.maxLocationChars} characters.`);
   let response: Response;
   try {
-    response = await fetchFn(url, { mode: "cors" });
+    response = await fetchFn(url, { mode: "cors", credentials: "omit", referrerPolicy: "no-referrer", signal });
   } catch {
     throw new PublishError("The media host does not allow this site to read the file (CORS). Host it elsewhere or paste a link in the text instead.");
   }
   if (!response.ok) throw new PublishError(`The media host answered ${response.status}.`);
-  const buffer = new Uint8Array(await response.arrayBuffer());
-  if (buffer.length > maxBytes) throw new PublishError("The file is too large to hash in the browser.");
-  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", buffer));
+  let buffer: Uint8Array;
+  try {
+    buffer = await readMediaResponse(response, maxBytes, signal);
+  } catch (e) {
+    throw new PublishError(e instanceof Error && e.message === "Image is too large" ? "The file is too large to attach." : "The media download was interrupted.");
+  }
+  if (!buffer.length) throw new PublishError("This media file is empty.");
+  const digest = sha256Envelope(buffer);
   const mime = (response.headers.get("content-type") ?? "application/octet-stream").split(";")[0]?.trim() || "application/octet-stream";
   return { url, mime, size: buffer.length, contentHash: digest };
 }

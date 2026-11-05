@@ -183,3 +183,21 @@ it("rejects oversized or mixed batches, skipped indexes and a forged owner", asy
     musicAllowance(client, sponsor, alice, [await batch(), await append()])
   ).rejects.toThrow();
 });
+
+it("sponsors a single OSAT-usage voice reservation and requires an exact 100-token video bundle", async () => {
+  const native = identityFromSeed(new Uint8Array(32).fill(12)).account;
+  const config: MusicConfig = { version: 3, clip_version: 1, revision: 4, native_token: native, recipient: sponsor,
+    enabled: true, rate_per_mb: "8610000000", max_bytes: 10485760, flat_fee: "50000000000" };
+  vi.spyOn(client.reads.publications, "get_music_config").mockResolvedValue({ value: config });
+  const args = { owner: alice, payer: alice, id, digest: contentHash(data), size: data.length, chunk_hashes: [contentHash(data)],
+    title: "Voice recording", clip_kind: 1, mime: "audio/ogg", duration_ms: 8000, config_revision: 4, max_fee: "0" };
+  const voice = await client.ops.publications.begin_music(args);
+  expect(await musicAllowance(client, sponsor, alice, [voice])).toBeUndefined();
+  await expect(musicAllowance(client, sponsor, alice, [voice, voice])).rejects.toThrow("usage-only");
+  const video = { ...args, clip_kind: 2, mime: "video/webm", duration_ms: 15000, max_fee: "10000000000" };
+  const bundle = await musicPaymentOperations(client, video, native);
+  expect(await musicAllowance(client, sponsor, alice, bundle)).toBeUndefined();
+  await expect(musicAllowance(client, sponsor, alice, [bundle[1]!])).rejects.toThrow("exact approval");
+  config.clip_version = 0;
+  await expect(musicAllowance(client, sponsor, alice, [voice])).rejects.toThrow("Unsupported clip");
+});

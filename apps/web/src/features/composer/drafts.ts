@@ -1,3 +1,4 @@
+import type { PostView } from "../../api/indexer";
 /** Local drafts (encrypted at rest) keyed by attempt id so retries reuse the idempotency key. */
 import { newAttemptId } from "@osp/sdk";
 import type { DraftRecord, DraftsFile, Session } from "../../vault/store";
@@ -41,4 +42,16 @@ export function newDraft(account: string, fields: Pick<DraftRecord, "text" | "au
   const attemptId = toHex(newAttemptId());
   const now = Date.now();
   return { id: attemptId, attemptId, account, createdAt: now, updatedAt: now, state: "draft", ...fields };
+}
+
+export function indexedDraft(draft: DraftRecord, posts: PostView[]): boolean {
+  const publication = draft.publication;
+  const post = publication && posts.find(value => value.postId === publication.postId);
+  if (!post) return false;
+  if (!draft.edit) return true;
+  // Another browser can win the same version number. Only acknowledge our
+  // payload (or a confirmed, idempotency-reconciled edit from an older draft).
+  if (!publication.contentHash) return draft.state === "published" && post.versionNumber >= draft.edit.versionNumber;
+  return post.versions.some(version => version.versionNumber === draft.edit!.versionNumber && version.contentHash === publication.contentHash) ||
+    (post.versionNumber === draft.edit.versionNumber && post.contentHash === publication.contentHash);
 }

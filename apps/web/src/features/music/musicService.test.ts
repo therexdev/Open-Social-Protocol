@@ -12,6 +12,7 @@ import {
 } from "@osp/sdk";
 import { fakeProvider, fixtureDeployment } from "../../testing/fixtures";
 import { submitAction, type SubmitContext } from "../../tx/submit";
+import { archiveClip, loadClip, prepareClip, prepareVideoClip } from "../media/clipArchive";
 import { loadMusic, newMusicDraft, uploadMusic, type MusicDraft } from "./musicService";
 import * as cacheModule from "./musicCache";
 import { memoryStorage } from "../../vault/storage";
@@ -72,6 +73,7 @@ beforeEach(() => {
     if (op.method === "begin_music") {
       paid++;
       record = {
+        clip_kind: Number(a.clip_kind ?? 0), gzip_original_size: Number(a.gzip_original_size ?? 0),
         artist: (a.artist ?? "") as string,
         description: (a.description ?? "") as string,
         audience: (a.audience ?? 0) as number,
@@ -567,4 +569,38 @@ it("charges a flat 100 tKOIN once and keeps old paid drafts resumable after acti
   await uploadMusic(ctx, draft, bytes, () => {}, () => {});
   expect(paid).toBe(1); expect(record?.fee).toBe("10000000000");
   await uploadMusic(ctx, draft, bytes, () => {}, () => {}); expect(paid).toBe(1);
+});
+
+it("resumes a private voice reservation, signs no native approvals and opens only with the DM key", async () => {
+  config.clip_version = 1;
+  const voice = prepareClip({ bytes, mime: "audio/webm;codecs=opus", durationMs: 2000 }, "voice", client, true);
+  failAt = 1;
+  await expect(archiveClip(voice, ctx, alice.account)).rejects.toThrow("interrupted");
+  expect(paid).toBe(1);
+  expect(vi.mocked(submitAction).mock.calls[0]![1]).toHaveLength(1);
+  expect(record?.fee).toBe("0");
+  expect(record?.owner_key).toBeUndefined();
+  expect(record?.nonce?.length ?? 0).toBe(0);
+  failAt = undefined;
+  await archiveClip(voice, ctx, alice.account);
+  expect(paid).toBe(1);
+  expect(contentHash(await loadClip(voice, client))).toEqual(contentHash(bytes));
+  await expect(loadClip({ ...voice, encryption: undefined }, client)).rejects.toThrow("verification");
+  await expect(loadClip({ ...voice, encryption: { ...voice.encryption!, key: toBase64url(new Uint8Array(32)) } }, client)).rejects.toThrow();
+});
+
+it("restores exact original video bytes after lossless transport compression, bounds expansion and pays once", async () => {
+  config.clip_version = 1;
+  const video = await prepareVideoClip({ bytes, mime: "video/mp4", durationMs: 15000 }, client, true);
+  expect(video.gzipOriginalSize).toBe(bytes.length);
+  expect(video.size).toBeLessThan(bytes.length - 16384);
+  await archiveClip(video, ctx, alice.account);
+  expect(record?.fee).toBe("10000000000");
+  expect(vi.mocked(submitAction).mock.calls[0]![1]).toHaveLength(3);
+  expect(contentHash(await loadClip(video, client))).toEqual(contentHash(bytes));
+  record!.gzip_original_size = 20000;
+  await expect(loadClip(video, client)).rejects.toThrow("exceeds its published size");
+  record!.gzip_original_size = 12 * 1024 * 1024;
+  await expect(loadClip(video, client)).rejects.toThrow("Invalid compressed video size");
+  expect(paid).toBe(1);
 });

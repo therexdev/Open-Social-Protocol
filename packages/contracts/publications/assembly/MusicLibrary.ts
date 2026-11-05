@@ -6,6 +6,8 @@ import { PhotoLibrary } from "./PhotoLibrary";
 
 const CHUNK: u32 = 16384;
 const MAX_BYTES: u32 = 10 * 1024 * 1024;
+const VOICE: u32 = 1;
+const VIDEO: u32 = 2;
 const COIN: u64 = 100000000;
 
 export class MusicLibrary {
@@ -103,7 +105,7 @@ export class MusicLibrary {
   setCover(args: publications.set_music_cover_arguments, identity: Uint8Array): void {
     const owner = Util.requireAddress(args.owner, "owner"), id = this.id(args.id), value = this.get(id);
     Actor.requireAuthorized(identity, owner, null, 0);
-    System.require(value != null && Arrays.equal(value!.owner!, owner), "track not owned");
+    System.require(value != null && value!.clip_kind == 0 && Arrays.equal(value!.owner!, owner), "track not owned");
     const v = value!;
     System.require(v.received == v.chunk_hashes.length, "complete the track before changing artwork");
     if (this.sameCover(v.cover, args.cover)) return; // A confirmed retry never replaces a newer cover.
@@ -127,6 +129,7 @@ export class MusicLibrary {
     const value =
       c == null ? new publications.music_config(1, 0, null, 8610000000, MAX_BYTES, false) : c!;
     value.version = 3;
+    value.clip_version = 1;
     value.native_token = System.getContractAddress("koin");
     return value;
   }
@@ -163,7 +166,7 @@ export class MusicLibrary {
     const divisor: u64 = 1000000 * COIN;
     return ((<u64>size * rate + divisor - 1) / divisor) * COIN;
   }
-  begin(args: publications.begin_music_arguments, identity: Uint8Array): void {
+  begin(args: publications.begin_music_arguments, identity: Uint8Array, usage: Uint8Array | null = null): void {
     const owner = Util.requireAddress(args.owner, "owner"),
       id = this.id(args.id),
       digest = this.id(args.digest);
@@ -178,18 +181,19 @@ export class MusicLibrary {
       args.title != null && args.title!.trim().length > 0 && Util.str(args.title!).length <= 240,
       "title must contain 1-240 UTF-8 bytes"
     );
-    System.require(
-      args.mime == "audio/mpeg" ||
-        args.mime == "audio/ogg" ||
-        args.mime == "audio/mp4" ||
-        args.mime == "audio/wav" ||
-        args.mime == "audio/webm",
-      "unsupported audio type"
-    );
-    System.require(
-      args.duration_ms > 0 && args.duration_ms <= 3600000,
-      "audio duration must be at most one hour"
-    );
+    const kind = args.clip_kind;
+    System.require(kind <= VIDEO, "unknown attachment kind");
+    if (args.gzip_original_size > 0) System.require(kind == VIDEO && args.gzip_original_size <= MAX_BYTES &&
+      args.gzip_original_size >= args.size + CHUNK, "invalid compressed video size");
+    if (kind == VIDEO) {
+      System.require(args.mime == "video/mp4" || args.mime == "video/webm", "unsupported video type");
+      System.require(args.duration_ms >= 10000 && args.duration_ms <= 30000, "video must be 10 to 30 seconds");
+    } else {
+      System.require(args.mime == "audio/mpeg" || args.mime == "audio/ogg" || args.mime == "audio/mp4" ||
+        args.mime == "audio/wav" || args.mime == "audio/webm", "unsupported audio type");
+      System.require(args.duration_ms > 0 && args.duration_ms <= (kind == VOICE ? 120000 : 3600000), "invalid audio duration");
+      if (kind == VOICE) System.require(args.size <= 1048576, "voice must fit 1 MiB");
+    }
     System.require(
       Util.str(args.artist == null ? "" : args.artist!).length <= 240,
       "artist must fit 240 UTF-8 bytes"
@@ -202,22 +206,30 @@ export class MusicLibrary {
       args.audience <= 2 && args.unlock_price <= 1000000,
       "invalid audience or OSAT price"
     );
-    System.require(
-      args.encrypted == (args.audience != 0 || args.unlock_price > 0),
-      "restricted and paid music must be encrypted"
-    );
-    if (args.encrypted) {
-      this.validateKey(args.owner_key);
+    if (kind != 0) {
+      // The reference and reading key travel inside the post, comment or ratcheted DM.
+      // A detached reservation has no recipients, license, cover, or separately usable owner key.
+      System.require(args.audience == 0 && args.unlock_price == 0 && args.cover == null &&
+        Util.isEmpty(args.nonce) && args.owner_key == null && Util.isEmpty(args.key_hash), "invalid clip key or license");
+      if (args.encrypted) System.require(args.size > 16, "invalid encrypted clip");
+    } else {
       System.require(
-        args.nonce != null && args.nonce!.length == 24 && args.size > 16,
-        "invalid encrypted audio"
+        args.encrypted == (args.audience != 0 || args.unlock_price > 0),
+        "restricted and paid music must be encrypted"
       );
-      this.id(args.key_hash);
-    } else
-      System.require(
-        Util.isEmpty(args.nonce) && args.owner_key == null && Util.isEmpty(args.key_hash),
-        "public audio must not carry private keys"
-      );
+      if (args.encrypted) {
+        this.validateKey(args.owner_key);
+        System.require(
+          args.nonce != null && args.nonce!.length == 24 && args.size > 16,
+          "invalid encrypted audio"
+        );
+        this.id(args.key_hash);
+      } else
+        System.require(
+          Util.isEmpty(args.nonce) && args.owner_key == null && Util.isEmpty(args.key_hash),
+          "public audio must not carry private keys"
+        );
+    }
     if (args.audience == 2) {
       const library = new PhotoLibrary(),
         group = library.collections.get(this.id(args.group_id));
@@ -234,6 +246,7 @@ export class MusicLibrary {
         Arrays.equal(old.owner!, owner) &&
           Arrays.equal(old.digest!, digest) &&
           old.size == args.size &&
+          old.clip_kind == kind && old.gzip_original_size == args.gzip_original_size &&
           old.title == args.title &&
           old.mime == args.mime &&
           old.duration_ms == args.duration_ms &&
@@ -262,17 +275,16 @@ export class MusicLibrary {
     System.require(c.enabled && c.recipient != null, "music uploads are not enabled");
     System.require(args.config_revision == c.revision, "music price changed; review the new quote");
     System.require(args.size <= c.max_bytes, "audio exceeds configured size limit");
-    const price = this.fee(args.size, c.rate_per_mb, c.flat_fee);
+    const price: u64 = kind == VOICE ? 0 : kind == VIDEO ? 100 * COIN : this.fee(args.size, c.rate_per_mb, c.flat_fee);
     System.require(args.max_fee == price, "music fee does not match the accepted quote");
-    System.require(!Arrays.equal(payer, c.recipient!), "payer cannot be the music fee recipient");
+    if (kind != VOICE) System.require(!Arrays.equal(payer, c.recipient!), "payer cannot be the music fee recipient");
     System.requireAuthority(authority.authorization_type.contract_call, payer);
-    const native = new Token(System.getContractAddress("koin"));
-    // Payment and reservation are one atomic transaction. Never trust a supplied
-    // transaction id, arbitrary token address, UI quote, or external receipt.
-    System.require(
-      native.transfer(payer, c.recipient!, price),
-      "native KOIN payment failed (balance or locked Mana)"
-    );
+    if (kind == VOICE) {
+      new PhotoLibrary().charge(owner, (args.size + 32767) / 32768, usage);
+    } else {
+      const native = new Token(System.getContractAddress("koin"));
+      System.require(native.transfer(payer, c.recipient!, price), "native KOIN payment failed (balance or locked Mana)");
+    }
     const value = new publications.music_record(
       owner,
       digest,
@@ -297,9 +309,11 @@ export class MusicLibrary {
     value.version = 2;
     value.key_hash = args.key_hash;
     value.cover = args.cover;
+    value.clip_kind = kind;
+    value.gzip_original_size = args.gzip_original_size;
     this.tracks.put(id, value);
     System.event(
-      "osp.publications.music_paid",
+      kind == 0 ? "osp.publications.music_paid" : "osp.publications.clip_reserved",
       Protobuf.encode(
         new publications.music_paid_event(id, value),
         publications.music_paid_event.encode
@@ -330,7 +344,7 @@ export class MusicLibrary {
     Actor.requireAuthorized(identity, owner, args.device, Capability.PUBLISH);
     const v = this.get(id);
     System.require(
-      v != null && Arrays.equal(v!.owner!, owner) && v!.fee > 0,
+      v != null && Arrays.equal(v!.owner!, owner) && (v!.fee > 0 || v!.clip_kind == VOICE),
       "paid music upload not owned"
     );
     System.require(
@@ -362,14 +376,14 @@ export class MusicLibrary {
     // Never rewrite the immutable manifest. Legacy tracks migrate lazily here.
     this.progress.put(id, new publications.music_progress(v!.received));
     if (v!.received == <u32>v!.chunk_hashes.length) {
-      this.directory.put(Util.concat([owner, id]), new publications.get_music_chunk_result(id));
+      if (v!.clip_kind == 0) this.directory.put(Util.concat([owner, id]), new publications.get_music_chunk_result(id));
       if (v!.audience == 2)
         this.groupDirectory.put(
           Util.concat([v!.group_id!, id]),
           new publications.get_music_chunk_result(id)
         );
       System.event(
-        "osp.publications.music_completed",
+        v!.clip_kind == 0 ? "osp.publications.music_completed" : "osp.publications.clip_completed",
         Protobuf.encode(
           new publications.music_completed_event(id, owner),
           publications.music_completed_event.encode

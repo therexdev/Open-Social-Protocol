@@ -6,6 +6,7 @@ import { Button, Notice } from "../../components/ui";
 import { useVault } from "../../vault/context";
 import { toArrayBuffer } from "../../util/bytes";
 import { Icon } from "../../components/Icon";
+import { MusicEngagement } from "./MusicEngagement";
 import { MusicCover } from "./MusicCover";
 import { musicDuration } from "./musicService";
 import { playableMusic } from "./musicAccessService";
@@ -93,8 +94,9 @@ export function MusicTrack({
           {busy ? `Loading audio ${percent}%` : "Load & play"}
         </Button>
       )}
-      {!expanded && <Link className="music-comment-link" title="Track & comments" aria-label="Track & comments" to={`/music/${id}`}><Icon name="message" size={16}/>Track & comments</Link>}
+
       </div>
+      <MusicEngagement id={id} record={record} expanded={expanded} locked={playbackLocked || (!!record.encrypted && !expanded)}/>
       {error && (
         <Notice kind="error">
           {error}

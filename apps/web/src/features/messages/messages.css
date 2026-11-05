@@ -1,0 +1,18 @@
+.message-page-actions, .message-compose-tools, .message-settings-dialog > header {
+  display: flex; align-items: center; justify-content: space-between; gap: .55rem;
+}
+.message-compose-tools { flex-wrap: wrap; }
+.message-compose-tools > .media-capture { max-width: 100%; min-width: 0; }
+.message-compose-tools audio, .message-bubble audio { max-width: 100%; }
+.message-compose { display: grid; gap: .5rem; }
+.message-compose textarea { resize: vertical; min-height: 2.8rem; }
+.message-settings-dialog { width: min(36rem, 94vw); max-height: 85dvh; overflow: auto; }
+.message-settings-dialog > header { background: var(--surface); margin-bottom: .7rem; }
+.message-settings-dialog > header h2 { margin: 0; }
+.message-settings-dialog .linked-browsers { margin: 0 0 1rem; box-shadow: none; }
+.chat-settings-mobile { display: none; }
+@media (max-width: 720px) {
+  .chat-settings-mobile { display: inline-flex; }
+  .message-settings-dialog { padding: 1rem; }
+  .message-compose-tools { gap: .3rem; }
+}

@@ -685,6 +685,17 @@ export namespace publications {
         writer.uint32(128);
         writer.bool(message.gallery_only);
       }
+
+      const unique_name_reply_parent_version = message.reply_parent_version;
+      if (unique_name_reply_parent_version !== null) {
+        writer.uint32(138);
+        writer.bytes(unique_name_reply_parent_version);
+      }
+
+      if (message.reply_friends_epoch != 0) {
+        writer.uint32(144);
+        writer.uint32(message.reply_friends_epoch);
+      }
     }
 
     static decode(reader: Reader, length: i32): publish_arguments {
@@ -758,6 +769,14 @@ export namespace publications {
             message.gallery_only = reader.bool();
             break;
 
+          case 17:
+            message.reply_parent_version = reader.bytes();
+            break;
+
+          case 18:
+            message.reply_friends_epoch = reader.uint32();
+            break;
+
           default:
             reader.skipType(tag & 7);
             break;
@@ -783,6 +802,8 @@ export namespace publications {
     poll: poll_definition | null;
     collection_id: Uint8Array | null;
     gallery_only: bool;
+    reply_parent_version: Uint8Array | null;
+    reply_friends_epoch: u32;
 
     constructor(
       author: Uint8Array | null = null,
@@ -800,7 +821,9 @@ export namespace publications {
       device: Uint8Array | null = null,
       poll: poll_definition | null = null,
       collection_id: Uint8Array | null = null,
-      gallery_only: bool = false
+      gallery_only: bool = false,
+      reply_parent_version: Uint8Array | null = null,
+      reply_friends_epoch: u32 = 0
     ) {
       this.author = author;
       this.post_id = post_id;
@@ -818,6 +841,8 @@ export namespace publications {
       this.poll = poll;
       this.collection_id = collection_id;
       this.gallery_only = gallery_only;
+      this.reply_parent_version = reply_parent_version;
+      this.reply_friends_epoch = reply_friends_epoch;
     }
   }
 
@@ -1406,6 +1431,101 @@ export namespace publications {
     static decode(reader: Reader, length: i32): get_post_result {
       const end: usize = length < 0 ? reader.end : reader.ptr + length;
       const message = new get_post_result();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1:
+            message.value = post_record.decode(reader, reader.uint32());
+            break;
+
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    value: post_record | null;
+
+    constructor(value: post_record | null = null) {
+      this.value = value;
+    }
+  }
+
+  export class get_music_vote_target_arguments {
+    static encode(
+      message: get_music_vote_target_arguments,
+      writer: Writer
+    ): void {
+      const unique_name_id = message.id;
+      if (unique_name_id !== null) {
+        writer.uint32(10);
+        writer.bytes(unique_name_id);
+      }
+
+      const unique_name_viewer = message.viewer;
+      if (unique_name_viewer !== null) {
+        writer.uint32(18);
+        writer.bytes(unique_name_viewer);
+      }
+    }
+
+    static decode(
+      reader: Reader,
+      length: i32
+    ): get_music_vote_target_arguments {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new get_music_vote_target_arguments();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1:
+            message.id = reader.bytes();
+            break;
+
+          case 2:
+            message.viewer = reader.bytes();
+            break;
+
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    id: Uint8Array | null;
+    viewer: Uint8Array | null;
+
+    constructor(
+      id: Uint8Array | null = null,
+      viewer: Uint8Array | null = null
+    ) {
+      this.id = id;
+      this.viewer = viewer;
+    }
+  }
+
+  export class get_music_vote_target_result {
+    static encode(message: get_music_vote_target_result, writer: Writer): void {
+      const unique_name_value = message.value;
+      if (unique_name_value !== null) {
+        writer.uint32(10);
+        writer.fork();
+        post_record.encode(unique_name_value, writer);
+        writer.ldelim();
+      }
+    }
+
+    static decode(reader: Reader, length: i32): get_music_vote_target_result {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new get_music_vote_target_result();
 
       while (reader.ptr < end) {
         const tag = reader.uint32();
@@ -2131,6 +2251,11 @@ export namespace publications {
         writer.uint32(48);
         writer.uint64(message.timestamp);
       }
+
+      if (message.exclusive != false) {
+        writer.uint32(56);
+        writer.bool(message.exclusive);
+      }
     }
 
     static decode(reader: Reader, length: i32): reaction_event {
@@ -2164,6 +2289,10 @@ export namespace publications {
             message.timestamp = reader.uint64();
             break;
 
+          case 7:
+            message.exclusive = reader.bool();
+            break;
+
           default:
             reader.skipType(tag & 7);
             break;
@@ -2179,6 +2308,7 @@ export namespace publications {
     reaction: u32;
     removed: bool;
     timestamp: u64;
+    exclusive: bool;
 
     constructor(
       actor: Uint8Array | null = null,
@@ -2186,7 +2316,8 @@ export namespace publications {
       post_author: Uint8Array | null = null,
       reaction: u32 = 0,
       removed: bool = false,
-      timestamp: u64 = 0
+      timestamp: u64 = 0,
+      exclusive: bool = false
     ) {
       this.actor = actor;
       this.post_id = post_id;
@@ -2194,6 +2325,7 @@ export namespace publications {
       this.reaction = reaction;
       this.removed = removed;
       this.timestamp = timestamp;
+      this.exclusive = exclusive;
     }
   }
 
@@ -4526,6 +4658,11 @@ export namespace publications {
         writer.uint32(64);
         writer.uint64(message.flat_fee);
       }
+
+      if (message.clip_version != 0) {
+        writer.uint32(72);
+        writer.uint32(message.clip_version);
+      }
     }
 
     static decode(reader: Reader, length: i32): music_config {
@@ -4567,6 +4704,10 @@ export namespace publications {
             message.flat_fee = reader.uint64();
             break;
 
+          case 9:
+            message.clip_version = reader.uint32();
+            break;
+
           default:
             reader.skipType(tag & 7);
             break;
@@ -4584,6 +4725,7 @@ export namespace publications {
     enabled: bool;
     native_token: Uint8Array | null;
     flat_fee: u64;
+    clip_version: u32;
 
     constructor(
       version: u32 = 0,
@@ -4593,7 +4735,8 @@ export namespace publications {
       max_bytes: u32 = 0,
       enabled: bool = false,
       native_token: Uint8Array | null = null,
-      flat_fee: u64 = 0
+      flat_fee: u64 = 0,
+      clip_version: u32 = 0
     ) {
       this.version = version;
       this.revision = revision;
@@ -4603,6 +4746,7 @@ export namespace publications {
       this.enabled = enabled;
       this.native_token = native_token;
       this.flat_fee = flat_fee;
+      this.clip_version = clip_version;
     }
   }
 
@@ -4742,6 +4886,16 @@ export namespace publications {
         writer.uint32(184);
         writer.uint32(message.cover_revision);
       }
+
+      if (message.clip_kind != 0) {
+        writer.uint32(192);
+        writer.uint32(message.clip_kind);
+      }
+
+      if (message.gzip_original_size != 0) {
+        writer.uint32(200);
+        writer.uint32(message.gzip_original_size);
+      }
     }
 
     static decode(reader: Reader, length: i32): music_record {
@@ -4843,6 +4997,14 @@ export namespace publications {
             message.cover_revision = reader.uint32();
             break;
 
+          case 24:
+            message.clip_kind = reader.uint32();
+            break;
+
+          case 25:
+            message.gzip_original_size = reader.uint32();
+            break;
+
           default:
             reader.skipType(tag & 7);
             break;
@@ -4875,6 +5037,8 @@ export namespace publications {
     key_hash: Uint8Array | null;
     cover: music_cover | null;
     cover_revision: u32;
+    clip_kind: u32;
+    gzip_original_size: u32;
 
     constructor(
       owner: Uint8Array | null = null,
@@ -4899,7 +5063,9 @@ export namespace publications {
       version: u32 = 0,
       key_hash: Uint8Array | null = null,
       cover: music_cover | null = null,
-      cover_revision: u32 = 0
+      cover_revision: u32 = 0,
+      clip_kind: u32 = 0,
+      gzip_original_size: u32 = 0
     ) {
       this.owner = owner;
       this.digest = digest;
@@ -4924,6 +5090,8 @@ export namespace publications {
       this.key_hash = key_hash;
       this.cover = cover;
       this.cover_revision = cover_revision;
+      this.clip_kind = clip_kind;
+      this.gzip_original_size = gzip_original_size;
     }
   }
 
@@ -5574,6 +5742,16 @@ export namespace publications {
         music_cover.encode(unique_name_cover, writer);
         writer.ldelim();
       }
+
+      if (message.clip_kind != 0) {
+        writer.uint32(184);
+        writer.uint32(message.clip_kind);
+      }
+
+      if (message.gzip_original_size != 0) {
+        writer.uint32(192);
+        writer.uint32(message.gzip_original_size);
+      }
     }
 
     static decode(reader: Reader, length: i32): begin_music_arguments {
@@ -5671,6 +5849,14 @@ export namespace publications {
             message.cover = music_cover.decode(reader, reader.uint32());
             break;
 
+          case 23:
+            message.clip_kind = reader.uint32();
+            break;
+
+          case 24:
+            message.gzip_original_size = reader.uint32();
+            break;
+
           default:
             reader.skipType(tag & 7);
             break;
@@ -5702,6 +5888,8 @@ export namespace publications {
     unlock_price: u64;
     key_hash: Uint8Array | null;
     cover: music_cover | null;
+    clip_kind: u32;
+    gzip_original_size: u32;
 
     constructor(
       owner: Uint8Array | null = null,
@@ -5725,7 +5913,9 @@ export namespace publications {
       owner_key: music_key | null = null,
       unlock_price: u64 = 0,
       key_hash: Uint8Array | null = null,
-      cover: music_cover | null = null
+      cover: music_cover | null = null,
+      clip_kind: u32 = 0,
+      gzip_original_size: u32 = 0
     ) {
       this.owner = owner;
       this.id = id;
@@ -5749,6 +5939,8 @@ export namespace publications {
       this.unlock_price = unlock_price;
       this.key_hash = key_hash;
       this.cover = cover;
+      this.clip_kind = clip_kind;
+      this.gzip_original_size = gzip_original_size;
     }
   }
 
@@ -6239,6 +6431,107 @@ export namespace publications {
 
     constructor(ids: Array<Uint8Array> = []) {
       this.ids = ids;
+    }
+  }
+
+  export class clip_reserved_event {
+    static encode(message: clip_reserved_event, writer: Writer): void {
+      const unique_name_id = message.id;
+      if (unique_name_id !== null) {
+        writer.uint32(10);
+        writer.bytes(unique_name_id);
+      }
+
+      const unique_name_value = message.value;
+      if (unique_name_value !== null) {
+        writer.uint32(18);
+        writer.fork();
+        music_record.encode(unique_name_value, writer);
+        writer.ldelim();
+      }
+    }
+
+    static decode(reader: Reader, length: i32): clip_reserved_event {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new clip_reserved_event();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1:
+            message.id = reader.bytes();
+            break;
+
+          case 2:
+            message.value = music_record.decode(reader, reader.uint32());
+            break;
+
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    id: Uint8Array | null;
+    value: music_record | null;
+
+    constructor(
+      id: Uint8Array | null = null,
+      value: music_record | null = null
+    ) {
+      this.id = id;
+      this.value = value;
+    }
+  }
+
+  export class clip_completed_event {
+    static encode(message: clip_completed_event, writer: Writer): void {
+      const unique_name_id = message.id;
+      if (unique_name_id !== null) {
+        writer.uint32(10);
+        writer.bytes(unique_name_id);
+      }
+
+      const unique_name_owner = message.owner;
+      if (unique_name_owner !== null) {
+        writer.uint32(18);
+        writer.bytes(unique_name_owner);
+      }
+    }
+
+    static decode(reader: Reader, length: i32): clip_completed_event {
+      const end: usize = length < 0 ? reader.end : reader.ptr + length;
+      const message = new clip_completed_event();
+
+      while (reader.ptr < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+          case 1:
+            message.id = reader.bytes();
+            break;
+
+          case 2:
+            message.owner = reader.bytes();
+            break;
+
+          default:
+            reader.skipType(tag & 7);
+            break;
+        }
+      }
+
+      return message;
+    }
+
+    id: Uint8Array | null;
+    owner: Uint8Array | null;
+
+    constructor(id: Uint8Array | null = null, owner: Uint8Array | null = null) {
+      this.id = id;
+      this.owner = owner;
     }
   }
 

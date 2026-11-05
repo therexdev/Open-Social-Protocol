@@ -316,7 +316,16 @@ export function fromHex(hex: string): Uint8Array {
 
 /** Base64url (koilib-compatible, padded). */
 export function toBase64url(bytes: Uint8Array): string {
-  return utils.encodeBase64url(bytes);
+  if (bytes.length <= 16384) return utils.encodeBase64url(bytes);
+  // koilib's byte-at-a-time string concatenation can consume hundreds of MiB
+  // for one mobile video draft. Encode aligned blocks, preserving its padding.
+  const parts: string[] = [];
+  const block = 3 * 8192;
+  for (let offset = 0; offset < bytes.length; offset += block) {
+    const base64 = protobuf.util.base64.encode(bytes, offset, Math.min(offset + block, bytes.length));
+    parts.push(base64.replace(/\+/g, "-").replace(/\//g, "_"));
+  }
+  return parts.join("");
 }
 
 export function fromBase64url(text: string): Uint8Array {

@@ -16,7 +16,7 @@ const id = toBase64url(new Uint8Array(32).fill(55));
 const record: MusicRecord = { owner: owner.account, title: "Evening Signals", artist: "Mira", description: "Recorded at dusk.", digest: contentHash(new Uint8Array([1])), size: 1, chunk_hashes: [contentHash(new Uint8Array([1]))], received: 1, mime: "audio/mpeg", duration_ms: 210000, fee: "10000000000", payer: owner.account, recipient: buyer.account, audience: 0, encrypted: false, unlock_price: "0" };
 let box: HTMLDivElement, root: Root;
 beforeEach(() => {
-  mocks.services = { protocol: new ProtocolClient({ rpc: fakeProvider(), deployment: fixtureDeployment() }) };
+  mocks.services = { resolved: { deployed: false }, indexer: { configured: false }, protocol: new ProtocolClient({ rpc: fakeProvider(), deployment: fixtureDeployment() }) };
   mocks.session = undefined; localStorage.clear(); box = document.createElement("div"); document.body.append(box); root = createRoot(box);
 });
 afterEach(async () => { await act(async () => root.unmount()); box.remove(); vi.useRealTimers(); });

@@ -552,6 +552,7 @@ function applyPublications(db: IndexerDb, event: LogEvent): void {
         db.run("DELETE FROM reactions WHERE post_id = ? AND actor = ? AND reaction = ?", postId, actor, reaction);
         return;
       }
+      if (d.exclusive === true) db.run("DELETE FROM reactions WHERE post_id = ? AND actor = ?", postId, actor);
       db.run(
         `INSERT INTO reactions (post_id, actor, reaction, timestamp, block_height, tx_id) VALUES (?, ?, ?, ?, ?, ?)
          ON CONFLICT(post_id, actor, reaction) DO UPDATE SET timestamp = excluded.timestamp, block_height = excluded.block_height, tx_id = excluded.tx_id`,

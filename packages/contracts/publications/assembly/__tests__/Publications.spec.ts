@@ -1073,6 +1073,42 @@ describe("publications: publish (reply)", () => {
     clearTrace();
   });
 
+  it("rejects private replies composed for an older parent version", () => {
+    asReplier(ALICE, false);
+    PUBLISH = firstPost(ALICE, 1, ENV_B, CUSTOM, TARGET);
+    PUBLISH.audience_id = AUDIENCE_ID;
+    PUBLISH.reply_parent_version = sha256(ENV_D);
+    expect(() => { callPublish(); }).toThrow();
+    expectRevert("thread changed; refresh before replying");
+  });
+
+  it("checks the current parent version when editing an existing reply", () => {
+    const original = firstPost(ALICE, 1, ENV_B, CUSTOM, TARGET);
+    original.audience_id = AUDIENCE_ID;
+    const comment = doReply(original);
+    asOwner(ALICE);
+    PUBLISH = edit(ALICE, comment, sha256(ENV_B), ENV_D, CUSTOM);
+    PUBLISH.audience_id = AUDIENCE_ID;
+    PUBLISH.reply_parent_version = sha256(ENV_C);
+    expect(() => { callPublish(); }).toThrow();
+    expectRevert("thread changed; refresh before replying");
+    expect(postOrFail(comment).version_count).toBe(1);
+  });
+
+  it("rejects private replies if the original author's friends epoch changed", () => {
+    const parent = doPublish(firstPost(BOB, 2, ENV_C, FRIENDS));
+    Testing.authorize([ALICE]);
+    const audience = new relationships.get_audience_result(new relationships.audience_state(3, T0));
+    queue([resolved(true, ALICE, null), new system_calls.exit_arguments(0, new chain.result(
+      Protobuf.encode(audience, relationships.get_audience_result.encode)))]);
+    PUBLISH = firstPost(ALICE, 1, ENV_B, CUSTOM, parent);
+    PUBLISH.audience_id = AUDIENCE_ID;
+    PUBLISH.reply_parent_version = sha256(ENV_C);
+    PUBLISH.reply_friends_epoch = 2;
+    expect(() => { callPublish(); }).toThrow();
+    expectRevert("thread audience changed; refresh before replying");
+  });
+
   it("links the reply, checks the block list and impacts both authors", () => {
     asReplier(ALICE, false);
     PUBLISH = firstPost(ALICE, 1, ENV_B, EVERYONE, TARGET);
@@ -1703,6 +1739,7 @@ describe("publications: react", () => {
     expect(Arrays.equal(data.post_id!, POST_ID)).toBe(true);
     expect(Arrays.equal(data.post_author!, BOB)).toBe(true);
     expect(data.reaction).toBe(1);
+    expect(data.exclusive).toBe(true);
     expect(data.removed).toBe(false);
     expect(data.timestamp).toBe(T0);
 
@@ -1717,6 +1754,55 @@ describe("publications: react", () => {
     const call = resolveCallAt(0);
     expect(Arrays.equal(call.account!, ALICE)).toBe(true);
     expect(call.capability).toBe(REACT_CAP);
+  });
+
+  it("resolves completed songs without colliding with a post, exposing a locked track or authorizing detached clips", () => {
+    const song = new publications.music_record(ALICE, filled(32, 5), 8, [filled(32, 4)], 1, "Track");
+    contract.music.tracks.put(POST_ID, song);
+    const id = new Uint8Array(33);
+    id[0] = 1;
+    id.set(POST_ID, 1);
+    asOwner(ALICE);
+    REACT = react(ALICE, id, 3);
+    callReact();
+    const event = Protobuf.decode<publications.reaction_event>(lastEvent().data, publications.reaction_event.decode);
+    expect(Arrays.equal(event.post_author!, ALICE)).toBe(true);
+    expect(Arrays.equal(event.post_id!, id)).toBe(true);
+    expect(Arrays.equal(postOrFail(POST_ID).author!, BOB)).toBe(true);
+    song.encrypted = true;
+    contract.music.tracks.put(POST_ID, song);
+    queue([blocked(false), blocked(false)]);
+    expect(contract.musicVoteTarget(POST_ID, BOB) == null).toBe(true);
+    expect(contract.musicVoteTarget(POST_ID, ALICE) != null).toBe(true);
+    song.received = 0;
+    contract.music.tracks.put(POST_ID, song);
+    expect(contract.musicVoteTarget(POST_ID, null) == null).toBe(true);
+    song.received = 1; song.clip_kind = 1;
+    contract.music.tracks.put(POST_ID, song);
+    expect(contract.musicVoteTarget(POST_ID, null) == null).toBe(true);
+  });
+
+  it("attributes song comment engagement to the commenter and retains a deleted target for zero settlement", () => {
+    const song = new publications.music_record(BOB, filled(32, 5), 8, [filled(32, 4)], 1, "Track");
+    contract.music.tracks.put(POST_ID, song);
+    const key = new Uint8Array(64); key.set(POST_ID); key.set(filled(32, 6), 32);
+    const body = filled(14, 88);
+    const comment = new publications.music_comment(key.slice(32), ALICE, body);
+    contract.musicAccess.comments.put(key, comment);
+    const target = contract.musicVoteTarget(key, null)!;
+    expect(Arrays.equal(target.author!, ALICE)).toBe(true);
+    expect(Arrays.equal(target.latest_version!, contract.music.hash(body))).toBe(true);
+    const id = new Uint8Array(65); id[0] = 2; id.set(key, 1);
+    asOwner(BOB); REACT = react(BOB, id, 2); callReact();
+    expectImpacted(lastEvent(), [BOB, ALICE]);
+    comment.deleted = true; comment.body = null;
+    contract.musicAccess.comments.put(key, comment);
+    const tombstone = contract.musicVoteTarget(key, null)!;
+    expect(tombstone.state).toBe(publications.lifecycle_state.deleted);
+    expect(Arrays.equal(tombstone.author!, ALICE)).toBe(true);
+    expect(tombstone.latest_version == null).toBe(true);
+    clearTrace(); asOwner(BOB);
+    expect(() => { callReact(); }).toThrow();
   });
 
   it("records removals and other reaction codes", () => {

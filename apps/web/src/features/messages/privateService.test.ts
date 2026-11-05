@@ -18,8 +18,13 @@ import {
   signPrivateStatement,
   verifyPrivateStatement,
   encryptPrivateMessage,
+  openMedia,
+  validPrivateVoiceNote,
 } from "@osp/sdk";
 import { ABIS } from "@osp/proto";
+import * as clips from "../media/clipArchive";
+import { historyRecords, encodeHistoryFrames, receiveHistoryFrame } from "./deviceSync";
+import type { PrivateChat, PrivateFile } from "./privateStore";
 import { fixtureDeployment } from "../../../../../packages/sdk/src/testing/fixtures";
 import type { IndexerClient, PrivatePacketView } from "../../api/indexer";
 import { memoryStorage } from "../../vault/storage";
@@ -328,6 +333,52 @@ function harness(prepaid = true, fast = false, auto = false, warm = false) {
 }
 
 describe("two-browser private conversations", () => {
+  it("resumes an encrypted voice upload after reload, delivers its key once by ratchet, and copies it only through approved browser history", async () => {
+    const h = harness();
+    const thread = await h.connect();
+    const source = new TextEncoder().encode("private microphone sample");
+    const file = new File([new Uint8Array(source)], "voice.webm", { type: "audio/webm" });
+    Object.defineProperty(file, "arrayBuffer", { value: async () => source.slice().buffer });
+    const archive = vi.spyOn(clips, "archiveClip").mockRejectedValue(new Error("RPC timeout"));
+    await expect(h.a.service.queueVoice(bob.account, { file, mime: file.type, durationMs: 1550 }, '"'.repeat(2500), thread)).rejects.toThrow("Shorten");
+    expect(archive).not.toHaveBeenCalled();
+    await h.a.service.queueVoice(bob.account, { file, mime: file.type, durationMs: 1550 }, "", thread);
+    await h.pump(1);
+    expect(archive).toHaveBeenCalled();
+    const first = archive.mock.calls[0]![0];
+    expect(first.encryption).toBeDefined();
+    expect(first.archiveBytes).not.toBe(toBase64url(source));
+    expect(h.b.snapshot.chats[0]!.messages).toEqual([]);
+    const raw = JSON.stringify(await h.a.storage.get(h.a.store.name + ":drafts"));
+    expect(raw).not.toContain(first.encryption!.key);
+    expect(raw).not.toContain(first.archiveBytes);
+    h.a.reload();
+    archive.mockResolvedValue(undefined);
+    await h.pump(5);
+    expect(archive.mock.calls.at(-1)?.[0]).toEqual(first);
+    const messages = h.b.snapshot.chats[0]!.messages;
+    expect(messages).toHaveLength(1);
+    expect(messages[0]!.text).toBe("Voice message");
+    const voice = messages[0]!.voice!;
+    expect(validPrivateVoiceNote(voice)).toBe(true);
+    expect(validPrivateVoiceNote({ ...voice, archiveBytes: first.archiveBytes })).toBe(false);
+    expect(validPrivateVoiceNote({ ...voice, url: voice.url.slice(0,-1) })).toBe(false);
+    expect(validPrivateVoiceNote({ ...voice, nonce: voice.key })).toBe(false);
+    const packet = h.packets.find(p => p.peer)!;
+    expect(JSON.stringify(packet)).not.toContain(first.encryption!.key);
+    expect(new TextDecoder().decode(fromBase64url(packet.envelope))).not.toContain(voice.url);
+    expect(openMedia(fromBase64url(first.archiveBytes!), fromBase64url(voice.digest),
+      { key: fromBase64url(voice.key), nonce: fromBase64url(voice.nonce) })).toEqual(source);
+    await h.a.store.drafts(drafts => expect(drafts).toEqual([]));
+    const records = await h.b.store.edit(async data => historyRecords(data));
+    const link = { kind: "device-link", syncApproved: false } as PrivateChat;
+    const mirror = { chats: [link], mirrors: [] } as unknown as PrivateFile;
+    const frames = encodeHistoryFrames(records);
+    expect(() => receiveHistoryFrame(mirror, link, frames[0]!, bob.account)).toThrow("Approve");
+    link.syncApproved = true;
+    for (const frame of frames) receiveHistoryFrame(mirror, link, frame, bob.account);
+    expect(mirror.mirrors![0]!.messages[0]!.voice).toEqual(voice);
+  });
   it("rejects conflicting logical message IDs before committing keys or poisoning saved history", async () => {
     const h = harness(); const chatId = await h.connect();
     await h.a.service.send(chatId, "Authentic original"); await h.pump();

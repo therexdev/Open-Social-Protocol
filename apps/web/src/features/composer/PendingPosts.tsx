@@ -9,14 +9,11 @@ import { useProfileName } from "../profile/useProfileName";
 import { audienceLabel } from "../feed/PostCard";
 import type { DraftRecord } from "../../vault/store";
 import { usePublishing } from "./PublishingProvider";
-import { removeDraft } from "./drafts";
+import { indexedDraft, removeDraft } from "./drafts";
+export { indexedDraft } from "./drafts";
 import { RichText } from "../../components/RichText";
 import { MediaPhoto } from "../../components/MediaPhoto";
 
-export function indexedDraft(draft: DraftRecord, posts: PostView[]): boolean {
-  return !!draft.publication && posts.some(p => p.postId === draft.publication!.postId &&
-    (!draft.edit || p.versionNumber >= draft.edit.versionNumber));
-}
 function PendingPost({ draft }: { draft: DraftRecord }) {
   const name = useProfileName(draft.account), publishing = usePublishing();
   const [localError, setLocalError] = useState("");
@@ -32,7 +29,7 @@ function PendingPost({ draft }: { draft: DraftRecord }) {
     {draft.edit && <p className="muted">Your updated post</p>}
     {draft.replyTo && <p className="muted">Reply to <Link to={`/post/${draft.replyTo}`}>a post</Link></p>}
     <div className="post-body"><p className="post-text"><RichText text={draft.text}/></p>
-      {draft.media?.map((m,i) => (m.url.startsWith("ipfs://") || m.url.startsWith("osp-photo://")) ? <MediaPhoto key={`${m.url}:${i}`} location={m.url} hash={m.contentHash} mime={m.mime} alt={m.altText} encryption={m.encryption}/> : <p key={`${m.url}:${i}`}><a href={m.url} target="_blank" rel="noreferrer noopener">{m.altText || m.url}</a></p>)}
+      {draft.media?.map((m,i) => m.url.startsWith("osp-clip://") ? <p key={m.url} className="hint"><Icon name={m.mime.startsWith("video/") ? "camera" : "mic"}/> {m.mime.startsWith("video/") ? "Video" : "Voice recording"} · {(m.size / 1024).toFixed(0)} KiB</p> : (m.url.startsWith("ipfs://") || m.url.startsWith("osp-photo://")) ? <MediaPhoto key={`${m.url}:${i}`} location={m.url} hash={m.contentHash} mime={m.mime} alt={m.altText} encryption={m.encryption}/> : <p key={`${m.url}:${i}`}><a href={m.url} target="_blank" rel="noreferrer noopener">{m.altText || m.url}</a></p>)}
     </div>
     {(failed || unknown) && <footer className="pending-actions">
       <p>{localError || (failed ? draft.lastError : "You can keep browsing. We’re checking whether your post was published.")}</p>

@@ -9,7 +9,7 @@ const bob = "1WhPkYjyS1ChEKmbxNAyFUHLuRVQCjNMF";
 const other = "16HVcW9kHPJYd8CgAwdw7smZuU1nqiNzAN";
 const mocks = vi.hoisted(() => ({
   value: {
-    service: { me: { account: "1EiR6tc8jtVK6boR5w1chjq17XEXXHiNk4" }, enable: vi.fn(), sync: vi.fn(), send: vi.fn(), start: vi.fn(), accept: vi.fn(), queueMessage: vi.fn(), setAutoConnect: vi.fn(), setPrepareInAdvance: vi.fn(), linkDevice: vi.fn(), close: vi.fn(), revokeDevice: vi.fn() },
+    service: { me: { account: "1EiR6tc8jtVK6boR5w1chjq17XEXXHiNk4" }, enable: vi.fn(), sync: vi.fn(), send: vi.fn(), start: vi.fn(), accept: vi.fn(), queueMessage: vi.fn(), queueVoice: vi.fn(), setAutoConnect: vi.fn(), setPrepareInAdvance: vi.fn(), linkDevice: vi.fn(), close: vi.fn(), revokeDevice: vi.fn() },
     snapshot: { enabled: false, registered: false, autoConnect: true, chats: [] as any[], pending: 0, error: "" },
   },
   search: vi.fn(), friends: [] as string[], names: {} as Record<string, string>,
@@ -100,14 +100,20 @@ it("distinguishes local queue, submitted, and on-chain messages without claiming
   expect(container.textContent).toContain("Queued on this browser");
   expect(container.textContent).toContain("Submitted · waiting for the network");
   expect(container.textContent).toContain("On chain · confirming");
+  expect(container.querySelector("dialog")).toBeNull();
+  await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Message settings"]')!.click());
   expect(container.textContent).toContain("It does not mean the other person has read it");
 });
 it("offers linking when the account has multiple messaging devices", async () => {
   enabled(); Object.assign(mocks.value.snapshot, { devices: [{ id: "desktop", current: true }, { id: "phone", current: false }] });
   await mount();
-  expect(container.textContent).toContain("Link your browsers below");
+  expect(container.textContent).toContain("You can link your browsers");
+  expect(button("Link")).toBeUndefined();
+  await act(async () => button("Manage browsers").click());
   await act(async () => button("Link").click());
   expect(mocks.value.service.linkDevice).toHaveBeenCalledWith("phone");
+  await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Close message settings"]')!.click());
+  expect(container.querySelector("dialog")).toBeNull();
 });
 it("opens a friend's existing chat from a profile link without creating a request", async () => {
   enabled(); mocks.value.snapshot.chats = [chat()];
@@ -271,8 +277,55 @@ it("requires an explicit matching-code action for a new browser link", async () 
   });
   await mount();
   expect(mocks.value.service.accept).not.toHaveBeenCalled();
+  await act(async () => button("Manage browsers").click());
   expect(container.querySelector(".device-link-code")?.textContent).toMatch(/^[A-F0-9]{4}( [A-F0-9]{4}){3}$/);
   expect(container.textContent).toContain("Only approve a request you started");
   await act(async () => button("Codes match — approve link").click());
   expect(mocks.value.service.accept).toHaveBeenCalledWith("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa=");
+});
+
+it("records, previews and sends a voice note in the selected conversation", async () => {
+  enabled(); mocks.value.snapshot.chats = [chat()];
+  const track = { stop: vi.fn() };
+  const previousDevices = Object.getOwnPropertyDescriptor(navigator, "mediaDevices");
+  Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: {
+    getUserMedia: vi.fn(async () => ({ getTracks: () => [track] })),
+  } });
+  class Recorder {
+    static isTypeSupported = (mime: string) => mime.startsWith("audio/webm");
+    state = "inactive";
+    mimeType = "audio/webm";
+    ondataavailable?: (event: { data: Blob }) => void;
+    onstop?: () => void;
+    start() { this.state = "recording"; }
+    stop() {
+      this.state = "inactive";
+      this.ondataavailable?.({ data: new Blob(["voice bytes"], { type: this.mimeType }) });
+      this.onstop?.();
+    }
+  }
+  vi.stubGlobal("MediaRecorder", Recorder);
+  const makeUrl = Object.getOwnPropertyDescriptor(URL, "createObjectURL");
+  const revokeUrl = Object.getOwnPropertyDescriptor(URL, "revokeObjectURL");
+  Object.defineProperty(URL, "createObjectURL", { value: () => "blob:local-preview", configurable: true });
+  Object.defineProperty(URL, "revokeObjectURL", { value: vi.fn(), configurable: true });
+  try {
+    await mount(`/messages?to=${bob}`);
+    await act(async () => button("Record voice").click());
+    expect(button("Send message").disabled).toBe(true);
+    const stop = [...container.querySelectorAll("button")].find(b => b.textContent?.startsWith("Stop"))!;
+    await act(async () => stop.click());
+    expect(track.stop).toHaveBeenCalled();
+    expect(container.querySelector('audio[aria-label="Voice preview"]')).not.toBeNull();
+    await type("textarea", "A voice note");
+    await act(async () => button("Send message").click());
+    expect(mocks.value.service.queueVoice).toHaveBeenCalledWith(bob, expect.objectContaining({ mime: "audio/webm", file: expect.any(File) }), "A voice note", "chat");
+    expect(container.querySelector("audio")).toBeNull();
+    expect(mocks.value.service.queueMessage).not.toHaveBeenCalled();
+  } finally {
+    vi.unstubAllGlobals();
+    if (previousDevices) Object.defineProperty(navigator, "mediaDevices", previousDevices); else Reflect.deleteProperty(navigator, "mediaDevices");
+    if (makeUrl) Object.defineProperty(URL, "createObjectURL", makeUrl); else Reflect.deleteProperty(URL, "createObjectURL");
+    if (revokeUrl) Object.defineProperty(URL, "revokeObjectURL", revokeUrl); else Reflect.deleteProperty(URL, "revokeObjectURL");
+  }
 });

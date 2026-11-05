@@ -7,7 +7,7 @@
  */
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
 import cors from "@fastify/cors";
-import { toBase64url } from "@osp/sdk";
+import { musicEngagementId, toBase64url } from "@osp/sdk";
 import { isAddress } from "@osp/sdk";
 import type { IndexerConfig } from "./config.js";
 import type { IndexerDb } from "./db.js";
@@ -333,7 +333,21 @@ export function buildApi(options: ApiOptions): FastifyInstance {
   app.get("/v1/accounts/:account/posts", async (request) => {
     const account = parseAddress(param(request, "account"), "account")!;
     const viewer = parseAddress(query(request, "viewer"), "viewer", false);
-    return q.accountPosts(db, account, parseCursor(query(request, "cursor")), parseLimit(query(request, "limit"), 20, 100), viewer);
+    const media = query(request, "media");
+    if (media !== undefined && media !== "video") throw new ApiError(400, "invalid_request", "invalid media filter");
+    return q.accountPosts(db, account, parseCursor(query(request, "cursor")), parseLimit(query(request, "limit"), 20, 100), viewer, media);
+  });
+
+  app.get("/v1/music/:id/engagement", async (request) => {
+    const id = parseBase64url(param(request, "id"), "id")!;
+    const bytes = Buffer.from(id, "base64url");
+    if (bytes.length !== 32 || toBase64url(bytes) !== id) throw new ApiError(400, "invalid_request", "invalid song id");
+    const viewer = parseAddress(query(request, "viewer"), "viewer", false);
+    const commentId = parseBase64url(query(request, "comment"), "comment", false);
+    const comment = commentId ? Buffer.from(commentId, "base64url") : undefined;
+    if (comment && (comment.length !== 32 || toBase64url(comment) !== commentId)) throw new ApiError(400, "invalid_request", "invalid comment id");
+    const target = toBase64url(musicEngagementId(bytes, comment));
+    return { reactions: q.reactionSummary(db, target, viewer), economy: q.postEconomy(db, target, viewer) };
   });
 
   app.get("/v1/posts/:postId", async (request, reply) => {

@@ -43,6 +43,8 @@ export class Publications {
     // const poll = args.poll;
     // const collection_id = args.collection_id;
     // const gallery_only = args.gallery_only;
+    // const reply_parent_version = args.reply_parent_version;
+    // const reply_friends_epoch = args.reply_friends_epoch;
 
     // YOUR CODE HERE
 
@@ -126,6 +128,20 @@ export class Publications {
     // YOUR CODE HERE
 
     const res = new publications.get_post_result();
+    // res.value = ;
+
+    return res;
+  }
+
+  get_music_vote_target(
+    args: publications.get_music_vote_target_arguments
+  ): publications.get_music_vote_target_result {
+    // const id = args.id;
+    // const viewer = args.viewer;
+
+    // YOUR CODE HERE
+
+    const res = new publications.get_music_vote_target_result();
     // res.value = ;
 
     return res;
@@ -436,6 +452,8 @@ export class Publications {
     // const unlock_price = args.unlock_price;
     // const key_hash = args.key_hash;
     // const cover = args.cover;
+    // const clip_kind = args.clip_kind;
+    // const gzip_original_size = args.gzip_original_size;
 
     // YOUR CODE HERE
 

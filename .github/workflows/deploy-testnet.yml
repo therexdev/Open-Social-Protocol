@@ -15,10 +15,10 @@ on:
         type: choice
         options: [harbinger]
       contracts:
-        description: Contracts to upgrade (publications for music artwork and flat fees)
+        description: Contracts to upgrade (social-media for voice, video and song voting)
         default: all
         type: choice
-        options: [all, publications, music]
+        options: [all, publications, music, social-media]
       dry_run:
         description: Simulate only (broadcast=false) and print the Mana/RC report
         default: false
@@ -79,6 +79,7 @@ jobs:
         run: |
           contract_args=()
           case "$DEPLOY_CONTRACTS" in
+            social-media) contract_args+=(--only publications,token) ;;
             music) contract_args+=(--only token,publications,sponsorship) ;;
             publications) contract_args+=(--only publications) ;;
             all|"") ;;

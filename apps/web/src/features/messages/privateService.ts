@@ -25,11 +25,15 @@ import {
   type PrivateScope,
   type ProtocolClient,
   type PrivateDevice,
+  type PrivateVoiceNote,
   type SignerInterface,
   PRIVATE_MESSAGE_LIMIT,
+  VOICE_MAX_BYTES,
   utf8,
 } from "@osp/sdk";
 import { ABIS } from "@osp/proto";
+import { archiveClip, prepareClip } from "../media/clipArchive";
+import { describeVoiceNote, voiceAttachment } from "./voiceNote";
 import type { IndexerClient, PrivatePacketView } from "../../api/indexer";
 import { submitAction } from "../../tx/submit";
 import type { PaymentPreference } from "../../stores/settings";
@@ -205,21 +209,41 @@ export class PrivateMessagingService {
           progress: "Preparing your encrypted conversation in the background." };
         value.chats.unshift(chat);
       }
-      chat.messages.push({ id: draft.id, text: draft.text, mine: true, timestamp: draft.createdAt, state: chat.status === "closed" ? "not-sent" : "queued" });
+      chat.messages.push({ id: draft.id, text: draft.text, ...(draft.voice && { voice: draft.voice }), mine: true, timestamp: draft.createdAt, state: chat.status === "closed" ? "not-sent" : "queued" });
       chat.error = this.queueErrors.get(draft.peer) || chat.error;
       if (chat.status !== "closed") value.pending++;
     }
     this.changed(value);
   }
   async queueMessage(peer: string, text: string, requestedThread?: string): Promise<void> {
+    return this.enqueue(peer, text, requestedThread);
+  }
+  async queueVoice(peer: string, recording: { file: File; mime: string; durationMs: number }, caption: string, requestedThread?: string): Promise<void> {
+    this.active();
+    if (!recording.file.size || recording.file.size + 16 > VOICE_MAX_BYTES) throw new Error("Voice messages must fit 1 MiB including encryption.");
+    const bytes = new Uint8Array(await recording.file.arrayBuffer());
+    try {
+      this.active();
+      const media = prepareClip({ bytes, mime: recording.mime, durationMs: recording.durationMs }, "voice", this.protocol, true);
+      if (!media.archiveBytes) throw new Error("The encrypted recording could not be prepared.");
+      await this.enqueue(peer, caption.trim() || "Voice message", requestedThread,
+        { voice: describeVoiceNote(media, recording.durationMs), archiveBytes: media.archiveBytes });
+    } finally { bytes.fill(0); }
+  }
+  private async enqueue(peer: string, text: string, requestedThread?: string,
+    upload?: { voice: PrivateVoiceNote; archiveBytes: string }): Promise<void> {
     this.active();
     if (!isAddress(peer) || peer === this.me.account) throw new Error("Choose another person to message");
     if (!text.trim() || utf8(text).length > PRIVATE_MESSAGE_LIMIT) throw new Error(`Message must contain 1–${PRIVATE_MESSAGE_LIMIT} UTF-8 bytes`);
+    // The text is nested in an encrypted JSON packet. Highly escaped captions
+    // must fail before reserving storage, even when the raw UTF-8 text fits.
+    if (upload && utf8(JSON.stringify(text)).length > PRIVATE_MESSAGE_LIMIT + 2)
+      throw new Error("Shorten the caption so it fits with the voice message.");
     const chatId = this.lastSnapshot.chats.find(c => c.peer === peer && c.status !== "closed" && (!requestedThread || c.id === requestedThread))?.id;
     if (requestedThread && !chatId) throw new Error("This conversation is closed");
     this.queued = await this.store.drafts(drafts => {
       if (drafts.filter(d => d.peer === peer).length >= 20) throw new Error("Wait for your pending messages to send");
-      drafts.push({ id: id(), peer, chatId, text, createdAt: Date.now() });
+      drafts.push({ id: id(), peer, chatId, text, ...upload, createdAt: Date.now() });
       return structuredClone(drafts);
     });
     this.queueErrors.delete(peer);
@@ -536,7 +560,7 @@ export class PrivateMessagingService {
     void this.sync();
   }
   private async sendInFile(data: PrivateFile, save: () => Promise<void>, chatId: string, text: string, messageId: string,
-    options: { logicalId?: string; sentAt?: number; copy?: boolean } = {}): Promise<void> {
+    options: { logicalId?: string; sentAt?: number; copy?: boolean; voice?: PrivateVoiceNote } = {}): Promise<void> {
     const chat = data.chats.find((c) => c.id === chatId);
     if (!chat || chat.status === "closed" || !chat.ratchet || !chat.peerAlias)
       throw new Error("This conversation is not ready yet");
@@ -552,12 +576,13 @@ export class PrivateMessagingService {
       chat.ratchet,
       context,
       text,
-      chat.kind ? undefined : { id: options.logicalId ?? messageId, deviceId: data.deviceId, threadId: threadId(chat), sentAt },
+      chat.kind ? undefined : { id: options.logicalId ?? messageId, deviceId: data.deviceId, threadId: threadId(chat), sentAt, ...(options.voice && { voice: options.voice }) },
     );
     chat.ratchet = encrypted.state;
     chat.messages.push({
       id: packetId,
       text: chat.kind ? "" : text,
+      ...(!chat.kind && options.voice && { voice: options.voice }),
       mine: true,
       timestamp: sentAt,
       state: "sending",
@@ -633,7 +658,7 @@ export class PrivateMessagingService {
         const closed = draft.chatId && (data.mirrors?.find(c => c.id === draft.chatId && c.closedAt !== undefined)
           ?? data.chats.find(c => c.id === draft.chatId && c.status === "closed" && !c.routeOnlyClosed));
         if (closed) {
-          closed.messages.push({ id: draft.id, text: draft.text, mine: true, timestamp: draft.createdAt, state: "not-sent" });
+          closed.messages.push({ id: draft.id, text: draft.text, ...(draft.voice && { voice: draft.voice }), mine: true, timestamp: draft.createdAt, state: "not-sent" });
           await save();
           await this.removeDraft(draft.id);
           continue;
@@ -655,6 +680,15 @@ export class PrivateMessagingService {
         // A crash after committing the ratchet but before clearing the queue
         // must never encrypt this message a second time.
         if (!data.chats.some(c => c.messages.some(m => m.id === draft.id))) {
+          if (draft.voice) {
+            if (!draft.archiveBytes) throw new Error("The saved voice recording is incomplete.");
+            if (!(await this.unblocked(draft.peer))) throw new Error("This conversation is blocked");
+            // Archive id, digest, ciphertext and key are already device-encrypted on disk.
+            // A timeout can retry the same reservation. Only send its key after verification.
+            await archiveClip(voiceAttachment(draft.voice, draft.archiveBytes),
+              { client: this.protocol, signer: this.me.signer, payment: this.payment },
+              this.me.account, () => this.active());
+          }
           // Capture recipient devices before committing the primary copy. A
           // second device may finish setup later without blocking the first.
           const devices = (await this.protocol.reads.messaging.get_private_devices({ account: draft.peer }))?.values;
@@ -663,9 +697,9 @@ export class PrivateMessagingService {
             ? devices.filter(d => toBase64url(d.device_id) !== chat!.peerDeviceId).map(d => ({ deviceId: toBase64url(d.device_id), packetId: id() })) : [];
           if (targets.length && !data.deliveries?.some(d => d.id === draft.id)) {
             if ((data.deliveries?.length ?? 0) >= 500) throw new Error("Some recipient browsers have not caught up. Pending copies are saved; try again after they reconnect.");
-            (data.deliveries ??= []).push({ id: draft.id, peer: draft.peer, threadId: threadId(chat), text: draft.text, createdAt: draft.createdAt, targets });
+            (data.deliveries ??= []).push({ id: draft.id, peer: draft.peer, threadId: threadId(chat), text: draft.text, ...(draft.voice && { voice: draft.voice }), createdAt: draft.createdAt, targets });
           }
-          await this.sendInFile(data, save, chat.id, draft.text, draft.id, { sentAt: draft.createdAt });
+          await this.sendInFile(data, save, chat.id, draft.text, draft.id, { sentAt: draft.createdAt, voice: draft.voice });
         }
         await save();
         await this.removeDraft(draft.id);
@@ -704,7 +738,7 @@ export class PrivateMessagingService {
         if (!route.ratchet || !route.peerAlias || !(await this.routeCurrent(route))) continue;
         if (!route.messages.some(m => m.id === target.packetId)) {
           if (data.outbox.filter(p => p.chatId === route!.id && p.peer && !p.observed).length >= 20) continue;
-          await this.sendInFile(data, save, route.id, job.text, target.packetId, { logicalId: job.id, sentAt: job.createdAt, copy: true });
+          await this.sendInFile(data, save, route.id, job.text, target.packetId, { logicalId: job.id, sentAt: job.createdAt, copy: true, voice: job.voice });
           prepared++;
         }
         job.targets = job.targets.filter(t => t !== target);
@@ -791,7 +825,7 @@ export class PrivateMessagingService {
         data.chats.push(chat);
       }
       if (!chat && mirror) {
-        for (const draft of drafts) mergeMessage(mirror.messages, { id: draft.id, text: draft.text, mine: true, timestamp: draft.createdAt, state: "not-sent" });
+        for (const draft of drafts) mergeMessage(mirror.messages, { id: draft.id, text: draft.text, ...(draft.voice && { voice: draft.voice }), mine: true, timestamp: draft.createdAt, state: "not-sent" });
         this.closeThread(data, mirror.id, mirror.peer, Date.now(), true);
         await save();
         for (const draft of drafts) await this.removeDraft(draft.id);
@@ -800,7 +834,7 @@ export class PrivateMessagingService {
       }
       if (!chat) { this.snapshot(data); return; }
       for (const draft of drafts) if (!chat.messages.some(m => m.id === draft.id))
-        chat.messages.push({ id: draft.id, text: draft.text, mine: true, timestamp: draft.createdAt, state: "not-sent" });
+        chat.messages.push({ id: draft.id, text: draft.text, ...(draft.voice && { voice: draft.voice }), mine: true, timestamp: draft.createdAt, state: "not-sent" });
       if (chat.status !== "closed") {
         if (!chat.kind) this.closeThread(data, threadId(chat), chat.peer, Date.now(), true);
         else {
@@ -1472,6 +1506,7 @@ export class PrivateMessagingService {
             const message = {
               id: row.packet_id,
               text: chat.kind ? "" : opened.text,
+              ...(!chat.kind && opened.metadata?.voice && { voice: opened.metadata.voice }),
               mine: false,
               timestamp: opened.metadata?.sentAt ?? Number(row.timestamp),
               state: BigInt(row.block) <= this.scanIrreversible ? "sent" as const : "confirming" as const,

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { toBase64url, type PostEconomy, type TokenAccount, type Promotion } from "@osp/sdk";
 import type { PostView } from "../../api/indexer";
 import { useServices } from "../../api/services";
@@ -11,7 +11,8 @@ import { tokenResources } from "./resources";
 import { useEconomy } from "./EconomyContext";
 
 type Panel = "vote" | "promote" | "reward";
-export function PostEconomyActions({ post, onChanged }: { post: PostView; onChanged?: () => void }) {
+export type EconomyTarget = Pick<PostView, "author" | "postId" | "audience" | "state" | "economy" | "contentHash">;
+export function PostEconomyActions({ post, onChanged, children, song = false }: { post: EconomyTarget; onChanged?: () => void; children?: ReactNode; song?: boolean }) {
   const { policy, version } = useEconomy(), me = useMe(), ctx = useSubmitContext(), can = useCanAct(), { protocol } = useServices();
   const [panel, setPanel] = useState<Panel>(), [direction, setDirection] = useState(1), [weight, setWeight] = useState("1");
   const [opportunities, setOpportunities] = useState(1), [view, setView] = useState<PostEconomy>(), [account, setAccount] = useState<TokenAccount>();
@@ -71,8 +72,8 @@ export function PostEconomyActions({ post, onChanged }: { post: PostView; onChan
     } catch (e) { setError(humanizeError(e)); }
     finally { setBusy(false); }
   };
-  if (version === 0) return !own && me ? <Button variant="ghost" disabled={!can.ok || post.state !== 0 || busy} onClick={() => void perform("support")}><Icon name="spark" size={18}/>Support</Button> : null;
-  if (!policy || !me) return null;
+  if (version === 0) return <div className="engagement-row">{children}{!song && !own && me ? <Button variant="ghost" disabled={!can.ok || post.state !== 0 || busy} onClick={() => void perform("support")}><Icon name="spark" size={18}/>Support</Button> : null}</div>;
+  if (!policy || !me) return <div className="engagement-row">{children}</div>;
   const reward = view?.reward ?? post.economy?.reward;
   const ballot = view?.vote ?? post.economy?.vote;
   const epoch = view?.epoch ?? post.economy?.epoch;
@@ -85,10 +86,11 @@ export function PostEconomyActions({ post, onChanged }: { post: PostView; onChan
   const promoted = !!promo && !promo.cancelled && BigInt(promo.end_block) > block;
   const cost = BigInt(opportunities) * BigInt(policy.promotion_price);
   return <div className="post-economy">
-    <div className="row">
-      {active && !own && <><Button variant="ghost" disabled={!can.ok || busy} aria-pressed={ballot?.direction === 1} onClick={() => { setDirection(1); setPanel("vote"); }}><Icon name="up" size={18}/>Upvote{reward ? ` ${reward.up}` : ""}</Button>
-        <Button variant="ghost" disabled={!can.ok || busy} aria-pressed={ballot?.direction === 2} onClick={() => { setDirection(2); setPanel("vote"); }}><Icon name="down" size={18}/>Downvote{reward ? ` ${reward.down}` : ""}</Button></>}
-      {active && own && <Button variant="ghost" disabled={!can.ok || busy} onClick={() => setPanel("promote")}><Icon name="spark" size={18}/>Promote</Button>}
+    <div className="engagement-row">
+      {active && !own && <><Button variant="ghost" className="engagement-icon" aria-label="Upvote" title="Upvote" disabled={!can.ok || busy} aria-pressed={ballot?.direction === 1} onClick={() => { setDirection(1); setPanel("vote"); }}><Icon name="up" size={18}/>{reward ? ` ${reward.up}` : ""}</Button>
+        <Button variant="ghost" className="engagement-icon" aria-label="Downvote" title="Downvote" disabled={!can.ok || busy} aria-pressed={ballot?.direction === 2} onClick={() => { setDirection(2); setPanel("vote"); }}><Icon name="down" size={18}/>{reward ? ` ${reward.down}` : ""}</Button></>}
+      {children}
+      {active && own && !song && <Button variant="ghost" disabled={!can.ok || busy} onClick={() => setPanel("promote")}><Icon name="spark" size={18}/>Promote</Button>}
       {reward && <Button variant="ghost" disabled={busy} onClick={() => setPanel("reward")}>{reward.settled ? `${reward.reward} OSAT rewarded` : "Reward details"}</Button>}
     </div>
     {busy && <p className="economy-saving" role="status">Saving… You can keep browsing.</p>}

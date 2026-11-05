@@ -5,7 +5,8 @@
 import { LIFECYCLE, SUITE, bytesEqual, contentHash, decodeEnvelope, decryptContent, unwrapContentKey, unwrapMediaKey, type AadInput, type Envelope, type MediaItem, type ProtocolClient } from "@osp/sdk";
 import { bytesOf } from "../util/bytes";
 import type { KeyResolverIdentity, KeySource, KeyStore, KeyVerifier } from "./keystore";
-import type { PostView } from "./indexer";
+import type { PostVersionView, PostView } from "./indexer";
+import { readPostRevision } from "./postRevision";
 
 export interface OpenedContent {
   share_with?: string[];
@@ -62,7 +63,7 @@ export async function openPost(post: PostView, ctx: OpenContext): Promise<PostCo
       if (record.state === LIFECYCLE.DELETED) return { status: "tombstone" };
       if (record.state === LIFECYCLE.AUTHOR_HIDDEN) return { status: "hidden" };
       if (record.state === LIFECYCLE.UNAVAILABLE) return { status: "unavailable" };
-      if (record.author !== post.author || !bytesEqual(record.collection_id ?? new Uint8Array(), bytesOf(post.collectionId ?? "")) || record.audience !== post.audience || record.version_count !== post.versionNumber || !bytesEqual(record.latest_version, bytesOf(post.contentHash))) {
+      if (record.author !== post.author || !bytesEqual(record.reply_to ?? new Uint8Array(), bytesOf(post.replyTo)) || !bytesEqual(record.collection_id ?? new Uint8Array(), bytesOf(post.collectionId ?? "")) || record.audience !== post.audience || record.version_count !== post.versionNumber || !bytesEqual(record.latest_version, bytesOf(post.contentHash))) {
         return { status: "error", message: "The feed has not supplied the current verified version of this post. Refresh the feed to check again." };
       }
     } catch {
@@ -72,6 +73,11 @@ export async function openPost(post: PostView, ctx: OpenContext): Promise<PostCo
   if (post.state === LIFECYCLE.DELETED) return { status: "tombstone", ...(post.stateReason && { reason: post.stateReason }) };
   if (post.state === LIFECYCLE.AUTHOR_HIDDEN) return { status: "hidden", ...(post.stateReason && { reason: post.stateReason }) };
   if (post.state === LIFECYCLE.UNAVAILABLE) return { status: "unavailable", ...(post.stateReason && { reason: post.stateReason }) };
+  return openEnvelope(post, ctx);
+}
+
+/** Only call after verifying the source post and checking its current visibility. */
+async function openEnvelope(post: PostView, ctx: OpenContext): Promise<PostContent> {
   const bytes = bytesOf(post.envelope);
   if (bytes.length === 0) return { status: "error", message: "The indexer did not provide this post's content." };
   if (!bytesEqual(contentHash(bytes), bytesOf(post.contentHash))) return { status: "error", message: "This post's content does not match its published fingerprint." };
@@ -131,4 +137,22 @@ export async function openPost(post: PostView, ctx: OpenContext): Promise<PostCo
   // Never keep an unverified key that does not open the author's posts.
   if (!entry.trusted) await ctx.keys.forget(ref);
   return { status: "error", message: "This post could not be decrypted with the key you have." };
+}
+
+/** History is available only while the current post is readable. Each revision then
+ * needs its own verified envelope and, for private posts, its original reading key. */
+export async function openPostRevision(
+  post: PostView,
+  version: PostVersionView,
+  ctx: OpenContext,
+  protocol?: ProtocolClient,
+): Promise<PostContent> {
+  if (!protocol) return { status: "error", message: "Connect to the network to read revision history." };
+  try {
+    const current = await openPost(post, { ...ctx, chain: protocol });
+    if (version.versionNumber === post.versionNumber || !("content" in current)) return current;
+    return await openEnvelope(await readPostRevision(protocol, post, version), ctx);
+  } catch (error) {
+    return { status: "error", message: error instanceof Error ? error.message : "The revision could not be loaded." };
+  }
 }

@@ -5,6 +5,17 @@ import type { ProtocolContracts } from "./client/contracts.js";
 import type { ProtocolClient } from "./client/protocolClient.js";
 import type { Address, Bytes, U64 } from "./client/types.js";
 
+/** Disjoint from 32-byte publication ids even when a caller chooses a colliding song id. */
+export function musicEngagementId(id: Uint8Array, comment?: Uint8Array): Uint8Array {
+  if (id.length !== 32) throw new Error("A song id must contain 32 bytes.");
+  if (comment && comment.length !== 32) throw new Error("A comment id must contain 32 bytes.");
+  const target = new Uint8Array(comment ? 65 : 33);
+  target[0] = comment ? 2 : 1;
+  target.set(id, 1);
+  if (comment) target.set(comment, 33);
+  return target;
+}
+
 export const MUSIC_CHUNK_BYTES = 16384;
 export const MUSIC_BATCH_CHUNKS = 16;
 // Public RPC read calls have a lower compute budget than upload transactions.
@@ -21,6 +32,7 @@ export const MUSIC_MIMES = [
   "audio/webm",
 ] as const;
 export interface MusicConfig {
+  clip_version?: number;
   flat_fee?: string;
   native_token: string;
   version: number;
@@ -65,6 +77,8 @@ export interface MusicCover {
   nonce?: Uint8Array;
 }
 export interface MusicRecord {
+  clip_kind?: number;
+  gzip_original_size?: number;
   cover?: MusicCover;
   cover_revision?: number;
   artist?: string;
@@ -90,6 +104,8 @@ export interface MusicRecord {
   payer: string;
 }
 export interface BeginMusicArgs {
+  clip_kind?: number;
+  gzip_original_size?: number;
   cover?: MusicCover;
   artist?: string;
   description?: string;

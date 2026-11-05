@@ -60,7 +60,7 @@ export class MusicAccess {
   track(id: Uint8Array): publications.music_record {
     const v = this.library.get(id);
     System.require(
-      v != null && v!.received == <u32>v!.chunk_hashes.length,
+      v != null && v!.clip_kind == 0 && v!.received == <u32>v!.chunk_hashes.length,
       "track is not complete"
     );
     return v!;

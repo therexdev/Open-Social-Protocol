@@ -29,7 +29,7 @@ vi.mock("../../vault/context", () => ({
     }),
   useVaultStore: () => ({ getState: () => ({ session: mocks.session, keepUnlocked: mocks.keepUnlocked }) }),
 }));
-vi.mock("../session", () => ({ useSubmitContext: () => mocks.submit }));
+vi.mock("../session", () => ({ useSubmitContext: () => mocks.submit, useMe: () => mocks.session?.identity, useCanAct: () => ({ ok: !!mocks.session }) }));
 vi.mock("./musicService", async () => ({
   ...(await vi.importActual<typeof import("./musicService")>("./musicService")),
   musicDraftStore: async () => mocks.storage,
@@ -47,7 +47,7 @@ beforeEach(() => {
     rpc: fakeProvider(),
     deployment: fixtureDeployment(),
   });
-  mocks.services = { protocol: client, resolved: { network: "harbinger" } };
+  mocks.services = { protocol: client, indexer: { configured: false }, resolved: { network: "harbinger" } };
   mocks.session = { identity: me };
   mocks.submit = { client, signer: me.signer, payment: "sponsor-only" };
   mocks.storage.load.mockResolvedValue(undefined);

@@ -223,8 +223,17 @@ decryption ability; recovery of *control* (owner replacement) does not.
 * `set_lifecycle`: author sets `active | author_hidden | deleted | unavailable |
   migrated | superseded`. `deleted` is terminal for versions. Indexers stop hydrating
   deleted/hidden content but never claim erasure.
-* `react`: emits `osp.publications.reaction` for an existing, non-deleted post. Reactions
-  are non-economic; indexers keep only the latest state per (actor, post, reaction).
+* `react` emits `osp.publications.reaction` for a post or a completed song. For a song,
+  use the 33-byte target `0x01 || track_id`. A new choice carries `exclusive = true` and
+  replaces the actor’s previous choices on that target. A removal clears only the
+  referenced choice. Replay older events without the flag using their original
+  per-reaction semantics. Codes 1–5 denote love (formerly like), happy, sad, worried
+  and surprised. Reaction changes are social actions. Paid reward votes use
+  `token.vote` and the existing public-post weighting and settlement rules. For songs,
+  pass the same prefixed target and the completed manifest’s digest as the version.
+  Song comments (including voice comments) use `0x02 || track_id || comment_id` and
+  the SHA-256 digest of the stored comment body as their vote version. Deleting a
+  comment makes its pending reward settle at zero. Voice and video posts use their ordinary post id.
 * `record_cross_post`: records `{idempotency_key, adapter, state, external_ref,
   post_id, manifest_hash}` as an event. The idempotency key must belong to the author
   and refer to an existing post when `state = succeeded`.

@@ -1,4 +1,4 @@
-import { canonicalJson, contentHash, fromBase64url, isAddress, toBase64url, toHex, utf8, utf8Decode, PRIVATE_MESSAGE_LIMIT } from "@osp/sdk";
+import { canonicalJson, contentHash, validPrivateVoiceNote, fromBase64url, isAddress, toBase64url, toHex, utf8, utf8Decode, PRIVATE_MESSAGE_LIMIT } from "@osp/sdk";
 import { validId, type LocalMessage, type MirroredThread, type PrivateChat, type PrivateFile } from "./privateStore";
 
 export const threadId = (chat: PrivateChat) => chat.threadId ?? chat.id;
@@ -11,10 +11,11 @@ const rank = (state: LocalMessage["state"]) => states.indexOf(state);
 export function mergeMessage(messages: LocalMessage[], incoming: LocalMessage): void {
   const old = messages.find(m => messageKey(m) === messageKey(incoming));
   if (old) {
-    if (old.text !== incoming.text || old.mine !== incoming.mine) throw new Error("Linked browsers returned conflicting message history");
+    if (old.text !== incoming.text || old.mine !== incoming.mine || (old.voice && incoming.voice && canonicalJson(old.voice) !== canonicalJson(incoming.voice))) throw new Error("Linked browsers returned conflicting message history");
     if (rank(incoming.state) > rank(old.state)) old.state = incoming.state;
     old.timestamp = Math.min(old.timestamp, incoming.timestamp);
     old.sourceDeviceId ??= incoming.sourceDeviceId;
+    if (incoming.voice && !old.voice) old.voice = structuredClone(incoming.voice);
     return;
   }
   messages.push(structuredClone(incoming));
@@ -57,6 +58,7 @@ export function historyRecords(data: PrivateFile): HistoryRecord[] {
     records.push({ ...base, kind: "thread", ...(thread.closedAt !== undefined && { closedAt: thread.closedAt }) });
     for (const m of thread.messages) records.push({ ...base, kind: "message", message: {
       id: m.logicalId ?? m.id, text: m.text, mine: m.mine, timestamp: m.timestamp, state: m.state,
+      ...(m.voice && { voice: m.voice }),
       ...(m.sourceDeviceId && { sourceDeviceId: m.sourceDeviceId }),
     } });
   }
@@ -77,8 +79,10 @@ function validateRecord(value: unknown, account: string): HistoryRecord {
   const m = r.kind === "message" ? r.message : undefined;
   if (!m || !validId(m.id) || typeof m.text !== "string" || !m.text.trim() || utf8(m.text).length > PRIVATE_MESSAGE_LIMIT
     || typeof m.mine !== "boolean" || !validTime(m.timestamp) || !states.includes(m.state)
+    || (m.voice !== undefined && !validPrivateVoiceNote(m.voice))
     || (m.sourceDeviceId !== undefined && !validId(m.sourceDeviceId))) throw new Error("Invalid linked message record");
   return { ...base, kind: "message", message: { id: m.id, text: m.text, mine: m.mine, timestamp: m.timestamp, state: m.state,
+    ...(m.voice && { voice: m.voice }),
     ...(m.sourceDeviceId && { sourceDeviceId: m.sourceDeviceId }) } };
 }
 

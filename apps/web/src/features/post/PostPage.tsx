@@ -1,21 +1,23 @@
+import { threadFriends } from "./replyAudience";
 /** A post with its versions, replies, reactions; edit (new version) and delete (tombstone) for the author. */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useLocation, useParams, useSearchParams } from "react-router-dom";
 import { AUDIENCE, LIFECYCLE } from "@osp/sdk";
 import type { PostView } from "../../api/indexer";
 import { useServices } from "../../api/services";
-import { Button, Card, ConfirmDialog, Details, Empty, Notice, Spinner } from "../../components/ui";
+import { Button, Card, ConfirmDialog, Empty, Notice, Spinner } from "../../components/ui";
 import { submitAction } from "../../tx/submit";
 import { bytesOf, toBase64url } from "../../util/bytes";
-import { errorMessage, formatDateTime } from "../../util/format";
+import { errorMessage } from "../../util/format";
 import { useVault } from "../../vault/context";
 import { PendingPosts } from "../composer/PendingPosts";
 import { usePublishing } from "../composer/PublishingProvider";
-import { ComposerForm } from "../composer/ComposerForm";
+import { ComposerForm, type ComposerFormProps } from "../composer/ComposerForm";
 import { PostCard } from "../feed/PostCard";
 import { usePagedPosts } from "../feed/FeedPage";
 import { usePostContent } from "../feed/usePostContent";
 import { useCanAct, useSubmitContext } from "../session";
+import { RevisionHistory } from "./RevisionHistory";
 import { Icon } from "../../components/Icon";
 
 function EditDialog({ post, onDone, onCancel }: { post: PostView; onDone: () => void; onCancel: () => void }) {
@@ -26,25 +28,49 @@ function EditDialog({ post, onDone, onCancel }: { post: PostView; onDone: () => 
     url: m.locations[0] ?? "",mime: m.mime,size: Number(m.size),contentHash: m.content_hash,altText: m.alt_text,
     ...(m.mediaKey && { encryption: { key: toBase64url(m.mediaKey),nonce: toBase64url(m.nonce) } }),
   })) : [];
+  const editor: ComposerFormProps = {
+    edit: { postId: post.postId, previousVersion: post.contentHash, versionNumber: post.versionNumber + 1, text, audience: post.audience, media },
+    selectedAccounts: content && "content" in content ? content.content.share_with : [],
+    collectionId: post.collectionId, galleryOnly: post.galleryOnly, defaultAudience: post.audience,
+    compact: true, onSubmitted: onDone, onCancel,
+  };
   return (
     <Card title={post.audience===AUDIENCE.CUSTOM ? "Edit post and manage sharing" : "Edit post"}>
-      <p className="muted">Edits publish a new version. The previous version stays in the public history.</p>
-      <ComposerForm
-        edit={{ postId: post.postId, previousVersion: post.contentHash, versionNumber: post.versionNumber + 1, text, audience: post.audience, media }}
-        selectedAccounts={content && 'content' in content ? content.content.share_with : []}
-        collectionId={post.collectionId}
-        galleryOnly={post.galleryOnly}
-        defaultAudience={post.audience}
-        compact
-        onSubmitted={onDone}
-        onCancel={onCancel}
-      />
+      <p className="muted">People see the latest version when they open this post. Earlier versions stay on chain and keep their original reading permissions.</p>
+      {post.economy?.reward && !post.economy.reward.settled && (
+        <Notice kind="warning">This version has reward votes. Publishing an edit before settlement makes its pending OSAT reward zero and closes voting on this post.</Notice>
+      )}
+      {post.replyTo && post.audience !== AUDIENCE.EVERYONE
+        ? <CommentEdit parentId={post.replyTo} editor={editor}/>
+        : <ComposerForm {...editor}/>}
     </Card>
   );
 }
 
+function CommentEdit({ parentId, editor }: { parentId: string; editor: ComposerFormProps }) {
+  const { indexer } = useServices();
+  const viewer = useVault(s => s.session?.identity.account);
+  const [parent, setParent] = useState<PostView>();
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let active = true;
+    setParent(undefined); setError("");
+    void indexer.post(parentId, viewer).then(found => {
+      if (!active) return;
+      if (found?.postId === parentId && found.state === LIFECYCLE.ACTIVE) setParent(found);
+      else setError("The thread for this comment is unavailable.");
+    }).catch(cause => { if (active) setError(errorMessage(cause)); });
+    return () => { active = false; };
+  }, [indexer, parentId, viewer]);
+  if (error) return <Notice kind="error">{error}</Notice>;
+  if (!parent) return <Spinner label="Checking the thread audience"/>;
+  return <PrivateReply post={parent} editor={editor} onSubmitted={editor.onSubmitted!} onCancel={editor.onCancel!}/>;
+}
+
 export function PostPage() {
   const { postId = "" } = useParams();
+  const [params, setParams] = useSearchParams();
+  const { hash } = useLocation();
   const { indexer } = useServices();
   const publishing = usePublishing();
   const pending = publishing.posts.filter(d => d.replyTo === postId || d.edit?.postId === postId);
@@ -58,7 +84,7 @@ export function PostPage() {
   const [post, setPost] = useState<PostView | undefined>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | undefined>();
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState<PostView>();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [replying, setReplying] = useState(false);
@@ -80,6 +106,7 @@ export function PostPage() {
   }, [indexer, postId, viewer]);
 
   useEffect(() => {
+    setEditing(undefined);
     setPost(undefined);
     setWaiting(false);
     void load();
@@ -120,7 +147,21 @@ export function PostPage() {
     const timer = window.setInterval(() => { if (document.visibilityState !== "hidden") { void load(true); void replies.refresh(true); } }, 3000);
     return () => window.clearInterval(timer);
   }, [hasPending, load, replies.refresh]);
+  const loadedPost = post?.postId;
+  useEffect(() => {
+    if (loadedPost !== postId || hash !== "#post-comments") return;
+    setReplying(can.ok);
+    document.getElementById("post-comments")?.scrollIntoView?.({ block: "start" });
+  }, [hash, loadedPost, postId, can.ok]);
   const mine = post !== undefined && account !== undefined && post.author === account;
+
+  useEffect(() => {
+    if (params.get("edit") !== "1" || !post || post.postId !== postId) return;
+    if (mine && can.ok && !post.poll && post.state === LIFECYCLE.ACTIVE) setEditing(post);
+    const next = new URLSearchParams(params);
+    next.delete("edit");
+    setParams(next, { replace: true });
+  }, [params, post, postId, mine, can.ok, setParams]);
 
   return (
     <div className="page post-page">
@@ -134,7 +175,7 @@ export function PostPage() {
           <PostCard post={post} expanded onChanged={() => void load()} />
           {mine && post.state !== LIFECYCLE.DELETED && (
             <div className="row">
-              <Button onClick={() => setEditing((v) => !v)} disabled={!can.ok || !!post.poll} title={can.ok ? undefined : can.reason}>
+              <Button onClick={() => setEditing(editing ? undefined : post)} disabled={!can.ok || !!post.poll || post.state !== LIFECYCLE.ACTIVE} title={can.ok ? undefined : can.reason}>
                 {editing ? "Close editor" : post.poll ? "Poll cannot be edited" : post.audience===AUDIENCE.CUSTOM ? "Edit / manage sharing" : "Edit"}
               </Button>
               <Button variant="danger" onClick={() => setConfirmDelete(true)} disabled={!can.ok} title={can.ok ? undefined : can.reason}>
@@ -142,14 +183,14 @@ export function PostPage() {
               </Button>
             </div>
           )}
-          {editing && (
+          {mine && post.state === LIFECYCLE.ACTIVE && editing?.postId === post.postId && (
             <EditDialog
-              post={post}
+              post={editing}
               onDone={() => {
-                setEditing(false);
+                setEditing(undefined);
                 void load(true);
               }}
-              onCancel={() => setEditing(false)}
+              onCancel={() => setEditing(undefined)}
             />
           )}
           <ConfirmDialog open={confirmDelete} title="Mark this post as deleted?" confirmLabel="Mark as deleted" danger busy={deleting} onCancel={() => setConfirmDelete(false)} onConfirm={() => void remove()}>
@@ -158,21 +199,10 @@ export function PostPage() {
               already read or saved it.
             </p>
           </ConfirmDialog>
-          {post.versions.length > 1 && (
-            <Details summary={`${post.versions.length} versions`}>
-              <ol className="list">
-                {post.versions.map((v) => (
-                  <li key={v.contentHash} className="list-item">
-                    <span>
-                      Version {v.versionNumber} · {formatDateTime(v.timestamp)}
-                    </span>
-                    <span className="mono muted">{v.contentHash.slice(0, 12)}…</span>
-                  </li>
-                ))}
-              </ol>
-            </Details>
+          {post.versions.length > 1 && post.state === LIFECYCLE.ACTIVE && (
+            <RevisionHistory key={post.postId} post={post} initiallyOpen={params.get("history") === "1"} />
           )}
-          <Card className="replies-card" title="Replies" actions={can.ok && post.state !== LIFECYCLE.DELETED ? <Button onClick={() => setReplying((v) => !v)}>{replying ? "Close" : "Reply"}</Button> : undefined}>
+          <Card className="replies-card" title={<span id="post-comments">Comments</span>} actions={can.ok && post.state !== LIFECYCLE.DELETED ? <Button variant="ghost" aria-label={replying ? "Close comment editor" : "Write a comment"} title={replying ? "Close" : "Comment"} onClick={() => setReplying((v) => !v)}><Icon name={replying ? "close" : "message"} size={18}/></Button> : undefined}>
             {replying && (
               <PrivateReply post={post} onSubmitted={()=>{setReplying(false);void replies.refresh(true);void load(true);}} onCancel={()=>setReplying(false)}/>
 
@@ -198,9 +228,39 @@ export function PostPage() {
   );
 }
 
-function PrivateReply({post,onSubmitted,onCancel}:{post:PostView;onSubmitted:()=>void;onCancel:()=>void}) {
-  const opened=usePostContent(post);
-  if(post.audience===AUDIENCE.CUSTOM && (!opened || !('content' in opened)))return <Notice>Open this private post before replying.</Notice>;
-  const selected=opened && 'content' in opened?[...new Set([post.author,...(opened.content.share_with ?? [])])]:[];
-  return <ComposerForm replyTo={post.postId} defaultAudience={post.audience} selectedAccounts={selected} collectionId={post.collectionId} audienceLocked={post.audience!==AUDIENCE.EVERYONE} compact onSubmitted={onSubmitted} onCancel={onCancel}/>;
+function PrivateReply({post,editor,onSubmitted,onCancel}:{post:PostView;editor?:ComposerFormProps;onSubmitted:NonNullable<ComposerFormProps["onSubmitted"]>;onCancel:()=>void}) {
+  const opened = usePostContent(post);
+  const { protocol, indexer } = useServices();
+  const me = useVault(s => s.session?.identity.account);
+  const [friends, setFriends] = useState<Awaited<ReturnType<typeof threadFriends>>>();
+  const [error, setError] = useState("");
+  const fromFriends = post.audience === AUDIENCE.FRIENDS;
+  useEffect(() => {
+    let active = true;
+    setFriends(undefined); setError("");
+    if (fromFriends && me && protocol) void threadFriends(protocol, indexer, post.author, me)
+      .then(value => { if (active) setFriends(value); })
+      .catch(e => { if (active) setError(errorMessage(e)); });
+    return () => { active = false; };
+  }, [fromFriends, post.author, post.contentHash, me, protocol, indexer]);
+  if (error) return <Notice kind="error">{error}</Notice>;
+  if (post.audience !== AUDIENCE.EVERYONE && opened && !("content" in opened))
+    return <Notice>{"message" in opened ? opened.message : "This thread is unavailable."}</Notice>;
+  if (post.audience !== AUDIENCE.EVERYONE && (!opened || (fromFriends && !friends)))
+    return <Notice>Verifying this private thread’s audience…</Notice>;
+  const allowed = friends?.selected ?? (opened && "content" in opened ? [...new Set([post.author, ...(opened.content.share_with ?? [])])] : []);
+  const restricted = post.audience !== AUDIENCE.EVERYONE;
+  if (editor && restricted && editor.edit?.audience === AUDIENCE.FRIENDS && !(fromFriends && me === post.author)) {
+    return <Notice>This older comment used its author’s friends list. Write a new reply to share an update with the current thread readers.</Notice>;
+  }
+  const selected = editor
+    ? (editor.selectedAccounts ?? []).filter(account => !restricted || allowed.includes(account))
+    : allowed;
+  return <>
+    {restricted && <p className="hint">This reply will be encrypted for the readers of this thread.</p>}
+    <ComposerForm {...editor} key={post.contentHash} replyTo={post.postId} defaultAudience={editor?.defaultAudience ?? (restricted ? AUDIENCE.CUSTOM : AUDIENCE.EVERYONE)}
+      replyGuard={restricted ? { parentHash: post.contentHash, friendsEpoch: friends?.epoch } : undefined}
+      selectedAccounts={selected} collectionId={post.collectionId} audienceLocked={restricted}
+      compact onSubmitted={onSubmitted} onCancel={onCancel}/>
+  </>;
 }

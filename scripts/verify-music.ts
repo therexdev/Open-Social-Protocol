@@ -5,6 +5,8 @@ import {
   ProtocolClient,
   loadDeployment,
   musicConfig,
+  musicEngagementId,
+  toBase64url,
   musicFee,
   verifySponsorDiscovery,
   NATIVE_APPROVE_ENTRY,
@@ -30,6 +32,7 @@ console.log(
   )
 );
 assert.equal(config.version, 3, "Upgrade publications for Music v3 transfers");
+if (args.clips) assert.equal(config.clip_version, 1, "Upgrade Publications for voice and video clips");
 if (args.gallery) {
   assert.equal((await client.reads.publications.get_music_art_version({}))?.version, 1, "Upgrade publications for music artwork and flat fees");
   assert.equal(config.flat_fee, "10000000000", "Activate the flat 100 tKOIN music fee");
@@ -57,6 +60,7 @@ if (!args["contracts-only"]) {
   };
   const discovery = (await json("/.well-known/osp-sponsor.json")) as SponsorDiscovery;
   const health = await json("/healthz");
+  if (args.clips) assert.equal(health.features?.clipUploads, 1, "Restart the updated sponsor after deploying Publications and enabling the fee recipient");
   assert.equal(
     health.features?.musicUploads,
     1,
@@ -120,6 +124,16 @@ if (args.gallery && !args["contracts-only"]) {
   const status = await response.json();
   assert.equal(status.features?.musicFeed, 1, "Restart the updated indexer for music in the feed");
 }
-console.log(
-  "MUSIC READY — deploy the frontend and perform a small paid upload before the full 3:30 test."
-);
+if (args.clips) {
+  const sample = new Uint8Array(32);
+  await client.reads.publications.get_music_vote_target({ id: sample });
+  const economy = await client.reads.token.get_post_economy({ post_id: musicEngagementId(sample) });
+  assert(economy && BigInt(economy.block) > 0n, "Upgrade Token for song voting");
+  if (!args["contracts-only"]) {
+    const endpoint = typeof args.indexer === "string" ? args.indexer : deployment.indexers?.[0];
+    assert(endpoint, "Specify --indexer for the social media checks");
+    const response = await fetch(`${endpoint.replace(/\/+$/, "")}/v1/music/${encodeURIComponent(toBase64url(sample))}/engagement`, { signal: AbortSignal.timeout(20000) });
+    assert(response.ok && typeof (await response.json()).reactions?.total === "number", "Restart the updated indexer for song reactions and votes");
+  }
+}
+console.log(args.clips ? "SOCIAL MEDIA READY" : "MUSIC READY — deploy the frontend and perform a small paid upload before the full 3:30 test.");

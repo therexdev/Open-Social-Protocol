@@ -6,6 +6,7 @@ import {
   MUSIC_BATCH_CHUNKS,
   MUSIC_MAX_BYTES,
   musicFee,
+  CLIP_KIND, VIDEO_UPLOAD_FEE, validateClip,
   toBase64url,
   type OperationJson,
   type ProtocolClient,
@@ -33,19 +34,25 @@ export async function musicAllowance(
     args = op.args;
   if (op.method === "begin_music") {
     const config = (await client.reads.publications.get_music_config())?.value;
-    if (
-      !config ||
-      !validMusicPaymentBundle(client.contracts, operations, payee, config.native_token)
-    )
-      refuse("Music payments require the exact approval, payment and cleanup bundle");
-    if (
-      !config?.enabled ||
-      config.recipient !== sponsor ||
-      args.payer !== payee ||
-      args.config_revision !== config.revision ||
-      args.max_fee !== musicFee(Number(args.size), config.rate_per_mb, config.flat_fee)
-    )
+    const kind = Number(args.clip_kind ?? 0);
+    if (!config?.enabled || config.recipient !== sponsor || args.payer !== payee ||
+        args.config_revision !== config.revision || Number(args.size) > config.max_bytes)
       refuse("This sponsor only funds music uploads paid to its configured account");
+    if (kind) {
+      if (config!.clip_version !== 1 || (kind !== CLIP_KIND.voice && kind !== CLIP_KIND.video))
+        refuse("Unsupported clip reservation");
+      try {
+        validateClip(kind === CLIP_KIND.voice ? "voice" : "video", String(args.mime), Number(args.size), Number(args.duration_ms));
+      } catch { refuse("Invalid clip size, type or duration"); }
+    }
+    if (kind === CLIP_KIND.voice) {
+      if (operations.length !== 1 || args.max_fee !== "0") refuse("Voice requires a usage-only storage reservation");
+    } else {
+      if (!validMusicPaymentBundle(client.contracts, operations, payee, config!.native_token))
+        refuse("Music payments require the exact approval, payment and cleanup bundle");
+      const fee = kind === CLIP_KIND.video ? VIDEO_UPLOAD_FEE : musicFee(Number(args.size), config!.rate_per_mb, config!.flat_fee);
+      if (args.max_fee !== fee) refuse("This sponsor only funds music uploads paid to its configured account");
+    }
     return undefined;
   }
   if (operations.length !== 1) refuse("Music chunks must use one operation per transaction");
@@ -54,7 +61,7 @@ export async function musicAllowance(
   if (
     !record ||
     record.recipient !== sponsor ||
-    BigInt(record.fee) <= 0n ||
+    (record.clip_kind === CLIP_KIND.voice ? BigInt(record.fee) !== 0n : BigInt(record.fee) <= 0n) ||
     record.owner !== args.owner ||
     record.size < 1 ||
     record.size > MUSIC_MAX_BYTES ||

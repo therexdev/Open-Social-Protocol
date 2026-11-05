@@ -71,6 +71,36 @@ const MAX_LIFECYCLE_STATE: i32 = <i32>publications.lifecycle_state.superseded;
 const MAX_OUTCOME_STATE: i32 = <i32>publications.outcome_state.reconcile_required;
 
 export class Publications {
+  // Only compact metadata crosses the token/publications boundary. A full song
+  // manifest can exceed the token contract's syscall buffer.
+  musicVoteTarget(reference: Uint8Array, viewer: Uint8Array | null): publications.post_record | null {
+    if (reference.length != 32 && reference.length != 64) return null;
+    const id = reference.length == 64 ? reference.slice(0, 32) : reference;
+    const track = this.music.get(id);
+    if (track == null || track!.clip_kind != 0 || track!.received == 0 || track!.received != <u32>track!.chunk_hashes.length) return null;
+    if (!Util.isEmpty(viewer)) {
+      const account = Util.requireAddress(viewer, "viewer");
+      if (!this.musicAccess.eligible(track!, account, this.relationshipsContract())) return null;
+      if (track!.encrypted && !Arrays.equal(account, track!.owner!)) {
+        const access = this.musicAccess.access.get(Util.concat([id, account]));
+        if (access == null || access!.status != 2) return null;
+      }
+    }
+    const audience = track!.audience == 0 ? publications.audience_kind.everyone : publications.audience_kind.custom;
+    if (reference.length == 32) return new publications.post_record(track!.owner, 0, 1, track!.digest,
+      publications.lifecycle_state.active, null, audience);
+    const comment = this.musicAccess.comments.get(reference);
+    if (comment == null) return null;
+    // The tombstone retains its author so a pending reward can still settle, at zero.
+    const state = comment!.deleted ? publications.lifecycle_state.deleted : publications.lifecycle_state.active;
+    const hash: Uint8Array | null = comment!.deleted ? null : this.music.hash(comment!.body!);
+    return new publications.post_record(comment!.author, 0, 1, hash, state, null, audience);
+  }
+
+  get_music_vote_target(args: publications.get_music_vote_target_arguments): publications.get_music_vote_target_result {
+    return new publications.get_music_vote_target_result(this.musicVoteTarget(Util.requireBytes(args.id, 64, "music reference"), args.viewer));
+  }
+
   get_music_art_version(args: publications.get_music_art_version_arguments): publications.get_music_art_version_result { return new publications.get_music_art_version_result(1); }
   set_music_cover(args: publications.set_music_cover_arguments): publications.set_music_cover_result { this.music.setCover(args, this.identityContract()); return new publications.set_music_cover_result(); }
   musicAccess: MusicAccess = new MusicAccess();
@@ -87,7 +117,7 @@ export class Publications {
   music: MusicLibrary = new MusicLibrary();
   set_music_config(args: publications.set_music_config_arguments): publications.set_music_config_result { this.music.setConfig(args); return new publications.set_music_config_result(); }
   get_music_config(args: publications.get_music_config_arguments): publications.get_music_config_result { return new publications.get_music_config_result(this.music.settings()); }
-  begin_music(args: publications.begin_music_arguments): publications.begin_music_result { this.music.begin(args, this.identityContract()); return new publications.begin_music_result(); }
+  begin_music(args: publications.begin_music_arguments): publications.begin_music_result { this.music.begin(args, this.identityContract(), this.get_token_contract(new publications.get_token_contract_arguments()).value); return new publications.begin_music_result(); }
   append_music(args: publications.append_music_arguments): publications.append_music_result { this.music.append(args, this.identityContract()); return new publications.append_music_result(); }
   get_music(args: publications.get_music_arguments): publications.get_music_result { return new publications.get_music_result(this.music.get(this.music.id(args.id))); }
   get_music_chunk(args: publications.get_music_chunk_arguments): publications.get_music_chunk_result { return this.music.chunks.get(Util.concat([this.music.id(args.id), Util.u32be(args.index)])) || new publications.get_music_chunk_result(); }
@@ -387,6 +417,18 @@ export class Publications {
   // publish
   // ---------------------------------------------------------------------
 
+  private checkReplyParent(parent: publications.post_record, args: publications.publish_arguments): void {
+    if (Util.isEmpty(args.reply_parent_version)) return;
+    System.require(Arrays.equal(parent.latest_version, args.reply_parent_version) && parent.state == publications.lifecycle_state.active,
+      "thread changed; refresh before replying");
+    if (parent.audience != publications.audience_kind.friends) return;
+    const call = System.call(this.relationshipsContract(), 0xfea150b5,
+      Protobuf.encode(new relationships.get_audience_arguments(parent.author), relationships.get_audience_arguments.encode));
+    System.require(call.code == 0 && call.res.object != null, "cannot verify thread audience");
+    const current = Protobuf.decode<relationships.get_audience_result>(call.res.object!, relationships.get_audience_result.decode).value;
+    System.require(current != null && current!.epoch == args.reply_friends_epoch, "thread audience changed; refresh before replying");
+  }
+
   publish(args: publications.publish_arguments): publications.publish_result {
     const author = Util.requireAddress(args.author, "author");
     const postId = this.requireHash(args.post_id, "post_id");
@@ -470,6 +512,7 @@ export class Publications {
         if (parent!.audience != publications.audience_kind.everyone) System.require(args.audience != publications.audience_kind.everyone, "private replies cannot be public");
         System.require(Arrays.equal(parent!.collection_id, collectionId), "reply must stay in its group");
         const parentAuthor = parent!.author!;
+        this.checkReplyParent(parent!, args);
         // A reply to your own post never needs a block check.
         if (!Arrays.equal(parentAuthor, author)) {
           System.require(!this.isBlocked(parentAuthor, author), "blocked by author");
@@ -520,7 +563,11 @@ export class Publications {
       }
       if (replyTo != null) {
         const parent = this.posts.get(replyTo);
-        if (parent != null) replyAuthor = parent.author!;
+        if (!Util.isEmpty(args.reply_parent_version)) System.require(parent != null, "reply target not found");
+        if (parent != null) {
+          this.checkReplyParent(parent, args);
+          replyAuthor = parent.author!;
+        }
       }
 
       this.reserveIdempotencyKey(author, idempotencyKey, postId);
@@ -617,17 +664,19 @@ export class Publications {
   }
 
   // ---------------------------------------------------------------------
-  // react (event only)
+  // Reaction events record one active choice per actor and target.
   // ---------------------------------------------------------------------
 
   react(args: publications.react_arguments): publications.react_result {
     const actor = Util.requireAddress(args.actor, "actor");
-    const postId = this.requireHash(args.post_id, "post_id");
+    const raw = Util.requireBytes(args.post_id, 65, "post_id");
+    const music = (raw.length == 33 && raw[0] == 1) || (raw.length == 65 && raw[0] == 2);
+    const postId = music ? raw : this.requireHash(raw, "post_id");
     System.require(args.reaction != 0, "reaction is required");
 
     Actor.requireAuthorized(this.identityContract(), actor, args.device, Capability.REACT);
 
-    const record = this.posts.get(postId);
+    const record = music ? this.musicVoteTarget(postId.slice(1), args.remove ? null : actor) : this.posts.get(postId);
     System.require(record != null, "post not found");
     System.require(record!.state != publications.lifecycle_state.deleted, "post deleted");
     const postAuthor = record!.author!;
@@ -637,7 +686,7 @@ export class Publications {
     if (!Arrays.equal(postAuthor, actor)) impacted.push(postAuthor);
 
     if (!args.remove) this.consume(actor);
-    const ev = new publications.reaction_event(actor, postId, postAuthor, args.reaction, args.remove, now);
+    const ev = new publications.reaction_event(actor, postId, postAuthor, args.reaction, args.remove, now, true);
     System.event(
       "osp.publications.reaction",
       Protobuf.encode(ev, publications.reaction_event.encode),

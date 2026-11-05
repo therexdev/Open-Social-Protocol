@@ -1,6 +1,15 @@
+import { useMemo } from "react";
+import { parseProfileUri } from "../api/profiles";
+import { useProfiles } from "../stores/profiles";
+import { ProfileImage } from "../features/profile/ProfileImage";
 import type { CSSProperties } from "react";
 
 const paths = {
+  mic: "M9 5a3 3 0 0 1 6 0v7a3 3 0 1 1-6 0zM5 11v1a7 7 0 0 0 14 0v-1M12 19v3m-4 0h8",
+  camera: "M3 6h12v12H3zm12 4 6-4v12l-6-4",
+  stop: "M5 5h14v14H5z",
+  upload: "M12 16V3m-5 5 5-5 5 5M4 16v5h16v-5",
+  link: "M10 13a4 4 0 0 0 6 .4l4-4a4 4 0 0 0-6-6l-2 2m2 5a4 4 0 0 0-6-.4l-4 4a4 4 0 0 0 6 6l2-2",
   music: "M9 18V5l12-3v13M9 8l12-3M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0m12-3a3 3 0 1 1-6 0 3 3 0 0 1 6 0",
   grid: "M3 3h7v7H3zm11 0h7v7h-7zM3 14h7v7H3zm11 0h7v7h-7z",
   list: "M8 5h13M8 12h13M8 19h13M3 5h.01M3 12h.01M3 19h.01",
@@ -45,7 +54,9 @@ export function BrandMark() {
   return <span className="brand-mark" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none"><path d="M23 9a10 10 0 1 0 0 14" stroke="currentColor" strokeWidth="4" strokeLinecap="round"/><path d="M16 11v10m-5-5h10" stroke="currentColor" strokeWidth="3" strokeLinecap="round"/></svg></span>;
 }
 export function Avatar({ account, name, large = false }: { account: string; name?: string; large?: boolean }) {
+  const uri = useProfiles(state => state.profiles[account]?.profileUri);
+  const document = useMemo(() => parseProfileUri(uri), [uri]);
   const hue = [...account].reduce((n, c) => (n * 31 + c.charCodeAt(0)) % 360, 0);
   const initials = (name && !name.includes("…") ? name.trim().split(/\s+/).slice(0, 2).map(x => [...x][0]).join("") : account.slice(0, 2)).toUpperCase();
-  return <span className={`avatar${large ? " avatar-large" : ""}`} style={{ "--avatar-hue": hue } as CSSProperties} aria-hidden="true">{initials || <Icon name="profile" />}</span>;
+  return <span className={`avatar${large ? " avatar-large" : ""}`} style={{ "--avatar-hue": hue } as CSSProperties} aria-hidden="true">{initials || <Icon name="profile" />}{document && (document.avatar || document.avatar_photo_hash?.length === 32) && <ProfileImage account={account} document={document}/>}</span>;
 }

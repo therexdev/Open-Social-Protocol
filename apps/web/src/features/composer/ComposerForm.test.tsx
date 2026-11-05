@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { AUDIENCE } from "@osp/sdk";
+import { AUDIENCE, encryptContent, newEpochKey, toBase64url } from "@osp/sdk";
 import type { DraftRecord } from "../../vault/store";
 import type { PublishRequest } from "./usePublish";
 import { ComposerForm } from "./ComposerForm";
@@ -9,15 +9,17 @@ import { MemoryRouter } from "react-router-dom";
 import { Signer } from "@osp/sdk";
 import { encodeMention } from "../../util/mentions";
 
-const transport = vi.hoisted(() => ({ start: vi.fn() }));
+import { HARBINGER_CHAIN_ID } from "../../testing/fixtures";
+const transport = vi.hoisted(() => ({ start: vi.fn(), group: vi.fn(), collections: vi.fn(), session: vi.fn() }));
 vi.mock("./usePublish", () => ({ usePublish: () => ({ ...transport, ready: true }) }));
-vi.mock("../session", () => ({ useCanAct: () => ({ ok: true }) }));
+vi.mock("../session", () => ({ useCanAct: () => ({ ok: true }), useSession: transport.session }));
 vi.mock("../../vault/context", () => ({
   useVault: (selector: (state: { account: string }) => unknown) => selector({ account: "saved-test-account" }),
   useVaultStore: () => ({ getState: () => ({ account: "saved-test-account" }) }),
 }));
 vi.mock("../../api/services", () => {
-  const services = { resolved: { sponsorUrls: [] }, indexer: { configured: false } };
+  const services = { resolved: { sponsorUrls: [] }, indexer: { configured: false, collections: transport.collections },
+    protocol: { get chainId() { return HARBINGER_CHAIN_ID; }, reads: { publications: { get_collection: transport.group } } } };
   return { useServices: () => services };
 });
 
@@ -151,4 +153,57 @@ it("puts the poll button below the framed content box and omits the removed prom
   expect(content.compareDocumentPosition(tools) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(tools.textContent).toContain("Add photos"); expect(tools.textContent).toContain("Add poll");
   await click("Add poll"); expect(container.querySelector(".poll-editor")).toBeTruthy();
+});
+
+it("chooses the photo budget before opening files and can dismiss either attachment dialog", async () => {
+  container = document.createElement("div"); document.body.appendChild(container); root = createRoot(container);
+  await act(async () => root.render(<ComposerForm/>));
+  expect(container.textContent).not.toContain("Post content");
+  expect(container.querySelector("textarea")?.getAttribute("spellcheck")).toBe("true");
+  const chooseFile = vi.spyOn(container.querySelector<HTMLInputElement>('input[aria-label="Choose photos"]')!, "click");
+  await click("Add photos");
+  expect(container.querySelector("dialog[open] h2")?.textContent).toBe("Photo size budget");
+  expect(chooseFile).not.toHaveBeenCalled();
+  await act(async () => container.querySelector<HTMLButtonElement>('dialog[open] button[aria-label="Close"]')!.click());
+  expect(container.querySelector("dialog[open]")).toBeNull();
+  await click("Add photos");
+  await click("Up to 64 KiB2 usage units");
+  expect(chooseFile).toHaveBeenCalledTimes(1);
+  expect(container.querySelector("dialog[open]")).toBeNull();
+  await click("Add media by URL");
+  expect(container.querySelector('dialog[open] input[type="url"]')).toBeTruthy();
+  await act(async () => container.querySelector("dialog[open]")!.dispatchEvent(new Event("cancel", { cancelable: true })));
+  expect(container.querySelector("dialog[open]")).toBeNull();
+  expect(transport.start).not.toHaveBeenCalled();
+});
+
+it("selects a verified group from the regular composer and queues the post to that group", async () => {
+  const owner = Signer.fromSeed("group-owner").getAddress();
+  const groupId = newEpochKey(), epochKey = newEpochKey();
+  const group = toBase64url(groupId);
+  const groupContent = encryptContent({
+    content: { version: 1, mime: "application/vnd.osp.collection+json", text: JSON.stringify({ name: "Film club" }) },
+    epochKey,
+    aad: { chainId: HARBINGER_CHAIN_ID, author: owner, audience: AUDIENCE.CUSTOM, audienceId: groupId, postId: groupId, epoch: 1, versionNumber: 2 },
+  });
+  transport.session.mockReturnValue({ identity: { account: "saved-test-account" }, keys: { resolveTrusted: async () => ({entry: {key: epochKey}}) } });
+  transport.collections.mockResolvedValue({ items: [{ id: group }] });
+  transport.group.mockResolvedValue({ value: { owner, kind: 2, closed: false, members: ["saved-test-account"], revision: 1, audience: AUDIENCE.CUSTOM, envelope: groupContent.bytes } });
+  transport.start.mockImplementation(async (r: PublishRequest) => r.draft);
+  container = document.createElement("div"); document.body.appendChild(container); root = createRoot(container);
+  await act(async () => root.render(<MemoryRouter><ComposerForm/></MemoryRouter>));
+  const audience = container.querySelector("select")!;
+  await act(async () => { audience.value = "group"; audience.dispatchEvent(new Event("change", { bubbles: true })); });
+  const groupSelect = [...container.querySelectorAll("select")].find(select => [...select.options].some(o => o.text === "Film club"));
+  expect(groupSelect).toBeDefined();
+  const text = container.querySelector("textarea")!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(text, "See you tonight");
+    text.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  expect(button("Review and publish").disabled).toBe(true);
+  await act(async () => { groupSelect!.value = group; groupSelect!.dispatchEvent(new Event("change", { bubbles: true })); });
+  await click("Review and publish");
+  await click("Publish to group");
+  expect(transport.start.mock.calls[0]![0].draft).toMatchObject({ collectionId: group, audience: AUDIENCE.CUSTOM, text: "See you tonight" });
 });

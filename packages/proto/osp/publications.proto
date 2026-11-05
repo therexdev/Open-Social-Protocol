@@ -136,6 +136,10 @@ message publish_arguments {
   poll_definition poll = 14;
   bytes collection_id = 15;
   bool gallery_only = 16;
+  // Optional snapshot guard for encrypted replies. Both key distribution and
+  // publication revert if the parent or its friends audience changed in flight.
+  bytes reply_parent_version = 17;
+  uint32 reply_friends_epoch = 18;
 }
 message publish_result {}
 
@@ -158,7 +162,7 @@ message set_lifecycle_result {}
 message react_arguments {
   bytes actor = 1 [(koinos.btype) = ADDRESS];
   bytes post_id = 2;
-  // Reaction type code; 1 = like. Additional codes are client vocabulary.
+  // 1 love (legacy like), 2 happy, 3 sad, 4 worried, 5 surprised.
   uint32 reaction = 3;
   bool remove = 4;
   bytes device = 5 [(koinos.btype) = ADDRESS];
@@ -204,6 +208,16 @@ message get_post_arguments {
   bytes post_id = 1;
 }
 message get_post_result {
+  post_record value = 1;
+}
+
+// @description Get compact engagement state for a completed song, optionally checking a listener's access
+// @read-only true
+message get_music_vote_target_arguments {
+  bytes id = 1;
+  bytes viewer = 2 [(koinos.btype) = ADDRESS];
+}
+message get_music_vote_target_result {
   post_record value = 1;
 }
 
@@ -282,6 +296,8 @@ message reaction_event {
   uint32 reaction = 4;
   bool removed = 5;
   uint64 timestamp = 6 [jstype = JS_STRING];
+  // When true an addition replaces all previous choices for this actor and target.
+  bool exclusive = 7;
 }
 
 message keys_distributed_event {
@@ -455,6 +471,8 @@ message music_config {
   bytes native_token = 7 [(koinos.btype) = ADDRESS];
   // Nonzero charges one flat native-token fee per track; zero retains legacy per-MB pricing.
   uint64 flat_fee = 8 [jstype = JS_STRING];
+  // Clip transport capability: 1 supports voice (usage units) and short video (100 native tokens).
+  uint32 clip_version = 9;
 }
 message music_record {
   bytes owner = 1 [(koinos.btype) = ADDRESS];
@@ -481,6 +499,10 @@ message music_record {
   bytes key_hash = 21;
   music_cover cover = 22;
   uint32 cover_revision = 23;
+  // 0 song, 1 voice attachment, 2 video attachment. Attachments are shared by the containing publication/message.
+  uint32 clip_kind = 24;
+  // Zero = original file bytes; nonzero = gzip video with this exact restored length.
+  uint32 gzip_original_size = 25;
 }
 // A committed photo archive. Restricted artwork uses the track key and a distinct nonce/context.
 message music_cover {
@@ -549,6 +571,8 @@ message begin_music_arguments {
   uint64 unlock_price = 20 [jstype = JS_STRING];
   bytes key_hash = 21;
   music_cover cover = 22;
+  uint32 clip_kind = 23;
+  uint32 gzip_original_size = 24;
 }
 message begin_music_result {}
 // @description Append a committed music chunk; identical retries are free
@@ -581,6 +605,8 @@ message list_music_arguments {
   bytes group_id = 3;
 }
 message list_music_result { repeated bytes ids = 1; }
+message clip_reserved_event { bytes id = 1; music_record value = 2; }
+message clip_completed_event { bytes id = 1; bytes owner = 2 [(koinos.btype) = ADDRESS]; }
 message music_paid_event { bytes id = 1; music_record value = 2; }
 message music_completed_event { bytes id = 1; bytes owner = 2 [(koinos.btype) = ADDRESS]; }
 

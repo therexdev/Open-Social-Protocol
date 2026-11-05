@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { toBase64url } from "@osp/sdk";
+import { bytesOf } from "../../util/bytes";
 import { Link } from "react-router-dom";
 import type { NotificationView } from "../../api/indexer";
 import { useServices } from "../../api/services";
@@ -15,7 +17,7 @@ function wording(n: NotificationView): string {
     case "friend_accepted":
       return "accepted your friend request";
     case "reaction":
-      return "liked your post";
+      return "reacted to your publication";
     case "reply":
       return "replied to your post";
     case "keys":
@@ -35,6 +37,10 @@ function wording(n: NotificationView): string {
 
 function Item({ n, fresh }: { n: NotificationView; fresh: boolean }) {
   const name = useProfileName(n.actor);
+  const target = bytesOf(n.postId);
+  const song = target.length === 33 && target[0] === 1;
+  const songComment = target.length === 65 && target[0] === 2;
+  const link = songComment ? `/music/${toBase64url(target.slice(1, 33))}#track-comments` : song ? `/music/${toBase64url(target.slice(1))}` : `/post/${n.postId}`;
   return (
     <li className={`list-item notification ${fresh ? "fresh" : ""}`.trim()}>
       <div>
@@ -42,7 +48,7 @@ function Item({ n, fresh }: { n: NotificationView; fresh: boolean }) {
         {n.postId && (
           <>
             {" "}
-            · <Link to={`/post/${n.postId}`}>open post</Link>
+            · <Link to={link}>{songComment ? "open comments" : song ? "open track" : "open post"}</Link>
           </>
         )}
         {n.kind === "friend_request" && (

@@ -1,73 +1,22 @@
+import { VideoSection } from "../media/VideoSection";
 import { MusicSection } from "../music/MusicSection";
 import { PhotoGallery, CollectionList } from "../library/LibraryPages";
 /** Own or others' profile: name and bio from the profile document, posts, relationship actions. */
 import { useEffect, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { useServices } from "../../api/services";
-import { buildProfileDocument, PROFILE_URI_MAX_CHARS } from "../../api/profiles";
+import { ProfileEditor } from "./ProfileEditor";
+import { ProfileImage } from "./ProfileImage";
 import { Avatar, Icon } from "../../components/Icon";
-import { Button, Card, CopyButton, Empty, Field, Notice, Spinner, Tabs } from "../../components/ui";
+import { Button, Card, CopyButton, Empty, Notice, Spinner, Tabs } from "../../components/ui";
 import { QuickComposer } from "../../components/QuickComposer";
-import { useProfiles } from "../../stores/profiles";
-import { submitAction } from "../../tx/submit";
 import { shortAddress } from "../../util/format";
 import { useVault } from "../../vault/context";
 import { PostCard } from "../feed/PostCard";
 import { usePagedPosts } from "../feed/FeedPage";
 import { RelationshipActions, useGraph } from "../friends/RelationshipActions";
-import { useCanAct, useSubmitContext } from "../session";
+import { useCanAct } from "../session";
 import { useProfileInfo } from "./useProfileName";
-
-function ProfileEditor({ account, name, bio, onDone }: { account: string; name: string; bio: string; onDone: () => void }) {
-  const ctx = useSubmitContext();
-  const { indexer } = useServices();
-  const load = useProfiles((s) => s.load);
-  const [displayName, setDisplayName] = useState(name);
-  const [about, setAbout] = useState(bio);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | undefined>();
-  const document = buildProfileDocument({ display_name: displayName.trim(), bio: about.trim() });
-  const tooLong = document.uri.length > PROFILE_URI_MAX_CHARS;
-
-  const save = async () => {
-    if (!ctx) return;
-    setBusy(true);
-    setError(undefined);
-    try {
-      const op = await ctx.client.ops.identity.update_profile({ account, profile_hash: document.hash, profile_uri: document.uri });
-      await submitAction(ctx, [op], { label: "Saving your profile", success: "Profile saved" });
-      setTimeout(() => void load(indexer, account, true), 1500);
-      onDone();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <form
-      onSubmit={(e) => {
-        e.preventDefault();
-        void save();
-      }}
-    >
-      <Field label="Display name" hint="Your nickname. People can search for this name; it doesn’t have to be unique.">{(id) => <input id={id} value={displayName} onChange={(e) => setDisplayName(e.target.value)} maxLength={64} />}</Field>
-      <Field label="About you" hint={`${PROFILE_URI_MAX_CHARS - document.uri.length} characters left in the on-chain profile reference. Profiles are public.`}>
-        {(id) => <textarea id={id} value={about} onChange={(e) => setAbout(e.target.value)} rows={3} maxLength={300} aria-invalid={tooLong || undefined} />}
-      </Field>
-      {error && <Notice kind="error">{error}</Notice>}
-      <div className="row">
-        <Button type="submit" variant="primary" busy={busy} disabled={tooLong || !ctx}>
-          Save profile
-        </Button>
-        <Button variant="ghost" onClick={onDone}>
-          Cancel
-        </Button>
-      </div>
-    </form>
-  );
-}
 
 export function ProfilePage() {
   const { account = "" } = useParams();
@@ -81,20 +30,20 @@ export function ProfilePage() {
   const can = useCanAct();
   const { graph, refresh } = useGraph(viewer);
   const [editing, setEditing] = useState(false);
-  const [tab, setTab] = useState<"posts" | "about" | "photos" | "groups" | "music">("posts");
+  const [tab, setTab] = useState<"posts" | "about" | "photos" | "groups" | "music" | "videos">("posts");
   const posts = usePagedPosts((cursor) => indexer.accountPosts(account, { ...(cursor && { cursor }), ...(viewer && { viewer }), limit: 20 }), [indexer, account, viewer]);
   const mine = me === account;
   const view = info?.view;
 
   useEffect(() => {
     setEditing(false);
-    setTab(requestedTab === "music" ? "music" : "posts");
+    setTab(requestedTab === "videos" || requestedTab === "music" ? requestedTab : "posts");
   }, [account, requestedTab]);
 
   return (
     <div className="page profile-page">
       <Card className="profile-card">
-        <div className="profile-cover" aria-hidden="true"><span>Your people. Your world.</span></div>
+        <div className="profile-cover" aria-hidden="true">{info?.document?.banner_photo_hash?.length === 32 && <ProfileImage banner account={account} document={info.document}/>}</div>
         <div className="profile-header">
           <div className="profile-identity">
             <Avatar account={account} name={info?.displayName} large/>
@@ -110,7 +59,7 @@ export function ProfilePage() {
           </div>
           <div>
             {mine ? (
-              <Button onClick={() => setEditing((v) => !v)} disabled={!can.ok} title={can.ok ? undefined : can.reason}>
+              <Button onClick={() => setEditing((v) => !v)} disabled={!can.ok || !view} title={can.ok ? undefined : can.reason}>
                 <Icon name={editing ? "close" : "edit"} size={17}/>{editing ? "Close" : "Edit profile"}
               </Button>
             ) : (
@@ -121,9 +70,10 @@ export function ProfilePage() {
             )}
           </div>
         </div>
-        {editing && mine && <ProfileEditor account={account} name={info?.displayName ?? ""} bio={info?.bio ?? ""} onDone={() => setEditing(false)} />}
+        {editing && mine && view && <ProfileEditor key={account} account={account} view={view} onDone={() => setEditing(false)} />}
       </Card>
-      <Tabs value={tab} onChange={setTab} label="Profile views" options={[{ value: "posts", label: "Posts" }, { value: "photos", label: "Photos" }, { value: "music", label: "Music" }, { value: "groups", label: "Groups" }, { value: "about", label: "About" }]}/>
+      <Tabs value={tab} onChange={setTab} label="Profile views" options={[{ value: "posts", label: "Posts" }, { value: "photos", label: "Photos" }, { value: "music", label: "Music" }, { value: "videos", label: "Videos" }, { value: "groups", label: "Groups" }, { value: "about", label: "About" }]}/>
+      {tab === "videos" && <VideoSection key={`${account}:${viewer ?? "guest"}`} owner={account}/>}
       {tab === "music" && <MusicSection owner={account}/>}
       {tab === "photos" && <PhotoGallery key={`${account}:${viewer ?? "locked"}`} owner={account}/>}
       {tab === "groups" && <CollectionList key={`${account}:${viewer ?? "locked"}`} kind={2} owner={account}/>}

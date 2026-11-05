@@ -1,6 +1,7 @@
+import { archiveClip } from "../media/clipArchive";
 import { archivePhoto } from "./archivePhoto";
 /** Publication transport; UI may wait for it or run it in the background. */
-import { AUDIENCE, requirePhotoLibrary, type ProtocolClient } from "@osp/sdk";
+import { AUDIENCE, LIFECYCLE, requirePhotoLibrary, type ProtocolClient } from "@osp/sdk";
 import type { KeyVerifier } from "../../api/keystore";
 import type { PaymentPreference } from "../../stores/settings";
 import { ActionError, submitAction, type SubmitContext, type SubmitOptions } from "../../tx/submit";
@@ -45,6 +46,7 @@ export async function planDraft(deps: PublishDeps, request: PublishRequest): Pro
     ...(request.draft.poll && { poll: request.draft.poll }),
     audience,
     selectedAccounts: request.draft.selectedAccounts,
+    replyGuard: request.draft.replyGuard,
     collectionId: request.draft.collectionId,
     galleryOnly: request.draft.galleryOnly,
     ...((request.media ?? request.draft.media) && { media: request.media ?? request.draft.media!.map(m => ({ ...m, contentHash: bytesOf(m.contentHash) })) }),
@@ -63,7 +65,7 @@ async function completeDraft(deps: PublishDeps, draft: DraftRecord, outcome: Pub
     if (p.epochKey) await deps.session.keys.put(ref, bytesOf(p.epochKey), { recipients: [draft.account, ...p.recipients] });
     else if (p.recipients.length) await deps.session.keys.addRecipients(ref, p.recipients);
   }
-  if (deps.background) await saveDraft(deps.session, { ...draft, state: "published", lastError: undefined,
+  if (deps.background) await saveDraft(deps.session, { ...draft, media: draft.media?.map(({ archiveBytes, ...reference }) => reference), state: "published", lastError: undefined,
     publication: { postId: outcome.postId, contentHash: p?.contentHash ?? "", epoch: p?.epoch ?? 0, recipients: [], txId: outcome.txId ?? p?.txId }, updatedAt: Date.now() });
   else await removeDraft(deps.session, draft.id);
   return outcome;
@@ -93,6 +95,25 @@ export async function publishDraft(deps: PublishDeps, request: PublishRequest, p
   }
   // An uncertain attempt must keep its exact encrypted payload and reading key.
   // Rebuilding it could replace the key while the original transaction confirms.
+  const checkThread = async () => {
+    let parentId = draft.replyTo;
+    if (draft.edit) {
+      const record = (await protocol.reads.publications.get_post({ post_id: bytesOf(draft.edit.postId) }))?.value;
+      if (!record || record.author !== draft.account || toBase64url(record.latest_version) !== draft.edit.previousVersion || record.version_count + 1 !== draft.edit.versionNumber)
+        throw new PublishError("This post changed after the editor opened. Your draft is saved. Open the latest version before editing again.");
+      parentId = record.reply_to?.length ? toBase64url(record.reply_to) : undefined;
+    }
+    if (!parentId) return;
+    const parent = (await protocol.reads.publications.get_post({ post_id: bytesOf(parentId) }))?.value;
+    if (!parent || parent.state !== LIFECYCLE.ACTIVE) throw new PublishError("This thread is no longer available.");
+    if (parent.audience === AUDIENCE.EVERYONE) return;
+    const guard = draft.replyGuard;
+    const ownFriends = draft.edit && draft.audience === AUDIENCE.FRIENDS && parent.audience === AUDIENCE.FRIENDS && parent.author === draft.account;
+    if (draft.replyTo !== parentId || !guard || (draft.audience !== AUDIENCE.CUSTOM && !ownFriends) || toBase64url(parent.latest_version) !== guard.parentHash ||
+        (parent.audience === AUDIENCE.FRIENDS && (await currentEpoch(protocol, parent.author)) !== guard.friendsEpoch))
+      throw new PublishError("The readers of this thread changed. Reopen the original post to compose a new private reply.");
+  };
+  await checkThread();
   const saved = draft.publication;
   const built = prepared ?? (saved?.operations ? {
     operations: saved.operations, postId: bytesOf(saved.postId), contentHash: bytesOf(saved.contentHash),
@@ -109,7 +130,10 @@ export async function publishDraft(deps: PublishDeps, request: PublishRequest, p
   await saveDraft(session, draft);
   try {
   for (const media of request.media ?? draft.media?.map(m => ({ ...m, contentHash: bytesOf(m.contentHash) })) ?? []) {
-    if (media.archiveBytes) await archivePhoto(media, { client: protocol, signer: me.signer, payment: deps.payment }, me.account, deps.assertActive);
+    if (!media.archiveBytes) continue;
+    const ctx = { client: protocol, signer: me.signer, payment: deps.payment };
+    if (media.url.startsWith("osp-clip://")) await archiveClip(media, ctx, me.account, deps.assertActive);
+    else await archivePhoto(media, ctx, me.account, deps.assertActive);
   }
     const result = await submit({ client: protocol, signer: me.signer, payment: deps.payment }, built.operations, {
       label,
@@ -117,6 +141,7 @@ export async function publishDraft(deps: PublishDeps, request: PublishRequest, p
       quietProgress: deps.background,
       beforeSubmit: async () => {
         deps.assertActive?.();
+        await checkThread();
         if (built.audience === AUDIENCE.FRIENDS && await currentEpoch(protocol, me.account) !== built.epoch) {
           throw new PublishError("Your private-post audience changed after this preview. Review the post again so removed friends do not receive it.");
         }

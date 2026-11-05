@@ -142,7 +142,7 @@ export function MentionTextarea({ account, value, onValueChange, showHint = true
   return <div ref={editor} className="mention-editor" onBlur={event => {
     if (!event.currentTarget.contains(event.relatedTarget as Node | null)) { setFocused(false); setDismissed(true); }
   }}>
-    <textarea {...props} ref={input} value={draft.text}
+    <textarea spellCheck autoCapitalize="sentences" {...props} ref={input} value={draft.text}
       aria-autocomplete="list" aria-haspopup="listbox" aria-controls={open ? `${id}-options` : undefined}
       aria-activedescendant={open && active >= 0 ? `${id}-${active}` : undefined}
       aria-describedby={[props["aria-describedby"], showHint && `${id}-hint`].filter(Boolean).join(" ")}

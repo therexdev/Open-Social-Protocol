@@ -108,7 +108,7 @@ export const COMMUNITY_ROLE = {
 export const CONTRACT_STATUS = { PROPOSED: 0, ACTIVE: 1, DEPRECATED: 2 } as const;
 
 /** Reaction codes; 1 = like, anything else is client vocabulary. */
-export const REACTION = { LIKE: 1 } as const;
+export const REACTION = { LIKE: 1, LOVE: 1, HAPPY: 2, SAD: 3, WORRIED: 4, SURPRISED: 5 } as const;
 
 /** Envelope version emitted by this SDK. */
 export const ENVELOPE_VERSION = 1;

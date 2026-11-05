@@ -1,20 +1,21 @@
+import { PostEditLink } from "../post/PostEditLink";
 import { PollCard } from "../polls/PollCard";
 import { PostEconomyActions } from "../tokens/PostEconomyActions";
 /** One post in a list or on its page: author, audience, decrypted body, media, reactions. */
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Link } from "react-router-dom";
-import { AUDIENCE, LIFECYCLE, REACTION } from "@osp/sdk";
+import { AUDIENCE, LIFECYCLE } from "@osp/sdk";
 import type { PostView } from "../../api/indexer";
 import { useServices } from "../../api/services";
 import { useSettings } from "../../stores/settings";
-import { submitAction } from "../../tx/submit";
-import { bytesOf, toBase64url } from "../../util/bytes";
+import { ReactionPicker } from "./ReactionPicker";
+import { toBase64url } from "../../util/bytes";
+import { ClipPlayer } from "../media/ClipPlayer";
 import { MediaPhoto } from "../../components/MediaPhoto";
 import { formatDateTime, timeAgo } from "../../util/format";
 import { Avatar, Icon } from "../../components/Icon";
 import { AccountLink, Button, Details } from "../../components/ui";
 import { useProfileName } from "../profile/useProfileName";
-import { useCanAct, useSubmitContext } from "../session";
 import { usePostContent } from "./usePostContent";
 import type { OpenedContent, PostContent } from "../../api/decrypt";
 import { RichText } from "../../components/RichText";
@@ -32,6 +33,10 @@ function MediaList({ content }: { content: OpenedContent }) {
     <ul className="media-list">
       {content.media.map((item, index) => {
         const url = item.locations?.[0];
+        if (url?.startsWith("osp-clip://")) return <li key={url} className="media-item"><ClipPlayer media={{
+          url, mime: item.mime, size: Number(item.size), contentHash: item.content_hash, altText: item.alt_text,
+          ...(item.mediaKey && { encryption: { key: toBase64url(item.mediaKey), nonce: toBase64url(item.nonce) } }),
+        }}/></li>;
         const isImage = (item.mime ?? "").startsWith("image/");
         if ((url?.startsWith("ipfs://") || url?.startsWith("osp-photo://")) && isImage) return <li key={url} className="media-item"><MediaPhoto location={url} hash={toBase64url(item.content_hash)} mime={item.mime} alt={item.alt_text} encryption={item.mediaKey ? { key: toBase64url(item.mediaKey), nonce: toBase64url(item.nonce) } : undefined}/></li>;
         return (
@@ -112,34 +117,10 @@ export function OpenedPostCard({ post, onChanged, expanded = false, content }: P
   const name = useProfileName(post.author);
   // A plaintext envelope is by definition an everyone post, whatever the indexer's audience field says.
   const audience = content?.status === "plain" ? AUDIENCE.EVERYONE : post.audience;
-  const can = useCanAct();
-  const submit = useSubmitContext();
   const { resolved } = useServices();
   const muted = useSettings((s) => s.muted.includes(post.author));
   const [showMuted, setShowMuted] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const indexedLike = (post.reactions.viewer ?? []).includes(REACTION.LIKE);
-  const [optimisticLike, setOptimisticLike] = useState<boolean>();
-  const liked = optimisticLike ?? indexedLike;
-  const likes = Math.max(0, (post.reactions.byType[String(REACTION.LIKE)] ?? post.reactions.total) + Number(liked) - Number(indexedLike));
-  useEffect(() => { if (optimisticLike === indexedLike) setOptimisticLike(undefined); }, [indexedLike, optimisticLike]);
   const deleted = post.state === LIFECYCLE.DELETED;
-
-  const react = async () => {
-    if (!submit || !can.ok || busy) return;
-    setBusy(true);
-    setOptimisticLike(!liked);
-    try {
-      const op = await submit.client.ops.publications.react({ actor: submit.signer.getAddress(), post_id: bytesOf(post.postId), reaction: REACTION.LIKE, remove: liked });
-      await submitAction(submit, [op], { label: liked ? "Removing your like" : "Liking the post", success: liked ? "Like removed" : "Liked", quietProgress: true });
-      onChanged?.();
-    } catch {
-      setOptimisticLike(undefined);
-      // the toast already explains
-    } finally {
-      setBusy(false);
-    }
-  };
 
   if (muted && !showMuted) {
     return (
@@ -158,7 +139,7 @@ export function OpenedPostCard({ post, onChanged, expanded = false, content }: P
     <article className={`post post-${audience === AUDIENCE.EVERYONE ? "public" : "friends"}`} aria-label={`Post by ${name}`}>
       <header className="post-header">
         <Link to={`/u/${post.author}`} tabIndex={-1} aria-hidden="true"><Avatar account={post.author} name={name}/></Link>
-        <div className="post-heading"><AccountLink account={post.author} name={name} className="post-author"/><span className="post-meta"><time dateTime={new Date(Number(post.createdAt) || 0).toISOString()} title={formatDateTime(post.createdAt)}>{timeAgo(post.createdAt)}</time>{post.versionNumber > 1 && !deleted && <span> · edited</span>}</span></div>
+        <div className="post-heading"><AccountLink account={post.author} name={name} className="post-author"/><span className="post-meta"><time dateTime={new Date(Number(post.createdAt) || 0).toISOString()} title={formatDateTime(post.createdAt)}>{timeAgo(post.createdAt)}</time>{post.versionNumber > 1 && !deleted && <> · <Link to={`/post/${post.postId}?history=1`}>Edited</Link></>}{!expanded && <PostEditLink post={post} />}</span></div>
         <span className={`chip chip-${audience === AUDIENCE.EVERYONE ? "public" : "friends"}`}><Icon name={audience === AUDIENCE.EVERYONE ? "globe" : "lock"} size={13}/>{audience === AUDIENCE.EVERYONE ? "Public" : audienceLabel(audience)}</span>
       </header>
       {post.labels.length > 0 && (
@@ -177,18 +158,13 @@ export function OpenedPostCard({ post, onChanged, expanded = false, content }: P
       )}
       {post.poll && post.state === LIFECYCLE.ACTIVE ? <><PollCard post={post} onChanged={onChanged}/>{(content?.status === "plain" || content?.status === "decrypted") && <MediaList content={content.content}/>}</> : <PostBody content={content} />}
       {post.promoted && <p className="promotion-label"><Icon name="spark" size={14}/> Promoted · paid for by the author</p>}
-      <PostEconomyActions post={post} onChanged={onChanged}/>
       <footer className="post-footer">
-        <Button variant="ghost" onClick={react} disabled={!can.ok || deleted} busy={busy} aria-pressed={liked} title={can.ok ? undefined : can.reason}>
-          <Icon name="heart" size={18} className={liked ? "is-liked" : ""}/> {likes > 0 ? likes : ""} {liked ? "Liked" : "Like"}
-        </Button>
-        {expanded ? (
-          <span className="muted">{post.replyCount} replies</span>
-        ) : (
-          <Link className="btn btn-ghost" to={`/post/${post.postId}`}>
-            <Icon name="message" size={18}/> {post.replyCount > 0 ? `${post.replyCount} replies` : "Reply"}
-          </Link>
-        )}
+        <PostEconomyActions post={post} onChanged={onChanged}>
+          <ReactionPicker id={post.postId} reactions={post.reactions} disabled={deleted} onChanged={onChanged}/>
+          {expanded
+            ? <a className="btn btn-ghost engagement-icon" title="Comments" aria-label={`Comments (${post.replyCount})`} href="#post-comments"><Icon name="message" size={18}/>{post.replyCount || ""}</a>
+            : <Link className="btn btn-ghost engagement-icon" title="Comments" aria-label={`Comments (${post.replyCount})`} to={`/post/${post.postId}#post-comments`}><Icon name="message" size={18}/>{post.replyCount || ""}</Link>}
+        </PostEconomyActions>
         {expanded && (
           <Details summary="Details">
             <dl className="kv">

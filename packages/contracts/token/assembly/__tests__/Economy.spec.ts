@@ -68,6 +68,34 @@ describe("paid voting and reward accounting", (): void => {
     expect(c.load(A).token_ticks).toBe(88 * 144000);
     expect(c.load(A).transferable).toBe(85);
   });
+  it("weights paid song votes like posts and settles independently of a colliding raw post id", (): void => {
+    const target = new Uint8Array(33);
+    target[0] = 1; target.set(bytes(6), 1);
+    vote(6, A, C, 3);
+    MockVM.commitTransaction();
+    mocks(A, B);
+    c.vote(new token.vote_arguments(A, target, bytes(1), 1, 3));
+    MockVM.commitTransaction();
+    expect(e.posts.get(target)!.score).toBe(e.posts.get(bytes(6))!.score);
+    expect(c.get_post_economy(new token.get_post_economy_arguments(target, A)).vote!.weight).toBe(3);
+    at(144001);
+    mocks(C, B);
+    expect(c.settle_reward(new token.settle_reward_arguments(C, target)).reward).toBe(50);
+    expect(c.load(B).balance).toBe(150);
+    expect(e.posts.get(bytes(6))!.settled).toBe(false);
+  });
+  it("separates a song comment reward from another song with the same comment id and settles a deletion at zero", (): void => {
+    const target = new Uint8Array(65); target[0] = 2; target.set(bytes(7), 1); target.set(bytes(8), 33);
+    mocks(A, B); c.vote(new token.vote_arguments(A, target, bytes(1), 1, 3));
+    MockVM.commitTransaction();
+    expect(c.get_post_economy(new token.get_post_economy_arguments(target, A)).vote!.weight).toBe(3);
+    const other = target.slice(0); other[1] = 3;
+    expect(c.get_post_economy(new token.get_post_economy_arguments(other, A)).reward == null).toBe(true);
+    at(144001); mocks(C, B, 1, 0, 2);
+    expect(c.settle_reward(new token.settle_reward_arguments(C, target)).reward).toBe(0);
+    const reward = c.get_post_economy(new token.get_post_economy_arguments(target)).reward!;
+    expect(reward.settled).toBe(true); expect(Arrays.equal(reward.post_id!, target)).toBe(true);
+  });
   it("rejects free voting, replay, wrong versions, self-votes and blocked votes", (): void => {
     c.accounts.put(A, new token.account_state(0, 100000, 0, Testing.DEFAULT_TIME));
     MockVM.commitTransaction();

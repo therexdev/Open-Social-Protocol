@@ -65,7 +65,7 @@ OUTCOME = { SUCCEEDED: 0, PARTIAL: 1, UNKNOWN: 2, FAILED: 3, RECONCILE_REQUIRED:
 RELATIONSHIP_STATUS = { NONE: 0, PENDING: 1, ACTIVE: 2, INACTIVE: 3 }
 COMMUNITY_ROLE = { NONE: 0, GUEST: 1, MEMBER: 2, MODERATOR: 3, ADMIN: 4, OWNER: 5, BANNED: 6 }
 CONTRACT_STATUS = { PROPOSED: 0, ACTIVE: 1, DEPRECATED: 2 }
-REACTION = { LIKE: 1 }
+REACTION = { LIKE: 1, LOVE: 1, HAPPY: 2, SAD: 3, WORRIED: 4, SURPRISED: 5 }
 ENVELOPE_VERSION = 1; KEY_PACKAGE_VERSION = 1; MANIFEST_VERSION = 1; PROFILE_VERSION = 1
 EVENT_NAMES: { [contract]: { [short]: fullName } }   // EVENT_NAMES.publications.published === "osp.publications.published"
 SPONSOR_ERROR_CATEGORIES; type SponsorErrorCategory = "quota_exceeded" | "method_not_allowed" | "too_large" | "chain_mismatch" | "invalid_signature" | "invalid_transaction" | "temporarily_unavailable"

@@ -265,6 +265,24 @@ describe("GET /v1/posts", () => {
     expect((await get(`/v1/keys/${history.actors.carol.account}`)).body.items).toEqual([]);
   });
 
+  it("narrows the video gallery to public clips and encrypted candidates shared with the viewer", async () => {
+    const { alice, bob, carol } = history.actors;
+    const path = `/v1/accounts/${alice.account}/posts?media=video`;
+    const { p1, p2 } = history.posts;
+    const ref = { mime: "video/mp4", locations: ["osp-clip://contract/id"] };
+    const original = indexer.db.get<{media_json: string}>("SELECT media_json FROM posts WHERE post_id = ?", p1.idB64)!;
+    try {
+      indexer.db.run("UPDATE posts SET media_json = ? WHERE post_id = ?", JSON.stringify([ref]), p1.idB64);
+      const ids = async (viewer?: string) => (await get(path + (viewer ? `&viewer=${viewer}` : ""))).body.items.map((p: { postId: string }) => p.postId);
+      expect(await ids()).toEqual([p1.idB64]);
+      expect(await ids(carol.account)).toEqual([p1.idB64]);
+      expect(await ids(bob.account)).toEqual([p2.idB64, p1.idB64]);
+      expect(await ids(alice.account)).toEqual([p2.idB64, p1.idB64]);
+    } finally {
+      indexer.db.run("UPDATE posts SET media_json = ? WHERE post_id = ?", original.media_json, p1.idB64);
+    }
+  });
+
   it("lists replies and account posts", async () => {
     const replies = (await get(`/v1/posts/${history.posts.p1.idB64}/replies`)).body;
     expect(replies.items.map((p: { postId: string; replyTo: string }) => [p.postId, p.replyTo])).toEqual([[history.posts.r1.idB64, history.posts.p1.idB64]]);

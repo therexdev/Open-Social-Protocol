@@ -56,6 +56,7 @@ export function ComposerPage() {
       <Card>
         <ComposerForm
           key={resume?.id ?? "new"}
+          initialMode={params.get("mode") === "video" ? "video" : params.get("mode") === "voice" ? "voice" : "post"}
           draft={resume}
           defaultAudience={params.get("audience") === "friends" ? AUDIENCE.FRIENDS : AUDIENCE.EVERYONE}
           onSubmitted={(draft) => {

@@ -120,7 +120,7 @@ its transaction receipt. Events of reverted transactions are ignored.
   `postId`, `author`, `contentHash`, `versions[]`, `stateReason` and `replacementId` stay so clients can
   render a placeholder. The bytes remain in the log and the projection (never claims erasure; a rebuild
   reproduces them). Replies never appear in feeds.
-* **Reactions.** Latest state per `(actor, post, reaction)`; `removed = true` deletes the row.
+* **Reactions.** An `exclusive` addition replaces the actor’s choices on its target. A removal deletes the selected reaction. Older additions remain independently keyed by reaction. Song targets use the SDK’s `musicEngagementId`; `GET /v1/music/:id/engagement?viewer=...` accepts the original song id and returns reactions and reward-vote totals. Add `comment=<comment-id>` for a song comment.
 * **Keys.** `keys_distributed` packages are parsed with `parseKeyPackageSet`; every sealed key becomes a
   `key_packages` row addressed to its recipient (a malformed package set is kept in the log but projects nothing).
 * **Relationships.** Pairs are stored under the sorted `(a, b)` key; `blocked` mirrors the contract

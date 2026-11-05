@@ -1,8 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { Signer } from "koilib";
+import { Signer, utils } from "koilib";
 import { canonicalJson, canonicalize, concat, decode, encode, fromBase64url, fromHex, lookupType, toBase64url, toHex, toKoilibJson, u32be, u64be } from "./encoding.js";
 
 describe("encoding", () => {
+  it("keeps the koilib wire encoding across large-block and padding boundaries", () => {
+    for (const size of [16384, 16385, 24575, 24576, 24577, 73730]) {
+      const bytes = Uint8Array.from({ length: size }, (_, i) => i & 255);
+      expect(toBase64url(bytes)).toBe(utils.encodeBase64url(bytes));
+    }
+  });
+
   it("omits default values and keeps ascending field order", () => {
     const zero = encode("osp.envelope.aad", { protocol_version: 0, chain_id: new Uint8Array(0), epoch: 0, audience: 0 });
     expect(zero.length).toBe(0);

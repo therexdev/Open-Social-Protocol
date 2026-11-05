@@ -366,3 +366,59 @@ describe("flat pricing and track artwork", (): void => {
     expect(Arrays.equal(lib.get(ID)!.cover!.photo_id, begin.cover!.photo_id)).toBe(true);
   });
 });
+
+describe("detached voice and video storage", (): void => {
+  it("charges voice usage once, retains ciphertext and never lists it as a song", (): void => {
+    begin.clip_kind = 1;
+    begin.encrypted = true;
+    begin.max_fee = 0;
+    begin.duration_ms = 120000;
+    auth(ALICE, 0);
+    lib.begin(begin, IDENTITY, CONTRACT);
+    MockVM.commitTransaction();
+    auth(); // No token response available on replay.
+    lib.begin(begin, IDENTITY, CONTRACT);
+    auth();
+    lib.append(append, IDENTITY);
+    const v = lib.get(ID)!;
+    expect(v.fee).toBe(0);
+    expect(v.owner_key == null).toBe(true);
+    expect(v.received).toBe(1);
+    expect(lib.list(new publications.list_music_arguments(ALICE)).ids.length).toBe(0);
+    expect(Testing.eventNames()).toStrictEqual(["osp.publications.clip_reserved", "osp.publications.clip_completed"]);
+  });
+  it("rejects voice archives without usage and prevents attaching a public decryption key", (): void => {
+    begin.clip_kind = 1;
+    begin.max_fee = 0;
+    begin.duration_ms = 120001;
+    auth();
+    expect(() => lib.begin(begin, IDENTITY, CONTRACT)).toThrow("duration");
+    begin.duration_ms = 1;
+    auth();
+    expect(() => lib.begin(begin, IDENTITY)).toThrow("usage");
+    begin.nonce = new Uint8Array(24);
+    auth();
+    expect(() => lib.begin(begin, IDENTITY, CONTRACT)).toThrow("key or license");
+  });
+  it("pins video to 100 native tokens and validates both duration bounds", (): void => {
+    begin.clip_kind = 2;
+    begin.mime = "video/mp4";
+    begin.duration_ms = 9999;
+    auth();
+    expect(() => lib.begin(begin, IDENTITY)).toThrow("10 to 30");
+    begin.duration_ms = 30001;
+    auth();
+    expect(() => lib.begin(begin, IDENTITY)).toThrow("10 to 30");
+    begin.duration_ms = 10000;
+    auth();
+    expect(() => lib.begin(begin, IDENTITY)).toThrow("accepted quote");
+    begin.max_fee = 10000000000;
+    start();
+    expect(lib.get(ID)!.fee).toBe(10000000000);
+    auth();
+    lib.begin(begin, IDENTITY);
+    auth();
+    lib.append(append, IDENTITY);
+    expect(lib.list(new publications.list_music_arguments(ALICE)).ids.length).toBe(0);
+  });
+});

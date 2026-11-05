@@ -3,7 +3,8 @@
  */
 import { sha256 } from "@noble/hashes/sha2.js";
 import { PROFILE_VERSION } from "./constants.js";
-import { decode, encode, fromBase64url } from "./encoding.js";
+import { addressToBytes } from "./ids.js";
+import { concat, decode, encode, fromBase64url, utf8 } from "./encoding.js";
 import type { MediaItem } from "./crypto/envelope.js";
 
 /** osp.envelope.profile */
@@ -12,6 +13,8 @@ export interface Profile {
   display_name?: string;
   bio?: string;
   avatar?: MediaItem;
+  avatar_photo_hash?: Uint8Array;
+  banner_photo_hash?: Uint8Array;
   links?: string[];
 }
 
@@ -21,6 +24,14 @@ export interface DecodedProfile {
   bio: string;
   avatar?: Required<MediaItem> & { size: string };
   links: string[];
+  avatar_photo_hash?: Uint8Array;
+  banner_photo_hash?: Uint8Array;
+}
+
+/** Stable id so retrying a profile picture or banner resumes the same photo. */
+export function profilePhotoId(account: string, digest: Uint8Array): Uint8Array {
+  if (digest.length !== 32) throw Error("Invalid profile photo fingerprint.");
+  return sha256(concat(utf8("osp/profile-photo/v1"), addressToBytes(account), digest));
 }
 
 const PROFILE_TYPE = "osp.envelope.profile";

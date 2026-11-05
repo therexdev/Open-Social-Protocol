@@ -266,6 +266,8 @@ export interface PollDefinition { question: string; options: string[]; closes_at
 export interface PollRecord { definition: PollDefinition; counts: number[]; participants: number; engagement_participants: number; engagement_milli: string; }
 export interface PollView { value?: PollRecord; ballot?: { option: number }; now: string; }
 export interface PublishArgs {
+  reply_parent_version?: Bytes;
+  reply_friends_epoch?: number;
   collection_id?: Bytes;
   gallery_only?: boolean;
   poll?: PollDefinition;
@@ -394,6 +396,7 @@ export interface PublicationsReadMethods {
   list_music_requests: [{ owner: Address; after?: Bytes }, { items: MusicAccess[]; next: Bytes }];
   list_music_comments: [{ id: Bytes; after?: Bytes }, { items: MusicComment[]; next: Bytes }];
   get_music_config: [Record<string, never>, ValueResult<MusicConfig>];
+  get_music_vote_target: [{ id: Bytes; viewer?: Address }, ValueResult<PostRecord>];
   get_music_art_version: [Record<string, never>, { version: number }];
   get_music: [{ id: Bytes }, ValueResult<MusicRecord>];
   get_music_chunk: [{ id: Bytes; index: number }, { data: Bytes }];
@@ -904,6 +907,7 @@ export interface LifecycleEvent {
   timestamp: string;
 }
 export interface ReactionEvent {
+  exclusive?: boolean;
   actor: string;
   post_id: Uint8Array;
   post_author: string;

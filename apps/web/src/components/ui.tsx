@@ -1,7 +1,7 @@
 /** Small accessible building blocks shared by every page. */
 import { useEffect, useId, useRef, useState, type ReactNode, type CSSProperties } from "react";
 import { Link } from "react-router-dom";
-import { shortAddress } from "../util/format";
+import { useProfileName } from "../features/profile/useProfileName";
 
 export function Card({ children, className = "", title, actions }: { children: ReactNode; className?: string; title?: ReactNode; actions?: ReactNode }) {
   return (
@@ -67,10 +67,14 @@ export function Empty({ children }: { children: ReactNode }) {
   return <p className="empty">{children}</p>;
 }
 
+function AccountName({ account }: { account: string }) {
+  return <>{useProfileName(account)}</>;
+}
+
 export function AccountLink({ account, name, className }: { account: string; name?: string; className?: string }) {
   return (
     <Link to={`/u/${account}`} className={`account-link ${className ?? ""}`.trim()} title={account}>
-      {name || shortAddress(account)}
+      {name || <AccountName account={account}/>}
     </Link>
   );
 }

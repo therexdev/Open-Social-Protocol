@@ -1,4 +1,4 @@
-import { Arrays, Base64, Protobuf, Storage, System, authority } from "@koinos/sdk-as";
+import { Arrays, Base64, Crypto, Protobuf, Storage, System, authority } from "@koinos/sdk-as";
 import { Token } from "./Token";
 import { token } from "./proto/token";
 import { publications } from "./proto/publications";
@@ -66,6 +66,26 @@ export class Economy {
     System.require(id.length == 32, "post id must be 32 bytes");
     return id;
   }
+  engagementId(value: Uint8Array | null): Uint8Array {
+    const id = Util.requireBytes(value, 65, "engagement id");
+    if ((id.length == 33 && id[0] == 1) || (id.length == 65 && id[0] == 2)) return id;
+    return this.id(id);
+  }
+  storageId(id: Uint8Array): Uint8Array {
+    if (id.length != 65) return id;
+    // A comment id is scoped to its song. Keep all storage keys short and
+    // disjoint from 32-byte post keys and 0x01-prefixed song keys.
+    return Util.concat([id.slice(0, 1), System.hash(Crypto.multicodec.sha2_256, id)!.slice(2)]);
+  }
+  voteTarget(id: Uint8Array, viewer: Uint8Array | null = null): publications.post_record {
+    if (id.length == 32) return this.post(id);
+    const call = System.call(this.owner.cfg().publications!, 0x1b115990,
+      Protobuf.encode(new publications.get_music_vote_target_arguments(id.slice(1), viewer), publications.get_music_vote_target_arguments.encode));
+    System.require(call.code == 0 && call.res.object != null, "song lookup failed");
+    const target = Protobuf.decode<publications.get_music_vote_target_result>(call.res.object!, publications.get_music_vote_target_result.decode).value;
+    System.require(target != null, "song is incomplete or inaccessible");
+    return target!;
+  }
   post(id: Uint8Array): publications.post_record {
     const call = System.call(this.owner.cfg().publications!, 0xe7392850,
       Protobuf.encode(new publications.get_post_arguments(id), publications.get_post_arguments.encode));
@@ -109,17 +129,17 @@ export class Economy {
     System.event("osp.token.test_tokens_granted", Protobuf.encode(new token.test_tokens_granted_event(account, args.value, grant.minted, Util.now()), token.test_tokens_granted_event.encode), [account]);
   }
   vote(args: token.vote_arguments): void {
-    const actor = Util.requireAddress(args.actor, "actor"), id = this.id(args.post_id), e = this.cfg(), block = height();
+    const actor = Util.requireAddress(args.actor, "actor"), id = this.engagementId(args.post_id), e = this.cfg(), block = height();
     Actor.requireAuthorized(this.owner.cfg().identity!, actor, args.device, Capability.SUPPORT);
     System.require((args.direction == 1 || args.direction == 2) && args.weight > 0 && args.weight <= e.max_vote_weight, "invalid vote direction or weight");
-    const p = this.post(id);
+    const p = this.voteTarget(id, actor);
     System.require(this.eligible(p, args.version), "vote requires the current active public post version");
     System.require(!Arrays.equal(actor, p.author!), "cannot vote on your own post");
     this.unblocked(actor, p.author!);
-    const key = Util.concat([actor, id]);
+    const stored = this.storageId(id), key = Util.concat([actor, stored]);
     System.require(this.ballots.get(key) == null, "already voted on this post; ballots cannot be changed");
     const epochId = this.current(e, block);
-    let reward = this.posts.get(id);
+    let reward = this.posts.get(stored);
     if (reward == null) reward = new token.post_reward(id, args.version, p.author, epochId);
     System.require(!reward.settled && reward.epoch == epochId && Arrays.equal(reward.version!, args.version!), "this post's reward voting window is closed");
     let epoch = this.epochs.get(Util.u64be(epochId));
@@ -142,20 +162,20 @@ export class Economy {
     epoch.total_weight += args.weight;
     const vote = new token.ballot(args.direction, args.weight, block);
     this.ballots.put(key, vote);
-    this.posts.put(id, reward);
+    this.posts.put(stored, reward);
     this.epochs.put(Util.u64be(epochId), epoch);
     this.config.put(e);
     this.owner.save(actor, r);
     System.event("osp.token.voted", Protobuf.encode(new token.voted_event(actor, reward, vote, epoch, Util.now()), token.voted_event.encode), [actor, p.author!]);
   }
   settle(args: token.settle_reward_arguments): u64 {
-    const actor = Util.requireAddress(args.actor, "actor"), id = this.id(args.post_id), e = this.cfg(), c = this.owner.cfg();
+    const actor = Util.requireAddress(args.actor, "actor"), id = this.engagementId(args.post_id), e = this.cfg(), c = this.owner.cfg();
     Actor.requireAuthorized(c.identity!, actor, args.device, Capability.SUPPORT);
-    const reward = this.posts.get(id);
+    const stored = this.storageId(id), reward = this.posts.get(stored);
     System.require(reward != null && !reward.settled, "no unsettled reward for this post");
     const epoch = this.epochs.get(Util.u64be(reward!.epoch));
     System.require(epoch != null && height() >= epoch.end_block, "reward period is still open");
-    const p = this.post(id);
+    const p = this.voteTarget(id);
     const amount = this.eligible(p, reward!.version) && epoch!.total_score > 0 ? epoch!.budget * reward!.score / epoch!.total_score : 0;
     System.require(amount <= e.reserved && epoch!.paid + amount <= epoch!.budget, "invalid reward reserve");
     // Claims never refill an existing token, even when the claimant is the author.
@@ -173,7 +193,7 @@ export class Economy {
     e.reserved -= amount;
     if (epoch!.settled_count == epoch!.post_count) e.reserved -= epoch!.budget - epoch!.paid;
     System.require(c.supply + e.reserved <= MAX_SUPPLY, "token supply cap reached");
-    this.posts.put(id, reward!);
+    this.posts.put(stored, reward!);
     this.epochs.put(Util.u64be(epoch!.id), epoch!);
     this.config.put(e);
     this.owner.config.put(c);
@@ -224,7 +244,7 @@ export class Economy {
     return new token.get_economy_result(e, block, e == null ? 0 : this.current(e, block));
   }
   postView(args: token.get_post_economy_arguments): token.get_post_economy_result {
-    const id = this.id(args.post_id), reward = this.posts.get(id);
+    const id = this.storageId(this.engagementId(args.post_id)), reward = this.posts.get(id);
     const vote: token.ballot | null = Util.isEmpty(args.viewer) ? null : this.ballots.get(Util.concat([Util.requireAddress(args.viewer, "viewer"), id]));
     return new token.get_post_economy_result(reward, vote, reward == null ? null : this.epochs.get(Util.u64be(reward.epoch)), this.promotions.get(id), height());
   }

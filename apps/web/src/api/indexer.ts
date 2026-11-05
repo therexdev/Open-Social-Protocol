@@ -384,8 +384,12 @@ export class IndexerClient {
   collections(query: { owner?: string; viewer?: string; kind: number; after?: string }): Promise<{items: Array<{id: string}>; next?: string}> { return this.get(`/v1/collections${qs(query)}`); }
   albumItems(id: string, after?: string): Promise<{items: Array<{id: string}>; next?: string}> { return this.get(`/v1/collections/${encodeURIComponent(id)}/items${qs({after})}`); }
   collectionPosts(id: string, query: PageQuery = {}): Promise<Page<PostView>> { return this.get(`/v1/collections/${encodeURIComponent(id)}/posts${qs({...query})}`); }
-  accountPosts(account: string, query: PageQuery = {}): Promise<Page<PostView>> {
-    return this.get<Page<PostView>>(`/v1/accounts/${encodeURIComponent(account)}/posts${qs({ cursor: query.cursor, limit: query.limit, viewer: query.viewer })}`);
+  accountPosts(account: string, query: PageQuery & { media?: "video" } = {}): Promise<Page<PostView>> {
+    return this.get<Page<PostView>>(`/v1/accounts/${encodeURIComponent(account)}/posts${qs({ cursor: query.cursor, limit: query.limit, viewer: query.viewer, media: query.media })}`);
+  }
+
+  musicEngagement(id: string, viewer?: string, comment?: string): Promise<Pick<PostView, "reactions" | "economy">> {
+    return this.get(`/v1/music/${encodeURIComponent(id)}/engagement${qs({ viewer, comment })}`);
   }
 
   async post(postId: string, viewer?: string): Promise<PostView | undefined> {

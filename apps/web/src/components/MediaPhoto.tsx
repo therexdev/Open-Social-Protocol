@@ -6,13 +6,13 @@ import { useVault } from "../vault/context";
 import { Button } from "./ui";
 import { cachedMediaBytes, rememberMediaBytes } from "../api/mediaCache";
 
-export interface MediaPhotoProps { location: string; hash: string; mime: string; alt?: string; encryption?: { key: string; nonce: string } }
+export interface MediaPhotoProps { location: string; hash: string; mime: string; alt?: string; decorative?: boolean; encryption?: { key: string; nonce: string } }
 /** Only verified raster bytes become a blob URL. Private URLs are revoked on lock/unmount. */
-export function MediaPhoto({ location, hash, mime, alt = "Attached photo", encryption }: MediaPhotoProps) {
+export function MediaPhoto({ location, hash, mime, alt = "Attached photo", encryption, decorative = false }: MediaPhotoProps) {
   const services = useOptionalServices();
   const gateways = useSettings(s => s.ipfsGateways);
   const session = useVault(s => s.session);
-  const host = useRef<HTMLDivElement>(null);
+  const host = useRef<HTMLDivElement & HTMLSpanElement>(null);
   const [visible,setVisible] = useState(false), [retry,setRetry] = useState(0);
   const [loaded,setLoaded] = useState<{ id: string; url?: string; error?: string }>();
   const id = JSON.stringify([location,hash,mime,encryption]);
@@ -51,6 +51,7 @@ export function MediaPhoto({ location, hash, mime, alt = "Attached photo", encry
     return () => { controller.abort(); if (objectUrl) URL.revokeObjectURL(objectUrl); };
   },[id,gatewayKey,visible,retry,services,encryption ? session : undefined]);
   const result = loaded?.id === id ? loaded : undefined;
+  if (decorative) return <span ref={host} className="profile-image">{result?.url && <img src={result.url} alt={alt} decoding="async"/>}</span>;
   return <div className="ipfs-photo" ref={host}>
     {encryption && !session ? <p>Unlock to view this photo.</p> : result?.url ? <img src={result.url} alt={alt} decoding="async" onError={() => setLoaded({ id,error: "This photo could not be displayed." })}/> : result?.error ? <div className="photo-placeholder"><p>{result.error}</p><Button variant="ghost" onClick={() => setRetry(n => n + 1)}>Retry photo</Button></div> : <div className="photo-placeholder" role="status">Loading photo…</div>}
   </div>;

@@ -13,7 +13,7 @@ let root:Root|undefined,container:HTMLDivElement;
 const id=new Uint8Array(32).fill(1),version=new Uint8Array(32).fill(2);
 const post={postId:toBase64url(id),contentHash:toBase64url(version),author:"bob",audience:0,state:0} as PostView;
 async function render(p=post){container=document.createElement("div");document.body.append(container);root=createRoot(container);await act(async()=>{root!.render(<PostEconomyActions post={p}/>);});}
-async function click(label:string){const button=[...container.querySelectorAll("button")].find(b=>b.textContent?.includes(label));expect(button).toBeTruthy();await act(async()=>{button!.click();});}
+async function click(label:string){const button=[...container.querySelectorAll("button")].find(b=>b.getAttribute("aria-label") === label || b.textContent?.includes(label));expect(button).toBeTruthy();await act(async()=>{button!.click();});}
 function ready(n="10"){return {value:{balance:n,resource_version:2,token_ticks:(BigInt(n)*144000n).toString(),free_ticks:"14400000",ticks_per_unit:"144000",transferable:n,locked:"0",free_credits:"100000",token_credits:"10000",updated_at:"0"}};}
 beforeEach(()=>{vi.clearAllMocks();h.me.account="alice";h.getPost.mockResolvedValue({block:"100"});h.getAccount.mockResolvedValue(ready());h.getBoard.mockResolvedValue({values:[],block:"100"});h.vote.mockResolvedValue({vote:true});h.promote.mockResolvedValue({promote:true});h.settle.mockResolvedValue({settle:true});h.submit.mockResolvedValue({});});
 afterEach(async()=>{await act(async()=>root?.unmount());container?.remove();});

@@ -66,6 +66,20 @@ describe("publishDraft", () => {
     expect(provider.sent).toHaveLength(0);
     expect(await listDrafts(session)).toHaveLength(1);
   });
+  it("refuses a saved private-comment edit that omits its real parent or still targets the old readership", async () => {
+    const session = await openSession();
+    const { protocol, indexer, provider } = chainFor(session.identity.account);
+    const comment = new Uint8Array(32).fill(5), parent = new Uint8Array(32).fill(6), hash = new Uint8Array(32).fill(7);
+    const draft = newDraft(session.identity.account, { text: "revision", audience: AUDIENCE.CUSTOM, mediaUrls: [],
+      edit: { postId: toBase64url(comment), previousVersion: toBase64url(hash), versionNumber: 2 } });
+    const child = { author: draft.account, state: 0, audience: AUDIENCE.CUSTOM, latest_version: hash, reply_to: parent, version_count: 1 };
+    const thread = { ...child, author: friend.account, latest_version: new Uint8Array(32).fill(8), reply_to: new Uint8Array() };
+    vi.spyOn(protocol.reads.publications, "get_post").mockImplementation(async args => ({ value: args?.post_id[0] === 5 ? child : thread }) as never);
+    const deps: PublishDeps = { session, protocol, indexer, payment: "self-only" };
+    await expect(publishDraft(deps, { draft })).rejects.toThrow("readers of this thread changed");
+    await expect(publishDraft(deps, { draft: { ...draft, replyTo: toBase64url(parent), replyGuard: { parentHash: toBase64url(hash) } } })).rejects.toThrow("readers of this thread changed");
+    expect(provider.sent).toHaveLength(0);
+  });
   it("persists the attempt before anything is submitted, so a crash cannot lead to a duplicate", async () => {
     const session = await openSession();
     const { protocol, indexer } = chainFor(session.identity.account);

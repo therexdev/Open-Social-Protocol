@@ -21,6 +21,8 @@ import {
   utf8,
   utf8Decode,
 } from "../encoding.js";
+import { VOICE_MAX_BYTES, VOICE_MAX_DURATION } from "../clips.js";
+import { MUSIC_MIMES } from "../music.js";
 import { randomBytes, x25519KeyPair, x25519SharedSecret } from "./keys.js";
 
 export interface PrivateScope {
@@ -45,19 +47,53 @@ export interface RatchetWire {
   type: number;
   body: string;
 }
-/** Optional authenticated routing information; older v2 readers still see text. */
+/** An encrypted voice archive and its independently generated reading key. */
+export interface PrivateVoiceNote {
+  url: string;
+  mime: string;
+  size: number;
+  durationMs: number;
+  digest: string;
+  key: string;
+  nonce: string;
+}
+
+function encodedBytes(value: unknown, length: number): value is string {
+  if (typeof value !== "string" || value.length !== Math.ceil(length / 3) * 4) return false;
+  try {
+    const bytes = fromBase64url(value);
+    return bytes.length === length && toBase64url(bytes) === value;
+  } catch { return false; }
+}
+
+/** Only this descriptor enters ratcheted envelopes and approved history copies. */
+export function validPrivateVoiceNote(value: unknown): value is PrivateVoiceNote {
+  if (!value || typeof value !== "object") return false;
+  const note = value as PrivateVoiceNote;
+  const location = typeof note.url === "string" && /^osp-clip:\/\/([1-9A-HJ-NP-Za-km-z]{24,40})\/([A-Za-z0-9_-]{43}=)$/.exec(note.url);
+  return !!location && encodedBytes(location[2], 32)
+    && Object.keys(note).every(key => ["url", "mime", "size", "durationMs", "digest", "key", "nonce"].includes(key))
+    && (MUSIC_MIMES as readonly string[]).includes(note.mime)
+    && Number.isSafeInteger(note.durationMs) && note.durationMs > 0 && note.durationMs <= VOICE_MAX_DURATION
+    && Number.isSafeInteger(note.size) && note.size > 16 && note.size <= VOICE_MAX_BYTES
+    && encodedBytes(note.digest, 32) && encodedBytes(note.key, 32) && encodedBytes(note.nonce, 24);
+}
+
+/** Optional authenticated routing and attachments; older v2 readers still see text. */
 export interface PrivateMessageMetadata {
   id: string;
   deviceId: string;
   threadId: string;
   sentAt: number;
+  voice?: PrivateVoiceNote;
 }
 function validMessageMetadata(value: unknown): value is PrivateMessageMetadata {
   if (!value || typeof value !== "object") return false;
   const m = value as PrivateMessageMetadata;
   const key = (v: unknown) => typeof v === "string" && /^[A-Za-z0-9_-]{43}=$/.test(v)
     && fromBase64url(v).length === 32 && toBase64url(fromBase64url(v)) === v;
-  return key(m.id) && key(m.deviceId) && key(m.threadId) && Number.isSafeInteger(m.sentAt) && m.sentAt >= 0;
+  return key(m.id) && key(m.deviceId) && key(m.threadId) && Number.isSafeInteger(m.sentAt) && m.sentAt >= 0
+    && (m.voice === undefined || validPrivateVoiceNote(m.voice));
 }
 export const PRIVATE_MESSAGE_LIMIT = 2500;
 export const PRIVATE_INVITATION_PLAINTEXT = 4096;

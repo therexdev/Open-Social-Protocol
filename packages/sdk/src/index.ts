@@ -45,3 +45,5 @@ export * from "./music.js";
 export * from "./wallet.js";
 
 export * from "./musicCrypto.js";
+
+export * from "./clips.js";

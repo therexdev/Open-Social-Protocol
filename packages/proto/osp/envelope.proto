@@ -102,6 +102,10 @@ message profile {
   string bio = 3;
   media_item avatar = 4;
   repeated string links = 5;
+  // SHA-256 of public JPEG bytes. The id in this network's publications
+  // archive is sha256(utf8("osp/profile-photo/v1") || account bytes || digest).
+  bytes avatar_photo_hash = 6;
+  bytes banner_photo_hash = 7;
 }
 
 // Signed proof manifest binding a publication to its provenance.

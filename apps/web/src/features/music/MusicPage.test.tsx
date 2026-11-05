@@ -8,6 +8,7 @@ import {
   identityFromSeed,
   musicCommentCipher,
   musicKeyContext,
+  musicEngagementId,
   newEpochKey,
   ProtocolClient,
   sealMusicKey,
@@ -18,6 +19,7 @@ import {
   type MusicRecord,
 } from "@osp/sdk";
 import { fakeProvider, fixtureDeployment } from "../../testing/fixtures";
+import { encodeVoiceComment } from "./voiceComment";
 import { MusicPage } from "./MusicPage";
 import { submitAction } from "../../tx/submit";
 const mocks = vi.hoisted(() => ({
@@ -30,7 +32,10 @@ vi.mock("../../vault/context", () => ({
   useVault: (selector: any) => selector({ session: mocks.session }),
   useVaultStore: () => ({ getState: () => ({ session: mocks.session }) }),
 }));
-vi.mock("../session", () => ({ useSubmitContext: () => mocks.submit }));
+vi.mock("../session", () => ({ useSubmitContext: () => mocks.submit, useMe: () => mocks.session?.identity, useCanAct: () => ({ ok: !!mocks.session }) }));
+vi.mock("../tokens/EconomyContext", () => ({ useEconomy: () => ({ version: 1, policy: {
+  max_vote_weight: "1000", promotion_price: "1", max_opportunities: 5, promotion_slots: 32, promotion_interval: "1200",
+} }) }));
 vi.mock("../../tx/submit", () => ({ submitAction: vi.fn() }));
 const owner = identityFromSeed(new Uint8Array(32).fill(7)),
   buyer = identityFromSeed(new Uint8Array(32).fill(8)),
@@ -49,7 +54,7 @@ beforeEach(() => {
   vi.restoreAllMocks();
   vi.mocked(submitAction).mockReset();
   client = new ProtocolClient({ rpc: fakeProvider(), deployment: fixtureDeployment() });
-  mocks.services = { protocol: client };
+  mocks.services = { protocol: client, indexer: { configured: false } };
   mocks.session = { identity: buyer };
   mocks.submit = { client, signer: buyer.signer, payment: "sponsor-only" };
   const context = musicKeyContext(
@@ -275,4 +280,27 @@ it("wrong delivered keys never enable private comments", async () => {
   await mount();
   expect(box.querySelector("textarea")).toBeNull();
   expect(box.textContent).toContain("does not match this track");
+});
+
+
+it("submits emoji and paid votes against the voice comment and its confirmed body version", async () => {
+  record = { ...record, audience: 0, encrypted: false, unlock_price: "0" };
+  const cid = new Uint8Array(32).fill(54);
+  const target = musicEngagementId(id, cid);
+  const body = encodeVoiceComment("Listen", { url: `osp-clip://${client.deployment.contracts.publications.address}/${textId}`,
+    mime: "audio/webm", size: 100, contentHash: new Uint8Array(32).fill(91) });
+  comments = [{ id: cid, body, nonce: new Uint8Array(0), reply_to: new Uint8Array(0), author: owner.account, created_at: now, deleted: false }];
+  vi.spyOn(client.reads.token, "get_post_economy").mockResolvedValue({ block: "100" });
+  vi.spyOn(client.reads.token, "get_account").mockResolvedValue({ value: { resource_version: 2, token_ticks: "1440000", ticks_per_unit: "144000", balance: "10" } } as never);
+  await mount();
+  const row = box.querySelector(".music-comment")!;
+  const click = async (label: string, scope: ParentNode) => act(async () => { scope.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)!.click(); });
+  await click("React", row); await click("Happy", document);
+  let op = client.contracts.decodeOperation(vi.mocked(submitAction).mock.lastCall![1][0]!)!;
+  expect(op.method).toBe("react"); expect(op.args.post_id).toEqual(target);
+  await click("Downvote", row);
+  await act(async () => { row.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); });
+  op = client.contracts.decodeOperation(vi.mocked(submitAction).mock.lastCall![1][0]!)!;
+  expect(op.method).toBe("vote");
+  expect(op.args).toMatchObject({ post_id: target, version: contentHash(body), direction: 2, weight: "1" });
 });

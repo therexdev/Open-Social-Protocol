@@ -1,3 +1,4 @@
+import "./messages.css";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { isAddress } from "@osp/sdk";
@@ -5,6 +6,10 @@ import { Avatar, Icon } from "../../components/Icon";
 import { AccountLink, Button, Card, Field, Notice } from "../../components/ui";
 import { useCanAct } from "../session";
 import { usePrivateMessaging } from "./PrivateMessagingProvider";
+import { MessageSettingsDialog } from "./MessageSettingsDialog";
+import { MessageComposer } from "./MessageComposer";
+import { ClipPlayer } from "../media/ClipPlayer";
+import { voiceAttachment } from "./voiceNote";
 import { MessageRecipientPicker } from "./MessageRecipientPicker";
 import { useMessagePeople } from "./useMessagePeople";
 import type { PrivateSnapshot } from "./privateService";
@@ -31,8 +36,7 @@ export function MessagesPage() {
   const [params] = useSearchParams();
   const [input, setInput] = useState(""),
     [selected, setSelected] = useState(""),
-    [text, setText] = useState(""),
-    [newText, setNewText] = useState(""),
+    [settingsOpen, setSettingsOpen] = useState(false),
     [error, setError] = useState(""),
     [chatSearch, setChatSearch] = useState(""),
     [conversationView, setConversationView] = useState<"open" | "closed">("open"),
@@ -54,7 +58,7 @@ export function MessagesPage() {
     setSelected(linkedChat ?? "");
     setComposing(!!target && !linkedChat);
     setConversationView("open");
-    setText("");
+    setSettingsOpen(false);
     setError("");
   }, [target, linkedChat, account]);
   const scopedChats = snapshot.chats.filter(c => (c.status === "closed") === (conversationView === "closed"));
@@ -91,16 +95,13 @@ export function MessagesPage() {
       setBusy(false);
     }
   };
+  const settingsButton = <Button variant="ghost" aria-label="Message settings" title="Message settings" aria-haspopup="dialog" onClick={() => setSettingsOpen(true)}><Icon name="settings" size={19}/></Button>;
   return (
     <div className={`page private-messages${chat || composing ? " has-conversation" : ""}`}>
       <div className="page-header">
-        <div>
         <h1>Messages</h1>
-        <p className="page-subtitle">
-          Private conversations with a fresh encryption key for every message.
-        </p>
-        </div>
-        {snapshot.enabled && <Button aria-label="New message" title="New message" onClick={() => { setComposing(true); setSelected(""); setInput(""); setConversationView("open"); }}><Icon name="edit" /></Button>}
+        <div className="message-page-actions">{settingsButton}
+        {snapshot.enabled && <Button aria-label="New message" title="New message" onClick={() => { setComposing(true); setSelected(""); setInput(""); setConversationView("open"); }}><Icon name="edit" /></Button>}</div>
       </div>
       {!can.ok && <Notice>{can.reason}</Notice>}
       {(error || snapshot.error) && (
@@ -113,7 +114,8 @@ export function MessagesPage() {
         </Notice>
       )}
       {snapshot.enabled && !chat && !composing && (snapshot.devices?.length ?? 0) > 1 && !snapshot.links?.some(link => link.status === "ready") && <Notice>
-        Link your browsers below to share message history between your phone and desktop. Keep both unlocked while linking, then approve the matching code on your other browser.
+        {snapshot.links?.some(link => link.status === "incoming") ? "A browser has requested access to message history." : "You can link your browsers to share message history."}{" "}
+        <Button variant="ghost" onClick={() => setSettingsOpen(true)}>Manage browsers</Button>
       </Notice>}
       {!snapshot.enabled ? (
         <Card title="Private messages on this browser">
@@ -141,18 +143,18 @@ export function MessagesPage() {
           {requests.length > 0 && <Card title={`Message requests (${requests.length})`}>
             <ul className="list">{requests.map(request => <li key={request.id} className="message-request-row">
               <Avatar account={request.peer} name={people.name(request.peer)} />
-              <div className="message-person-copy"><AccountLink account={request.peer} name={people.name(request.peer)} /><small className="mono muted">{request.peer}</small></div>
-              <Button variant="primary" disabled={!can.ok || !service} busy={busy} onClick={() => void run(async () => { await service!.accept(request.id); setSelected(request.id); setText(""); })}>Accept request</Button>
-              <Button variant="ghost" onClick={() => { setSelected(request.id); setText(""); }}>View</Button>
+              <div className="message-person-copy"><AccountLink account={request.peer} name={people.name(request.peer)} /></div>
+              <Button variant="primary" disabled={!can.ok || !service} busy={busy} onClick={() => void run(async () => { await service!.accept(request.id); setSelected(request.id); })}>Accept request</Button>
+              <Button variant="ghost" onClick={() => { setSelected(request.id); }}>View</Button>
             </li>)}</ul>
           </Card>}
           <div className="messages-grid">
-            <Card className="conversation-list" title="Conversations" actions={<select aria-label="Conversation view" value={conversationView} onChange={event => { setConversationView(event.target.value as "open" | "closed"); setSelected(""); setComposing(false); setText(""); }}><option value="open">Open</option><option value="closed">Closed</option></select>}>
+            <Card className="conversation-list" title="Conversations" actions={<select aria-label="Conversation view" value={conversationView} onChange={event => { setConversationView(event.target.value as "open" | "closed"); setSelected(""); setComposing(false); }}><option value="open">Open</option><option value="closed">Closed</option></select>}>
               <Field label="Search conversations">
                 {id => <input id={id} type="search" placeholder="Search a name or address" value={chatSearch} onChange={event => setChatSearch(event.target.value)} />}
               </Field>
               <div className="conversation-choices">
-                {visibleChats.map(c => <Button key={c.id} aria-pressed={c.id === chat?.id} className="private-chat-choice" onClick={() => { setSelected(c.id); setComposing(false); setText(""); setError(""); }}>
+                {visibleChats.map(c => <Button key={c.id} aria-pressed={c.id === chat?.id} className="private-chat-choice" onClick={() => { setSelected(c.id); setComposing(false); setError(""); }}>
                   <Avatar account={c.peer} name={people.name(c.peer)} />
                   <span className="private-chat-person"><strong>{people.name(c.peer)}</strong><span className="chat-preview">{c.messages.at(-1)?.text || "Start a conversation"}</span></span>
                   <small className="private-chat-status">{chatLabel(c)}</small>
@@ -162,45 +164,24 @@ export function MessagesPage() {
               <div className="message-update-status"><small className="muted">Updates automatically</small><Button variant="ghost" title="Check for messages now" onClick={() => void service?.sync()}><Icon name="refresh" size={16} />Refresh</Button></div>
             </Card>
           {(composing || (!chat && snapshot.chats.length === 0 && conversationView === "open")) && <Card className="new-message-card conversation-pane" title="New message" actions={<Button variant="ghost" aria-label="Back to conversations" onClick={() => setComposing(false)}><Icon name="close" /></Button>}>
-            <form
-              className="form-stack"
-              onSubmit={(e) => {
-                e.preventDefault();
-                void run(async () => {
-                  await service!.queueMessage(input.trim(), newText);
-                  setSelected(input.trim());
-                  setComposing(false);
-                  setConversationView("open");
-                  setNewText("");
-                });
-              }}
-            >
-              <MessageRecipientPicker account={account} value={input} onChange={setInput}
-                friends={people.friends} blocked={people.blocked} name={people.name}
-                loading={people.loading} friendsError={people.error}
-                retryFriends={() => void people.refresh()} disabled={busy} />
-              <Field label="Your message">
-                {id => <textarea id={id} rows={3} maxLength={2500} value={newText} onChange={event => setNewText(event.target.value)} disabled={busy} placeholder="Write a message…" />}
-              </Field>
-              <Button
-                type="submit"
-                variant="primary"
-                disabled={
-                  !can.ok || !service || !input || !newText.trim()
-                }
-                busy={busy}
-              >
-                Send message
-              </Button>
-              {existingChat && <Button type="button" variant="ghost" onClick={() => { setSelected(existingChat.id); setComposing(false); setText(""); }}>Open conversation</Button>}
-            </form>
+            <MessageRecipientPicker account={account} value={input} onChange={setInput}
+              friends={people.friends} blocked={people.blocked} name={people.name}
+              loading={people.loading} friendsError={people.error}
+              retryFriends={() => void people.refresh()} disabled={busy} />
+            <MessageComposer key={`new:${account}:${input}`} disabled={!can.ok || !service || !input || busy}
+              onSend={async (message, voice) => {
+                if (voice) await service!.queueVoice(input.trim(), voice, message);
+                else await service!.queueMessage(input.trim(), message);
+                setSelected(input.trim()); setComposing(false); setConversationView("open");
+              }} />
+            {existingChat && <Button variant="ghost" onClick={() => { setSelected(existingChat.id); setComposing(false); }}>Open conversation</Button>}
           </Card>}
-            {!chat && !composing && (snapshot.chats.length > 0 || conversationView === "closed") && <div className="conversation-placeholder"><span className="feature-icon"><Icon name="message" size={30} /></span><h2>A little closer to your people.</h2><p>Choose a conversation, or start a new one.</p><Button variant="primary" onClick={() => { setComposing(true); setConversationView("open"); }}>New message <Icon name="plus" size={18} /></Button></div>}
+            {!chat && !composing && (snapshot.chats.length > 0 || conversationView === "closed") && <div className="conversation-placeholder"><span className="feature-icon"><Icon name="message" size={30} /></span><h2>Choose a conversation</h2><Button variant="primary" onClick={() => { setComposing(true); setConversationView("open"); }}>New message <Icon name="plus" size={18} /></Button></div>}
             {chat && (
               <Card
                 className="conversation-pane"
                 title={<span className="chat-heading"><Button className="chat-back" variant="ghost" aria-label="Back to conversations" onClick={() => setSelected("")}><Icon name="back" /></Button><Avatar account={chat.peer} name={people.name(chat.peer)} /><AccountLink account={chat.peer} name={people.name(chat.peer)} /></span>}
-                actions={<small className="muted">{chatLabel(chat)}</small>}
+                actions={<><small className="muted">{chatLabel(chat)}</small><span className="chat-settings-mobile">{settingsButton}</span></>}
               >
                 {chat.status === "incoming" && snapshot.autoConnect === false && (
                   <Button
@@ -232,7 +213,7 @@ export function MessagesPage() {
                       className={`message-bubble ${m.mine ? "mine" : ""}`}
                     >
                       <small>
-                        {m.mine ? "You" : "Them"} ·{" "}
+                        {m.mine ? "You" : people.name(chat.peer)} ·{" "}
                         {m.state === "queued" ? "Queued on this browser"
                           : m.state === "sending"
                           ? "Sending…"
@@ -242,7 +223,8 @@ export function MessagesPage() {
                           : m.state === "confirming" ? "On chain · confirming"
                           : new Date(m.timestamp).toLocaleString()}
                       </small>
-                      <p><RichText text={m.text}/></p>
+                      {m.voice && m.state !== "queued" && m.state !== "not-sent" && <ClipPlayer media={voiceAttachment(m.voice)}/>}
+                      {(!m.voice || m.text !== "Voice message" || m.state === "queued" || m.state === "not-sent") && <p><RichText text={m.text}/></p>}
                     </div>
                   ))}
                 </div>
@@ -253,39 +235,12 @@ export function MessagesPage() {
                 }}>{newMessages} new {newMessages === 1 ? "message" : "messages"} ↓</Button>}
                 </div>
                 {chat.status !== "closed" && (
-                  <form
-                    className="form-stack chat-composer"
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      void run(async () => {
-                        followMessages.current = true;
-                        await service!.queueMessage(chat.peer, text, chat.id.startsWith("pending:") ? undefined : chat.id);
-                        setText("");
-                      });
-                    }}
-                  >
-                    <Field label="Message">
-                      {(id) => (
-                        <textarea
-                          id={id}
-                          rows={2}
-                          maxLength={2500}
-                          value={text}
-                          onChange={(e) => setText(e.target.value)}
-                          disabled={busy}
-                          placeholder="Write a message…"
-                        />
-                      )}
-                    </Field>
-                    <Button
-                      type="submit"
-                      variant="primary"
-                      disabled={!can.ok || !service || !text.trim()}
-                      busy={busy}
-                    >
-                      <Icon name="send" size={18} /> Send message
-                    </Button>
-                  </form>
+                  <MessageComposer key={`${account}:${chat.id}`} disabled={!can.ok || !service || busy} onSend={async (message, voice) => {
+                    followMessages.current = true;
+                    const thread = chat.id.startsWith("pending:") ? undefined : chat.id;
+                    if (voice) await service!.queueVoice(chat.peer, voice, message, thread);
+                    else await service!.queueMessage(chat.peer, message, thread);
+                  }}/>
                 )}
                 {chat.status !== "closed" && (
                   <Button
@@ -312,6 +267,8 @@ export function MessagesPage() {
           closing the browser pauses unfinished delivery.
         </p>
       )}
+      {settingsOpen && <MessageSettingsDialog onClose={() => setSettingsOpen(false)}>
+      {(error || snapshot.error) && <Notice kind="error">{error || snapshot.error}</Notice>}
       {snapshot.enabled && !!snapshot.devices?.length && <Card title="Linked browsers" className="linked-browsers">
         <p>Copy existing history and new messages securely between browsers you approve. Each browser keeps its own message keys. Copies use your existing message credits.</p>
         <p className="muted">This browser: <strong className="mono">{snapshot.deviceId?.slice(0, 8)}</strong></p>
@@ -392,6 +349,7 @@ export function MessagesPage() {
           ))}
         </details>
       )}
+      </MessageSettingsDialog>}
     </div>
   );
 }

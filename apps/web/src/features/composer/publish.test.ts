@@ -32,6 +32,7 @@ import { decodeCallArgs, fakeBlockReceipt, fakeIndexerFetch, fakeProvider, fixtu
 import { bytesOf } from "../../util/bytes";
 import { buildPublishPlan, findExistingPost } from "./publish";
 import { openPost } from "../../api/decrypt";
+import { prepareClip } from "../media/clipArchive";
 import type { PostView } from "../../api/indexer";
 
 const seed = (label: string) => new Uint8Array(32).map((_, i) => (label.charCodeAt(i % label.length) * 7 + i) & 0xff);
@@ -399,7 +400,7 @@ it("publishes a photo-only encrypted post: only authorized friends can locate an
   const body = decryptContent({ envelope,epochKey: edited.epochKey,aad });
   const key = unwrapMediaKey(body.media[0]!.wrapped_key,unwrapContentKey(envelope,edited.epochKey!,aad),body.media[0]!.content_hash);
   expect(openMedia(encrypted.ciphertext,body.media[0]!.content_hash,{ key,nonce: body.media[0]!.nonce })).toEqual(source);
-  await expect(buildPublishPlan({ ...input,media: [...input.media],audience: AUDIENCE.EVERYONE })).rejects.toThrow(/private photos/);
+  await expect(buildPublishPlan({ ...input,media: [...input.media],audience: AUDIENCE.EVERYONE })).rejects.toThrow(/private attachments/);
 });
 
 
@@ -464,4 +465,34 @@ it('revokes a selected reader by encrypting the edited version with a fresh key'
   const aad={chainId:chain.chainId,author:me.account,postId:first.postId,audience:2,audienceId:edited.audienceId,epoch:edited.epoch,versionNumber:2};
   expect(()=>decryptContent({envelope,epochKey:first.epochKey,aad})).toThrow();
   expect(decryptContent({envelope,epochKey:key,aad}).share_with).toEqual([bob.account]);
+});
+
+it.each(["voice", "video"] as const)("publishes private %s with only a sealed reference and retains playback across edits", async kind => {
+  const { chain, indexer } = setup({ epoch: 4 });
+  const source = utf8("binary audio/video fixture");
+  const media = prepareClip({ bytes: source, mime: kind === "voice" ? "audio/webm" : "video/mp4", durationMs: 15000 }, kind, chain, true);
+  const input = { chain, indexer, me, keys: new KeyStore(), text: "", audience: AUDIENCE.FRIENDS,
+    media: [media], attemptId: new Uint8Array(16).fill(34) } as const;
+  const first = await buildPublishPlan({ ...input, media: [media] });
+  const edit = await buildPublishPlan({ ...input, media: [{ ...media, archiveBytes: undefined }], text: "Updated",
+    edit: { postId: toBase64url(first.postId), previousVersion: toBase64url(first.contentHash), versionNumber: 2 } });
+  for (const plan of [first, edit]) {
+    const fields = chain.contracts.decodeOperation(plan.operations.at(-1)!)!.args;
+    expect(fields.media).toEqual([]);
+    const envelope = fields.envelope as Uint8Array;
+    expect(new TextDecoder().decode(envelope)).not.toContain(media.url);
+    const packages = parseKeyPackageSet(chain.contracts.decodeOperation(plan.operations[0]!)!.args.packages as Uint8Array);
+    const readerKey = openEpochKeyFromSet(packages, alice.account, alice.encryption.secretKey)!;
+    expect(openEpochKeyFromSet(packages, mallory.account, mallory.encryption.secretKey)).toBeUndefined();
+    const keys = new KeyStore();
+    await keys.put(ref(plan.epoch), readerKey);
+    const post = { postId: toBase64url(first.postId), author: me.account, envelope: toBase64url(envelope),
+      audience: AUDIENCE.FRIENDS, audienceId: "", contentHash: toBase64url(plan.contentHash), epoch: plan.epoch,
+      versionNumber: plan.versionNumber, state: 0 } as PostView;
+    const result = await openPost(post, { chainId: chain.chainId, keys, me: alice });
+    if (result.status !== "decrypted") throw new Error("Authorized friend could not open the post.");
+    const reference = result.content.media[0]!;
+    expect(reference.locations).toEqual([media.url]);
+    expect(openMedia(bytesOf(media.archiveBytes), reference.content_hash, { key: reference.mediaKey!, nonce: reference.nonce })).toEqual(source);
+  }
 });

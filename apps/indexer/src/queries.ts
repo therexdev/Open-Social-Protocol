@@ -158,19 +158,24 @@ export function labelsForPost(db: IndexerDb, postId: string): LabelView[] {
     }));
 }
 
-function postView(db: IndexerDb, row: PostRow, viewer?: string): PostView {
+export function reactionSummary(db: IndexerDb, id: string, viewer?: string): PostView["reactions"] {
   const byType: Record<string, number> = {};
   let total = 0;
-  for (const r of db.all<{ reaction: number; c: number }>("SELECT reaction, COUNT(*) AS c FROM reactions WHERE post_id = ? GROUP BY reaction ORDER BY reaction", row.post_id)) {
+  for (const r of db.all<{ reaction: number; c: number }>("SELECT reaction, COUNT(*) AS c FROM reactions WHERE post_id = ? GROUP BY reaction ORDER BY reaction", id)) {
     byType[String(r.reaction)] = r.c;
     total += r.c;
   }
   const reactions: PostView["reactions"] = { total, byType };
   if (viewer) {
     reactions.viewer = db
-      .all<{ reaction: number }>("SELECT reaction FROM reactions WHERE post_id = ? AND actor = ? ORDER BY reaction", row.post_id, viewer)
+      .all<{ reaction: number }>("SELECT reaction FROM reactions WHERE post_id = ? AND actor = ? ORDER BY reaction", id, viewer)
       .map((r) => r.reaction);
   }
+  return reactions;
+}
+
+function postView(db: IndexerDb, row: PostRow, viewer?: string): PostView {
+  const reactions = reactionSummary(db, row.post_id, viewer);
   const replyCount =
     db.get<{ c: number }>("SELECT COUNT(*) AS c FROM posts WHERE reply_to = ? AND state NOT IN (1, 2)", row.post_id)?.c ?? 0;
   const versions = db
@@ -293,8 +298,25 @@ export function feed(db: IndexerDb, query: FeedQuery): Page<PostView> {
 }
 
 /** Posts (including replies) by one account, newest first, excluding deleted/hidden ones. */
-export function accountPosts(db: IndexerDb, account: string, cursor: PositionCursor | undefined, limit: number, viewer?: string): Page<PostView> {
-  return pagePosts(db, "p.author = ? AND p.state NOT IN (1, 2)", [account], cursor, limit, viewer);
+export function accountPosts(db: IndexerDb, account: string, cursor: PositionCursor | undefined, limit: number, viewer?: string, media?: "video"): Page<PostView> {
+  let where = "p.author = ? AND p.state NOT IN (1, 2)";
+  const params = [account];
+  if (media === "video") {
+    // Public refs are indexed. Private media types stay inside the audience's envelope:
+    // return only candidate posts for which the viewer may hold a reading key.
+    const publicVideo = `(p.audience = 0 AND EXISTS (
+      SELECT 1 FROM json_each(p.media_json) AS attachment
+      WHERE json_extract(attachment.value, '$.mime') LIKE 'video/%'
+      AND json_extract(attachment.value, '$.locations[0]') LIKE 'osp-clip://%'
+    ))`;
+    const privateCandidate = `(p.audience <> 0 AND (p.author = ? OR EXISTS (
+      SELECT 1 FROM key_packages k WHERE k.author = p.author AND k.audience_id = p.audience_id
+      AND k.epoch = p.epoch AND k.recipient = ?
+    )))`;
+    where += ` AND p.reply_to = '' AND p.gallery_only = 0 AND (${publicVideo}${viewer ? " OR " + privateCandidate : ""})`;
+    if (viewer) params.push(viewer, viewer);
+  }
+  return pagePosts(db, where, params, cursor, limit, viewer);
 }
 
 export function getPost(db: IndexerDb, postId: string, viewer?: string): PostView | undefined {
