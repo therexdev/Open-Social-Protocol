@@ -229,12 +229,13 @@ describe("labeled feed cards", () => {
 
   it("inserts a protected full-width card only when enabled and never writes its plaintext into Facebook", async () => {
     document.body.innerHTML = fixture("no-composer.html");
+    document.querySelector('[role="feed"]')!.insertAdjacentHTML("beforeend", '<div role="article">Second post</div><div role="article" id="third">Third post</div>');
     const disabled = vi.fn(async () => ({ ok: true, result: { enabled: false, items: [], nextCursor: null } }));
     expect(await maybeInsertFeedCards({ document, sendMessage: disabled })).toBeNull();
     resetFeedCards(document);
     const enabled = vi.fn(async () => ({ ok: true, result: { enabled: true, items: [{ postId: "q".repeat(43) + "=", text: "SECRET must not appear in the host DOM" }], nextCursor: null } }));
     const container = await maybeInsertFeedCards({ document, sendMessage: enabled });
-    expect(document.querySelector('[role="feed"]')!.firstElementChild).toBe(container);
+    expect(document.getElementById("third")!.nextElementSibling).toBe(container);
     expect(container!.getAttribute("aria-label")).toBe("Open Social post");
     expect(new URLSearchParams(new URL(container!.querySelector("iframe")!.src).hash.slice(1)).get("post")).toBe("q".repeat(43) + "=");
     expect(document.body.textContent).not.toContain("SECRET");

@@ -6,7 +6,7 @@
  * If the selectors fail nothing breaks: the side panel composer keeps working (sidebar fallback).
  */
 import { CONTROL_ATTR, TOAST_ATTR, createBoundedObserver, scanAndInject, showToast, type BoundedObserver, type ComposerAdapter } from "./adapter";
-import { FEED_ATTR, feedCardNeedsRepair, maybeInsertFeedCards, resetFeedCards, type FeedCardsRuntime } from "./feedCards";
+import { FEED_ATTR, FEED_POST_SELECTOR, feedStructuralNode, feedCardNeedsRepair, maybeInsertFeedCards, resetFeedCards, type FeedCardsRuntime } from "./feedCards";
 import type { PublishReply } from "../shared/protocol";
 import { ComposerAttribution } from "./attribution";
 
@@ -66,16 +66,16 @@ export function relevantFacebookMutation(mutation: MutationRecord): boolean {
   const target = mutation.target.nodeType === 1 ? mutation.target as Element : mutation.target.parentElement;
   const owned = `[${CONTROL_ATTR}], [${FEED_ATTR}], [${STATUS_ATTR}], [${TOAST_ATTR}]`;
   if (target?.closest(`${owned}, ${TEXTBOX}, aside, [role="complementary"]`)) return false;
-  const structural = '[role="main"], main, [role="feed"], [role="article"], [data-pagelet^="FeedUnit_"], [role="dialog"], dialog';
-  if (mutation.type === "attributes") return !!target?.matches(structural);
+  const structural = `[role="main"], main, [role="feed"], ${FEED_POST_SELECTOR}, [data-virtualized], [role="dialog"], dialog`;
+  if (mutation.type === "attributes") return !!target && (target.matches(structural) || feedStructuralNode(target));
   for (const node of mutation.removedNodes) {
     if (node.nodeType === 1 && (node as Element).hasAttribute(FEED_ATTR) && feedCardNeedsRepair(node as Element)) return true;
-    if (node.nodeType === 1 && !node.isConnected && (node as Element).matches(`[${FEED_ATTR}], [${CONTROL_ATTR}]`)) return true;
+    if (node.nodeType === 1 && !node.isConnected && (node as Element).matches(`[${CONTROL_ATTR}]`)) return true;
   }
   for (const node of [...mutation.addedNodes, ...mutation.removedNodes]) {
     if (node.nodeType !== 1) continue;
     const el = node as Element;
-    if (!el.matches(owned) && (el.matches(structural) || el.querySelector(`${structural}, ${TEXTBOX}`))) return true;
+    if (!el.matches(owned) && ((target && feedStructuralNode(target)) || el.matches(structural) || el.querySelector(`${structural}, ${TEXTBOX}`))) return true;
   }
   return false;
 }
@@ -198,7 +198,7 @@ export function startFacebookAdapter(runtime: AdapterRuntime = defaultRuntime())
   const observer = createBoundedObserver({
     target: doc.body ?? root, onBatch: () => scan(), idleMs: 60_000, now,
     filter: relevantFacebookMutation, schedule: callback => setTimeout(callback, 120),
-    observe: { childList: true, subtree: true, attributes: true, attributeFilter: ["role", "data-pagelet", "aria-hidden", "hidden", "style"] },
+    observe: { childList: true, subtree: true, attributes: true, attributeFilter: ["role", "data-pagelet", "aria-posinset", "data-virtualized", "aria-hidden", "hidden", "style", "class"] },
   });
   const resume = () => {
     if (stopped) return;

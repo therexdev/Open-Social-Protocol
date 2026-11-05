@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import { JSDOM } from "jsdom";
 
-const dom = new JSDOM('<body><div role="main"><div role="feed"><section id="first-post"><div role="article">Facebook post</div></section><div data-pagelet="FeedUnit_loading">Loading Facebook</div></div></div></body>', { url: "https://www.facebook.com/", pretendToBeVisual: true });
+const dom = new JSDOM('<body><div role="main"><div role="feed"><section id="first-post"><div role="article">Facebook post</div></section><section><div role="article">Second post</div></section><section id="third-post"><div role="article">Third post</div></section><div id="loading"><div role="article"><div role="status" data-visualcompletion="loading-state">Loading Facebook</div></div></div></div></div></body>', { url: "https://www.facebook.com/", pretendToBeVisual: true });
 // jsdom has no browser input driver. Capture the listener to exercise the trusted-event
 // boundary explicitly; separately prove ordinary synthetic DOM clicks cannot publish.
 const capturedClicks = new Map();
@@ -82,12 +82,12 @@ try {
   await settle();
   assert.equal(doc.querySelectorAll('[role="main"] [data-osp-feed]').length, 1, "Feed toggle must take effect on an existing tab");
   const card = doc.querySelector('[data-osp-feed]');
-  assert.equal(card.nextElementSibling.id, "first-post", "Loaded articles must precede FeedUnit placeholders");
-  doc.querySelector('[data-pagelet]').outerHTML = '<section role="article">Loaded later</section><div data-pagelet="FeedUnit_next">Loading next</div>';
+  assert.equal(card.previousElementSibling.id, "third-post", "A card belongs after three real posts, before the loading suffix");
+  doc.querySelector('#loading').outerHTML = '<section role="article">Loaded later</section><div role="article"><div role="status" data-visualcompletion="loading-state">Loading next</div></div>';
   await settle();
-  assert.equal(card.nextElementSibling.id, "first-post", "Placeholder replacement must not push the card to the tail");
+  assert.equal(card.previousElementSibling.id, "third-post", "Placeholder replacement must not push the card to the tail");
   doc.querySelector('[role="feed"]').append(card); await settle();
-  assert.equal(card.nextElementSibling.id, "first-post", "External reordering must be detected without observing our own moves in a loop");
+  assert.equal(card.previousElementSibling.id, "third-post", "External reordering must be detected without observing our own moves in a loop");
   const feedReads = requests.filter(m => m.type === "feed.request").length;
   card.remove(); await settle();
   assert.equal(doc.querySelector('[data-osp-feed]'), card, "Host removal restores the same card");

@@ -1,12 +1,19 @@
 # @osp/extension
 
-Chrome (Manifest V3) extension for Open Social Protocol. Version **0.2.0** bundles
+Chrome (Manifest V3) extension for Open Social Protocol. Version **0.2.1** bundles
 `apps/web` as the **Social** view, with the current feed, media, profiles, groups,
 wallet, and encrypted messages. The **Browser tools** view retains the original
 worker-isolated device account, Facebook adapter, quick composer, and unfinished
 cross-post recovery. No remotely hosted application code is loaded.
 
-## Version 0.2.0: full social client
+## Version 0.2.1: Facebook feed placement
+
+Facebook cards now follow numbered native feed rows, including virtualized rows,
+instead of the moving loading suffix. The first page and later pages are each
+interleaved one card after every three native posts. Replaced rows recover their
+matching cards; absent rows park their cards rather than collecting them at the tail.
+
+## Included full social client
 
 - Post edits and revision history; polls, mentions, emoji reactions, weighted votes,
   and compact action buttons.
@@ -75,13 +82,13 @@ runtime), `public/icons/*`. Everything is bundled; nothing is loaded from the ne
 To update an unpacked installation, replace the files in the **same folder** you originally loaded,
 then click **Reload** on its card in `chrome://extensions` (or `brave://extensions`). Keep the
 existing installation to preserve its local account/settings. Refresh Facebook after an extension
-upgrade so the page uses the new content script. Check version **0.2.0** in extension Settings.
+upgrade so the page uses the new content script. Check version **0.2.1** in extension Settings.
 
 When Facebook is enabled, existing granted Facebook tabs are attached immediately. Look for
 **Open Social enabled** at the bottom left; expand it for instructions. The cross-post checkbox
 appears in Facebook's **Create post** dialog. The separate **Show Open Social post cards in the Facebook feed** option is off by default. Choose
-Everyone, Friends, or both. The latest five cards appear before the first Facebook post, with more
-interleaved after every three Facebook posts as you scroll. New posts are checked every 30 seconds
+Everyone, Friends, or both. Open Social cards appear one at a time after every
+three Facebook posts as you scroll, including the initial page of cards. New posts are checked every 30 seconds
 while the tab is visible and inserted ahead of the reader, without prepending above their position.
 Friends-only content requires an unlocked extension. Support, Like, and Reply open the original
 post on Open Social. In Facebook's posting box, enable cross-posting and select **Public** or
@@ -169,7 +176,7 @@ or button text matching `/^(post|publish)$/i`, or an explicit submit button). It
 unrelated last button is Post. When the checkbox is on and the user activates the
 submit control through a real trusted event it sends `{ type: "crosspost.publish", payload: { hostSite, text, audience, attemptId, url, submitted, userGesture } }`. A 16-byte attempt id is persisted before sending; concurrent activation and retries are deduplicated. The toast shows publishing, confirmed success, an uncertain result or failure honestly. The service worker signs/encrypts; keys never enter Facebook. If composer detection fails, the side-panel composer remains available.
 
-`src/content/feedCards.ts` prefers native FeedUnit containers over a secondary role=feed below the main lane. Cards retain a before/after anchor and the native post's CSS order. Every scan repairs host reordering or individual removal instead of leaving unmanaged cards at the infinite-scroll tail. It renders the latest five first, paginates after groups of three host posts and polls every 30 seconds. Route changes and replacement lanes reset stale cursors; new arrivals go ahead of the reader.
+`src/content/feedCards.ts` locates the actual vertical row lane using numbered native posts, with legacy FeedUnit/article fallbacks and loading-skeleton exclusion. Each card retains its native post position and CSS order. Reordering/removal is repaired; disappeared positions park their cards until the corresponding row returns. This prevents collecting cards in the infinite-scroll loading suffix. Initial and later pages both place one card after every three native posts. Visible tabs poll every 30 seconds. Navigation resets the feed; replacement lanes restore matching positions. Scroll scans reuse the cached lane, and new arrivals go ahead of the reader.
 
 Each card is a `src/embed/index.html` iframe using the website's actual stylesheet. Only this HTML entry is web-accessible, only to the granted Facebook origins. Its `embed.post` message is separately classified and read-only: the worker returns chain-verified/decrypted content directly to the extension frame. The Facebook document and content script receive only post IDs and sizing messages, never plaintext private content or keys. Embedded frames cannot call vault, settings, feed-page or signing APIs. Lock/session changes clear displayed content, and background feed polling does not keep the vault unlocked. Visible cards refresh metadata every 30 seconds; offscreen cards pause their refreshes. Media is opt-in, URLs are restricted to HTTP(S), and post actions open the original post with `noopener`.
 
@@ -249,3 +256,12 @@ for every publication and every site permission; local privacy (all crypto in th
 file, endpoints in options); honest revocation text in the Friends composer; provenance labels on injected content.
 
 Local visual fixture: after building, run `node apps/extension/scripts/preview-feed.mjs` from the repository root, then open `http://127.0.0.1:4188`. The fixture uses distinct host/card origins and simulated posts; it makes no real transactions. Authenticated Facebook layout acceptance remains a separate manual check.
+
+Facebook scroll regression: after building, run `npm run smoke:facebook-scroll -w apps/extension`
+with Playwright installed. `CHROMIUM_PATH` can point to an existing Chromium executable.
+Optional `FACEBOOK_SNAPSHOT` replays a locally supplied captured HTML page with scripts
+and external resources disabled; it is never uploaded or committed. Optional
+`FACEBOOK_OLD_SCRIPT` demonstrates the old loading-suffix placement before checking
+the new script. All network requests are intercepted. The harness covers rendered
+interleaving, fast scroll, loading, external reordering/removal, anchor recycling,
+and observer settling. It does not replace an authenticated Facebook acceptance test.

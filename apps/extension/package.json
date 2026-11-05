@@ -1,6 +1,6 @@
 {
   "name": "@osp/extension",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "description": "Open Social Protocol browser extension (Chrome Manifest V3): key-isolated service worker, side panel, generic sidebar and Facebook cross-post adapter",
   "license": "MIT",
@@ -14,7 +14,8 @@
     "icons": "node scripts/icons.mjs",
     "zip": "node scripts/zip.mjs",
     "clean": "rm -rf dist dist.zip",
-    "smoke:browser": "node scripts/smoke-browser.mjs"
+    "smoke:browser": "node scripts/smoke-browser.mjs",
+    "smoke:facebook-scroll": "node scripts/smoke-facebook-scroll.mjs"
   },
   "dependencies": {
     "@osp/proto": "0.1.0",
