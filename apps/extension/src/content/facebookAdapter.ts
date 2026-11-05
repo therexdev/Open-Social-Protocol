@@ -157,9 +157,9 @@ export function startFacebookAdapter(runtime: AdapterRuntime = defaultRuntime())
             void Promise.resolve(runtime.sendMessage({ type: "crosspost.facebookComplete", payload: { attemptId, url } })).then(response => {
               if (stopped) return;
               const r = response as { ok?: boolean; result?: PublishReply; error?: { message?: string } };
-              showToast(doc, r?.ok ? r.result?.message || "Open Social is confirming your post." : `Open Social needs attention: ${r?.error?.message || 'Open Compose to finish the saved draft.'}`, 15000);
-            }).catch(() => { if (!stopped) showToast(doc, "Open Compose to check this saved post before retrying.", 15000); });
-          }, () => { finished(); if (!stopped) showToast(doc, "The Facebook post link was not detected. In Browser tools → Compose, add its link to finish your saved Open Social draft.", 20000); });
+              showToast(doc, r?.ok ? r.result?.message || "Open Social is confirming your post." : `Open Social needs attention: ${r?.error?.message || 'Open Post to finish the saved draft.'}`, 15000);
+            }).catch(() => { if (!stopped) showToast(doc, "Open Post to check this saved post before retrying.", 15000); });
+          }, () => { finished(); if (!stopped) showToast(doc, "The Facebook post link was not detected. In Browser tools → Post, add its link to finish your saved Open Social draft.", 20000); });
           pending.add(cancel);
           showToast(doc, "Waiting for Facebook’s published post link…", 60_000);
         } else showToast(doc, reply.result.message, 5000);

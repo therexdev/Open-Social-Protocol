@@ -33,7 +33,7 @@ check(JSON.stringify(manifest.permissions) === JSON.stringify(["storage", "sideP
 check(JSON.stringify(manifest.optional_host_permissions) === JSON.stringify(["https://www.facebook.com/*", "https://web.facebook.com/*"]), "unexpected optional_host_permissions");
 check(manifest.host_permissions === undefined, "no host_permissions allowed (optional only)");
 check(/script-src 'self'/.test(manifest.content_security_policy?.extension_pages ?? "") && !/\x27unsafe-eval\x27/.test(manifest.content_security_policy?.extension_pages ?? ""), "CSP must be script-src 'self' without unsafe-eval");
-check(existsSync(path.join(dist, "social/index.html")), "bundled social client missing");
+check(!existsSync(path.join(dist, "social")), "The embedded website must not be packaged");
 check(existsSync(path.join(dist, "src/permissions/index.html")), "recording permission page missing");
 check(existsSync(path.join(dist, "content/facebook.js")), "dist/content/facebook.js missing");
 const facebookScript = existsSync(path.join(dist, "content/facebook.js")) ? readFileSync(path.join(dist, "content/facebook.js"), "utf8") : "";
@@ -41,7 +41,7 @@ check(!/^\s*(import|export)\s/m.test(facebookScript), "content script must be a 
 check(facebookScript.includes("Also publish to Open Social Protocol"), "content script lost its label");
 for (const file of Object.values(manifest.icons ?? {})) check(existsSync(path.join(dist, file)), `icon missing: ${file}`);
 
-check(release.extensionVersion === manifest.version && release.bundledSocialClient === 1, "extension release metadata mismatch");
+check(release.extensionVersion === manifest.version && release.bundledSocialClient === 0 && release.standaloneProtocolClient === 1, "extension release metadata mismatch");
 const exposed = manifest.web_accessible_resources.flatMap(item => item.resources);
 check(exposed.length === 1 && exposed[0] === "src/embed/index.html", "Only read-only embedded cards may be web-accessible");
 check(manifest.content_security_policy.extension_pages.includes("'wasm-unsafe-eval'"), "Bundled encrypted messaging requires WASM");
@@ -158,6 +158,6 @@ const pages = spawnSync(process.execPath, ["--experimental-vm-modules", path.joi
 if (pages.status !== 0) process.exit(pages.status ?? 1);
 const facebook = spawnSync(process.execPath, [path.join(root, "scripts/smoke-facebook.mjs")], { stdio: "inherit" });
 if (facebook.status !== 0) process.exit(facebook.status ?? 1);
-const social = spawnSync(process.execPath, ["--experimental-vm-modules", path.join(root, "scripts/smoke-social.mjs")], { stdio: "inherit" });
+const social = spawnSync(process.execPath, ["--experimental-vm-modules", path.join(root, "scripts/smoke-client.mjs")], { stdio: "inherit" });
 if (social.status !== 0) process.exit(social.status ?? 1);
 process.exit(0);

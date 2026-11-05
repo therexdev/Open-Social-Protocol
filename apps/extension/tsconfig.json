@@ -16,7 +16,6 @@
   "include": [
     "src",
     "vite.config.ts",
-    "manifest.config.ts",
-    "vite.social.config.ts"
+    "manifest.config.ts"
   ]
 }

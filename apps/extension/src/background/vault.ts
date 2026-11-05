@@ -271,12 +271,17 @@ export class VaultManager {
    * `keepOwnerSeed`, the vault is re-locked in device mode without the identity seed.
    * The passphrase is required because the blob has to be re-encrypted.
    */
-  async completeDeviceAuthorization(input: { passphrase: string; keepOwnerSeed: boolean; device: DeviceInfo }): Promise<UnlockedSession> {
+  async completeDeviceAuthorization(input: { passphrase: string; keepOwnerSeed: boolean; device: DeviceInfo; identity?: string }): Promise<UnlockedSession> {
     const record = await this.record();
     if (!record) throw new VaultError("There is no account in this browser yet.");
-    const secrets = await unlockVault(record.blob, input.passphrase);
+    let secrets = await unlockVault(record.blob, input.passphrase);
     const mode = (secrets.meta?.mode as VaultMode | undefined) ?? record.mode;
-    if (mode !== "owner") throw new VaultError("The identity seed is not in this browser; import the identity file to authorize a device.");
+    if (mode !== "owner") {
+      if (!input.identity) throw new VaultError("Unlock the full account to renew this Facebook authorization.");
+      const identity = importIdentity(input.identity), derived = identityFromSeed(identity.seed, identity.keyVersion);
+      if (identity.account !== record.account || identity.keyVersion !== record.keyVersion || toHex(derived.encryption.secretKey) !== toHex(secrets.seed)) throw new VaultError("The identity does not match this Facebook connection.");
+      secrets = { ...secrets, seed: identity.seed };
+    }
     if (!secrets.deviceSecret || !secrets.deviceAddress) throw new VaultError("The vault has no device key.");
     if (secrets.deviceAddress !== input.device.address) throw new VaultError("The authorized device does not match the vault's device key.");
     const at = this.now();
@@ -330,6 +335,12 @@ export class VaultManager {
   }
 
   /** Signers for an unlocked session: the device key always, the owner key only in owner mode. */
+  withOwnerIdentity(session: UnlockedSession, json: string): UnlockedSession {
+    const identity = importIdentity(json), derived = identityFromSeed(identity.seed, identity.keyVersion);
+    if (derived.account !== session.account || identity.keyVersion !== session.keyVersion || toHex(derived.encryption.publicKey) !== session.encryptionPublicKey) throw new VaultError("The identity does not match this Facebook connection.");
+    return { ...session, ownerSeed: toHex(identity.seed) };
+  }
+
   signers(session: UnlockedSession): { device: Signer; owner?: Signer } {
     const device = signerFromSecret(fromHex(session.deviceSecret));
     return { device, ...(session.ownerSeed && { owner: signerFromSeed(fromHex(session.ownerSeed)) }) };

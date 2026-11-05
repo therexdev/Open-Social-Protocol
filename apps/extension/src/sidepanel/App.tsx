@@ -1,98 +1,76 @@
-import { EconomyPanel } from "./Economy";
-import { useEffect } from "react";
-import { shortAddress } from "../shared/format";
-import { rpc } from "../shared/rpc";
-import { Composer } from "./Composer";
-import { DeviceAuth } from "./DeviceAuth";
-import { Feed } from "./Feed";
-import { Onboarding, Unlock } from "./Onboarding";
-import { UnfinishedPosts } from "./UnfinishedPosts";
-import { usePanel } from "./store";
+/** Standalone extension front end. Shared feature modules speak to the protocol directly;
+ * the website App, Layout, entry point and PWA are not loaded or embedded. */
+import { useEffect, type ReactNode } from "react";
+import { Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { ServicesProvider, type ServicesProviderProps } from "../../../web/src/api/services";
+import { VaultProvider, useVault } from "../../../web/src/vault/context";
+import { useVault as defaultVault, type VaultStore } from "../../../web/src/vault/store";
+import { Spinner } from "../../../web/src/components/ui";
+import { PublishingProvider } from "../../../web/src/features/composer/PublishingProvider";
+import { PrivateMessagingProvider } from "../../../web/src/features/messages/PrivateMessagingProvider";
+import { MusicDeliverySync } from "../../../web/src/features/music/MusicDeliverySync";
+import { UnlockScreen } from "../../../web/src/features/onboarding/UnlockScreen";
+import { AccountEffects } from "./AccountEffects";
+import { ExtensionLayout } from "./ExtensionLayout";
+import { Welcome } from "./Welcome";
+import { FacebookSettings, FacebookDrafts } from "./FacebookSettings";
+import { FeedPage } from "../../../web/src/features/feed/FeedPage";
+import { ComposerPage } from "../../../web/src/features/composer/ComposerPage";
+import { PostPage } from "../../../web/src/features/post/PostPage";
+import { ProfilePage } from "../../../web/src/features/profile/ProfilePage";
+import { GroupsPage, CollectionPage } from "../../../web/src/features/library/LibraryPages";
+import { FriendsPage } from "../../../web/src/features/friends/FriendsPage";
+import { MessagesPage } from "../../../web/src/features/messages/MessagesPage";
+import { MusicPage } from "../../../web/src/features/music/MusicPage";
+import { PeoplePage } from "../../../web/src/features/people/PeopleSearch";
+import { NotificationsPage } from "../../../web/src/features/notifications/NotificationsPage";
+import { WalletPage } from "../../../web/src/features/wallet/WalletPage";
+import { TokensPage } from "../../../web/src/features/tokens/TokensPage";
+import { SettingsPage } from "../../../web/src/features/settings/SettingsPage";
+import { RecoveryPage } from "../../../web/src/features/recovery/RecoveryPage";
+import { HashtagPage } from "../../../web/src/features/feed/HashtagPage";
+import { AboutPage } from "../../../web/src/features/about/AboutPage";
 
-function openOptions() {
-  void chrome.runtime.openOptionsPage();
+function AccountGate({ children }: { children: ReactNode }) {
+  const status=useVault(s=>s.status), location=useLocation();
+  if(status==="loading") return <Spinner label="Opening your account"/>;
+  if(status==="empty") return <Navigate to="/welcome" state={{from:location.pathname+location.search}} replace/>;
+  if(status==="locked") return <UnlockScreen/>;
+  return <>{children}</>;
 }
-
-export function App() {
-  const { status, loading, error, tab, setTab, refreshStatus, loadQueue, run, clearError, skippedDeviceStep } = usePanel();
-
-  useEffect(() => {
-    void refreshStatus();
-    void loadQueue();
-    const timer = setInterval(() => {
-      void refreshStatus();
-    }, 30_000);
-    const changed = (changes: Record<string, unknown>, area: string) => { if (area === "local" && "osp.crossposts" in changes) void loadQueue(); };
-    chrome.storage.onChanged.addListener(changed);
-    return () => { clearInterval(timer); chrome.storage.onChanged.removeListener(changed); };
-  }, [refreshStatus, loadQueue]);
-
-  if (loading || !status) return <div className="content">Loading…</div>;
-
-  const header = (
-    <div className="topbar">
-      <span className="brand">Open Social</span>
-      {status.account && <span className="acct" title={status.account}>{shortAddress(status.account)}</span>}
-      {status.status === "unlocked" && (
-        <button
-          onClick={() =>
-            run(async () => {
-              await rpc("vault.lock");
-              await refreshStatus();
-            })
-          }
-        >
-          Lock
-        </button>
-      )}
-      <button onClick={openOptions} title="Settings">
-        ⚙
-      </button>
-    </div>
-  );
-
-  const requestedPost = new URLSearchParams(location.hash.slice(1)).get("post");
-  let body;
-  if (status.status === "empty") body = <Onboarding />;
-  else if (status.status === "locked") body = <Unlock />;
-  else if (!status.deviceAuthorized && !skippedDeviceStep) body = <DeviceAuth />;
-  else if (requestedPost && /^[A-Za-z0-9_-]{43}=?$/.test(requestedPost)) body = <EconomyPanel postId={requestedPost} initialDirection={Number(new URLSearchParams(location.hash.slice(1)).get("direction")) === 2 ? 2 : 1}/>;
-  else {
-    body = (
-      <>
-        <div className="tabs">
-          <button className={tab === "feed" ? "active" : ""} onClick={() => setTab("feed")}>
-            Feed
-          </button>
-          <button className={tab === "compose" ? "active" : ""} onClick={() => setTab("compose")}>
-            Compose
-          </button>
-        </div>
-        <div className="content">
-          {!status.network.deployed && <div className="notice">Read-only: {status.network.message}</div>}
-          {!status.deviceAuthorized && (
-            <div className="notice">
-              This browser is not authorized to publish yet. <button className="link" onClick={() => usePanel.setState({ skippedDeviceStep: false })}>Authorize</button>
-            </div>
-          )}
-          {tab === "feed" && <Feed />}
-          {tab === "compose" && <><Composer /><UnfinishedPosts /></>}
-        </div>
-      </>
-    );
-  }
-
-  return (
-    <div className="app">
-      {header}
-      {error && (
-        <div className="content" style={{ paddingBottom: 0 }}>
-          <div className="error">
-            {error} <button className="link" onClick={clearError}>dismiss</button>
-          </div>
-        </div>
-      )}
-      {body}
-    </div>
-  );
+function OwnProfile() { const account=useVault(s=>s.account); return <Navigate to={account?`/u/${account}`:"/welcome"} replace/>; }
+export function ExtensionRoutes() {
+  return <Routes>
+    <Route path="/" element={<FeedPage/>}/>
+    <Route path="/compose" element={<AccountGate><ComposerPage/><FacebookDrafts/></AccountGate>}/>
+    <Route path="/post/:postId" element={<PostPage/>}/>
+    <Route path="/u/:account" element={<ProfilePage/>}/>
+    <Route path="/me" element={<AccountGate><OwnProfile/></AccountGate>}/>
+    <Route path="/groups" element={<AccountGate><GroupsPage/></AccountGate>}/>
+    <Route path="/collections/:id" element={<CollectionPage/>}/>
+    <Route path="/friends" element={<AccountGate><FriendsPage/></AccountGate>}/>
+    <Route path="/messages" element={<AccountGate><MessagesPage/></AccountGate>}/>
+    <Route path="/notifications" element={<AccountGate><NotificationsPage/></AccountGate>}/>
+    <Route path="/wallet" element={<AccountGate><WalletPage/></AccountGate>}/>
+    <Route path="/tokens" element={<AccountGate><TokensPage/></AccountGate>}/>
+    <Route path="/music/:id" element={<MusicPage/>}/>
+    <Route path="/tags/:tag" element={<HashtagPage/>}/>
+    <Route path="/people" element={<PeoplePage/>}/>
+    <Route path="/settings" element={<SettingsPage/>}/>
+    <Route path="/facebook" element={<FacebookSettings/>}/>
+    <Route path="/browser-drafts" element={<div className="page"><h1>Unfinished browser posts</h1><FacebookDrafts/></div>}/>
+    <Route path="/welcome" element={<Welcome/>}/>
+    <Route path="/recover" element={<RecoveryPage/>}/>
+    <Route path="/about" element={<AboutPage/>}/>
+    <Route path="*" element={<Navigate to="/" replace/>}/>
+  </Routes>;
+}
+export interface ExtensionAppProps { vault?:VaultStore; settings?:ServicesProviderProps["store"]; services?:ServicesProviderProps["factory"] }
+export function App({vault=defaultVault,settings,services}:ExtensionAppProps) {
+  useEffect(()=>{if(vault.getState().status==="loading")void vault.getState().init();},[vault]);
+  return <VaultProvider store={vault}><ServicesProvider {...(settings&&{store:settings})} {...(services&&{factory:services})}>
+    <PublishingProvider><PrivateMessagingProvider><AccountEffects/><MusicDeliverySync/>
+      <ExtensionLayout><ExtensionRoutes/></ExtensionLayout>
+    </PrivateMessagingProvider></PublishingProvider>
+  </ServicesProvider></VaultProvider>;
 }

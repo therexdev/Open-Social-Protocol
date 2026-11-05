@@ -1,0 +1,52 @@
+/* Extension-owned navigation and panel layout. Feature surfaces share the protocol UI kit. */
+html,body,#root{min-width:300px;min-height:100%;margin:0}
+body{overflow-x:hidden}
+.extension-client{max-width:880px;margin:0 auto;min-height:100vh;background:var(--bg)}
+.client-header{display:flex;align-items:center;gap:10px;padding:15px 14px 12px;background:var(--surface);border-bottom:1px solid var(--border)}
+.client-brand{font-weight:800;font-size:23px;line-height:1.1;letter-spacing:-.7px;flex:1;white-space:nowrap;text-decoration:none;color:var(--text)}
+.client-brand>span{color:var(--accent)}
+.client-brand small{display:block;font-size:10px;line-height:1.5;text-transform:uppercase;letter-spacing:1.8px;color:var(--muted);margin-top:5px;font-weight:600}
+.client-header .header-osat{font-size:12px;min-width:0;padding:6px 9px;border-radius:10px}
+.client-header .header-osat strong{font-size:14px}
+.client-header .header-osat small{font-size:11px}
+.client-header .icon-button{width:32px;height:36px;flex:none}
+.client-nav{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;padding:10px 12px;background:var(--surface);border-bottom:1px solid var(--border)}
+.client-nav a{display:flex;align-items:center;justify-content:center;gap:7px;padding:9px 4px;border-radius:9px;background:var(--bg);border:1px solid var(--border);color:var(--muted);font-size:12px;font-weight:650;text-decoration:none;min-height:38px}
+.client-nav a.active{background:var(--accent-soft,rgba(78,211,191,.12));color:var(--accent);border-color:var(--accent)}
+.client-nav a:hover{color:var(--text)}
+.client-account{display:flex;align-items:center;justify-content:space-between;padding:9px 15px;font-size:12px;border-bottom:1px solid var(--border);gap:12px}
+.client-account>a{display:flex;align-items:center;gap:5px;min-width:0;overflow-wrap:anywhere}
+.client-menu{padding:14px;border-bottom:1px solid var(--border);background:var(--surface);display:grid;gap:14px}
+.client-menu nav{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.client-menu nav a{padding:9px;border:1px solid var(--border);border-radius:8px;font-size:13px}
+.client-menu>a{font-size:12px;color:var(--muted)}
+.client-main{padding:14px 10px 24px;min-width:0}
+.client-main .page{width:100%;max-width:none;padding:0;margin:0}
+.client-main .page-header{gap:8px;margin-bottom:14px}
+.client-main h1{font-size:23px}
+.client-main h2{font-size:18px}
+.client-main .page-subtitle{font-size:12px}
+.client-main .stack{min-width:0}
+.client-main .welcome-hero{display:none}
+.client-main .welcome-page{display:block}
+.client-main .welcome-card{max-width:none;width:100%}
+.client-main .settings-layout{display:block}
+.client-main .settings-nav{position:static;display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px}
+.client-main .settings-nav button{flex:1 1 140px}
+.client-main .messages-page{height:auto;min-height:60vh}
+.account-address{font-size:12px;overflow-wrap:anywhere}
+.legacy-tools{font-size:13px;min-width:0}
+.legacy-tools .options,.legacy-tools .content{max-width:none;margin:0;padding:0}
+.legacy-tools .card{padding:14px;margin:12px 0;border:1px solid var(--border);border-radius:12px;background:var(--surface)}
+.legacy-tools .row{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.legacy-tools label{display:block;margin:10px 0}
+.legacy-tools .lbl{display:block;margin-bottom:5px}
+.legacy-tools input:not([type=checkbox]):not([type=radio]),.legacy-tools textarea,.legacy-tools select{width:100%;max-width:100%}
+.legacy-tools button{font:inherit;border:1px solid var(--border);border-radius:8px;padding:8px 12px;background:var(--surface);color:var(--text);cursor:pointer}
+.legacy-tools button.primary{background:var(--accent);color:var(--on-accent,#062721)}
+.legacy-tools button:disabled{opacity:.55;cursor:default}
+.legacy-tools .error{color:#ffb9bf;white-space:pre-wrap}
+.legacy-tools .notice{padding:10px;background:var(--bg);border-radius:8px;margin:8px 0}
+.legacy-tools .text{white-space:pre-wrap;overflow-wrap:anywhere}
+.legacy-tools summary{cursor:pointer;font-weight:600}
+@media(min-width:620px){.client-nav{grid-template-columns:repeat(6,minmax(0,1fr))}.client-main{padding:20px}.client-header{padding:18px 20px}}

@@ -367,15 +367,16 @@ export function createBackground(options: BackgroundOptions): Background {
     }),
     "device.authorize": defineHandler({
       source: "extension",
-      validate: obj({ passphrase, keepOwnerSeed: bool() }),
+      validate: obj({ passphrase, keepOwnerSeed: bool(), identity: optional(str({ max: 4096 })) }),
       handle: async (p) => {
-        const session = await requireSession();
+        const current = await requireSession();
         await vault.verifyPassphrase(p.passphrase);
+        const session = p.identity ? vault.withOwnerIdentity(current, p.identity) : current;
         const clients = await registry.get();
         const client = requireProtocol(clients);
         const info = await authorizeDevice({ client, session, vault, payment: clients.resolved.payment, now });
         const { registered, ...device } = info;
-        const next = await vault.completeDeviceAuthorization({ passphrase: p.passphrase, keepOwnerSeed: p.keepOwnerSeed, device });
+        const next = await vault.completeDeviceAuthorization({ passphrase: p.passphrase, keepOwnerSeed: p.keepOwnerSeed, device, identity: p.identity });
         keyStores.clear();
         return { device, registered, mode: next.mode };
       },
@@ -545,13 +546,13 @@ export function createBackground(options: BackgroundOptions): Background {
         }
         const record = await crossposts.publishDirect({ text: p.text, audience: p.audience, adapter: "facebook", url: p.url, hostSubmitted: true }, p.attemptId);
         const status = record.koinosStatus === "ok" ? "published" : ["pending", "unknown"].includes(record.koinosStatus) || record.state === "reconcile_required" ? "pending" : "failed";
-        return { attemptId: record.attemptId, status, message: status === "published" ? `Published to Open Social · ${record.audience === AUDIENCE.FRIENDS ? "Friends" : "Public"}` : status === "pending" ? "Open Social is confirming your post. Check its status in Compose." : `Open Social could not publish: ${record.lastError || "Try again."}` };
+        return { attemptId: record.attemptId, status, message: status === "published" ? `Published to Open Social · ${record.audience === AUDIENCE.FRIENDS ? "Friends" : "Public"}` : status === "pending" ? "Open Social is confirming your post. Check its status in Post." : `Open Social could not publish: ${record.lastError || "Try again."}` };
       },
     }),
     "crosspost.facebookComplete": defineHandler({ source: "content", validate: obj({ attemptId: attemptIdSchema, url: httpUrl() }), handle: async (p, ctx) => {
       if (!(await loadSettings()).facebookAdapter) throw Error("The Facebook adapter is disabled.");
       const record = await crossposts.finishFacebook(p.attemptId, p.url, ctx.tabId);
-      return { attemptId: record.attemptId, status: record.koinosStatus === "ok" ? "published" : "pending", message: record.koinosStatus === "ok" ? "Published to Open Social with the Facebook post link." : record.lastError || "Open Compose to check this saved post." };
+      return { attemptId: record.attemptId, status: record.koinosStatus === "ok" ? "published" : "pending", message: record.koinosStatus === "ok" ? "Published to Open Social with the Facebook post link." : record.lastError || "Open Post to check this saved post." };
     } }),
     "crosspost.finishFacebook": defineHandler({ source: "extension", validate: obj({ attemptId: attemptIdSchema, url: httpUrl() }), handle: async p => queueItem(await crossposts.finishFacebook(p.attemptId, p.url)) }),
     "crosspost.propose": defineHandler({

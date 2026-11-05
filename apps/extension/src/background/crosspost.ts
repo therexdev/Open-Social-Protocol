@@ -189,7 +189,7 @@ export class CrossPostOrchestrator {
       let record = file.records.find(r => r.attemptId === attemptId);
       if (record) {
         if (record.author !== account || record.audience !== payload.audience || record.adapter !== payload.adapter || (record.text !== undefined && record.text !== payload.text)) throw new CrossPostError("This publishing attempt belongs to a different draft.");
-        if (record.awaitingFacebook) throw new CrossPostError("Add the published Facebook link in Compose to finish this draft.");
+        if (record.awaitingFacebook) throw new CrossPostError("Add the published Facebook link in Post to finish this draft.");
         if (record.koinosStatus === "ok" || record.state === "submitting" || record.state === "reconcile_required") return record;
         if (record.state !== "draft") return this.retryRecord(file, record);
       } else {
@@ -220,7 +220,7 @@ export class CrossPostOrchestrator {
       if (!record || record.adapter !== "facebook" || record.facebookTabId === undefined || !account || record.author !== account)
         throw new CrossPostError("This Facebook draft is not available to your account.");
       if (tabId !== undefined && (record.facebookTabId !== tabId || this.now() - record.createdAt > 10 * 60_000))
-        throw new CrossPostError("Open Compose to finish this saved Facebook draft.");
+        throw new CrossPostError("Open Post to finish this saved Facebook draft.");
       if (!url) throw new CrossPostError("Paste the published Facebook post link, not the feed or a profile page.");
       if (record.facebookPostUrl && record.facebookPostUrl !== url) throw new CrossPostError("This draft already has a different Facebook post link.");
       if (record.koinosStatus === "ok" || record.state === "submitting" || record.state === "unknown" || record.state === "reconcile_required") return record;
@@ -239,7 +239,7 @@ export class CrossPostOrchestrator {
       const file = await this.load();
       const record = file.records.find((r) => r.attemptId === attemptId);
       if (!record) throw new CrossPostError("Unknown attempt.");
-      if (record.awaitingFacebook) throw new CrossPostError("Add the published Facebook link in Compose to finish this draft.");
+      if (record.awaitingFacebook) throw new CrossPostError("Add the published Facebook link in Post to finish this draft.");
       if (record.state !== "draft") throw new CrossPostError(`This attempt is ${record.state}; use retry or reconcile instead.`);
       const account = await this.deps.account();
       if (!account) throw new CrossPostError("Unlock your account first.");

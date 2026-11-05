@@ -65,7 +65,7 @@ export function explain(record: StoredCrossPost, now: number = Date.now()): Queu
     case "draft":
       if (record.awaitingFacebook) return {
         title: "Waiting for the Facebook post link",
-        detail: "The Open Social copy is saved. If the link was not detected, paste the published Facebook post link in Compose to finish it.",
+        detail: "The Open Social copy is saved. If the link was not detected, paste the published Facebook post link in Post to finish it.",
         actions: ["discard"],
         attention: true,
       };

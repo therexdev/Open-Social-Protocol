@@ -86,40 +86,6 @@ async function smoke(page, exercise) {
   }
 }
 
-await smoke(manifest.side_panel.default_path, async ({ dom, calls, button, settle, errors }) => {
-  assert.ok(button("Social"), "Social client tab must render");
-  assert.ok(dom.window.document.querySelector('iframe[src="https://extension.test/social/index.html#/"]'), "Full app is bundled inside the extension");
-  button("Browser tools").click();
-  await settle();
-  assert.ok(button("Feed"), "Existing browser tools must remain available");
-  button("Compose").click();
-  await settle();
-  const input = dom.window.document.querySelector("textarea");
-  assert.ok(input, `Compose tab must render its editor under the MV3 CSP: ${errors.map(String).join("; ")}`);
-  // Native value setter + input event exercise React's actual onChange handler.
-  Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, "value").set.call(input, "Hello from the packaged composer");
-  input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
-  await settle();
-  assert.equal(button("Post publicly").disabled, false);
-  dom.window.document.querySelectorAll('input[type="radio"]')[1].click();
-  await settle();
-  button("Post to Friends").click();
-  button("Post to Friends")?.click();
-  await settle();
-  const published = calls.filter(c => c.type === "post.publish");
-  assert.equal(published.length, 1, "One click publishes; repeated activation while busy is ignored");
-  assert.equal(published[0].payload.audience, 1);
-  assert.equal(published[0].payload.text, "Hello from the packaged composer");
-  assert.equal(calls.some(c => ["crosspost.create", "crosspost.confirm"].includes(c.type)), false);
-  assert.equal(button("Queue"), undefined, "No Queue tab or confirmation screen");
-  assert.ok(dom.window.document.body.textContent.includes("Published to Friends."));
-  assert.equal(input.value, "");
-  button("Feed").click();
-  await settle();
-  button("Compose").click();
-  await settle();
-  assert.ok(dom.window.document.querySelector("textarea"), "Compose must survive repeat navigation");
-});
 await smoke(manifest.options_page, async ({ dom, calls, settle }) => {
   const doc = dom.window.document;
   assert.ok(doc.body.textContent.includes("Facebook adapter"), "Options page must render");
@@ -149,4 +115,4 @@ await smoke("src/embed/index.html", async ({ dom, calls, settle, lock, resizeMes
   assert.equal(doc.body.textContent.includes("Private friend text"), false, "Lock must remove decrypted text");
   assert.ok(doc.body.textContent.includes("Unlock to read"));
 });
-console.log(`dist page smoke passed (${manifest.version}: panel navigation, options and embedded post/lock; eval disabled in independent realms)`);
+console.log(`dist page smoke passed (${manifest.version}: options and embedded post/lock; eval disabled in independent realms)`);

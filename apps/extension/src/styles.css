@@ -65,12 +65,3 @@ label > span.lbl { display: block; font-size: 12px; color: var(--muted); margin-
 .options section { margin-bottom: 24px; }
 code { font-family: ui-monospace, monospace; font-size: 12px; background: var(--accent-soft); padding: 1px 4px; border-radius: 4px; word-break: break-all; }
 details summary { cursor: pointer; color: var(--muted); font-size: 12px; }
-
-/* Full social client stays mounted while browser tools are visible. */
-.extension-shell { height:100dvh; display:flex; flex-direction:column; overflow:hidden; }
-.extension-toolbar { display:flex; align-items:center; gap:6px; padding:8px; border-bottom:1px solid #294b60; background:#071e2c; flex-shrink:0; }
-.extension-toolbar button { flex:1; min-height:36px; font-size:12px; padding:6px; }
-.extension-toolbar button[aria-pressed=true] { color:#071e2c; background:#5bd8c9; border-color:#5bd8c9; }
-.social-frame { flex:1; width:100%; border:0; background:#051925; min-height:0; }
-.social-frame[hidden], .browser-tools[hidden] { display:none; }
-.browser-tools { flex:1; min-height:0; overflow:auto; }

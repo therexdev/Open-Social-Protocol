@@ -7,9 +7,9 @@ import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 import { JSDOM } from "jsdom";
 
-const dist = fileURLToPath(new URL("../dist/social/", import.meta.url));
-const html = readFileSync(path.join(dist, "index.html"), "utf8");
-const dom = new JSDOM(html, { url: "https://extension.test/social/index.html#/people?q=Rex", pretendToBeVisual: true });
+const dist = fileURLToPath(new URL("../dist/", import.meta.url));
+const html = readFileSync(path.join(dist, "src/sidepanel/index.html"), "utf8");
+const dom = new JSDOM(html, { url: "https://extension.test/src/sidepanel/index.html#/people?q=Rex", pretendToBeVisual: true });
 const person = { account: "1EiR6tc8jtVK6boR5w1chjq17XEXXHiNk4", profileUri: "data:application/x-osp-profile;base64,CAESA1JleA==" };
 const errors = [];
 const requests = [];
@@ -17,11 +17,12 @@ const timers = new Set();
 const pending = [];
 const doc = dom.window.document;
 dom.window.localStorage.setItem("osp.web.settings", JSON.stringify({ network: process.env.VITE_OSP_NETWORK || "harbinger", indexerUrl: "", sponsorUrls: [], rpcUrls: [], payment: "sponsor-then-self" }));
-const chrome = { runtime: { getManifest: () => ({ version: "0.2.0" }), getURL: p => `https://extension.test/${p}`, openOptionsPage: async () => {}, sendMessage: async () => { throw Error("Existing app settings must not be overwritten"); } } };
+const chrome = { runtime: { getManifest: () => ({ version: "0.5.0" }), getURL: p => `https://extension.test/${p}`, openOptionsPage: async () => {}, sendMessage: async () => { throw Error("Existing app settings must not be overwritten"); } } };
 const matchMedia = query => ({ media: query, matches: false, addEventListener() {}, removeEventListener() {} });
 const fetch = async input => {
   const url = new URL(String(input), dom.window.location.href);
   requests.push(url);
+  if(url.origin === "https://extension.test" && url.pathname.startsWith("/assets/")) return new Response(""); // local module preloads
   // Hold the response until assertions have observed the actual request destination.
   if (url.pathname === "/v1/people") return new Promise(resolve => pending.push(() => resolve(new Response(JSON.stringify({ items: [person] })))));
   throw new Error(`Unexpected network request: ${url.href}`);
@@ -62,7 +63,11 @@ try {
   assert.equal(doc.querySelector(".person-result strong")?.textContent, "Rex", "Shipped app could not decode the person's display name");
   assert.equal(doc.querySelector(".person-result")?.getAttribute("href"), `#/u/${person.account}`, "Name does not link to the selected account");
   // Inspect the effective sponsor through the real Settings UI, not a replacement resolver.
-  doc.querySelector('.sidebar a[href="#/settings"]').click();
+  assert.equal(doc.querySelector("iframe"), null, "No website iframe in the standalone client");
+  assert.equal([...doc.querySelectorAll('button')].some(b=>/^(Social|Open in tab)/.test(b.textContent.trim())), false);
+  assert.equal(doc.querySelectorAll('.client-nav a').length, 6, "Standalone feature navigation");
+  doc.querySelector('button[aria-label="More menu"]').click(); await settle();
+  doc.querySelector('.client-menu a[href="#/settings"]').click();
   for (let i = 0; i < 20 && !doc.body.textContent.includes("Network and endpoints"); i++) await settle();
   const networkCategory = [...doc.querySelectorAll('.settings-nav button')].find(button => button.textContent.includes("Network & endpoints"));
   assert.ok(networkCategory, "Settings navigation has no network category");
@@ -72,7 +77,7 @@ try {
   const hint = [...doc.querySelectorAll(".field")].find(field => field.querySelector("label")?.textContent.includes("Sponsors"))?.querySelector(".hint")?.textContent;
   assert.ok(hint && !hint.includes("none") && hint.includes("http"), "Release has no sponsor configured");
   assert.deepEqual(errors, [], "Shipped app encountered runtime errors");
-  console.log(`extension social dist smoke passed (eval forbidden, hash routes, names and settings): saved empty overrides resolve indexer ${people.origin}, nickname search reaches it, and Settings reports a sponsor`);
+  console.log(`standalone extension client smoke passed (eval forbidden, hash routes, names and settings): saved empty overrides resolve indexer ${people.origin}, nickname search reaches it, and Settings reports a sponsor`);
 } finally {
   pending.splice(0).forEach(resolve => resolve());
   for (const id of timers) { clearTimeout(id); clearInterval(id); }
