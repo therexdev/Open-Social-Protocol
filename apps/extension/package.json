@@ -1,19 +1,20 @@
 {
   "name": "@osp/extension",
-  "version": "0.1.8",
+  "version": "0.2.0",
   "private": true,
   "description": "Open Social Protocol browser extension (Chrome Manifest V3): key-isolated service worker, side panel, generic sidebar and Facebook cross-post adapter",
   "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -p tsconfig.json --noEmit && vite build && node scripts/build-content.mjs && node scripts/smoke-dist.mjs",
+    "build": "tsc -p tsconfig.json --noEmit && vite build && vite build --config vite.social.config.ts && node scripts/build-content.mjs && node scripts/build-release.mjs && node scripts/smoke-dist.mjs",
     "smoke": "node scripts/smoke-dist.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "icons": "node scripts/icons.mjs",
     "zip": "node scripts/zip.mjs",
-    "clean": "rm -rf dist dist.zip"
+    "clean": "rm -rf dist dist.zip",
+    "smoke:browser": "node scripts/smoke-browser.mjs"
   },
   "dependencies": {
     "@osp/proto": "0.1.0",
@@ -22,7 +23,8 @@
     "protobufjs": "^7.5.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "zustand": "^5.0.0"
+    "zustand": "^5.0.0",
+    "react-router-dom": "^7.0.0"
   },
   "devDependencies": {
     "@crxjs/vite-plugin": "^2.7.0",

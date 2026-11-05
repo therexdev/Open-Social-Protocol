@@ -23,7 +23,7 @@ async function smoke(page, exercise) {
   let item = { postId: "q".repeat(43) + "=", author: "1Author", authorName: "Jim Profits", viewer: "1Viewer", audience: 1,
     epoch: 1, createdAt: String(Date.now() - 60000), versionNumber: 1, status: "decrypted", text: "Private friend text", reactions: 2, replyCount: 1, labels: [], media: [{ mime: "image/png", locations: ["javascript:alert(1)"], alt_text: "Unsafe link" }] };
   dom.window.addEventListener("error", (event) => { errors.push(event.error); event.preventDefault(); });
-  const chrome = { runtime: { openOptionsPage: async () => {}, sendMessage: async ({ type, payload }) => {
+  const chrome = { runtime: { getURL: p => `https://extension.test/${p}`, openOptionsPage: async () => {}, sendMessage: async ({ type, payload }) => {
     calls.push({ type, payload });
     let result;
     switch (type) {
@@ -87,7 +87,11 @@ async function smoke(page, exercise) {
 }
 
 await smoke(manifest.side_panel.default_path, async ({ dom, calls, button, settle, errors }) => {
-  assert.ok(button("Feed"), "Feed tab must render");
+  assert.ok(button("Social"), "Social client tab must render");
+  assert.ok(dom.window.document.querySelector('iframe[src="https://extension.test/social/index.html#/"]'), "Full app is bundled inside the extension");
+  button("Browser tools").click();
+  await settle();
+  assert.ok(button("Feed"), "Existing browser tools must remain available");
   button("Compose").click();
   await settle();
   const input = dom.window.document.querySelector("textarea");
@@ -133,7 +137,7 @@ await smoke("src/embed/index.html", async ({ dom, calls, settle, lock, resizeMes
   assert.ok(doc.querySelector(".post-text")?.textContent.includes("Private friend text"));
   assert.equal(doc.querySelector('a[href^="javascript:"]'), null);
   assert.equal(doc.querySelector("img"), null, "Media must not load without opting in");
-  assert.ok([...doc.querySelectorAll(".post-footer a")].every((a) => a.target === "_blank" && a.href.startsWith("https://opensocial.online/post/")));
+  assert.ok([...doc.querySelectorAll(".post-footer a")].every((a) => a.target === "_blank" && a.href.startsWith("https://extension.test/social/index.html#/post/")));
   assert.equal(calls.every((call) => call.type === "embed.post"), true, "Embedded cards only perform read-only calls");
   assert.ok(resizeMessages.length > 0);
   assert.equal(resizeMessages[0].origin, "https://www.facebook.com");

@@ -216,7 +216,7 @@ export function MediaCapture({ kind, value, onChange, disabled = false, onBusyCh
       if (generation.current !== ticket) return;
       cancel();
       const denied = e instanceof DOMException && e.name === "NotAllowedError";
-      setError(denied ? "Recording permission was denied. Allow access in your browser and try again." : e instanceof Error ? e.message : String(e));
+      setError(denied ? (location.protocol === "chrome-extension:" ? "Open Microphone / camera at the top of the extension, allow access in that tab, then return and try again." : "Recording permission was denied. Allow access in your browser and try again.") : e instanceof Error ? e.message : String(e));
     }
   };
 

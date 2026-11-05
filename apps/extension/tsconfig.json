@@ -7,8 +7,16 @@
     "noEmit": true,
     "declaration": false,
     "declarationMap": false,
-    "types": ["vite/client", "chrome"],
+    "types": [
+      "vite/client",
+      "chrome"
+    ],
     "allowImportingTsExtensions": true
   },
-  "include": ["src", "vite.config.ts", "manifest.config.ts"]
+  "include": [
+    "src",
+    "vite.config.ts",
+    "manifest.config.ts",
+    "vite.social.config.ts"
+  ]
 }

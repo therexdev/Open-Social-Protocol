@@ -16,6 +16,7 @@ if (!existsSync(path.join(dist, "manifest.json"))) {
   process.exit(1);
 }
 const manifest = JSON.parse(readFileSync(path.join(dist, "manifest.json"), "utf8"));
+const release = JSON.parse(readFileSync(path.join(dist, "release.json"), "utf8"));
 const failures = [];
 const check = (condition, message) => {
   if (!condition) failures.push(message);
@@ -31,12 +32,19 @@ check(manifest.content_scripts === undefined, "no static content_scripts allowed
 check(JSON.stringify(manifest.permissions) === JSON.stringify(["storage", "sidePanel", "scripting", "alarms", "activeTab"]), "unexpected permissions");
 check(JSON.stringify(manifest.optional_host_permissions) === JSON.stringify(["https://www.facebook.com/*", "https://web.facebook.com/*"]), "unexpected optional_host_permissions");
 check(manifest.host_permissions === undefined, "no host_permissions allowed (optional only)");
-check(/script-src 'self'/.test(manifest.content_security_policy?.extension_pages ?? "") && !/unsafe-eval/.test(manifest.content_security_policy?.extension_pages ?? ""), "CSP must be script-src 'self' without unsafe-eval");
+check(/script-src 'self'/.test(manifest.content_security_policy?.extension_pages ?? "") && !/\x27unsafe-eval\x27/.test(manifest.content_security_policy?.extension_pages ?? ""), "CSP must be script-src 'self' without unsafe-eval");
+check(existsSync(path.join(dist, "social/index.html")), "bundled social client missing");
+check(existsSync(path.join(dist, "src/permissions/index.html")), "recording permission page missing");
 check(existsSync(path.join(dist, "content/facebook.js")), "dist/content/facebook.js missing");
 const facebookScript = existsSync(path.join(dist, "content/facebook.js")) ? readFileSync(path.join(dist, "content/facebook.js"), "utf8") : "";
 check(!/^\s*(import|export)\s/m.test(facebookScript), "content script must be a classic script (no import/export)");
 check(facebookScript.includes("Also publish to Open Social Protocol"), "content script lost its label");
 for (const file of Object.values(manifest.icons ?? {})) check(existsSync(path.join(dist, file)), `icon missing: ${file}`);
+
+check(release.extensionVersion === manifest.version && release.bundledSocialClient === 1, "extension release metadata mismatch");
+const exposed = manifest.web_accessible_resources.flatMap(item => item.resources);
+check(exposed.length === 1 && exposed[0] === "src/embed/index.html", "Only read-only embedded cards may be web-accessible");
+check(manifest.content_security_policy.extension_pages.includes("'wasm-unsafe-eval'"), "Bundled encrypted messaging requires WASM");
 
 // ---- a worker-like global scope with eval disabled
 const calls = [];
@@ -150,4 +158,6 @@ const pages = spawnSync(process.execPath, ["--experimental-vm-modules", path.joi
 if (pages.status !== 0) process.exit(pages.status ?? 1);
 const facebook = spawnSync(process.execPath, [path.join(root, "scripts/smoke-facebook.mjs")], { stdio: "inherit" });
 if (facebook.status !== 0) process.exit(facebook.status ?? 1);
+const social = spawnSync(process.execPath, ["--experimental-vm-modules", path.join(root, "scripts/smoke-social.mjs")], { stdio: "inherit" });
+if (social.status !== 0) process.exit(social.status ?? 1);
 process.exit(0);

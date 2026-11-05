@@ -1,0 +1,4 @@
+.extension-app-bar { display:flex; flex-wrap:wrap; align-items:center; gap:.45rem .8rem; padding:.45rem .8rem; color:var(--muted); background:var(--surface); border-bottom:1px solid var(--border); font-size:.75rem; }
+.extension-app-bar > span { margin-right:auto; }
+.extension-app-bar button { font:inherit; color:var(--accent); background:none; border:0; padding:0; cursor:pointer; }
+.extension-signin-note { margin:.8rem; padding:.8rem; border:1px solid var(--border); border-radius:12px; background:var(--surface); line-height:1.5; font-size:.85rem; }

@@ -64,7 +64,7 @@ export function Composer() {
   return <div className="card">
     <h2>New post</h2>
     {!canPublish && <div className="notice">{status?.network.deployed ? "Authorize this browser to publish." : status?.network.message}</div>}
-    <textarea value={text} disabled={busy || attempt.current?.existing} maxLength={MAX_POST_CHARS} onChange={e => setText(e.target.value)} placeholder="What do you want to share?" />
+    <textarea spellCheck autoCorrect="on" value={text} disabled={busy || attempt.current?.existing} maxLength={MAX_POST_CHARS} onChange={e => setText(e.target.value)} placeholder="What do you want to share?" />
     <div className={size.ok ? "muted" : "error"} style={{ textAlign: "right" }}>{size.bytes}/{size.limit} bytes{!size.ok && " · Shorten your post."}</div>
     <div className="audience">
       {[AUDIENCE.EVERYONE, AUDIENCE.FRIENDS].map(value => <label key={value} className={audience === value ? "on" : ""}>

@@ -11,7 +11,7 @@ export default defineManifest({
   manifest_version: 3,
   name: "Open Social Protocol",
   version,
-  description: "Encrypted social protocol on Koinos: feed and composer in the side panel, optional labeled cross-posting from Facebook.",
+  description: "Open Social: posts, voice, video, music, groups and encrypted messages, with optional Facebook cross-posting.",
   minimum_chrome_version: "116",
   icons: {
     16: "public/icons/icon-16.png",
@@ -38,6 +38,6 @@ export default defineManifest({
   permissions: ["storage", "sidePanel", "scripting", "alarms", "activeTab"],
   optional_host_permissions: ["https://www.facebook.com/*", "https://web.facebook.com/*"],
   content_security_policy: {
-    extension_pages: "script-src 'self'; object-src 'self'",
+    extension_pages: "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; frame-ancestors 'self' https://www.facebook.com https://web.facebook.com",
   },
 });

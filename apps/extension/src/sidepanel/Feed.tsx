@@ -10,7 +10,7 @@ function Post({ item }: { item: FeedItem }) {
   return (
     <article className="post">
       <div className="meta">
-        <span title={item.author}>{shortAddress(item.author)}</span>
+        <span title={item.author}>{item.authorName || shortAddress(item.author)}</span>
         <span className="pill">{audienceName(item.audience)}</span>
         <span>{formatTime(item.createdAt)}</span>
         {item.labels.map((label) => (

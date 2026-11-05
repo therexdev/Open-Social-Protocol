@@ -95,7 +95,8 @@ export function PrivateMessagingProvider({
     // Hidden is not locked. Pausing an open background browser deadlocks the
     // two-party handshake. The service still checks the vault before signing.
     const timer = window.setInterval(() => {
-      const readingMessages = document.visibilityState !== "hidden" && window.location.pathname.startsWith("/messages");
+      const route = window.location.protocol === "chrome-extension:" ? window.location.hash.slice(1).split("?")[0] : window.location.pathname;
+      const readingMessages = document.visibilityState !== "hidden" && route === "/messages";
       if (Date.now() - lastPoll >= (workPending || readingMessages ? 2000 : 8000)) sync();
     }, 2000);
     window.addEventListener("online", sync);

@@ -61,6 +61,9 @@ async function evaluate(credentialId: Uint8Array, salt: Uint8Array): Promise<Arr
 export const webauthnPasskey: PasskeyAdapter = {
   async supported() {
     try {
+      // Extension sign-in uses a passphrase; a website passkey's relying-party
+      // domain does not identify a chrome-extension origin.
+      if (typeof location !== "undefined" && location.protocol === "chrome-extension:") return false;
       if (typeof PublicKeyCredential === "undefined" || !navigator.credentials) return false;
       const withCaps = PublicKeyCredential as unknown as { getClientCapabilities?: () => Promise<Record<string, boolean>> };
       if (typeof withCaps.getClientCapabilities === "function") {

@@ -13,6 +13,7 @@ export function PostCard({ item }: { item: FeedItem }) {
   const [images, setImages] = useState<Record<number, boolean>>({});
   const name = item.authorName?.trim() || shortAddress(item.author);
   const postUrl = `${SITE}/post/${encodeURIComponent(item.postId)}`;
+  const appPostUrl = chrome.runtime.getURL("social/index.html") + `#/post/${encodeURIComponent(item.postId)}`;
   const readable = item.status === "plain" || item.status === "decrypted";
   return <article className="post" aria-label={`Post by ${name}`}>
     <header className="post-header">
@@ -25,9 +26,10 @@ export function PostCard({ item }: { item: FeedItem }) {
       <p className="post-text">{item.poll?.definition.question ?? item.text}</p>
       {item.poll && <section aria-label="Poll"><ul>{item.poll.definition.options.map((option, i) => <li key={i}>{option} · {item.poll!.counts[i] ?? 0} answers</li>)}</ul><p>{item.poll.participants} answers · Participation is separate from upvotes and downvotes.</p><a className="btn" href={postUrl} target="_blank" rel="noopener noreferrer">Open poll</a></section>}
       {!!item.media?.length && <ul className="media-list">{item.media.map((media, i) => {
-        const archive = media.locations?.[0]?.startsWith("osp-photo://");
-        const url = archive ? postUrl : safeHttpUrl(media.locations?.[0]);
-        return <li key={i} className="media-item">{url ? <a href={url} target="_blank" rel="noopener noreferrer">{media.alt_text || (archive ? "Open archived photo" : "Attachment")}</a> : <span>{media.alt_text || "Attachment"}</span>}
+        const archive = /^(osp-photo|osp-clip|osp-music):\/\//.test(media.locations?.[0] ?? "");
+        const label = media.mime?.startsWith("video/") ? "Open video" : media.mime?.startsWith("audio/") ? "Open audio" : "Open archived photo";
+        const url = archive ? appPostUrl : safeHttpUrl(media.locations?.[0]);
+        return <li key={i} className="media-item">{url ? <a href={url} target="_blank" rel="noopener noreferrer">{media.alt_text || (archive ? label : "Attachment")}</a> : <span>{media.alt_text || "Attachment"}</span>}
           {!archive && url && media.mime?.startsWith("image/") && <><button className="btn btn-ghost" onClick={() => setImages((old) => ({ ...old, [i]: !old[i] }))}>{images[i] ? "Hide image" : "Show image"}</button>{images[i] && <img className="media-preview" src={url} alt={media.alt_text || ""} referrerPolicy="no-referrer" />}</>}
         </li>;
       })}</ul>}
@@ -36,10 +38,10 @@ export function PostCard({ item }: { item: FeedItem }) {
     {item.promoted && <p className="promotion-label">Promoted · paid for by the author</p>}
     {actionError && <p role="alert">{actionError}</p>}
     <footer className="post-footer">
-      {item.audience === 0 && readable && item.author !== item.viewer && <><button className="btn btn-ghost" onClick={() => openVote(1)}><Icon name="up" size={18}/>Upvote {item.economy?.reward?.up}</button><button className="btn btn-ghost" onClick={() => openVote(2)}><Icon name="down" size={18}/>Downvote {item.economy?.reward?.down}</button></>}
+      {item.audience === 0 && readable && item.author !== item.viewer && <><button className="btn btn-ghost" aria-label="Upvote" title="Upvote" onClick={() => openVote(1)}><Icon name="up" size={18}/> {item.economy?.reward?.up}</button><button className="btn btn-ghost" aria-label="Downvote" title="Downvote" onClick={() => openVote(2)}><Icon name="down" size={18}/> {item.economy?.reward?.down}</button></>}
       {item.audience === 0 && item.author === item.viewer && <button className="btn btn-ghost" onClick={() => openVote(1)}><Icon name="spark" size={18}/>Promote</button>}
-      <a className="btn btn-ghost" href={postUrl} target="_blank" rel="noopener noreferrer" title="Like this post on Open Social"><Icon name="heart" size={18} className={item.liked ? "is-liked" : ""}/> {item.reactions > 0 ? item.reactions : ""} {item.liked ? "Liked" : "Like"}</a>
-      <a className="btn btn-ghost" href={postUrl} target="_blank" rel="noopener noreferrer" title="Reply on Open Social"><Icon name="message" size={18}/>{item.replyCount > 0 ? `${item.replyCount} replies` : "Reply"}</a>
+      <a className="btn btn-ghost" href={appPostUrl} target="_blank" rel="noopener noreferrer" title="React in Open Social" aria-label="React in Open Social"><Icon name="heart" size={18} className={item.liked ? "is-liked" : ""}/> {item.reactions > 0 ? item.reactions : ""}</a>
+      <a className="btn btn-ghost" href={appPostUrl} target="_blank" rel="noopener noreferrer" title="Comment in Open Social" aria-label="Comment in Open Social"><Icon name="message" size={18}/>{item.replyCount > 0 ? item.replyCount : ""}</a>
     </footer>
   </article>;
 }

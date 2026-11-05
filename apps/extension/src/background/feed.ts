@@ -59,9 +59,17 @@ export class FeedService {
     const me = session ? { account: session.account, encryption: this.deps.vault.encryption(session) } : undefined;
     const items: FeedItem[] = [];
     const posts = await this.withPromotions(raw.items ?? [], scope, clients, session);
+    const names = new Map<string, Promise<string | undefined>>();
+    const authorName = (author: string) => {
+      if (!names.has(author)) names.set(author, clients.indexer.profile(author).then(profile => {
+        const prefix = "data:application/x-osp-profile;base64,";
+        return profile?.profileUri.startsWith(prefix) ? decodeProfile(bytesOf(profile.profileUri.slice(prefix.length))).display_name : undefined;
+      }).catch(() => undefined));
+      return names.get(author)!;
+    };
     for (const post of posts) {
       const opened = await openPost(post, { chainId, chain: clients.protocol, keys, me, keySource: clients.indexer });
-      items.push(toFeedItem(post, opened));
+      items.push({ ...toFeedItem(post, opened), authorName: await authorName(post.author) });
     }
     const page: FeedPage = { items, nextCursor: raw.nextCursor ?? null };
     this.cache.set(key, { at: this.now(), page });

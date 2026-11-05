@@ -1,9 +1,56 @@
 # @osp/extension
 
-Chrome (Manifest V3) extension for the Open Social Protocol: a key-isolated service worker, a side
-panel with the protocol feed and composer (the generic sidebar that works on every site), an options
-page, and an optional, clearly labeled Facebook cross-post adapter. Built with Vite 8, @crxjs/vite-plugin,
-React 19 and `@osp/sdk`.
+Chrome (Manifest V3) extension for Open Social Protocol. Version **0.2.0** bundles
+`apps/web` as the **Social** view, with the current feed, media, profiles, groups,
+wallet, and encrypted messages. The **Browser tools** view retains the original
+worker-isolated device account, Facebook adapter, quick composer, and unfinished
+cross-post recovery. No remotely hosted application code is loaded.
+
+## Version 0.2.0: full social client
+
+- Post edits and revision history; polls, mentions, emoji reactions, weighted votes,
+  and compact action buttons.
+- Photos/albums with access controls, music and voice playback/uploads, 10–30 second
+  videos, recording, video previews, and upload progress.
+- Profile photos/banners, mobile profile buttons, group banners and group music tabs.
+- Encrypted messaging with voice notes, browser linking, and history settings.
+- Automatic OSAT rewards, the OSAT balance and testnet total at $0.17 per OSAT,
+  and OSAT/tKOIN wallet transfers.
+- Browser-native spell checking and the latest photo-selection fixes.
+
+The Social view uses the actual shared web components, so future client updates
+are included when rebuilding the extension. Its hash routes work in the sidebar
+and in an extension tab. Switching to Browser tools keeps Social mounted and
+uploads running. Closing the sidebar or its tab stops that page's work; reopen it
+to resume a saved upload. **Open in tab** is useful before starting a longer upload.
+
+### Existing accounts and recording
+
+Import the same identity backup into Social once and choose its local passphrase.
+This does not create another on-chain account. The full client uses its own
+encrypted IndexedDB vault (`osp-web/vault`), separate from the restricted device
+vault used by Browser tools. The extension does not export that device's secrets,
+promote its permissions, or recover a discarded owner seed. If your original
+identity file is unavailable, keep using Browser tools until you retrieve your
+backup from your existing signed-in web account. Website passkeys are not used
+for extension sign-in; passphrase and the existing remember-device option work.
+
+For existing message history, use **Messages → settings → browser linking** to
+link this new client to a browser that already holds your messages. Importing an
+identity alone does not restore messages stored only on another browser.
+
+For first-time recording, select **Microphone / camera** at the top of Social.
+The separate setup tab lets Chrome display its permission prompt. Select the
+microphone or camera button, approve access, then return and record. The setup
+check stops all tracks immediately; it never records or uploads.
+
+Social initially copies Browser tools' network, endpoints, payment preference,
+and lock timeout only when it has no saved settings. Afterward each view retains
+its own settings. Facebook cross-posting remains explicitly opted-in and text-only;
+new media creation is in Social. Embedded Facebook action icons open the bundled
+Social post; vote controls can still use the delegated browser account.
+
+### Build and test
 
 ```sh
 npm run build -w apps/extension   # tsc --noEmit + vite build (manifest, worker, side panel, options) + content scripts + dist smoke
@@ -21,15 +68,14 @@ runtime), `public/icons/*`. Everything is bundled; nothing is loaded from the ne
 
 1. `npm run build -w apps/extension` (from the repository root).
 2. Open `chrome://extensions`, enable **Developer mode**, click **Load unpacked** and pick `apps/extension/dist`.
-3. Click the extension icon: the side panel opens (the action is bound to the side panel).
-4. Create an account or import the identity file exported by the web client (same JSON format), then
-   authorize this browser (see *Device authority*).
-5. Optional: open the extension options (⚙ in the side panel) to enable the Facebook adapter.
+3. Click the extension icon. Social opens in the side panel.
+4. Sign in with your existing identity file, or create an account if you do not have one.
+5. Optional: select Browser tools to unlock/authorize the Facebook device account and enable its adapter in Settings.
 
 To update an unpacked installation, replace the files in the **same folder** you originally loaded,
 then click **Reload** on its card in `chrome://extensions` (or `brave://extensions`). Keep the
 existing installation to preserve its local account/settings. Refresh Facebook after an extension
-upgrade so the page uses the new content script. Check version **0.1.3** in extension Settings.
+upgrade so the page uses the new content script. Check version **0.2.0** in extension Settings.
 
 When Facebook is enabled, existing granted Facebook tabs are attached immediately. Look for
 **Open Social enabled** at the bottom left; expand it for instructions. The cross-post checkbox
@@ -40,7 +86,7 @@ while the tab is visible and inserted ahead of the reader, without prepending ab
 Friends-only content requires an unlocked extension. Support, Like, and Reply open the original
 post on Open Social. In Facebook's posting box, enable cross-posting and select **Public** or
 **Friends** for the Open Social copy. Clicking Facebook's Post publishes immediately while the
-extension is unlocked. Facebook retains its own audience setting. The side panel has Feed and Compose;
+extension is unlocked. Facebook retains its own audience setting. Browser tools has Feed and Compose;
 Compose also publishes directly. There is no Queue tab or second confirmation screen. Saved drafts
 from older releases and failed/interrupted publications remain recoverable under Compose.
 
@@ -50,9 +96,14 @@ read-only mode (no chain writes); the indexer and endpoints can still be configu
 
 ## Security model
 
+The older worker/device account and the full Social account are separate trust
+contexts. Only explicit import/create in Social places owner credentials in its
+trusted extension page. Social is not a web-accessible resource.
+
+
 | Boundary | Rule |
 | --- | --- |
-| Keys | Only the service worker ever holds secrets. Pages (side panel, options) and content scripts talk to it through `chrome.runtime.sendMessage`; they never receive key material or plaintext of other people's private posts beyond what they display. |
+| Keys | For Browser tools, only the service worker holds secrets. Its pages and content scripts talk to it through `chrome.runtime.sendMessage`; they never receive key material or plaintext of other people's private posts beyond what they display. |
 | Vault at rest | `chrome.storage.local["osp.vault"]` holds an SDK `VaultBlob` (scrypt + XChaCha20-Poly1305 under the passphrase). |
 | Unlocked secrets | Memory + `chrome.storage.session` (trusted contexts only, never written to disk, cleared when the browser closes). Auto-lock via `chrome.alarms` (default 15 min of inactivity, configurable). |
 | Device authority | By default this browser holds **only a device key** (`publish | react | comment | relationships`, 30-day expiry, authorized with `identity.authorize_device` signed by the owner key) plus the X25519 encryption secret needed to read friends-only posts. The identity seed is discarded after authorization unless the user opts to keep it. A device can never rotate keys, authorize devices, block or recover. Revocation happens from the web client. |
@@ -61,7 +112,7 @@ read-only mode (no chain writes); the indexer and endpoints can still be configu
 | Message validation | Every message is checked in order: object shape and 32 KiB size cap, `sender.id === chrome.runtime.id`, known type, source classification by origin (extension pages vs content scripts), then for content scripts: a real tab, top frame only, origin among the *granted* optional host permissions, only `crosspost.publish`, legacy `crosspost.propose` and `feed.request`, per-tab rate limit, user gesture for publication/proposals; finally a strict per-type payload schema that rejects unknown keys. Replies carry minimal data. |
 | Content scripts | No static `content_scripts` in the manifest and no remotely hosted code. The Facebook adapter is registered with `chrome.scripting.registerContentScripts` only after the user grants the optional host permission from the options page, runs in the **isolated world** with `matches` limited to the Facebook origins actually granted, and is unregistered (permission removed) when disabled. `permissions.onRemoved` / `onAdded` re-sync the registration when site access changes in `chrome://extensions`; every sync runs through one promise chain and re-reads the settings inside it, so a stale sync cannot undo a later enable. |
 | Publication consent | A real user Post action with explicit opt-in and a visible Public/Friends choice authorizes the Open Social copy. Synthetic host-page clicks are rejected. The worker rechecks the granted origin, tab, gesture, audience, settings and unlocked device. Side-panel Compose publishes directly from its Post button. Legacy drafts never auto-publish on upgrade. |
-| CSP | `script-src 'self'; object-src 'self'`. protobufjs (used by the SDK and koilib) normally generates encoders with `Function()`, which this CSP forbids; `src/shared/protobufNoEval.ts` replaces `Type.prototype.setup` and `Type.generateConstructor` with interpreted equivalents (byte-for-byte parity tested against the generated code) and is the first import of the worker (`src/background/bootstrap.ts`). The whole test suite runs with code generation forbidden (`forbidProtobufCodegen` in `src/test/setup.ts`), and `scripts/smoke-dist.mjs` boots the built worker with `Function`/`eval` disabled. |
+| CSP | `script-src 'self' 'wasm-unsafe-eval'; object-src 'self'`. The WASM allowance runs the locally bundled encrypted-messaging engine; JavaScript eval and remote scripts remain prohibited. protobufjs (used by the SDK and koilib) normally generates encoders with `Function()`, which this CSP forbids; `src/shared/protobufNoEval.ts` replaces `Type.prototype.setup` and `Type.generateConstructor` with interpreted equivalents (byte-for-byte parity tested against the generated code) and is the first import of the worker (`src/background/bootstrap.ts`). The whole test suite runs with code generation forbidden (`forbidProtobufCodegen` in `src/test/setup.ts`), and `scripts/smoke-dist.mjs` boots the built worker with `Function`/`eval` disabled. |
 | Telemetry | None. |
 
 ### Message contract
@@ -162,6 +213,15 @@ generation forbidden, chrome mock). Suites (`npm test -w apps/extension`):
 * `src/content/adapter.test.ts` - adapter detection against the fixtures (URL read at proposal time), observer bounds, labeled feed cards;
 * `src/shared/protobufNoEval.test.ts` - byte parity of the no-eval protobuf runtime with protobufjs' generated code and
   proof that the installed runtime never generates code.
+
+`scripts/smoke-social.mjs` also exercises the packaged full app with eval disabled,
+including hash routing, profile decoding, and configured endpoints.
+`npm run smoke:browser -w apps/extension` optionally uses Playwright (`CHROMIUM_PATH`
+for an installed executable, `TEST_VIDEO` for a 10–30 second MP4). It serves the
+packaged pages under the manifest CSP and tests sign-in, OSAT total, mobile tabs,
+view persistence, voice recording, video preparation, and messaging WASM. Every
+network response is a fixture; it does not send live transactions. It is not a
+Chrome-installed-extension or authenticated Facebook acceptance test.
 
 `scripts/smoke-dist.mjs` (last step of `npm run build`) checks the manifest gates (MV3, module worker, side panel, options,
 no static content scripts, exact permissions, CSP without `unsafe-eval`, classic content script) and boots the built worker

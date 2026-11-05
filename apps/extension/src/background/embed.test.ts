@@ -18,6 +18,8 @@ describe("embedded post boundary", () => {
     const content = t.chrome._contentSender("https://www.facebook.com/");
     const frame = { ...t.chrome._extensionSender("src/embed/index.html#post=" + postId), frameId: 2, tab: content.tab };
     const dispatch = (type: string, payload: unknown, sender: chrome.runtime.MessageSender = frame) => t.chrome._dispatch({ type, payload }, sender) as Promise<{ ok: boolean; result?: { item?: FeedItem } }>;
+    const nativeFeed = await t.call<{ items: FeedItem[] }>("feed.get", { scope: "friends" });
+    expect(nativeFeed.items[0]?.authorName).toBe("Rex");
     const touch = vi.spyOn(t.background.vault, "touch");
     const refs = await t.chrome._dispatch({ type: "feed.request", payload: {} }, content) as { ok: boolean; result: FeedRequestReply };
     expect(refs.result.items).toEqual([{ postId }]);
