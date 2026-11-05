@@ -8,6 +8,8 @@ import {
   encryptContent,
   fromBase64url,
   newEpochKey,
+  parsePhotoLocation,
+  photoCost,
   requirePhotoLibrary,
   toBase64url,
   unwrapContentKey,
@@ -25,11 +27,13 @@ import type { OpenedContent } from "../../api/decrypt";
 import type { Session } from "../../vault/store";
 import { submitAction, type SubmitContext } from "../../tx/submit";
 import { buildContent, type MediaAttachment } from "../composer/publish";
+import { archivePhoto } from "../composer/archivePhoto";
 
 export interface Collection {
   id: string;
   record: CollectionRecord;
   name: string;
+  banner?: MediaAttachment;
 }
 export interface LibraryContext {
   services: Services;
@@ -154,7 +158,20 @@ export async function readCollection(
     data.name.length > 120
   )
     throw new Error("Invalid collection name.");
-  return { ...collection, name: data.name };
+  const bannerIndex = "banner" in data ? data.banner : undefined;
+  if (bannerIndex !== undefined && (record.kind !== 2 || bannerIndex !== 0 || content.media.length !== 1))
+    throw new Error("Invalid group banner metadata.");
+  const banner = bannerIndex === 0 ? attachmentFromContent(content, 0) : undefined;
+  if (banner) validateBanner(ctx, banner);
+  return { ...collection, name: data.name, ...(banner && { banner }) };
+}
+function validateBanner(ctx: LibraryContext, banner: MediaAttachment) {
+  parsePhotoLocation(banner.url, protocol(ctx).deployment.contracts.publications.address);
+  photoCost(banner.size);
+  if (banner.mime !== "image/jpeg" || banner.contentHash.length !== 32 ||
+      !banner.encryption || fromBase64url(banner.encryption.key).length !== 32 ||
+      fromBase64url(banner.encryption.nonce).length !== 24)
+    throw new Error("Group banners must be encrypted photos stored on this network.");
 }
 async function recipientKeys(
   ctx: LibraryContext,
@@ -210,6 +227,8 @@ export async function saveCollection(
     audience: number;
     members: string[];
     previous?: Collection;
+    /** Undefined keeps the current banner; null removes it. */
+    banner?: MediaAttachment | null;
   }
 ): Promise<void> {
   if (!ctx.session || !ctx.submit)
@@ -219,7 +238,22 @@ export async function saveCollection(
     previous = input.previous,
     revision = (previous?.record.revision ?? 0) + 1;
   if (previous && previous.record.owner !== owner)
-    throw new Error("Only the owner can change membership.");
+    throw new Error("Only the owner can update this collection.");
+  if (previous && (previous.id !== input.id || previous.record.kind !== input.kind || previous.record.audience !== input.audience))
+    throw new Error("The collection identity and visibility cannot be changed.");
+  const banner = input.banner === undefined ? previous?.banner : input.banner ?? undefined;
+  if (banner) {
+    if (input.kind !== 2 || input.audience !== AUDIENCE.CUSTOM)
+      throw new Error("Banners are supported for private groups.");
+    validateBanner(ctx, banner);
+  }
+  const checkCurrent = async () => {
+    ctx.assertActive?.();
+    const current = (await protocol(ctx).reads.publications.get_collection({ id: fromBase64url(input.id) }))?.value;
+    if (previous ? !current || current.closed || current.owner !== owner || current.revision !== previous.record.revision : !!current)
+      throw new Error("This collection changed. Reload it before saving this edit.");
+    ctx.assertActive?.();
+  };
   if (!input.name.trim() || input.name.length > 120)
     throw new Error("Enter a name of 1–120 characters.");
   const members = [...new Set(input.members)].filter((a) => a !== owner);
@@ -242,11 +276,15 @@ export async function saveCollection(
     record.audience === AUDIENCE.CUSTOM
       ? await recipientKeys(ctx, [owner, ...members])
       : [];
+  await checkCurrent();
+  // The editor saves the encrypted upload draft first; retries reuse the same
+  // photo id, ciphertext and key instead of reserving storage a second time.
+  if (banner?.archiveBytes) await archivePhoto(banner, ctx.submit, owner, ctx.assertActive);
   const key = record.audience === AUDIENCE.CUSTOM ? newEpochKey() : undefined;
   // Give added album members access to previous album entries, not to other
   // private posts. Groups intentionally give new members future posts only.
   const added =
-    previous && previous.record.audience === AUDIENCE.CUSTOM
+    previous && previous.record.kind === 1 && previous.record.audience === AUDIENCE.CUSTOM
       ? members.filter((a) => !previous.record.members.includes(a))
       : [];
   if (added.length && previous) {
@@ -267,17 +305,19 @@ export async function saveCollection(
         label: "Sharing earlier album contents",
         success: "Earlier reading keys shared",
         quietProgress: true,
-        beforeSubmit: async () => ctx.assertActive?.(),
+        beforeSubmit: checkCurrent,
       });
     }
   }
-  const metadata: Content = {
-    version: 1,
-    text: JSON.stringify({ name: collection.name }),
-    mime: "application/vnd.osp.collection+json",
-  };
+  const contentKey = key ? newEpochKey() : undefined;
+  const metadata: Content = buildContent({
+    text: JSON.stringify({ name: collection.name, ...(banner && { banner: 0 }) }),
+    media: banner ? [banner] : [],
+  }, contentKey);
+  metadata.mime = "application/vnd.osp.collection+json";
   const envelope = encryptContent({
     content: metadata,
+    contentKey,
     epochKey: key,
     aad: aad(ctx, collection, revision),
   }).bytes;
@@ -299,7 +339,7 @@ export async function saveCollection(
   await submitAction(ctx.submit, ops, {
     label: "Saving collection and access",
     success: "Collection saved",
-    beforeSubmit: async () => ctx.assertActive?.(),
+    beforeSubmit: checkCurrent,
   });
   if (key)
     await ctx.session.keys.put(

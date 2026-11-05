@@ -1414,6 +1414,18 @@ select, .quick-composer select, .conversation-list select, .composer-identity se
 .profile-editor-photos { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr)); gap: 1rem; }
 .profile-editor-photos input { width: 100%; min-width: 0; }
 .profile-editor-preview { display: block; max-height: 6rem; max-width: 100%; object-fit: contain; }
+.group-header { overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.group-header .page-header { padding: 1.2rem; margin: 0; gap: 1rem; flex-wrap: wrap; }
+.group-header .page-header > div { min-width: 0; flex: 1 1 12rem; }
+.group-header h1 { overflow-wrap: anywhere; }
+.group-banner { overflow: hidden; aspect-ratio: 3 / 1; background: var(--surface); }
+.group-banner .ipfs-photo { width: 100%; height: 100%; aspect-ratio: auto; max-height: none; margin: 0; border: 0; border-radius: 0; }
+.group-banner .ipfs-photo img { display: block; width: 100%; height: 100%; max-height: none; object-fit: cover; }
+.group-banner .photo-placeholder { height: 100%; min-height: 0; overflow: auto; }
+.group-banner-picker input:not(.visually-hidden) { min-width: 0; width: 100%; }
+.group-banner-picker .group-banner { margin-bottom: .75rem; border-radius: .6rem; }
+.group-music-upload { margin-top: 1rem; }
+[role="tabpanel"][hidden] { display: none; }
 .avatar { position: relative; overflow: hidden; }
 .profile-image, .profile-image img { position: absolute; inset: 0; width: 100%; height: 100%; }
 .profile-image img { object-fit: cover; }

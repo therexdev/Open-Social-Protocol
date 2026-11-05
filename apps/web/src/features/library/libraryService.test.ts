@@ -11,6 +11,11 @@ import {
   openEpochKeyFromSet,
   encryptMedia,
   utf8,
+  decodeEnvelope,
+  decryptContent,
+  unwrapContentKey,
+  unwrapMediaKey,
+  openMedia,
   type CollectionRecord,
   type AlbumItemRecord,
 } from "@osp/sdk";
@@ -32,7 +37,9 @@ import {
   removeAlbumPhoto,
   type LibraryContext,
 } from "./libraryService";
+import { archivePhoto, prepareArchivedPhoto } from "../composer/archivePhoto";
 vi.mock("../../tx/submit", () => ({ submitAction: vi.fn() }));
+vi.mock("../composer/archivePhoto", async original => ({ ...await original<typeof import("../composer/archivePhoto")>(), archivePhoto: vi.fn() }));
 const alice = identityFromSeed(new Uint8Array(32).fill(12)),
   bob = identityFromSeed(new Uint8Array(32).fill(13));
 const id = toBase64url(newEpochKey()),
@@ -43,6 +50,7 @@ let ctx: LibraryContext,
 let grants: Array<ReturnType<typeof parseKeyPackageSet>>;
 beforeEach(async () => {
   vi.restoreAllMocks();
+  vi.mocked(archivePhoto).mockReset().mockResolvedValue(undefined);
   record = undefined;
   item = undefined;
   grants = [];
@@ -95,7 +103,8 @@ beforeEach(async () => {
       };
     }
   );
-  vi.mocked(submitAction).mockImplementation(async (_ctx, ops) => {
+  vi.mocked(submitAction).mockImplementation(async (_ctx, ops, options) => {
+    await options?.beforeSubmit?.();
     for (const op of ops) {
       const call = client.contracts.decodeOperation(op)!,
         a = call.args;
@@ -207,4 +216,64 @@ it("does not silently publish private images or pretend public images become pri
       contentHash: new Uint8Array(32),
     })
   ).rejects.toThrow("already public");
+});
+
+it("keeps a group banner encrypted and gives new members the current banner without historical group keys", async () => {
+  const banner = prepareArchivedPhoto(utf8("private banner pixels"), ctx.services.protocol!, true);
+  await saveCollection(ctx, { id, name: "Friends music", kind: 2, audience: 2, members: [alice.account], banner });
+  expect(archivePhoto).toHaveBeenCalledOnce();
+  expect(record!.envelope.length).toBeLessThanOrEqual(4096);
+  const previous = await readCollection(ctx, id);
+  expect(previous.banner).toMatchObject({ url: banner.url, encryption: banner.encryption, contentHash: banner.contentHash });
+  expect(previous.banner).not.toHaveProperty("archiveBytes");
+  grants = []; vi.mocked(archivePhoto).mockClear();
+  await saveCollection(ctx, { id, name: "Renamed group", kind: 2, audience: 2, members: [bob.account], previous });
+  expect(archivePhoto).not.toHaveBeenCalled();
+  expect(grants.map(g => g.epoch)).toEqual([2]);
+  const fresh = grants[0]!;
+  expect(openEpochKeyFromSet(fresh, alice.account, alice.encryption.secretKey)).toBeUndefined();
+  const epochKey = openEpochKeyFromSet(fresh, bob.account, bob.encryption.secretKey)!;
+  const aad = { chainId: ctx.services.protocol!.chainId, author: record!.owner, audience: 2,
+    audienceId: fromBase64url(id), epoch: 2, postId: fromBase64url(id), versionNumber: 2 };
+  const envelope = decodeEnvelope(record!.envelope), content = decryptContent({ envelope, epochKey, aad });
+  expect(JSON.parse(content.text!)).toEqual({ name: "Renamed group", banner: 0 });
+  const media = content.media![0]!, ck = unwrapContentKey(envelope, epochKey, aad),
+    key = unwrapMediaKey(media.wrapped_key!, ck, media.content_hash!);
+  expect(openMedia(fromBase64url(banner.archiveBytes!), banner.contentHash, { key, nonce: media.nonce! })).toEqual(utf8("private banner pixels"));
+  await expect(readCollection({ ...ctx, session: { ...ctx.session!, identity: alice } }, id)).rejects.toThrow("no longer shared");
+});
+
+it("supports existing bannerless groups, banner replacement and explicit removal", async () => {
+  const input = { id, name: "Our group", kind: 2, audience: 2, members: [] };
+  await saveCollection(ctx, input);
+  expect((await readCollection(ctx, id)).banner).toBeUndefined();
+  const banner = prepareArchivedPhoto(utf8("banner one"), ctx.services.protocol!, true);
+  await saveCollection(ctx, { ...input, previous: await readCollection(ctx, id), banner });
+  const replacement = prepareArchivedPhoto(utf8("banner two"), ctx.services.protocol!, true);
+  await saveCollection(ctx, { ...input, previous: await readCollection(ctx, id), banner: replacement });
+  expect((await readCollection(ctx, id)).banner?.url).toBe(replacement.url);
+  await saveCollection(ctx, { ...input, previous: await readCollection(ctx, id), banner: null });
+  expect((await readCollection(ctx, id)).banner).toBeUndefined();
+  expect(archivePhoto).toHaveBeenCalledTimes(2);
+});
+
+it("does not upload a banner for a non-owner, a stale revision, or an unencrypted photo", async () => {
+  const input = { id, name: "Our group", kind: 2, audience: 2, members: [alice.account] };
+  await saveCollection(ctx, input);
+  const previous = await readCollection(ctx, id), banner = prepareArchivedPhoto(utf8("new banner"), ctx.services.protocol!, true);
+  await expect(saveCollection({ ...ctx, session: { ...ctx.session!, identity: alice } }, { ...input, previous, banner })).rejects.toThrow("Only the owner");
+  await expect(saveCollection(ctx, { ...input, previous, banner: { ...banner, encryption: undefined } })).rejects.toThrow("encrypted photos");
+  await saveCollection(ctx, { ...input, name: "Changed elsewhere", previous });
+  await expect(saveCollection(ctx, { ...input, previous, banner })).rejects.toThrow("collection changed");
+  expect(archivePhoto).not.toHaveBeenCalled();
+});
+
+it("retries an interrupted banner upload with the same ciphertext and archive id", async () => {
+  const input = { id, name: "Our group", kind: 2, audience: 2, members: [], banner: prepareArchivedPhoto(utf8("banner"), ctx.services.protocol!, true) };
+  vi.mocked(archivePhoto).mockRejectedValueOnce(Error("Interrupted"));
+  await expect(saveCollection(ctx, input)).rejects.toThrow("Interrupted");
+  expect(record).toBeUndefined();
+  await saveCollection(ctx, input);
+  expect(vi.mocked(archivePhoto).mock.calls.map(call => call[0])).toEqual([input.banner, input.banner]);
+  expect((await readCollection(ctx, id)).banner?.encryption).toEqual(input.banner.encryption);
 });

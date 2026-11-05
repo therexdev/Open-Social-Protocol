@@ -1,7 +1,7 @@
 import { GroupMusic } from "../music/GroupMusic";
 import { PendingPosts } from "../composer/PendingPosts";
 import { usePublishing } from "../composer/PublishingProvider";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
 import { AUDIENCE, newEpochKey, toBase64url } from "@osp/sdk";
 import { useServices } from "../../api/services";
@@ -24,6 +24,8 @@ import { usePagedPosts } from "../feed/FeedPage";
 import { usePostContent } from "../feed/usePostContent";
 import { PostCard } from "../feed/PostCard";
 import { AccountPicker } from "./AccountPicker";
+import { GroupBanner, GroupBannerPicker } from "./GroupBannerPicker";
+import { groupDraftStore, openBanner, saveBanner } from "./groupDraft";
 import {
   canReadCollection,
   attachmentFromContent,
@@ -57,7 +59,7 @@ function useLibrary(): LibraryContext {
 const message = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
 
-function CollectionEditor({
+export function CollectionEditor({
   kind,
   previous,
   onSaved,
@@ -68,8 +70,11 @@ function CollectionEditor({
   onSaved: (id: string) => void;
   onCancel: () => void;
 }) {
-  const ctx = useLibrary(),
-    [id] = useState(() => previous?.id ?? toBase64url(newEpochKey()));
+  const ctx = useLibrary(), vault = useVaultStore(),
+    [id, setId] = useState(() => previous?.id ?? toBase64url(newEpochKey()));
+  // Keep the form's base revision fixed across background collection refreshes.
+  const [original] = useState(previous);
+  const alive = useRef(true), running = useRef(false);
   const [name, setName] = useState(previous?.name ?? ""),
     [members, setMembers] = useState(previous?.record.members ?? []);
   const [audience, setAudience] = useState(
@@ -77,23 +82,50 @@ function CollectionEditor({
     ),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
+  const [banner, setBanner] = useState<MediaAttachment | null>(), [preparing, setPreparing] = useState(false);
+  const [restoring, setRestoring] = useState(kind === 2), [resumed, setResumed] = useState(false);
+  useEffect(() => {
+    alive.current = true; let cancelled = false;
+    if (kind === 2 && ctx.session && ctx.services.protocol) {
+      void groupDraftStore(ctx.session, ctx.services.protocol, original?.id).then(store => store.load()).then(draft => {
+        if (!cancelled && draft && draft.revision === (original?.record.revision ?? 0)) {
+          setId(draft.id); setName(draft.name); setMembers(draft.members); setBanner(openBanner(draft.banner)); setResumed(true);
+        }
+      }).catch(e => { if (!cancelled) setError(message(e)); }).finally(() => { if (!cancelled) setRestoring(false); });
+    } else setRestoring(false);
+    return () => { cancelled = true; alive.current = false; };
+  }, [kind, ctx.session, ctx.services.protocol, original]);
   const save = async () => {
+    if (running.current || preparing || restoring || !ctx.session || !ctx.services.protocol || !ctx.submit) return;
+    running.current = true;
     setBusy(true);
     setError("");
+    const lease = vault.getState().keepUnlocked();
+    const assertActive = () => {
+      if (!alive.current) throw new Error("Reopen this collection to finish saving.");
+      ctx.assertActive?.(); lease.renew();
+    };
     try {
-      await saveCollection(ctx, {
+      const store = kind === 2 ? await groupDraftStore(ctx.session, ctx.services.protocol, original?.id) : undefined;
+      assertActive();
+      await store?.save({ id, revision: original?.record.revision ?? 0, name, members, banner: saveBanner(banner) });
+      await saveCollection({ ...ctx, assertActive }, {
         id,
         name,
         kind,
         audience,
         members: audience === AUDIENCE.EVERYONE ? [] : members,
-        previous,
+        previous: original,
+        banner,
       });
+      await store?.clear();
+      assertActive();
       onSaved(id);
     } catch (e) {
-      setError(message(e));
+      if (alive.current) setError(message(e));
     } finally {
-      setBusy(false);
+      lease.release(); running.current = false;
+      if (alive.current) setBusy(false);
     }
   };
   return (
@@ -116,10 +148,12 @@ function CollectionEditor({
               required
               value={name}
               onChange={(e) => setName(e.target.value)}
-              disabled={busy}
+              disabled={busy || restoring}
             />
           )}
         </Field>
+        {kind === 2 && <GroupBannerPicker current={original?.banner} value={banner} onChange={setBanner} disabled={busy || restoring} onBusyChange={setPreparing}/>}
+        {resumed && <Notice>Your unfinished group edit was restored. Saving resumes the same banner upload.</Notice>}
         {kind === 1 && (
           <Field label="Who can see this album">
             {(id) => (
@@ -141,7 +175,7 @@ function CollectionEditor({
           <AccountPicker
             value={members}
             onChange={setMembers}
-            disabled={busy}
+            disabled={busy || restoring}
           />
         )}
         <p className="hint">
@@ -163,7 +197,7 @@ function CollectionEditor({
             type="submit"
             variant="primary"
             busy={busy}
-            disabled={!ctx.submit}
+            disabled={!ctx.submit || preparing || restoring}
           >
             Save {kind === 2 ? "group" : "album"}
           </Button>
@@ -240,6 +274,7 @@ export function CollectionList({
       )}
       {creating && (
         <CollectionEditor
+          key={`${kind}:${ctx.session?.identity.account}:${ctx.services.protocol?.chainId}:${ctx.services.protocol?.deployment.contracts.publications.address}`}
           kind={kind}
           onCancel={() => setCreating(false)}
           onSaved={(id) => {
@@ -265,6 +300,7 @@ export function CollectionList({
           .filter((item) => canReadCollection(item.record, viewer))
           .map((item) => (
             <Card key={item.id} title={item.name}>
+              {item.record.kind === 2 && item.banner && <GroupBanner banner={item.banner}/>}
               <p className="hint">
                 {item.record.audience === AUDIENCE.EVERYONE
                   ? "Public"
@@ -500,11 +536,15 @@ export function GroupsPage() {
 export function CollectionPage() {
   const { id = "" } = useParams(),
     ctx = useLibrary();
+  return <CollectionDetail key={`${id}:${ctx.services.protocol?.chainId}:${ctx.services.protocol?.deployment.contracts.publications.address}:${ctx.session?.identity.account ?? "locked"}`} id={id} ctx={ctx}/>;
+}
+function CollectionDetail({ id, ctx }: { id: string; ctx: LibraryContext }) {
   const [collection, setCollection] = useState<Collection>(),
     [error, setError] = useState(""),
     [editing, setEditing] = useState(false),
     [adding, setAdding] = useState(false),
-    [revision, setRevision] = useState(0);
+    [revision, setRevision] = useState(0),
+    [tab, setTab] = useState<"posts" | "music">("posts");
   useEffect(() => {
     let active = true;
     setError("");
@@ -551,6 +591,8 @@ export function CollectionPage() {
   const mine = collection.record.owner === ctx.session?.identity.account;
   return (
     <div className="page stack">
+      <div className={collection.record.kind === 2 ? "group-header" : undefined}>
+      {collection.record.kind === 2 && collection.banner && <GroupBanner banner={collection.banner}/>}
       <div className="page-header">
         <div>
           <p className="eyebrow">
@@ -559,8 +601,9 @@ export function CollectionPage() {
           <h1>{collection.name}</h1>
         </div>
         {mine && (
-          <Button onClick={() => setEditing((v) => !v)}>Manage sharing</Button>
+          <Button onClick={() => setEditing((v) => !v)}>{editing ? "Close settings" : collection.record.kind === 2 ? "Manage group" : "Manage sharing"}</Button>
         )}
+      </div>
       </div>
       {editing && (
         <CollectionEditor
@@ -573,9 +616,12 @@ export function CollectionPage() {
           }}
         />
       )}
-      {collection.record.kind === 2 && <GroupMusic key={`${collection.id}:${collection.record.revision}`} groupId={collection.id} />}
       {collection.record.kind === 2 ? (
-        <GroupFeed collection={collection} />
+        <>
+          <Tabs value={tab} onChange={setTab} label="Group views" options={[{ value: "posts", label: "Posts" }, { value: "music", label: "Music" }]}/>
+          <section role="tabpanel" aria-label="Posts" hidden={tab !== "posts"} className="stack"><GroupFeed collection={collection}/></section>
+          {tab === "music" && <section role="tabpanel" aria-label="Music"><GroupMusic key={`${collection.id}:${collection.record.revision}`} groupId={collection.id}/></section>}
+        </>
       ) : (
         <>
           {mine && (

@@ -4,6 +4,7 @@ import { useServices } from "../../api/services";
 import { useVault } from "../../vault/context";
 import { Button, Card, Empty, Notice, Spinner } from "../../components/ui";
 import { MusicGallery } from "./MusicGallery";
+import { Link } from "react-router-dom";
 export function GroupMusic({ groupId }: { groupId: string }) {
   const { protocol } = useServices(),
     session = useVault((s) => s.session);
@@ -34,7 +35,8 @@ export function GroupMusic({ groupId }: { groupId: string }) {
           record &&
           record.received === record.chunk_hashes.length &&
           record.audience === 2 &&
-          toBase64url(record.group_id!) === groupId &&
+          record.group_id?.length === 32 &&
+          toBase64url(record.group_id) === groupId &&
           access?.eligible
         )
           found.push({ id: toBase64url(id), record });
@@ -59,7 +61,8 @@ export function GroupMusic({ groupId }: { groupId: string }) {
   }, [protocol, session, groupId]);
   if (!session) return null;
   return (
-    <Card title="Group music">
+    <Card title="Music">
+      <p className="hint">Music shared with this group. Open a track to listen, unlock access, or join the comments.</p>
       <MusicGallery items={items}/>
       {loading ? (
         <Spinner />
@@ -70,12 +73,13 @@ export function GroupMusic({ groupId }: { groupId: string }) {
           </Empty>
         )
       )}
-      {error && <Notice kind="error">{error}</Notice>}
+      {error && <Notice kind="error">{error} <Button disabled={loading} onClick={() => void load()}>Retry music</Button></Notice>}
       {after && (
         <Button disabled={loading} onClick={() => void load(after)}>
           More group tracks
         </Button>
       )}
+      <div className="group-music-upload"><Link className="btn" to={`/u/${session.identity.account}?tab=music`}>Upload from your Music tab</Link></div>
     </Card>
   );
 }

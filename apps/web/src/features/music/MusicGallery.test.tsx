@@ -6,6 +6,7 @@ import { contentHash, identityFromSeed, ProtocolClient, toBase64url, type MusicR
 import { fakeProvider, fixtureDeployment } from "../../testing/fixtures";
 import { MusicGallery, MUSIC_VIEW_KEY } from "./MusicGallery";
 import { MusicFeedCard } from "./MusicFeedCard";
+import { GroupMusic } from "./GroupMusic";
 import type { MusicFeedView } from "../../api/indexer";
 const mocks = vi.hoisted(() => ({ services: {} as any, session: undefined as any }));
 vi.mock("../../api/services", () => ({ useServices: () => mocks.services }));
@@ -47,4 +48,24 @@ it("lists paid public previews without fetching audio or requiring an unlocked a
   vi.spyOn(protocol.reads.publications, "get_music").mockResolvedValue({ value: { ...record, encrypted: true, unlock_price: "250" } });
   const item: MusicFeedView = { kind: "music", trackId: id, postId: `music:${id}`, author: owner.account, audience: 0, contentHash: toBase64url(record.digest), state: 0, createdAt: "1000", blockHeight: "1", groupId: "" };
   await show(<MusicFeedCard item={item}/>); expect(box.textContent).toContain("250 OSAT"); expect(box.textContent).toContain("Listen / access"); expect(read).not.toHaveBeenCalled();
+});
+
+it("uses the profile gallery for eligible finished group tracks and excludes other groups", async () => {
+  const protocol = mocks.services.protocol as ProtocolClient, group = new Uint8Array(32).fill(77);
+  mocks.session = { identity: buyer };
+  const tracks = [1, 2, 3, 4].map(n => new Uint8Array(32).fill(n));
+  vi.spyOn(protocol.reads.publications, "get_music_config").mockResolvedValue({ value: { version: 2 } } as never);
+  vi.spyOn(protocol.reads.publications, "list_music").mockResolvedValue({ ids: tracks });
+  vi.spyOn(protocol.reads.publications, "get_music").mockImplementation(async args => ({ value: {
+    ...record, audience: 2, group_id: args!.id[0] === 2 ? new Uint8Array(32).fill(78) : group,
+    received: args!.id[0] === 3 ? 0 : 1, title: `Group track ${args!.id[0]}`,
+  } }));
+  vi.spyOn(protocol.reads.publications, "get_music_access").mockImplementation(async args => ({ eligible: args!.id[0] !== 4 }) as never);
+  await show(<GroupMusic groupId={toBase64url(group)}/>);
+  expect(box.querySelectorAll(".music-track")).toHaveLength(1);
+  expect(box.textContent).toContain("Group track 1");
+  expect(protocol.reads.publications.list_music).toHaveBeenCalledWith({ group_id: group, after: undefined });
+  await act(async () => Array.from(box.querySelectorAll("button")).find(b => b.textContent === "List")!.click());
+  expect(box.querySelector(".music-view-list")).toBeTruthy();
+  expect(box.querySelector(`a[href="/u/${buyer.account}?tab=music"]`)).toBeTruthy();
 });
