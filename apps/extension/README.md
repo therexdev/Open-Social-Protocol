@@ -1,9 +1,9 @@
 # Open Social Chrome extension
 
-Version 0.7.2 is a standalone protocol frontend in the Chrome side panel, plus
+Version 0.7.3 is a standalone protocol frontend in the Chrome side panel, plus
 optional Facebook and X feed integration and composer cross-posting. It does not load the website
 or a separately bundled website application. The Social switch and Open in tab
-button are removed. See [release instructions](../../docs/chrome-extension-0.7.2.md).
+button are removed. See [release instructions](../../docs/chrome-extension-0.7.3.md).
 
 ## Build and install
 
@@ -104,6 +104,13 @@ Media uses verified attachment indexes, not caller-supplied keys or URLs. Lock
 clears plaintext/players; background reads do not keep the worker unlocked. Poll
 answers do not implicitly cast reward votes.
 
+Facebook completion reads paragraph boundaries and resolves lazy timestamp links
+only on a new matching post, through public hover events. It never clicks a host
+link or derives a URL from private editor/page state. Ambiguous or absent links
+remain saved. A persistent Facebook status panel shows the result and offers a
+published-link field after 15 seconds so recovery does not require reposting.
+The same attempt ID is retained; transaction rejection is reported as a failure.
+
 ## X integration
 
 X has independent site access, feed audience, feed visibility, default-checkbox
@@ -156,6 +163,7 @@ npm run build -w apps/extension
 npm run smoke:client-browser -w apps/extension
 npm run smoke:embed-browser -w apps/extension
 npm run smoke:facebook-post -w apps/extension
+npm run smoke:facebook-recovery -w apps/extension
 npm ci --prefix apps/extension/scripts/fixtures/facebook-lexical --ignore-scripts
 npm run smoke:facebook-lexical -w apps/extension
 npm run smoke:facebook-scroll -w apps/extension

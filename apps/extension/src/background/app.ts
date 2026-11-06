@@ -570,7 +570,7 @@ export function createBackground(options: BackgroundOptions): Background {
     "crosspost.facebookComplete": defineHandler({ source: "content", validate: obj({ attemptId: attemptIdSchema, url: httpUrl() }), handle: async (p, ctx) => {
       if (!(await loadSettings()).facebookAdapter) throw Error("The Facebook adapter is disabled.");
       const record = await crossposts.finishFacebook(p.attemptId, p.url, ctx.tabId);
-      return { attemptId: record.attemptId, status: record.koinosStatus === "ok" ? "published" : "pending", message: record.koinosStatus === "ok" ? "Published to Open Social with the Facebook post link." : record.lastError || "Open Post to check this saved post." };
+      return { attemptId: record.attemptId, status: record.koinosStatus === "ok" ? "published" : record.koinosStatus === "failed" ? "failed" : "pending", message: record.koinosStatus === "ok" ? "Published to Open Social with the Facebook post link." : record.lastError || "Open Social is confirming your post. Check More → Unfinished browser posts." };
     } }),
     "crosspost.xPrepare": defineHandler({ source: "content", requireGesture: true,
       validate: obj({ text: str({ min: 1, max: MAX_POST_CHARS }), audience: oneOf(AUDIENCE_VALUES), attemptId: attemptIdSchema, url: httpUrl(), submitted: bool(), userGesture: bool() }),

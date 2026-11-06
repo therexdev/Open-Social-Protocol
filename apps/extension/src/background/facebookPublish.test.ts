@@ -42,3 +42,19 @@ it("saves an authorized draft, waits for a tab-bound Facebook permalink and publ
   await t.call("crosspost.finishFacebook", { attemptId: second, url });
   expect((await t.background.crossposts.get(second))?.koinosStatus).toBe("ok");
 });
+
+it("reports rejected Facebook completion as failed, retaining its link for an explicit retry", async () => {
+  const t = createTestBackground({ indexer: true, sponsor: false, origins: ["https://www.facebook.com/*"] });
+  const passphrase = "correct horse battery";
+  await t.call("vault.create", { passphrase }); await t.call("device.authorize", { passphrase, keepOwnerSeed: true });
+  await t.call("settings.update", { patch: { payment: "self-only", facebookAdapter: true } });
+  const sender = t.chrome._contentSender("https://www.facebook.com/"), attemptId = "ba".repeat(16), url = "https://www.facebook.com/fixture/posts/2345";
+  const send = (type: string, payload: unknown) => t.background.router.handle({ type, payload }, sender);
+  await send("crosspost.publish", { hostSite: "facebook", text: "Keep this draft", audience: 0, attemptId, url: "https://www.facebook.com/", submitted: true, userGesture: true, waitForFacebook: true });
+  t.state.onSend = (_tx, ops) => { if (ops.some(op => op.method === 'publish')) throw Error('transaction reverted: insufficient mana'); return undefined; };
+  expect(await send("crosspost.facebookComplete", { attemptId, url })).toMatchObject({ ok: true, result: { status: "failed" } });
+  expect(await t.background.crossposts.get(attemptId)).toMatchObject({ koinosStatus: 'failed', facebookPostUrl: url, text: 'Keep this draft' });
+  t.state.onSend = undefined;
+  expect(await send("crosspost.facebookComplete", { attemptId, url })).toMatchObject({ ok: true, result: { status: "published" } });
+  expect(t.state.posts).toHaveLength(1);
+});

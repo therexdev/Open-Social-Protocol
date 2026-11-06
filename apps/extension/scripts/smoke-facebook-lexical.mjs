@@ -21,7 +21,7 @@ try {
     await page.goto('https://www.facebook.com/');
     await page.addScriptTag({ content: bundle.outputFiles[0].text });
     await page.evaluate(({ text, options, profile }) => {
-      window.__calls = []; window.__attribution = true; window.__pasteMode = options.pasteMode;
+      window.__calls = []; window.__attribution = true; window.__lazyLink = options.lazyLink; window.__pasteMode = options.pasteMode;
       window.__holdPrepare = options.holdPrepare; window.__blockAfterPaste = options.blockAfterPaste;
       window.__mount(text, options.plain);
       window.chrome = { runtime: { id: 'fixture', getURL: p => 'https://extension.test/' + p, onMessage: { addListener() {}, removeListener() {} }, sendMessage: async m => {
@@ -56,8 +56,8 @@ try {
   const model = () => page.evaluate(() => window.__model());
   for (const [text, selection, options] of [
     [original, 'End', {}],
-    [original, 'Home', { isolated: true }],
-    ['Friends 🚀\n\nNews https://example.test/page', 'Control+a', { isolated: true }],
+    [original, 'Home', { isolated: true, lazyLink: true }],
+    ['Friends 🚀\n\nNews https://example.test/page', 'Control+a', { isolated: true, lazyLink: true }],
     ['First line\nSecond line https://opensocial.online/', 'Home', { plain: true }],
   ]) {
     await setup(text, options); await page.getByRole('textbox').click(); await page.keyboard.press(selection);
@@ -75,6 +75,9 @@ try {
     await page.evaluate(() => window.__published());
     await page.waitForFunction(() => window.__calls.some(m => m.type === 'crosspost.facebookComplete'));
     assert.equal(await page.evaluate(() => window.__calls.find(m => m.type === 'crosspost.facebookComplete').payload.url), 'https://www.facebook.com/fixture/posts/12345');
+    if (options.lazyLink) assert.equal(await page.evaluate(() => window.__linkHovers), 1);
+    assert.equal(await page.evaluate(() => window.__linkClicks || 0), 0, 'Permalink discovery never clicks or navigates');
+    await page.locator('[data-osp-facebook-publish] [role="status"]').filter({ hasText: /Published/ }).waitFor();
   }
   // Pending upload/host validation: one managed invitation survives retry; opt-out removes it.
   await setup(original, { blockAfterPaste: true }); await post();

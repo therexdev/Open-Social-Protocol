@@ -1,6 +1,6 @@
 {
   "name": "@osp/extension",
-  "version": "0.7.2",
+  "version": "0.7.3",
   "private": true,
   "description": "Open Social Protocol standalone Chrome client with optional Facebook and X feed integration and cross-posting",
   "license": "MIT",
@@ -22,7 +22,8 @@
     "smoke:x-feed": "node scripts/smoke-x-feed.mjs",
     "smoke:x-post": "node scripts/smoke-x-post.mjs",
     "smoke:x-draft": "node scripts/smoke-x-draft.mjs",
-    "smoke:facebook-lexical": "node scripts/smoke-facebook-lexical.mjs"
+    "smoke:facebook-lexical": "node scripts/smoke-facebook-lexical.mjs",
+    "smoke:facebook-recovery": "node scripts/smoke-facebook-recovery.mjs"
   },
   "dependencies": {
     "@osp/proto": "0.1.0",

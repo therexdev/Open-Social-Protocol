@@ -12,6 +12,7 @@ import type { PublishReply } from "../shared/protocol";
 import { ComposerAttribution } from "./attribution";
 import { contextInvalidated, showRefreshNotice } from "./contextInvalidated";
 import { watchPublishedPost } from "./publishedPost";
+import { FacebookPublishNotice } from "./facebookPublishNotice";
 
 const SUBMIT_LABEL = /^(post|publish)$/i;
 const TEXTBOX = '[contenteditable="true"][role="textbox"], [contenteditable="true"][data-lexical-editor="true"]';
@@ -67,7 +68,7 @@ export const TOAST_SENT = "Published to Open Social";
  * structure needs discovery. Removing our cards externally still triggers restoration. */
 export function relevantFacebookMutation(mutation: MutationRecord): boolean {
   const target = mutation.target.nodeType === 1 ? mutation.target as Element : mutation.target.parentElement;
-  const owned = `[${CONTROL_ATTR}], [${FEED_ATTR}], [${STATUS_ATTR}], [${TOAST_ATTR}]`;
+  const owned = `[data-osp-facebook-publish], [${CONTROL_ATTR}], [${FEED_ATTR}], [${STATUS_ATTR}], [${TOAST_ATTR}]`;
   if (target?.closest(`${owned}, ${TEXTBOX}, aside, [role="complementary"]`)) return false;
   const structural = `[role="main"], main, [role="feed"], ${FEED_POST_SELECTOR}, [data-virtualized], [role="dialog"], dialog`;
   if (mutation.type === "attributes") return !!target && (target.matches(structural) || feedStructuralNode(target));
@@ -112,6 +113,8 @@ export function startFacebookAdapter(runtime: AdapterRuntime = defaultRuntime())
   let replaying = false;
   const manualChoices = new WeakSet<HTMLElement>();
   const pending = new Set<() => void>();
+  let publicationNotice: FacebookPublishNotice | undefined;
+  let completing = false;
   const attempts = new WeakMap<HTMLElement, { text: string; audience: number; id: string }>();
   let attributionEnabled = false; // Wait for the stored preference before changing a draft.
   let preferenceGeneration = 0;
@@ -122,7 +125,7 @@ export function startFacebookAdapter(runtime: AdapterRuntime = defaultRuntime())
   const onSubmit = (text: string, audience: number, event: Event) => {
     if (stopped || replaying || !(runtime.trustedEvent?.(event) ?? event.isTrusted)) return;
     event.preventDefault(); event.stopImmediatePropagation();
-    if (publishing) return;
+    if (publishing || completing || pending.size) { showToast(doc, "Finish or dismiss the pending Open Social copy before cross-posting another Facebook post. Your new draft is kept."); return; }
     const dialog = (event.target as Element | null)?.closest<HTMLElement>('[role="dialog"], dialog');
     if (!dialog) return;
     const attribution = attributions.get(dialog)?.editor;
@@ -156,18 +159,35 @@ export function startFacebookAdapter(runtime: AdapterRuntime = defaultRuntime())
         const button = facebookAdapter.findSubmitButton(dialog);
         if (!button || button.getAttribute('aria-disabled') === 'true' || (button as HTMLButtonElement).disabled) throw Error("Facebook is still preparing this post. Click Post when it is ready.");
         if (reply.result.awaitingFacebook) {
-          let cancel: () => void;
-          const finished = () => { pending.delete(cancel); };
-          cancel = watchPublishedPost(doc, text, url => {
-            finished();
-            void Promise.resolve().then(() => runtime.sendMessage({ type: "crosspost.facebookComplete", payload: { attemptId, url } })).then(response => {
+          let cancel: () => void = () => undefined;
+          const finished = () => { cancel(); pending.delete(cancel); };
+          publicationNotice?.dispose();
+          const complete = async (url: string) => {
+            if (stopped || completing) return;
+            completing = true; finished(); notice.submitting(url);
+            try {
+              const response = await runtime.sendMessage({ type: "crosspost.facebookComplete", payload: { attemptId, url } });
               if (stopped) return;
               const r = response as { ok?: boolean; result?: PublishReply; error?: { message?: string } };
-              showToast(doc, r?.ok ? r.result?.message || "Open Social is confirming your post." : `Open Social needs attention: ${r?.error?.message || 'Open Post to finish the saved draft.'}`, 15000);
-            }).catch(error => { if (contextInvalidated(error)) { stop(); showRefreshNotice(doc, "Facebook", true); } else if (!stopped) showToast(doc, "Open Post to check this saved post before retrying.", 15000); });
-          }, () => { finished(); if (!stopped) showToast(doc, "The Facebook post link was not detected. In Browser tools → Post, add its link to finish your saved Open Social draft.", 20000); });
+              if (!r?.ok) notice.recover(`Your Open Social copy still needs attention: ${r?.error?.message || 'Check the saved draft in More → Unfinished browser posts.'}`);
+              else {
+                const message = r.result?.message || (r.result?.status === "published" ? "Published to Open Social with the Facebook post link." : "Open Social is confirming your post. Check More → Unfinished browser posts.");
+                notice.result(r.result?.status, message);
+                if (r.result?.status === 'published') showToast(doc, message, 5000);
+              }
+            } catch (error) {
+              if (contextInvalidated(error)) { stop(); showRefreshNotice(doc, "Facebook", true); }
+              else if (!stopped) notice.recover("The Open Social result could not be confirmed. Your draft remains saved. Keep this Facebook link and try finishing again or check More → Unfinished browser posts; do not repost on Facebook.");
+            } finally { completing = false; }
+          };
+          const notice = new FacebookPublishNotice(doc, url => void complete(url), finished, runtime.trustedEvent);
+          publicationNotice = notice;
+          cancel = watchPublishedPost(doc, text, url => void complete(url), () => {
+            finished();
+            if (!stopped) notice.recover("The Facebook link was not detected. Your Open Social copy is saved but has not been published. Open the Facebook post, copy its link, and paste it here. Do not repost on Facebook.");
+          });
           pending.add(cancel);
-          showToast(doc, "Waiting for Facebook’s published post link…", 60_000);
+          doc.querySelector(`[${TOAST_ATTR}]`)?.remove();
         } else showToast(doc, reply.result.message, 5000);
         replaying = true;
         try { button.click(); } finally { replaying = false; }
@@ -304,6 +324,7 @@ export function startFacebookAdapter(runtime: AdapterRuntime = defaultRuntime())
   function stop() {
       stopped = true;
       for (const cancel of pending) cancel(); pending.clear();
+      publicationNotice?.dispose(); publicationNotice = undefined;
       observer.stop();
       doc.defaultView?.removeEventListener("focus", resume);
       doc.removeEventListener("visibilitychange", onVisibility);

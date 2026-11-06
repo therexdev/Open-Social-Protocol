@@ -42,8 +42,14 @@ window.__mount = (text, plain = false) => {
     window.__posts.push(window.__model());
     window.__published = () => {
       const article = document.createElement('article'); article.setAttribute('role', 'article');
-      const body = document.createElement('div'); body.textContent = window.__model().text;
-      const link = document.createElement('a'); link.href = 'https://www.facebook.com/fixture/posts/12345'; link.textContent = 'Just now';
+      const body = document.createElement('div'); body.setAttribute('data-ad-preview', 'message');
+      for (const text of window.__model().blocks) { const line = document.createElement('div'); line.textContent = text; body.append(line); }
+      const link = document.createElement('a'), url = 'https://www.facebook.com/fixture/posts/12345';
+      if (window.__lazyLink) {
+        link.href = '?__cft__[0]=pending'; link.innerHTML = '<span><svg><use></use></svg></span>';
+        link.addEventListener('mouseover', () => { window.__linkHovers = (window.__linkHovers || 0) + 1; link.href = url; });
+      } else { link.href = url; link.textContent = 'Just now'; }
+      link.addEventListener('click', event => { event.preventDefault(); window.__linkClicks = (window.__linkClicks || 0) + 1; });
       article.append(body, link); document.querySelector('[role="feed"]').append(article);
     };
   });

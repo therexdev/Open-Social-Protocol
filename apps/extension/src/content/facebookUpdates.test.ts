@@ -48,3 +48,44 @@ it("defaults auto-check on, honors opt-out and preserves a per-post manual choic
   box.checked = true; box.dispatchEvent(new Event("change", { bubbles: true }));
   running!.refresh(); await Promise.resolve(); expect(box.checked).toBe(true);
 });
+
+it("hydrates a new post's SVG timestamp through hover and matches separate Facebook paragraph blocks", async () => {
+  vi.useFakeTimers(); const found = vi.fn(), expired = vi.fn();
+  document.body.innerHTML = '<div aria-posinset="1"><a href="?__cft__[0]=old"><svg><use></use></svg></a><div data-ad-preview="message">First line<div>Second line</div></div></div>';
+  const oldHover = vi.fn(); document.querySelector('a')!.addEventListener('mouseover', oldHover);
+  const stop = watchPublishedPost(document, "First line\nSecond line", found, expired, 1000);
+  const row = document.createElement('div'); row.setAttribute('aria-posinset', '2');
+  row.innerHTML = '<div role="article"><a href="?__cft__[0]=new"><span aria-labelledby="timestamp"><svg><use></use></svg></span></a><div data-ad-preview="message"><div>First line</div><div>Second line</div></div></div>';
+  const link = row.querySelector('a')!, clicked = vi.fn(), hovered = vi.fn(() => { link.href = 'https://www.facebook.com/fixture/posts/pfbid123?__cft__[0]=tracking'; });
+  link.addEventListener('mouseover', hovered); link.addEventListener('click', clicked); document.body.append(row);
+  await vi.advanceTimersByTimeAsync(400);
+  expect(found).toHaveBeenCalledExactlyOnceWith('https://www.facebook.com/fixture/posts/pfbid123');
+  expect(hovered).toHaveBeenCalledOnce(); expect(clicked).not.toHaveBeenCalled(); expect(oldHover).not.toHaveBeenCalled(); expect(expired).not.toHaveBeenCalled(); stop();
+});
+
+it("ignores old matching rows when their timestamp URL appears late, body links and nested quotes", async () => {
+  vi.useFakeTimers(); const found = vi.fn(), expired = vi.fn();
+  document.body.innerHTML = '<article role="article"><a href="?__cft__[0]=old">Now</a><div data-ad-preview="message">Same text</div></article>';
+  const stop = watchPublishedPost(document, "Same text", found, expired, 1000);
+  document.querySelector('a')!.href = 'https://www.facebook.com/fixture/posts/old';
+  document.body.insertAdjacentHTML('beforeend', '<div aria-posinset="2"><div data-ad-preview="message">Same text <a href="https://www.facebook.com/someone/posts/body">a reference</a></div><article role="article"><a href="https://www.facebook.com/someone/posts/quote">Now</a>Quoted post</article></div>');
+  await vi.advanceTimersByTimeAsync(1001); expect(found).not.toHaveBeenCalled(); expect(expired).toHaveBeenCalledOnce(); stop();
+});
+
+it("accepts View in a new success notice but never an old notice or profile link", async () => {
+  vi.useFakeTimers(); const found = vi.fn();
+  document.body.innerHTML = '<div role="status"><a href="?old">View post</a></div>';
+  const stop = watchPublishedPost(document, "Text", found, vi.fn(), 1000);
+  document.querySelector('a')!.href = 'https://www.facebook.com/fixture/posts/old';
+  document.body.insertAdjacentHTML('beforeend', '<div role="status"><a href="https://www.facebook.com/profile.php?id=1">View</a></div>');
+  await vi.advanceTimersByTimeAsync(200); expect(found).not.toHaveBeenCalled();
+  document.body.insertAdjacentHTML('beforeend', '<div role="alert">Your post was published. <a href="https://www.facebook.com/fixture/posts/new">View</a></div>');
+  await vi.advanceTimersByTimeAsync(200); expect(found).toHaveBeenCalledExactlyOnceWith('https://www.facebook.com/fixture/posts/new'); stop();
+});
+
+it("does not choose a resolved link while a second matching row still has an unresolved timestamp", async () => {
+  vi.useFakeTimers(); const found = vi.fn(), expired = vi.fn();
+  const stop = watchPublishedPost(document, 'Same text', found, expired, 600);
+  document.body.innerHTML = '<article role="article"><a href="https://www.facebook.com/fixture/posts/1">Now</a><div data-ad-preview="message">Same text</div></article><article role="article"><a href="?pending">Now</a><div data-ad-preview="message">Same text</div></article>';
+  await vi.advanceTimersByTimeAsync(601); expect(found).not.toHaveBeenCalled(); expect(expired).toHaveBeenCalledOnce(); stop();
+});
