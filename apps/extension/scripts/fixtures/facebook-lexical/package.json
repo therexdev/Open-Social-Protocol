@@ -1,0 +1,10 @@
+{
+  "dependencies": {
+    "@lexical/link": "0.53.0",
+    "@lexical/plain-text": "0.53.0",
+    "@lexical/rich-text": "0.53.0",
+    "lexical": "0.53.0"
+  },
+  "name": "osp-facebook-lexical-browser-fixture",
+  "private": true
+}

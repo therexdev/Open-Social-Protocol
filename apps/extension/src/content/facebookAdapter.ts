@@ -107,7 +107,7 @@ export function startFacebookAdapter(runtime: AdapterRuntime = defaultRuntime())
   root.setAttribute(ADAPTER_ATTR, "1");
   const now = runtime.now ?? (() => Date.now());
   const hooks = new Map<HTMLElement, () => void>();
-  const attributions = new Map<HTMLElement, { editor: ComposerAttribution; unhook: () => void }>();
+  const attributions = new Map<HTMLElement, { editor: ComposerAttribution; unhook: () => void; control: Element; checked: boolean; audience: string }>();
   let autoCheck = false; // Apply the saved preference before preselecting a composer.
   let replaying = false;
   const manualChoices = new WeakSet<HTMLElement>();
@@ -126,6 +126,8 @@ export function startFacebookAdapter(runtime: AdapterRuntime = defaultRuntime())
     const dialog = (event.target as Element | null)?.closest<HTMLElement>('[role="dialog"], dialog');
     if (!dialog) return;
     const attribution = attributions.get(dialog)?.editor;
+    if (attribution?.failed) { showToast(doc, "Automatic link insertion is stopped for this draft. Copy the saved original text into a fresh Facebook composer.", 15000); return; }
+    if (attribution?.editing) return;
     text = attribution?.text() ?? text;
     if (!text || lastSent && lastSent.text === text && lastSent.audience === audience && now() - lastSent.at < 2000) return;
     lastSent = { text, audience, at: now() };
@@ -133,7 +135,10 @@ export function startFacebookAdapter(runtime: AdapterRuntime = defaultRuntime())
     if (!attempt || attempt.text !== text || attempt.audience !== audience) {
       attempt = { text, audience, id: runtime.randomAttemptId() }; attempts.set(dialog, attempt);
     }
-    const attemptId = attempt.id;
+    const attemptId = attempt.id, generation = preferenceGeneration;
+    const active = () => !stopped && generation === preferenceGeneration && dialog.isConnected && optedIn(dialog)
+      && dialog.querySelector<HTMLSelectElement>(`[${CONTROL_ATTR}] select`)?.value === String(audience);
+    const unchanged = () => active() && (attribution?.text() ?? text) === text;
     const payload = { hostSite: "facebook" as const, text, audience, attemptId, url: runtime.location(), submitted: true,
       userGesture: runtime.userGesture?.() ?? true, waitForFacebook: true };
     publishing = true;
@@ -143,11 +148,11 @@ export function startFacebookAdapter(runtime: AdapterRuntime = defaultRuntime())
         const reply = await runtime.sendMessage({ type: "crosspost.publish", payload }) as { ok?: boolean; result?: PublishReply; error?: { message?: string } };
         if (stopped) return;
         if (!reply?.ok || !reply.result) throw Error(reply?.error?.message || "Open Social did not answer. Unlock it in Browser tools and try Post again.");
-        if (!dialog.isConnected || (attribution?.text() ?? text) !== text || !optedIn(dialog)) throw Error("Your draft changed. Review it and click Post again.");
-        if (attributionEnabled && attribution && !attribution.sync(true, reply.result.profileUrl)) throw Error("The profile link could not be added. Review the message below the checkbox before posting again.");
+        if (!unchanged()) throw Error("Your draft changed. Review it and click Post again.");
+        if (attributionEnabled && attribution && !await attribution.sync(true, reply.result.profileUrl, active)) throw Error("The profile link could not be added. Review the message below the checkbox before posting again.");
         // Let the native input event commit to Facebook's editor before its Post handler runs.
         await new Promise(resolve => setTimeout(resolve, 60));
-        if (stopped || !dialog.isConnected || !optedIn(dialog) || (attribution?.text() ?? text) !== text) return;
+        if (!unchanged()) throw Error("Your draft or settings changed. Review it and click Post again.");
         const button = facebookAdapter.findSubmitButton(dialog);
         if (!button || button.getAttribute('aria-disabled') === 'true' || (button as HTMLButtonElement).disabled) throw Error("Facebook is still preparing this post. Click Post when it is ready.");
         if (reply.result.awaitingFacebook) {
@@ -159,7 +164,7 @@ export function startFacebookAdapter(runtime: AdapterRuntime = defaultRuntime())
               if (stopped) return;
               const r = response as { ok?: boolean; result?: PublishReply; error?: { message?: string } };
               showToast(doc, r?.ok ? r.result?.message || "Open Social is confirming your post." : `Open Social needs attention: ${r?.error?.message || 'Open Post to finish the saved draft.'}`, 15000);
-            }).catch(error => { if (contextInvalidated(error)) { stop(true); showRefreshNotice(doc, "Facebook", true); } else if (!stopped) showToast(doc, "Open Post to check this saved post before retrying.", 15000); });
+            }).catch(error => { if (contextInvalidated(error)) { stop(); showRefreshNotice(doc, "Facebook", true); } else if (!stopped) showToast(doc, "Open Post to check this saved post before retrying.", 15000); });
           }, () => { finished(); if (!stopped) showToast(doc, "The Facebook post link was not detected. In Browser tools → Post, add its link to finish your saved Open Social draft.", 20000); });
           pending.add(cancel);
           showToast(doc, "Waiting for Facebook’s published post link…", 60_000);
@@ -167,9 +172,14 @@ export function startFacebookAdapter(runtime: AdapterRuntime = defaultRuntime())
         replaying = true;
         try { button.click(); } finally { replaying = false; }
       } catch (error) {
-        if (contextInvalidated(error)) { stop(true); showRefreshNotice(doc, "Facebook"); }
+        if (contextInvalidated(error)) { stop(); showRefreshNotice(doc, "Facebook"); }
         else if (!stopped) showToast(doc, `Post paused: ${error instanceof Error ? error.message : String(error)}`, 15000);
-      } finally { publishing = false; }
+      } finally {
+        publishing = false;
+        if (!stopped && attribution && !attribution.failed && dialog.isConnected && (!attributionEnabled || !optedIn(dialog))) {
+          void attribution.sync(false).catch(error => { if (!stopped) showToast(doc, String(error), 15000); });
+        }
+      }
     })();
   };
 
@@ -181,15 +191,16 @@ export function startFacebookAdapter(runtime: AdapterRuntime = defaultRuntime())
       if (stopped || generation !== preferenceGeneration || !reply?.ok || typeof reply.result?.facebookAttribution !== "boolean") return;
       attributionEnabled = reply.result.facebookAttribution;
       autoCheck = reply.result.facebookAutoCheck !== false;
-      for (const [dialog, { editor }] of attributions) {
+      for (const [dialog, entry] of attributions) {
+        const { editor } = entry;
         if (!manualChoices.has(dialog)) {
           const checkbox = dialog.querySelector<HTMLInputElement>(`[${CONTROL_ATTR}] input`)!;
-          checkbox.checked = autoCheck;
+          checkbox.checked = autoCheck; entry.checked = autoCheck;
           dialog.querySelector<HTMLSelectElement>(`[${CONTROL_ATTR}] select`)!.disabled = !autoCheck;
         }
-        if (!attributionEnabled || !optedIn(dialog)) editor.sync(false);
+        if (!attributionEnabled || !optedIn(dialog)) void editor.sync(false).catch(error => { if (!stopped) showToast(doc, String(error), 15000); });
       }
-    } catch (error) { if (contextInvalidated(error)) { stop(true); showRefreshNotice(doc, "Facebook"); } }
+    } catch (error) { if (contextInvalidated(error)) { stop(); showRefreshNotice(doc, "Facebook"); } }
   }
 
   function showStatus() {
@@ -209,22 +220,49 @@ export function startFacebookAdapter(runtime: AdapterRuntime = defaultRuntime())
     if (stopped) return 0;
     try {
       for (const [dialog, unhook] of hooks) {
-        if (!dialog.isConnected) { unhook(); hooks.delete(dialog); attributions.get(dialog)?.unhook(); attributions.delete(dialog); }
+        if (!dialog.isConnected) { unhook(); hooks.delete(dialog); attributions.get(dialog)?.editor.dispose(); attributions.get(dialog)?.unhook(); attributions.delete(dialog); }
       }
       showStatus();
       const injected = scanAndInject(doc, facebookAdapter, doc, onSubmit, hooks);
       for (const dialog of hooks.keys()) {
-        if (attributions.has(dialog)) continue;
+        const existing = attributions.get(dialog);
+        const control = dialog.querySelector(`[${CONTROL_ATTR}]`)!;
+        if (existing) {
+          if (existing.control !== control) {
+            const checkbox = control.querySelector<HTMLInputElement>("input")!;
+            checkbox.checked = existing.checked;
+            const audience = control.querySelector<HTMLSelectElement>("select")!;
+            audience.value = existing.audience; audience.disabled = !checkbox.checked;
+            existing.control = control;
+          }
+          existing.editor.showBackup(); continue;
+        }
         const editor = new ComposerAttribution(dialog, facebookAdapter);
         const checkbox = dialog.querySelector<HTMLInputElement>(`[${CONTROL_ATTR}] input`)!;
         checkbox.checked = autoCheck;
         dialog.querySelector<HTMLSelectElement>(`[${CONTROL_ATTR}] select`)!.disabled = !autoCheck;
         const changed = (event: Event) => {
           if (!(runtime.trustedEvent?.(event) ?? event.isTrusted)) return;
-          if ((event.target as Element | null)?.matches(`[${CONTROL_ATTR}] input`)) { manualChoices.add(dialog); if (!optedIn(dialog)) editor.sync(false); }
+          const entry = attributions.get(dialog)!;
+          entry.checked = optedIn(dialog); entry.audience = dialog.querySelector<HTMLSelectElement>(`[${CONTROL_ATTR}] select`)!.value;
+          if ((event.target as Element | null)?.matches(`[${CONTROL_ATTR}] input`)) { manualChoices.add(dialog); if (!optedIn(dialog)) void editor.sync(false).catch(error => { if (!stopped) showToast(doc, String(error), 15000); }); }
+        };
+        // Block a second native Post even after unchecking, until pending paste/cut settles.
+        const editingGuard = (event: Event) => {
+          const button = facebookAdapter.findSubmitButton(dialog), target = event.target as Node | null;
+          const key = event as KeyboardEvent;
+          if (editor.editing && (event.type === "click" && !!target && !!button?.contains(target)
+            || event.type === "keydown" && key.key === "Enter" && (key.ctrlKey || key.metaKey))) {
+            event.preventDefault(); event.stopImmediatePropagation();
+            showToast(doc, "Finishing the profile link update. Your draft is kept; click Post again in a moment.");
+          }
         };
         dialog.addEventListener("change", changed);
-        attributions.set(dialog, { editor, unhook: () => dialog.removeEventListener("change", changed) });
+        dialog.addEventListener("click", editingGuard, true); dialog.addEventListener("keydown", editingGuard, true);
+        attributions.set(dialog, { editor, control, checked: autoCheck, audience: "0", unhook: () => {
+          dialog.removeEventListener("change", changed);
+          dialog.removeEventListener("click", editingGuard, true); dialog.removeEventListener("keydown", editingGuard, true);
+        } });
       }
       void maybeInsertFeedCards(runtime);
       return injected;
@@ -263,7 +301,7 @@ export function startFacebookAdapter(runtime: AdapterRuntime = defaultRuntime())
   scan();
   void loadPreferences();
 
-  function stop(preserveDraft = false) {
+  function stop() {
       stopped = true;
       for (const cancel of pending) cancel(); pending.clear();
       observer.stop();
@@ -274,7 +312,7 @@ export function startFacebookAdapter(runtime: AdapterRuntime = defaultRuntime())
       doc.defaultView?.removeEventListener("scroll", wake);
       for (const unhook of hooks.values()) unhook();
       hooks.clear();
-      for (const { editor, unhook } of attributions.values()) { if (!preserveDraft) editor.sync(false); unhook(); }
+      for (const { editor, unhook } of attributions.values()) { editor.dispose(); unhook(); }
       attributions.clear();
       resetFeedCards(doc);
       doc.querySelectorAll(`[${CONTROL_ATTR}], [${FEED_ATTR}], [${TOAST_ATTR}], [${STATUS_ATTR}]`).forEach((el) => el.remove());

@@ -1,9 +1,9 @@
 # Open Social Chrome extension
 
-Version 0.7.1 is a standalone protocol frontend in the Chrome side panel, plus
+Version 0.7.2 is a standalone protocol frontend in the Chrome side panel, plus
 optional Facebook and X feed integration and composer cross-posting. It does not load the website
 or a separately bundled website application. The Social switch and Open in tab
-button are removed. See [release instructions](../../docs/chrome-extension-0.7.1.md).
+button are removed. See [release instructions](../../docs/chrome-extension-0.7.2.md).
 
 ## Build and install
 
@@ -156,6 +156,8 @@ npm run build -w apps/extension
 npm run smoke:client-browser -w apps/extension
 npm run smoke:embed-browser -w apps/extension
 npm run smoke:facebook-post -w apps/extension
+npm ci --prefix apps/extension/scripts/fixtures/facebook-lexical --ignore-scripts
+npm run smoke:facebook-lexical -w apps/extension
 npm run smoke:facebook-scroll -w apps/extension
 npm run smoke:x-feed -w apps/extension
 npm run smoke:x-post -w apps/extension
@@ -175,6 +177,13 @@ reuse/unlock, OSAT value, native navigation, recording, video preparation, profi
 tabs, narrow layouts, settings, lock and messaging WASM under the shipped CSP.
 Card/adapter checks cover interactions/media, themes, delayed publishing, footer
 spacing, permalink matching, preferences, scroll and row recycling.
+
+The Facebook Lexical regression reproduces the reported URL-ending draft against
+real pinned rich-text and plain-text editors, including the extension's isolated
+world. It checks committed paragraphs, unchanged original link nodes, native
+submission, opt-out and settings changes, rejected/corrupt paste recovery and
+retry without duplicate invitations. The previous simple editor fixture missed
+Lexical dropping newlines from the old multiline insertText command.
 
 The X Draft regression uses a real pinned Draft.js/React editor with committed
 state assertions, URL decorations, mention entities, selections, paragraph blocks,

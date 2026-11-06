@@ -8,14 +8,23 @@ const dom = new JSDOM('<body><div role="main"><div role="feed"><section id="firs
 // jsdom has no browser input driver. Capture the listener to exercise the trusted-event
 // boundary explicitly; separately prove ordinary synthetic DOM clicks cannot publish.
 const capturedClicks = new Map();
+const removeEvent = dom.window.EventTarget.prototype.removeEventListener;
+dom.window.EventTarget.prototype.removeEventListener = function(type, callback, options) {
+  if (type === "click" && options === true) capturedClicks.set(this, (capturedClicks.get(this) || []).filter(fn => fn !== callback));
+  return removeEvent.call(this, type, callback, options);
+};
 const addEvent = dom.window.EventTarget.prototype.addEventListener;
 dom.window.EventTarget.prototype.addEventListener = function(type, callback, options) {
-  if (type === "click" && options === true) capturedClicks.set(this, callback);
+  if (type === "click" && options === true) { const list = capturedClicks.get(this) || []; list.push(callback); capturedClicks.set(this, list); }
   return addEvent.call(this, type, callback, options);
 };
 const trustedPost = () => {
   const dialog = dom.window.document.querySelector('[role="dialog"]');
-  capturedClicks.get(dialog).call(dialog, { target: dialog.querySelector('[role="button"]'), isTrusted: true, preventDefault() {}, stopImmediatePropagation() {} });
+  let stopped = false;
+  for (const listener of capturedClicks.get(dialog)) {
+    if (stopped) break;
+    listener.call(dialog, { type: "click", target: dialog.querySelector('[role="button"]'), isTrusted: true, preventDefault() {}, stopImmediatePropagation() { stopped = true; } });
+  }
 };
 const listeners = new Set();
 const requests = [];
@@ -29,7 +38,15 @@ const chrome = { runtime: { id: "smokeextensionid", getURL: (path) => `chrome-ex
     return { ok: true, result: message.type === "adapter.preferences" ? { facebookAttribution: attributionEnabled, facebookAutoCheck: true } : message.type === "feed.request" ? { enabled: feedEnabled, items: [{ postId: "q".repeat(43) + "=" }], nextCursor: null } : message.type === "crosspost.publish" ? { status: "pending", awaitingFacebook: true, profileUrl, message: "Waiting for Facebook" } : { status: "published", message: "Published to Open Social · Friends" } };
   },
 } };
+class Transfer {
+  setData(type, value) { this[type] = value; }
+  getData(type) { return this[type] || ''; }
+}
+class Clipboard extends dom.window.Event {
+  constructor(type, init) { super(type, init); this.clipboardData = init.clipboardData; }
+}
 const context = vm.createContext({ document: dom.window.document, location: dom.window.location, navigator: dom.window.navigator, chrome,
+  Event: dom.window.Event, Node: dom.window.Node, NodeFilter: dom.window.NodeFilter, DataTransfer: Transfer, ClipboardEvent: Clipboard,
   crypto: globalThis.crypto, MutationObserver: dom.window.MutationObserver,
   requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
   setInterval: (fn, ms) => { const id = setInterval(fn, ms); timers.add(id); return id; }, clearInterval, URL, URLSearchParams,
@@ -39,18 +56,14 @@ const script = new vm.Script(readFileSync(new URL("../dist/content/facebook.js",
 const inject = () => script.runInContext(context);
 const settle = () => new Promise((resolve) => setTimeout(resolve, 180));
 const doc = dom.window.document;
-// jsdom lacks native contenteditable editing. Exercise the packaged command path and its input
-// notification, not just a string helper. This is not a live Facebook editor acceptance test.
+// Test the event contract here; the real Lexical browser regression covers editor behavior.
 let hostDraft;
-doc.execCommand = (command, _ui, text) => {
-  const range = doc.getSelection().getRangeAt(0);
-  range.deleteContents();
-  if (command === "insertText") range.insertNode(doc.createTextNode(text));
-  const editor = doc.querySelector('[contenteditable]');
-  editor.dispatchEvent(new dom.window.InputEvent("input", { bubbles: true, inputType: command === "delete" ? "deleteContentBackward" : "insertText", data: text }));
-  hostDraft = editor.textContent;
-  return true;
-};
+for (const type of ['paste', 'cut']) doc.addEventListener(type, event => {
+  event.preventDefault();
+  const range = doc.getSelection().getRangeAt(0); range.deleteContents();
+  if (type === 'paste') range.insertNode(doc.createTextNode(event.clipboardData.getData('text/plain')));
+  hostDraft = event.target.textContent;
+});
 const stop = (sender = { id: chrome.runtime.id }, origins = ["https://www.facebook.com/*"]) => {
   for (const fn of listeners) fn({ type: "osp.facebook.stop", origins }, sender);
 };
@@ -78,7 +91,7 @@ try {
   doc.querySelector('[role="button"]').click();
   assert.equal(requests.some(m => m.type === "crosspost.publish"), false, "Page-generated clicks cannot authorize publishing");
   trustedPost();
-  await settle();
+  await new Promise(resolve => setTimeout(resolve, 600));
   const proposals = requests.filter((m) => m.type === "crosspost.publish");
   assert.equal(proposals.length, 1);
   assert.equal(proposals[0].payload.text, "My Facebook draft");
@@ -102,7 +115,7 @@ try {
   card.remove(); await settle();
   assert.equal(doc.querySelector('[data-osp-feed]'), card, "Host removal restores the same card");
   assert.equal(requests.filter(m => m.type === "feed.request").length, feedReads, "Restoration must not refetch the feed");
-  attributionEnabled = false; inject(); await settle();
+  attributionEnabled = false; inject(); await new Promise(resolve => setTimeout(resolve, 600));
   assert.equal(doc.querySelector('[contenteditable]').textContent, "My Facebook draft", "Changing the setting removes the managed footer from an open draft");
   assert.equal(doc.querySelectorAll("[data-osp-control]").length, 1);
   stop({ id: "untrusted" });

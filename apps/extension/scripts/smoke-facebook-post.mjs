@@ -30,11 +30,17 @@ try {
     window.__composer = () => {
       document.querySelector('[role="dialog"]')?.remove();
       const dialog = document.createElement('section'); dialog.setAttribute('role', 'dialog');
-      dialog.innerHTML = '<div contenteditable="true" role="textbox" data-lexical-editor="true"></div><footer><button>Post</button></footer>';
+      dialog.innerHTML = '<div contenteditable="true" role="textbox" style="white-space:pre-wrap"></div><footer><button>Post</button></footer>';
       let controlledText = '';
       const editor = dialog.querySelector('[contenteditable]');
       // Model a controlled editor: publishing reads committed input state, not the DOM.
       editor.addEventListener('input', () => { const value = editor.innerText; setTimeout(() => { controlledText = value; }, 20); });
+      // Lightweight event contract only; genuine framework state is covered by smoke-facebook-lexical.
+      for (const type of ['paste', 'cut']) editor.addEventListener(type, event => {
+        event.preventDefault(); const range = document.getSelection().getRangeAt(0); range.deleteContents();
+        if (type === 'paste') range.insertNode(document.createTextNode(event.clipboardData.getData('text/plain')));
+        editor.dispatchEvent(new InputEvent('input', { bubbles: true }));
+      });
       dialog.querySelector('button').addEventListener('click', () => {
         window.__nativePosts.push(controlledText);
         dialog.remove();
