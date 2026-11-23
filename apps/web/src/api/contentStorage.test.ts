@@ -63,6 +63,14 @@ it("moves group metadata, captions, music comments, music descriptions and profi
   expect(parseContentReferenceUri(hosted[3]!.title as string)).toBeDefined();
   expect(parseContentReferenceUri(hosted[4]!.profile_uri as string)?.digest).toEqual(contentHash(bytes));
 });
+it("uses the ledger account in the upload proof when a recovered owner or authorized device signs", async () => {
+  const f = fixture(), replacement = identityFromSeed(new Uint8Array(32).fill(82)), bytes = utf8("post");
+  const op = await f.client.ops.publications.publish({ author: me.account, post_id: new Uint8Array(32), content_hash: contentHash(bytes), envelope: bytes } as never);
+  await prepareHostedContent({ ...f.ctx, signer: replacement.signer }, [op]);
+  const [, init] = f.fetchFn.mock.calls.find(([, init]) => init?.method === "POST")!;
+  const proof = JSON.parse(new TextDecoder().decode(fromBase64url((init!.headers as Record<string, string>)["x-osp-media-proof"]!)));
+  expect(proof).toMatchObject({ account: me.account, signer: replacement.account });
+});
 it("fails before upload on an old contract and never substitutes inline content on hosting errors", async () => {
   const f = fixture(0), bytes = utf8("post");
   const op = await f.client.ops.publications.publish({ author: me.account, post_id: new Uint8Array(32), content_hash: contentHash(bytes), envelope: bytes } as never);

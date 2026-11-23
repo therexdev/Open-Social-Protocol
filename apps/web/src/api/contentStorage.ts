@@ -30,7 +30,9 @@ export async function prepareHostedContent(ctx: SubmitContext, operations: Opera
     if (version?.content_reference_version !== 1) throw Error("The network's message storage upgrade is not deployed yet. Nothing was sent.");
   }
   const uploadCtx = ctx.contentSigner ? { ...ctx, signer: ctx.contentSigner.signer } : ctx;
-  const owner = ctx.contentSigner?.account ?? ctx.signer.getAddress();
+  const contentOperation = decoded.find(op => op && (byteMethods[`${op.contract}.${op.method}`] || op.method === "begin_music" || (op.contract === "identity" && ["register", "update_profile"].includes(op.method))));
+  const declaredAccount = contentOperation && ["author", "owner", "sender", "account"].map(field => contentOperation.args[field]).find(value => typeof value === "string" && value.length > 0);
+  const owner = ctx.contentSigner?.account ?? (typeof declaredAccount === "string" ? declaredAccount : ctx.signer.getAddress());
   async function store(bytes: Uint8Array) {
     const ref = contentReference(bytes);
     await uploadStoredMedia(uploadCtx, owner, bytes);
