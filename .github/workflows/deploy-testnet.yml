@@ -52,11 +52,16 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci --no-audit --no-fund
-      - name: Build schemas, SDK and release contracts
+      - name: Build schemas and SDK
         run: |
           npm run build -w packages/proto
           npm run build -w packages/sdk
-          npm run build -w packages/contracts
+      - name: Check testnet chain freshness before deploying
+        env:
+          KOINOS_RPC: ${{ vars.KOINOS_RPC }}
+        run: node --import tsx scripts/check-deployment-chain.ts --network "${{ inputs.network }}"
+      - name: Build release contracts
+        run: npm run build -w packages/contracts
       - name: Contract build manifest
         run: cat packages/contracts/build/release/manifest.json
       - name: Execute release contract bootstrap before spending Mana

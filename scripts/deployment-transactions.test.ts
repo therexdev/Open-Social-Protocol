@@ -80,3 +80,26 @@ test("broadcast timeouts and other errors are never blindly retried", async () =
     assert.equal(h.requests.length, 2);
   }
 });
+test("persists the final signed transaction ID before broadcasting and stops if persistence fails", async () => {
+  const h = harness();
+  let savedId = "";
+  const send = h.provider.sendTransaction;
+  h.provider.sendTransaction = async (tx, broadcast = true) => {
+    if (broadcast) assert.equal(savedId, tx.id);
+    return send(tx, broadcast);
+  };
+  await submitMeasured(await fixture(), h.provider, [owner, payer], { beforeBroadcast: async tx => {
+    savedId = tx.id!;
+    assert.equal(tx.signatures?.length, 2);
+    assert.equal(savedId, Transaction.computeTransactionId(tx.header!));
+  } });
+  assert.ok(savedId);
+  const failed = harness();
+  await assert.rejects(submitMeasured(await fixture(), failed.provider, [owner, payer], { beforeBroadcast: async () => { throw Error("cannot save checkpoint"); } }), /cannot save checkpoint/);
+  assert.deepEqual(failed.requests.map(r => r.broadcast), [false]);
+});
+test("dry runs do not create pending upload checkpoints", async () => {
+  const h = harness();
+  await submitMeasured(await fixture(), h.provider, [owner, payer], { dryRun: true, beforeBroadcast: async () => assert.fail("must not persist a simulated upload") });
+  assert.deepEqual(h.requests.map(r => r.broadcast), [false]);
+});

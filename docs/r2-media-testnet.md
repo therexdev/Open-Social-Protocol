@@ -108,6 +108,19 @@ contract, run:
 node --import tsx scripts/verify-r2-media.ts
 ```
 
+The workflow checks that the testnet head is fresh before compiling/uploading the
+contracts. A reachable `/health` endpoint alone does not prove block production is
+advancing. A stale-head failure requires a healthy RPC for the same chain or the
+testnet operator restoring block production; changing R2 credentials will not fix it.
+
+Upload IDs and their pre-broadcast block heights are saved to
+`deployment-progress/harbinger.json` before broadcast. Confirmation scans canonical
+receipts from that height, including uploads mined before the first poll, for up
+to ten minutes. Unknown outcomes retain their checkpoints. Start a **new workflow
+run** on the updated branch after the chain recovers; the script reconciles saved
+uploads before preparing another transaction. Re-running an old failed job uses
+its old source commit. Keep existing deployment/progress files when resuming.
+
 For a real encrypted upload and download check, set `OSP_MEDIA_TEST_ACCOUNT` and
 `OSP_MEDIA_TEST_WIF` for an existing registered test account and add `--upload`.
 The script uploads a small encrypted sample, checks delivery and decrypts locally;
