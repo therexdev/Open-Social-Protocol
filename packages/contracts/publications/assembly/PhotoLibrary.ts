@@ -1,3 +1,4 @@
+import { ContentReference } from "./common/content";
 import { System, Storage, Protobuf, Arrays, Crypto } from "@koinos/sdk-as";
 import { publications } from "./proto/publications";
 import { token } from "./proto/token";
@@ -208,7 +209,7 @@ export class PhotoLibrary {
     System.require(
       args.envelope != null &&
         args.envelope!.length > 0 &&
-        args.envelope!.length <= 4096,
+        ContentReference.size(args.envelope!, 4096) <= 4096,
       "invalid collection metadata"
     );
     const old = this.collections.get(id);
@@ -277,7 +278,7 @@ export class PhotoLibrary {
       args.removed ||
         (args.envelope != null &&
           args.envelope!.length > 0 &&
-          args.envelope!.length <= 4096),
+          ContentReference.size(args.envelope!, 4096) <= 4096),
       "invalid album photo"
     );
     this.charge(owner, 1, usage);

@@ -409,7 +409,7 @@ message get_photo_result { photo_archive_record value = 1; }
 // @description Archive and collections capability version
 // @read-only true
 message get_library_version_arguments {}
-message get_library_version_result { uint32 version = 1; uint32 external_media_version = 2; }
+message get_library_version_result { uint32 version = 1; uint32 external_media_version = 2; uint32 content_reference_version = 3; }
 message photo_chunk_event { bytes id = 1; uint32 index = 2; bytes data = 3; }
 message photo_started_event { bytes id = 1; photo_archive_record value = 2; }
 

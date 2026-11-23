@@ -1,10 +1,12 @@
 # Cloudflare R2 media on the Foundation testnet
 
-This rollout changes file transport for the reference web client on `harbinger`.
-Text, polls, relationships, groups, encrypted post envelopes and private messages
-retain their current contracts. Photos, banners, artwork, voice, videos and music
-use R2; their existing encryption runs before upload. R2 receives ciphertext for
-restricted files and never receives the reading keys. Public file bytes remain public.
+This rollout moves new content bodies and media from the reference web app and
+extension to R2 on `harbinger`. Text, poll wording, message ciphertext, profiles,
+group/album metadata, captions, music descriptions and media bytes are hosted.
+Koinos retains fingerprints, references, identities, relationships, access rules,
+ballots, influence, payments and other protocol state. Existing encryption runs
+before upload; restricted content retains its existing reading keys and audience.
+See [content-storage.md](content-storage.md) for reference formats and compatibility.
 
 The Publications contract gains optional `external_uri` fields on photo and music
 reservations. Completed external reservations store the URI, size, full digest and
@@ -68,6 +70,9 @@ The storage caps are cumulative attempted uploads, including uncertain failures;
 they deliberately stop new uploads before exceeding the configured budget. Back up
 the sponsor's `.media` SQLite database along with its existing data.
 
+These object and byte quotas now include text, profile documents, poll wording
+and message ciphertext as well as files. Size them for the intended testnet usage.
+
 The reverse proxy for the sponsor needs `client_max_body_size 12m` (nginx) or an
 equivalent limit and at least a 90-second upload timeout. The application enforces
 the existing 10 MiB media ceiling and verifies account ownership, signature, expiry,
@@ -82,15 +87,21 @@ npm run build -w packages/proto -w packages/sdk -w apps/sponsor -w apps/indexer
 pm2 restart osp-sponsor osp-indexer --update-env
 ```
 
-## 3. Upgrade Publications, then publish the frontend
+Set `OSP_CONTENT_PUBLIC_URL` on the indexer to the same HTTPS base as
+`OSP_MEDIA_R2_PUBLIC_URL` before restarting it. This is a public read-only setting,
+with no storage credentials. It enables response hydration and profile name search.
+
+## 3. Upgrade Publications and Messaging, then publish the clients
 
 Run the existing **deploy-testnet** GitHub workflow from `codex/r2-testnet-media`,
-select **publications**, and keep the existing deployer key/contract seed. Do not
+select **content-storage**, and keep the existing deployer key/contract seed. Do not
 change addresses or reset the indexer database. This requires the repository's
 existing testnet deployment secrets; no mainnet deployment is part of this rollout.
 
-The new capability is `get_library_version.external_media_version = 1` and
-`get_music_config.value.external_media_version = 1`. After upgrading the sponsor and
+The media capability is `get_library_version.external_media_version = 1` and
+`get_music_config.value.external_media_version = 1`. Content bodies also require
+`get_library_version.content_reference_version = 1` and
+`get_private_status.content_reference_version = 1`. After upgrading the sponsor and
 contract, run:
 
 ```sh
@@ -104,13 +115,16 @@ it publishes no post and logs no keys.
 
 Build the frontend with `npm run build:web`, then deploy `apps/web/dist` to the
 existing Hostinger site. Testnet clients default to R2 and stop if its configuration
-or contract capability is unavailable. The upload endpoint defaults to the selected
-sponsor's `/v1/media`; `mediaUploadUrl` is also a supported settings override. For a
-staged rollback, build with `VITE_OSP_MEDIA_STORAGE=chain` to restore the old upload
-transport. Old cloud media remains readable by this version regardless of that flag.
+or contract capability is unavailable. The upload endpoint defaults to the deployment's
+first sponsor's `/v1/media`, independently of the user's Mana payment preference;
+`mediaUploadUrl` is also a supported web settings override.
+There is no automatic chain fallback. Build/release the extension as well with
+`npm run build -w apps/extension`.
 
 Verify public/private photos, selected-person sharing, albums, group banners,
 artwork, music access, voice in messages, short videos and an interrupted upload.
+Also test text/reply edits and revision history, polls/voting, profiles/name search,
+group descriptions/captions, music comments/votes, and private message retries.
 Inspect the chain transaction: it must contain a reservation/reference and hashes,
 with no append operation or full media bytes. Confirm another authorized account
 can decrypt and an unapproved account cannot. Locking must still dismiss private media.

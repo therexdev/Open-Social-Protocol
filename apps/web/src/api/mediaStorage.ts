@@ -1,11 +1,23 @@
 /** R2 is transport only. Existing encrypted drafts, audience keys and chain commitments remain authoritative. */
-import { bytesEqual, contentHash, openMedia, readMediaResponse, signMediaUpload, toBase64url, utf8,
+import { bytesEqual, contentHash, createContentLoader, openMedia, readMediaResponse, signMediaUpload, toBase64url, utf8,
   type MediaUploadStatement, type ProtocolClient } from "@osp/sdk";
 import type { SubmitContext } from "../tx/submit";
 
 const storage = new WeakMap<ProtocolClient, { endpoint: string; fetch: typeof fetch }>();
 export function configureMediaStorage(client: ProtocolClient, endpoint: string, fetchFn: typeof fetch = fetch) {
   storage.set(client, { endpoint, fetch: fetchFn });
+  let load: ReturnType<typeof createContentLoader> | undefined;
+  client.contracts.contentLoader = async reference => {
+    if (!load) {
+      https(endpoint);
+      const response = await fetchFn(endpoint, { credentials: "omit", redirect: "error", referrerPolicy: "no-referrer", signal: AbortSignal.timeout(15_000) });
+      if (!response.ok) throw Error("Content hosting is temporarily unavailable.");
+      const discovery = await response.json() as { enabled: boolean; provider: string; chainId: string; contract: string; publicUrl: string };
+      if (!discovery.enabled || discovery.provider !== "r2" || discovery.chainId !== client.chainId || discovery.contract !== client.deployment.contracts.identity.address) throw Error("Content hosting is not enabled for this network.");
+      load = createContentLoader({ publicUrl: discovery.publicUrl, chainId: client.chainId, identityContract: discovery.contract, fetch: fetchFn });
+    }
+    return load(reference);
+  };
 }
 export const usesExternalMedia = (client: ProtocolClient) => storage.has(client);
 function https(value: string): URL {

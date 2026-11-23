@@ -26,7 +26,7 @@ export interface ServicesProviderProps {
 
 export function defaultServices(resolved: ResolvedSettings): Services {
   const protocol = createProtocolClient(resolved);
-  return { resolved, indexer: new IndexerClient({ baseUrl: resolved.indexerUrl }), ...(protocol && { protocol }) };
+  return { resolved, indexer: new IndexerClient({ baseUrl: resolved.indexerUrl, ...(protocol?.contracts.contentLoader && { contentLoader: protocol.contracts.contentLoader }) }), ...(protocol && { protocol }) };
 }
 
 export function ServicesProvider({ children, store = useSettings, factory = defaultServices }: ServicesProviderProps) {

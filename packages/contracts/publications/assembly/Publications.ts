@@ -27,6 +27,7 @@ import { token } from "./proto/token";
 import { relationships } from "./proto/relationships";
 import { Actor, Capability, IS_BLOCKED_ENTRY_POINT } from "./common/actor";
 import { Util } from "./common/util";
+import { ContentReference } from "./common/content";
 
 // Call arguments and database reads are returned through the SDK's system-call
 // buffer (1 KiB by default); the chain fails a call whose payload does not fit
@@ -93,7 +94,7 @@ export class Publications {
     if (comment == null) return null;
     // The tombstone retains its author so a pending reward can still settle, at zero.
     const state = comment!.deleted ? publications.lifecycle_state.deleted : publications.lifecycle_state.active;
-    const hash: Uint8Array | null = comment!.deleted ? null : this.music.hash(comment!.body!);
+    const hash: Uint8Array | null = comment!.deleted ? null : ContentReference.hash(comment!.body!, 4000);
     return new publications.post_record(comment!.author, 0, 1, hash, state, null, audience);
   }
 
@@ -125,7 +126,7 @@ export class Publications {
   list_music(args: publications.list_music_arguments): publications.list_music_result { return this.music.list(args); }
 
   library: PhotoLibrary = new PhotoLibrary();
-  get_library_version(args: publications.get_library_version_arguments): publications.get_library_version_result { return new publications.get_library_version_result(1, 1); }
+  get_library_version(args: publications.get_library_version_arguments): publications.get_library_version_result { return new publications.get_library_version_result(1, 1, 1); }
   begin_photo(args: publications.begin_photo_arguments): publications.begin_photo_result { this.library.begin(args, this.identityContract(), this.get_token_contract(new publications.get_token_contract_arguments()).value); return new publications.begin_photo_result(); }
   append_photo(args: publications.append_photo_arguments): publications.append_photo_result { this.library.append(args, this.identityContract()); return new publications.append_photo_result(); }
   get_photo(args: publications.get_photo_arguments): publications.get_photo_result { return new publications.get_photo_result(this.library.photos.get(this.library.id(args.id))); }
@@ -138,10 +139,11 @@ export class Publications {
   pollBallots: Storage.Map<Uint8Array, publications.poll_ballot> = new Storage.Map<Uint8Array, publications.poll_ballot>(System.getContractId(), 6, publications.poll_ballot.decode, publications.poll_ballot.encode, null);
 
   validatePoll(p: publications.poll_definition): void {
+    const hosted = p.question != null && ContentReference.text(p.question!, 16384);
     System.require(p.question != null && p.question!.trim().length > 0 && p.question!.length <= 500, "poll question must contain 1-500 characters");
     System.require(p.options.length >= 2 && p.options.length <= 8, "poll requires 2-8 options");
     for (let i = 0; i < p.options.length; i++) {
-      System.require(p.options[i].trim().length > 0 && p.options[i].length <= 120, "poll options must contain 1-120 characters");
+      System.require(hosted ? p.options[i] == i.toString() : p.options[i].trim().length > 0 && p.options[i].length <= 120, "invalid poll option");
       for (let j = 0; j < i; j++) System.require(p.options[i].trim().toLowerCase() != p.options[j].trim().toLowerCase(), "duplicate poll option");
     }
     const now = Util.now();
@@ -438,7 +440,7 @@ export class Publications {
     const envelope: Uint8Array | null = Util.isEmpty(args.envelope) ? null : args.envelope;
     if (envelope != null) {
       System.require(<u32>envelope.length <= MAX_ENVELOPE_BYTES, "envelope too large");
-      System.require(Arrays.equal(this.sha256(envelope), contentHash), "content hash mismatch");
+      System.require(Arrays.equal(ContentReference.hash(envelope, MAX_ENVELOPE_BYTES), contentHash), "content hash mismatch");
     }
 
     System.require(<i32>args.audience >= 0 && <i32>args.audience <= MAX_AUDIENCE_KIND, "unknown audience");

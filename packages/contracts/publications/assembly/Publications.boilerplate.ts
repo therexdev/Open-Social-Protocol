@@ -306,6 +306,7 @@ export class Publications {
     const res = new publications.get_library_version_result();
     // res.version = ;
     // res.external_media_version = ;
+    // res.content_reference_version = ;
 
     return res;
   }

@@ -1,3 +1,4 @@
+import { ContentReference } from "./common/content";
 import { Arrays, authority, Crypto, Protobuf, Storage, System, Token } from "@koinos/sdk-as";
 import { publications } from "./proto/publications";
 import { Actor, Capability } from "./common/actor";
@@ -197,6 +198,7 @@ export class MusicLibrary {
       System.require(args.duration_ms > 0 && args.duration_ms <= (kind == VOICE ? 120000 : 3600000), "invalid audio duration");
       if (kind == VOICE) System.require(args.size <= 1048576, "voice must fit 1 MiB");
     }
+    if (ContentReference.text(args.title!, 16384)) System.require((args.artist == null || args.artist!.length == 0) && (args.description == null || args.description!.length == 0), "hosted metadata must omit inline descriptions");
     System.require(
       Util.str(args.artist == null ? "" : args.artist!).length <= 240,
       "artist must fit 240 UTF-8 bytes"

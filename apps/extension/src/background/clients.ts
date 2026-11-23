@@ -3,6 +3,7 @@
  * and writes never bypass @osp/sdk; the indexer is a replaceable convenience.
  */
 import { ProtocolClient, SponsorPool, type ProviderInterface } from "@osp/sdk";
+import { configureMediaStorage } from "../../../web/src/api/mediaStorage";
 import { IndexerClient, type FetchLike } from "../shared/indexer";
 import { resolveSettings, settingsSignature, type PaymentPreference, type ResolveOptions, type ResolvedSettings, type Settings } from "../shared/settings";
 
@@ -30,7 +31,6 @@ export class ClientRegistry {
     const resolved = resolveSettings(settings, this.options);
     const signature = settingsSignature(resolved);
     if (this.cached && this.cached.signature === signature) return this.cached.clients;
-    const indexer = new IndexerClient({ baseUrl: resolved.indexerUrl, ...(this.options.fetch && { fetch: this.options.fetch }) });
     let protocol: ProtocolClient | undefined;
     if (resolved.deployment) {
       const sponsors = new SponsorPool(resolved.sponsorUrls, {
@@ -39,7 +39,9 @@ export class ClientRegistry {
       });
       const rpc = this.options.provider ?? (resolved.rpcUrls.length > 0 ? resolved.rpcUrls : resolved.deployment.rpc);
       protocol = new ProtocolClient({ rpc, deployment: resolved.deployment, sponsors });
+      if (resolved.network === "harbinger") configureMediaStorage(protocol, `${(resolved.deployment.sponsors?.[0] ?? resolved.sponsorUrls[0])?.replace(/\/+$/, "") ?? ""}/v1/media`, this.options.fetch as typeof fetch | undefined);
     }
+    const indexer = new IndexerClient({ baseUrl: resolved.indexerUrl, ...(this.options.fetch && { fetch: this.options.fetch }), ...(protocol?.contracts.contentLoader && { contentLoader: protocol.contracts.contentLoader }) });
     const clients: Clients = { resolved, ...(protocol && { protocol }), indexer };
     this.cached = { signature, clients };
     return clients;

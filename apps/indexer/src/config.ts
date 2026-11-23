@@ -33,6 +33,8 @@ export interface IndexerConfig {
   reversibleWindow?: number;
   version: string;
   musicCache?: { directory: string; maxBytes: number };
+  /** Public, read-only content origin shared with the sponsor's R2 upload service. */
+  contentPublicUrl?: string;
 }
 
 export const DEFAULTS = {
@@ -138,6 +140,7 @@ export function loadConfig(env: Env = process.env, options: LoadConfigOptions = 
     batchSize: intEnv(env, "OSP_BATCH_SIZE", DEFAULTS.batchSize, 1),
     ...(reversibleWindow !== undefined && { reversibleWindow }),
     version: packageVersion(),
+    ...(env.OSP_CONTENT_PUBLIC_URL?.trim() && { contentPublicUrl: env.OSP_CONTENT_PUBLIC_URL.trim() }),
     ...(cacheEnabled === "true" && { musicCache: {
       directory: env.OSP_MUSIC_CACHE_DIR?.trim() || path.join("data", "music-cache"),
       maxBytes: cacheMb * 1024 * 1024,

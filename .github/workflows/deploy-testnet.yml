@@ -18,7 +18,7 @@ on:
         description: Contracts to upgrade (token for automatic OSAT rewards)
         default: all
         type: choice
-        options: [all, token, publications, music, social-media]
+        options: [all, token, publications, music, social-media, content-storage]
       dry_run:
         description: Simulate only (broadcast=false) and print the Mana/RC report
         default: false
@@ -79,6 +79,7 @@ jobs:
         run: |
           contract_args=()
           case "$DEPLOY_CONTRACTS" in
+            content-storage) contract_args+=(--only publications,messaging) ;;
             social-media) contract_args+=(--only publications,token) ;;
             music) contract_args+=(--only token,publications,sponsorship) ;;
             token) contract_args+=(--only token) ;;

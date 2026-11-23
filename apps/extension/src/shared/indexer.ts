@@ -1,4 +1,4 @@
-import type { IndexedPostEconomy } from "@osp/sdk";
+import { hydrateContent, type ContentLoader, type IndexedPostEconomy } from "@osp/sdk";
 /**
  * Typed client for the INDEXER API v1 (apps/indexer/README.md). The indexer is a replaceable
  * convenience, never a source of truth: chain reads through the SDK stay authoritative.
@@ -121,17 +121,20 @@ function qs(params: Record<string, string | number | undefined>): string {
 }
 
 export interface IndexerClientOptions {
+  contentLoader?: ContentLoader;
   baseUrl: string;
   fetch?: FetchLike;
   timeoutMs?: number;
 }
 
 export class IndexerClient {
+  private readonly loadContent: ContentLoader | undefined;
   readonly baseUrl: string;
   private readonly fetchFn: FetchLike | undefined;
   private readonly timeoutMs: number;
 
   constructor(options: IndexerClientOptions) {
+    this.loadContent = options.contentLoader;
     this.baseUrl = options.baseUrl.replace(/\/+$/, "");
     const fetchFn = options.fetch ?? (globalThis.fetch as FetchLike | undefined);
     // Browser fetch requires Window/WorkerGlobalScope as its receiver, not this client.
@@ -219,6 +222,6 @@ export class IndexerClient {
       const err = (body as { error?: { code?: string; message?: string } } | undefined)?.error;
       throw new IndexerError(response.status, err?.code ?? `http_${response.status}`, err?.message ?? `The indexer responded with ${response.status}.`);
     }
-    return body as T;
+    return this.loadContent ? hydrateContent(body as T, this.loadContent, true) : body as T;
   }
 }

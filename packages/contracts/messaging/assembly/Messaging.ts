@@ -1,3 +1,4 @@
+import { ContentReference } from "./common/content";
 import { System, Storage, Protobuf, authority, Arrays, Crypto } from "@koinos/sdk-as";
 import { messaging } from "./proto/messaging";
 import { relationships } from "./proto/relationships";
@@ -147,7 +148,7 @@ export class Messaging {
     const id = Util.requireBytes(args.message_id, 32, "message id");
     System.require(id.length == 32, "message id must be 32 bytes");
     const envelope = Util.requireBytes(args.envelope, 4096, "encrypted envelope");
-    const hash = System.hash(Crypto.multicodec.sha2_256, envelope)!.slice(2);
+    const hash = ContentReference.hash(envelope, 4096);
     const key = Util.concat([a, id]),
       existing = this.messages.get(key);
     if (existing != null) {
@@ -314,8 +315,8 @@ export class Messaging {
     const a = this.privateAuth(args.actor), id = this.bytes32(args.packet_id), envelope = Util.requireBytes(args.envelope, 6144, "packet");
     const peer = args.peer == null ? new Uint8Array(0) : args.peer!;
     if (peer.length > 0) Util.requireAddress(peer, "peer");
-    else System.require(envelope.length == 4168, "invitation must use fixed padding");
-    const hash = System.hash(Crypto.multicodec.sha2_256, envelope)!.slice(2), key = Util.concat([a, id]), old = this.privatePackets.get(key);
+    else System.require(ContentReference.size(envelope, 6144) == 4168, "invitation must use fixed padding");
+    const hash = ContentReference.hash(envelope, 6144), key = Util.concat([a, id]), old = this.privatePackets.get(key);
     if (old != null) {
       System.require(Arrays.equal(old!.content_hash!, hash) && Arrays.equal(old!.peer!, peer), "packet id collision");
       return new messaging.post_private_packet_result(old);
@@ -339,6 +340,6 @@ export class Messaging {
   }
   get_private_status(args: messaging.get_private_status_arguments): messaging.get_private_status_result {
     const value = this.privateSequence.get();
-    return new messaging.get_private_status_result(2, value == null ? 0 : value!.units);
+    return new messaging.get_private_status_result(2, value == null ? 0 : value!.units, 1);
   }
 }

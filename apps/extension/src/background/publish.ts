@@ -38,6 +38,7 @@ import {
   type SubmitResult,
 } from "@osp/sdk";
 import { fromHex, toBase64url } from "../shared/bytes";
+import { prepareHostedContent } from "../../../web/src/api/contentStorage";
 import { DEVICE_EXPIRY_MS, DEVICE_LABEL } from "../shared/config";
 import { draftContent } from "../shared/draft";
 import type { GraphView, IndexerClient } from "../shared/indexer";
@@ -100,6 +101,8 @@ async function selfPayWithOwner(operations: OperationJson[], ctx: PaymentContext
 export async function submitOperations(operations: OperationJson[], ctx: PaymentContext): Promise<SubmitResult> {
   const plan = paymentPlan(ctx);
   const device = ctx.vault.signers(ctx.session).device;
+  const owner = ctx.vault.signers(ctx.session).owner;
+  operations = await prepareHostedContent({ client: ctx.client, signer: device, payment: ctx.payment, contentSigner: { account: ctx.session.account, signer: owner ?? device } }, operations);
   if (plan.mode === "self") return selfPayWithOwner(operations, ctx, device, plan.payer);
   try {
     return await ctx.client.submit({ operations, signer: device, selfPayFallback: false });

@@ -56,6 +56,7 @@ export interface MediaRoutesOptions {
   chainId: string;
   contract: string;
   ownerOf: (account: string) => Promise<string | undefined>;
+  authorizedDevice?: (account: string, signer: string) => Promise<boolean>;
   pin?: (bytes: Uint8Array, mime: string, hash: string) => Promise<string>;
   now?: () => number;
 }
@@ -99,7 +100,15 @@ export async function registerMediaRoutes(app: FastifyInstance, options: MediaRo
       try {
         let owner: string | undefined;
         try { owner = await options.ownerOf(proof.account); } catch { throw new SponsorRefusal("temporarily_unavailable", "Your account could not be verified. Try uploading again."); }
-        if (!owner || owner !== proof.signer) throw new SponsorRefusal("invalid_signature", "Upload must be signed by the registered account's current owner");
+        // Bootstrap a small profile before identity.register. Existing accounts
+        // always use their current owner, including after an owner rotation.
+        let allowedDevice = false;
+        if (owner && owner !== proof.signer && options.authorizedDevice) {
+          try { allowedDevice = await options.authorizedDevice(proof.account, proof.signer); }
+          catch { throw new SponsorRefusal("temporarily_unavailable", "Your browser's upload authority could not be verified. Try again later."); }
+        }
+        if (owner ? owner !== proof.signer && !allowedDevice : config.provider !== "r2" || proof.signer !== proof.account || proof.size > 512)
+          throw new SponsorRefusal("invalid_signature", "Upload must be signed by the account's current owner; new accounts may upload a small profile only");
         const previous = db.prepare("SELECT cid,size FROM media_files WHERE hash=?").get(proof.hash) as Row | undefined;
         if (previous && (config.provider !== "r2" || previous.cid.startsWith(`${config.r2!.publicUrl}/osp/`))) return { url: receiptUrl(previous.cid), hash: proof.hash, size: previous.size };
         const pending = inFlight.get(proof.hash);

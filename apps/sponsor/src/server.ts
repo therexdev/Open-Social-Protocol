@@ -528,6 +528,10 @@ export async function createServer(options: ServerOptions): Promise<FastifyInsta
     chainId: options.deployment?.chainId ?? "",
     contract: options.deployment?.contracts.identity.address ?? "",
     ownerOf: async account => (await service.client?.reads.identity.get_identity({ account }))?.value?.owner,
+    authorizedDevice: async (account, signer) => {
+      const resolved = await service.client?.reads.identity.resolve_actor({ account, device: signer, capability: 1 });
+      return resolved?.ok === true && resolved.signer === signer;
+    },
   });
 
   app.addHook("onClose", async () => service.close());

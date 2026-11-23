@@ -3716,6 +3716,11 @@ export namespace publications {
         writer.uint32(16);
         writer.uint32(message.external_media_version);
       }
+
+      if (message.content_reference_version != 0) {
+        writer.uint32(24);
+        writer.uint32(message.content_reference_version);
+      }
     }
 
     static decode(reader: Reader, length: i32): get_library_version_result {
@@ -3733,6 +3738,10 @@ export namespace publications {
             message.external_media_version = reader.uint32();
             break;
 
+          case 3:
+            message.content_reference_version = reader.uint32();
+            break;
+
           default:
             reader.skipType(tag & 7);
             break;
@@ -3744,10 +3753,16 @@ export namespace publications {
 
     version: u32;
     external_media_version: u32;
+    content_reference_version: u32;
 
-    constructor(version: u32 = 0, external_media_version: u32 = 0) {
+    constructor(
+      version: u32 = 0,
+      external_media_version: u32 = 0,
+      content_reference_version: u32 = 0
+    ) {
       this.version = version;
       this.external_media_version = external_media_version;
+      this.content_reference_version = content_reference_version;
     }
   }
 

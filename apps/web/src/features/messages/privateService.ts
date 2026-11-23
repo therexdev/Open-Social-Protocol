@@ -271,7 +271,7 @@ export class PrivateMessagingService {
   ): Promise<void> {
     this.active();
     await submitAction(
-      { client: this.protocol, signer, payment: this.payment },
+      { client: this.protocol, signer, payment: this.payment, contentSigner: { account: this.me.account, signer: this.me.signer } },
       operations,
       // Profile reservations must hold the shared account queue until inclusion.
       // Alias packets reconcile their exact chain commitment before the next

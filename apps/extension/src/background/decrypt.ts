@@ -1,3 +1,4 @@
+import { parseContentReference } from "@osp/sdk";
 /**
  * Opening PostViews: plaintext (everyone) directly, friends-only through the key store.
  * Decryption happens in the service worker; a missing key is a normal state, not an error.
@@ -47,7 +48,15 @@ export async function openPost(post: PostView, ctx: OpenContext): Promise<Opened
   if (post.state === LIFECYCLE.DELETED) return { status: "tombstone", message: post.stateReason || "This post was deleted by its author." };
   if (post.state === LIFECYCLE.AUTHOR_HIDDEN) return { status: "hidden", message: post.stateReason || "The author hid this post." };
   if (post.state === LIFECYCLE.UNAVAILABLE) return { status: "unavailable", message: post.stateReason || "This post is unavailable." };
-  const bytes = bytesOf(post.envelope);
+  let bytes = bytesOf(post.envelope);
+  try {
+    const reference = parseContentReference(bytes);
+    if (reference) {
+      const load = ctx.chain && "contracts" in ctx.chain ? (ctx.chain as ProtocolClient).contracts.contentLoader : undefined;
+      if (!load) throw Error("Content hosting is unavailable.");
+      bytes = await load(reference);
+    }
+  } catch { return { status: "error", message: "This post's hosted content is unavailable or does not match its fingerprint." }; }
   if (bytes.length === 0) return { status: "error", message: "The indexer did not provide this post's content." };
   if (!bytesEqual(contentHash(bytes), bytesOf(post.contentHash))) return { status: "error", message: "This post does not match its published fingerprint." };
   let envelope;
