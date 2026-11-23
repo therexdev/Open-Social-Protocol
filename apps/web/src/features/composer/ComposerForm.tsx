@@ -1,3 +1,4 @@
+import { ZoomableImage } from "../../components/ZoomableImage";
 import { MediaCapture, type CapturedMedia, type ClipKind } from "../media/MediaCapture";
 import { prepareClip, prepareVideoClip } from "../media/clipArchive";
 import { createVideoPoster } from "../media/videoPoster";
@@ -279,7 +280,7 @@ export function ComposerForm({ draft, replyTo, replyGuard, edit, initialMode = "
       {mode !== "post" && <div className="clip-compose">
         <p className="hint">{mode === "video" ? `10–30 seconds · MP4 or WebM · up to 10 MiB · 100 ${currency} per upload` : "Up to 2 minutes · 1 usage unit per 32 KiB"}</p>
         {clip?.videoPoster && <p className="hint">Video preview ready · 1 photo usage unit from your free/regenerating OSAT capacity.</p>}
-        {clip && captured && captured.file.size > clip.size && <span className="hint">Lossless transfer: {(clip.size / 1024).toFixed(0)} KiB on chain · {(captured.file.size / 1024).toFixed(0)} KiB original</span>}
+        {clip && captured && captured.file.size > clip.size && <span className="hint">Lossless transfer: {(clip.size / 1024).toFixed(0)} KiB transferred · {(captured.file.size / 1024).toFixed(0)} KiB original</span>}
         {clip && !captured ? <div className="row"><span>{mode === "video" ? "Attached video" : "Attached voice recording"} · {(clip.size / 1024).toFixed(0)} KiB</span><Button onClick={() => void addClip(undefined)}>Remove attachment</Button></div> :
           <MediaCapture key={`${account}:${session ? "open" : "locked"}:${mode}`} kind={mode} value={captured} onChange={value => void addClip(value)} onBusyChange={setCapturing} disabled={!can.ok || needsGroup || attaching || busy}/>}
       </div>}
@@ -323,7 +324,7 @@ export function ComposerForm({ draft, replyTo, replyGuard, edit, initialMode = "
 
       </div>
       {media.length > 0 && <div className="composer-photos">{media.map((m,i) => m.url.startsWith("osp-clip://") ? null : <div className="composer-photo" key={`${m.url}:${i}`}>
-        {previews.current.has(m.url) ? <div className="ipfs-photo"><img src={previews.current.get(m.url)} alt={m.altText || "Attached photo"}/></div> : (m.url.startsWith("ipfs://") || m.url.startsWith("osp-photo://")) ? <MediaPhoto location={m.url} hash={toBase64url(m.contentHash)} mime={m.mime} encryption={m.encryption} alt={m.altText}/> : <span className="mono">{m.url}</span>}
+        {previews.current.has(m.url) ? <div className="ipfs-photo"><ZoomableImage src={previews.current.get(m.url)} alt={m.altText || "Attached photo"}/></div> : (m.url.startsWith("ipfs://") || m.url.startsWith("osp-photo://")) ? <MediaPhoto location={m.url} hash={toBase64url(m.contentHash)} mime={m.mime} encryption={m.encryption} alt={m.altText}/> : <span className="mono">{m.url}</span>}
         <Field label={`Attachment ${i + 1} description (optional)`}>{id => <input id={id} value={m.altText ?? ""} maxLength={160} onChange={e => setMedia(list => list.map((item,j) => j === i ? { ...item,altText: e.target.value } : item))}/>}</Field>
         <Button variant="ghost" onClick={() => removeMedia(i)}>Remove attachment {i + 1}</Button>
       </div>)}</div>}

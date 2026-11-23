@@ -296,6 +296,7 @@ export class Messaging {
     const res = new messaging.get_private_status_result();
     // res.version = ;
     // res.sequence = ;
+    // res.content_reference_version = ;
 
     return res;
   }

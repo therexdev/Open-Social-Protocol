@@ -7,6 +7,7 @@ import { bytesOf } from "../util/bytes";
 import type { KeyResolverIdentity, KeySource, KeyStore, KeyVerifier } from "./keystore";
 import type { PostVersionView, PostView } from "./indexer";
 import { readPostRevision } from "./postRevision";
+import { parseContentReference } from "@osp/sdk";
 
 export interface OpenedContent {
   share_with?: string[];
@@ -81,7 +82,15 @@ export async function openPost(post: PostView, ctx: OpenContext): Promise<PostCo
 
 /** Only call after verifying the source post and checking its current visibility. */
 async function openEnvelope(post: PostView, ctx: OpenContext): Promise<PostContent> {
-  const bytes = bytesOf(post.envelope);
+  let bytes = bytesOf(post.envelope);
+  try {
+    const reference = parseContentReference(bytes);
+    if (reference) {
+      const load = ctx.chain && "contracts" in ctx.chain ? (ctx.chain as ProtocolClient).contracts.contentLoader : undefined;
+      if (!load) return { status: "error", message: "Connect to content hosting to load this post." };
+      bytes = await load(reference);
+    }
+  } catch { return { status: "error", message: "This post's hosted content is unavailable or does not match its fingerprint. Try again later." }; }
   if (bytes.length === 0) return { status: "error", message: "The indexer did not provide this post's content." };
   if (!bytesEqual(contentHash(bytes), bytesOf(post.contentHash))) return { status: "error", message: "This post's content does not match its published fingerprint." };
   let envelope;
@@ -154,7 +163,7 @@ export async function openPostRevision(
   try {
     const current = await openPost(post, { ...ctx, chain: protocol });
     if (version.versionNumber === post.versionNumber || !("content" in current)) return current;
-    return await openEnvelope(await readPostRevision(protocol, post, version), ctx);
+    return await openEnvelope(await readPostRevision(protocol, post, version), { ...ctx, chain: protocol });
   } catch (error) {
     return { status: "error", message: error instanceof Error ? error.message : "The revision could not be loaded." };
   }

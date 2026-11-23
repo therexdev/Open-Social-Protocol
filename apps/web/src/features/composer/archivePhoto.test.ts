@@ -7,6 +7,7 @@ import {
   type PhotoArchiveRecord,
 } from "@osp/sdk";
 import { fakeProvider, fixtureDeployment } from "../../testing/fixtures";
+import { configureMediaStorage } from "../../api/mediaStorage";
 import { archivePhoto, prepareArchivedPhoto } from "./archivePhoto";
 import { submitAction } from "../../tx/submit";
 vi.mock("../../tx/submit", () => ({ submitAction: vi.fn() }));
@@ -43,7 +44,8 @@ beforeEach(() => {
           digest: args.digest as Uint8Array,
           size: args.size as number,
           chunk_hashes: args.chunk_hashes as Uint8Array[],
-          received: 0,
+          received: args.external_uri ? (args.chunk_hashes as Uint8Array[]).length : 0,
+          external_uri: args.external_uri as string | undefined,
           units: 4,
         };
       }
@@ -106,4 +108,27 @@ it("rejects a substituted reservation before uploading any chunks", async () => 
   );
   expect(appends).toEqual([]);
   expect(charged).toBe(0);
+});
+
+it("commits encrypted R2 photo references without any append transaction", async () => {
+  vi.spyOn(client.reads.publications, "get_library_version").mockResolvedValue({ version: 1, external_media_version: 1 });
+  const media = prepareArchivedPhoto(new Uint8Array(100).fill(1), client, true);
+  const hash = toBase64url(media.contentHash), location = `https://media.example/osp/test/${hash}`;
+  const { fromBase64url } = await import("@osp/sdk");
+  const stored = fromBase64url(media.archiveBytes!);
+  const fetchFn = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+    if (url === location) return new Response(new Uint8Array(stored));
+    return new Response(JSON.stringify(init?.method === "POST" ? { url: location, hash, size: stored.length } : {
+      enabled: true, provider: "r2", chainId: client.chainId, contract: client.deployment.contracts.identity.address,
+      maxFileBytes: 10485760, publicUrl: "https://media.example",
+    }));
+  });
+  configureMediaStorage(client, "https://uploads.example/v1/media", fetchFn);
+  await archivePhoto(media, ctx, identity.account);
+  expect(record!.external_uri).toBe(location);
+  expect(appends).toEqual([]);
+  expect(charged).toBe(1);
+  await archivePhoto(media, ctx, identity.account);
+  expect(charged).toBe(1);
+  expect(fetchFn).toHaveBeenCalledTimes(3);
 });

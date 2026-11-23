@@ -1,3 +1,4 @@
+import { ContentReference } from "./common/content";
 import { Arrays, Crypto, Protobuf, Storage, System } from "@koinos/sdk-as";
 import { publications } from "./proto/publications";
 import { relationships } from "./proto/relationships";
@@ -337,12 +338,12 @@ export class MusicAccess {
       System.require(license != null && license!.status == 2, "unlock the track before commenting");
     }
     System.require(
-      args.body != null && args.body!.length > 0 && args.body!.length <= 4000,
+      args.body != null && args.body!.length > 0 && ContentReference.size(args.body!, 4000) <= 4000,
       "comment must fit 4000 bytes"
     );
     System.require(
       v.encrypted
-        ? args.nonce != null && args.nonce!.length == 24 && args.body!.length > 16
+        ? args.nonce != null && args.nonce!.length == 24 && ContentReference.size(args.body!, 4000) > 16
         : Util.isEmpty(args.nonce),
       "invalid comment encryption"
     );

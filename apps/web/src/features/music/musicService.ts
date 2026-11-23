@@ -29,6 +29,7 @@ import {
   type MusicRecord,
   type ProtocolClient,
 } from "@osp/sdk";
+import { uploadStoredMedia, usesExternalMedia, fetchStoredMedia } from "../../api/mediaStorage";
 import { submitAction, type SubmitContext } from "../../tx/submit";
 import { toArrayBuffer } from "../../util/bytes";
 import { deriveAesKey, EncryptedStore } from "../../vault/encryptedStore";
@@ -306,7 +307,13 @@ export async function uploadMusic(
       expectedFee !== draft.fee
     )
       throw new Error("The music price changed. Refresh the quote before paying.");
+    let external_uri: string | undefined;
+    if (usesExternalMedia(client)) {
+      if (config.external_media_version !== 1) throw Error("Upgrade the testnet publications contract before using cloud media storage.");
+      external_uri = await uploadStoredMedia(ctx, draft.owner, stored, assertActive);
+    }
     const args: BeginMusicArgs = {
+      ...(external_uri && { external_uri }),
       ...(draft.artwork && { cover: artworkRecord(draft.artwork) }),
       owner: draft.owner,
       payer: draft.payer,
@@ -348,6 +355,12 @@ export async function uploadMusic(
   progress(record.received, chunks.length, true);
   // A saved v1/v2 draft remains resumable after either end is upgraded. Never send
   // an oversized batch to an older contract or sponsor during a staged rollout.
+  if (record.external_uri) {
+    const verified = verifyMusic(record, chunks);
+    await musicCache()?.put(musicCacheKey(client, id, record.digest), verified);
+    progress(chunks.length, chunks.length, true);
+    return;
+  }
   const config = await musicConfig(client);
   let batchSize = Math.min(
     [1, 4, 8, MUSIC_BATCH_CHUNKS].includes(draft.batchSize ?? 1) ? (draft.batchSize ?? 1) : 1,
@@ -431,6 +444,14 @@ export async function loadMusic(
       progress?.(record.received, record.received);
       return { record, bytes };
     } catch { await cache?.remove(cacheKey); }
+  }
+  if (record.external_uri) {
+    const stored = await fetchStoredMedia(record.external_uri, record.digest, record.size, signal);
+    check();
+    const bytes = verifyMusic(record, musicChunks(stored));
+    await cache?.put(cacheKey, bytes);
+    progress?.(record.received, record.received);
+    return { record, bytes };
   }
   const config = await musicConfig(client);
   let batchSize = config.version >= 3 ? MUSIC_READ_BATCH_CHUNKS : 1;

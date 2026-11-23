@@ -1,4 +1,5 @@
-import { Base58, MockVM, Protobuf, chain, system_calls } from "@koinos/sdk-as";
+import { Util } from "../common/util";
+import { Arrays, System, Crypto, Base58, MockVM, Protobuf, chain, system_calls } from "@koinos/sdk-as";
 import { Messaging } from "../Messaging";
 import { messaging } from "../proto/messaging";
 import { identity } from "../proto/identity";
@@ -25,4 +26,38 @@ describe("private consent and packet integrity",()=>{
   it("does not let one wallet approve both sides",()=>{Testing.authorize([ALICE]);c.open_private_channel(new messaging.open_private_channel_arguments(ALICE,BOB));MockVM.commitTransaction();c.open_private_channel(new messaging.open_private_channel_arguments(ALICE,BOB));MockVM.commitTransaction();expect(()=>{c.post_private_packet(new messaging.post_private_packet_arguments(ALICE,BOB,bytes(6),bytes(7,100)));}).toThrow();expect(c.get_private_units(new messaging.get_private_units_arguments(ALICE)).units).toBe(3);});
   it("requires alias authorization and rejects changed ciphertext on retry",()=>{openBoth();Testing.authorize([BOB]);expect(()=>{c.post_private_packet(new messaging.post_private_packet_arguments(ALICE,BOB,bytes(6),bytes(7,100)));}).toThrow();Testing.authorize([ALICE]);c.post_private_packet(new messaging.post_private_packet_arguments(ALICE,BOB,bytes(6),bytes(7,100)));MockVM.commitTransaction();expect(()=>{c.post_private_packet(new messaging.post_private_packet_arguments(ALICE,BOB,bytes(6),bytes(8,100)));}).toThrow();});
   it("closing stops packets and stale approval cannot reopen it",()=>{openBoth();Testing.authorize([BOB]);c.close_private_channel(new messaging.close_private_channel_arguments(BOB,ALICE));MockVM.commitTransaction();Testing.authorize([ALICE]);expect(()=>{c.post_private_packet(new messaging.post_private_packet_arguments(ALICE,BOB,bytes(6),bytes(7,100)));}).toThrow();expect(()=>{c.open_private_channel(new messaging.open_private_channel_arguments(ALICE,BOB));}).toThrow();});
+});
+
+let hosted: Uint8Array = new Uint8Array(0);
+function reference(body: Uint8Array): Uint8Array {
+  const result = new Uint8Array(44);
+  result.set(Util.str("OSPREF1"));
+  result.set(Util.u32be(<u32>body.length), 8);
+  result.set(System.hash(Crypto.multicodec.sha2_256, body)!.slice(2), 12);
+  return result;
+}
+describe("hosted private packet bodies", () => {
+  beforeEach(() => { setup(); fund(); });
+  it("retains the original ciphertext commitment and fixed invitation size", () => {
+    const body = bytes(7, 4168);
+    hosted = reference(body);
+    Testing.authorize([ALICE]);
+    const first = c.post_private_packet(new messaging.post_private_packet_arguments(ALICE, null, bytes(8), hosted)).value!;
+    expect(Arrays.equal(first.content_hash!, System.hash(Crypto.multicodec.sha2_256, body)!.slice(2))).toBe(true);
+    expect(hosted.length).toBe(44);
+    MockVM.commitTransaction();
+    const again = c.post_private_packet(new messaging.post_private_packet_arguments(ALICE, null, bytes(8), hosted)).value!;
+    expect(again.sequence).toBe(first.sequence);
+    expect(c.get_private_units(new messaging.get_private_units_arguments(ALICE)).units).toBe(3);
+  });
+  it("rejects references claiming an unpadded invitation or oversized packet", () => {
+    Testing.authorize([ALICE]);
+    hosted = reference(bytes(7, 4167));
+    expect(() => { c.post_private_packet(new messaging.post_private_packet_arguments(ALICE, null, bytes(8), hosted)); }).toThrow();
+  });
+  it("retains channel consent for hosted conversation messages", () => {
+    Testing.authorize([ALICE]);
+    hosted = reference(bytes(7, 100));
+    expect(() => { c.post_private_packet(new messaging.post_private_packet_arguments(ALICE, BOB, bytes(8), hosted)); }).toThrow();
+  });
 });

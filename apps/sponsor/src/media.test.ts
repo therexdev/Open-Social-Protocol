@@ -13,10 +13,10 @@ const endpoint = "https://upload.test/v1/media", now = 1_800_000_000_000;
 const config: MediaConfig = { provider: "pinata",pinataJwt: "server-secret",dailyFiles: 2,maxFiles: 3,maxBytes: 1000 };
 const apps: FastifyInstance[] = [], dirs: string[] = [];
 afterEach(async () => { for (const app of apps.splice(0)) await app.close(); for (const dir of dirs.splice(0)) rmSync(dir,{ recursive: true,force: true }); });
-async function setup(options: { path?: string; owner?: string; pin?: ReturnType<typeof vi.fn<(...args: any[]) => Promise<string>>>; config?: MediaConfig } = {}) {
+async function setup(options: { path?: string; owner?: string; pin?: ReturnType<typeof vi.fn<(...args: any[]) => Promise<string>>>; config?: MediaConfig; authorizedDevice?: (account: string, signer: string) => Promise<boolean> } = {}) {
   const app = Fastify(), pin = options.pin ?? vi.fn().mockResolvedValue(cid), ownerOf = vi.fn().mockResolvedValue(options.owner ?? user.getAddress());
   app.setErrorHandler((e,req,reply) => reply.code(e instanceof SponsorRefusal ? e.status : 500).send({ error: e instanceof Error ? e.message : "error" }));
-  await registerMediaRoutes(app,{ config: options.config ?? config,dbPath: options.path ?? ":memory:",endpoint,chainId: "test",contract: "identity",ownerOf,pin,now: () => now });
+  await registerMediaRoutes(app,{ config: options.config ?? config,dbPath: options.path ?? ":memory:",endpoint,chainId: "test",contract: "identity",ownerOf,pin,now: () => now, ...(options.authorizedDevice && { authorizedDevice: options.authorizedDevice }) });
   apps.push(app); return { app,pin,ownerOf };
 }
 async function headers(bytes: Uint8Array, overrides: Partial<MediaUploadStatement> = {}) {
@@ -67,4 +67,41 @@ describe("IPFS service", () => {
     expect(loadMediaConfig({})).toBeUndefined();
     expect(() => loadMediaConfig({ OSP_MEDIA_PROVIDER: "pinata" })).toThrow(/JWT/);
   });
+});
+
+it("stores R2 receipts and reuses them without a second upload", async () => {
+  const bytes = utf8("encrypted-video"), hash = toBase64url(contentHash(bytes));
+  const url = `https://media.example/osp/test/${hash}`;
+  const r2 = { accountId: "a".repeat(32), bucket: "test-media", accessKeyId: "id", secretAccessKey: "secret", publicUrl: "https://media.example" };
+  const { app, pin } = await setup({ config: { ...config, provider: "r2", r2 }, pin: vi.fn().mockResolvedValue(url) });
+  const discovery = (await app.inject({ method: "GET", url: "/v1/media" })).json();
+  expect(discovery).toMatchObject({ provider: "r2", enabled: true, maxFileBytes: 10485760 });
+  expect(JSON.stringify(discovery)).not.toContain("secret");
+  expect((await upload(app, bytes)).json()).toEqual({ url, hash, size: bytes.length });
+  expect((await upload(app, bytes)).statusCode).toBe(200);
+  expect(pin).toHaveBeenCalledTimes(1);
+});
+it("refuses an R2 adapter receipt outside the configured media domain", async () => {
+  const r2 = { accountId: "a".repeat(32), bucket: "test-media", accessKeyId: "id", secretAccessKey: "secret", publicUrl: "https://media.example" };
+  const { app } = await setup({ config: { ...config, provider: "r2", r2 }, pin: vi.fn().mockResolvedValue("https://evil.example/osp/file") });
+  expect((await upload(app, utf8("private"))).statusCode).toBe(503);
+});
+it("bootstraps only small R2 documents for unregistered self-signing accounts, and respects rotated owners", async () => {
+  const r2 = { accountId: "a".repeat(32), bucket: "test-media", accessKeyId: "id", secretAccessKey: "secret", publicUrl: "https://media.example" };
+  const f = await setup({ config: { ...config, provider: "r2", r2 }, pin: vi.fn(async (_bytes, _mime, hash) => `https://media.example/osp/test/${hash}`) });
+  f.ownerOf.mockResolvedValue(undefined);
+  expect((await upload(f.app, utf8("profile document"))).statusCode).toBe(200);
+  expect((await upload(f.app, new Uint8Array(513).fill(1))).statusCode).toBe(400);
+  f.ownerOf.mockResolvedValue(other.getAddress());
+  expect((await upload(f.app, utf8("new profile"))).statusCode).toBe(400);
+  expect(f.pin).toHaveBeenCalledTimes(1);
+});
+it("accepts a device upload only after its current on-chain publishing authority is verified", async () => {
+  const authorizedDevice = vi.fn().mockResolvedValue(false);
+  const f = await setup({ owner: other.getAddress(), authorizedDevice });
+  expect((await upload(f.app, utf8("ciphertext"))).statusCode).toBe(400);
+  expect(f.pin).not.toHaveBeenCalled();
+  authorizedDevice.mockResolvedValue(true);
+  expect((await upload(f.app, utf8("ciphertext"))).statusCode).toBe(200);
+  expect(authorizedDevice).toHaveBeenCalledWith(user.getAddress(), user.getAddress());
 });

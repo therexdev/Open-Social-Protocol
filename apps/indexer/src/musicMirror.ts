@@ -128,6 +128,8 @@ export class MusicMirror {
     if (!record || record.size < 1 || record.size > Math.min(MUSIC_MAX_BYTES, this.config.maxBytes) ||
       record.received !== record.chunk_hashes.length || record.chunk_hashes.length !== Math.ceil(record.size / MUSIC_CHUNK_BYTES) ||
       toBase64url(record.digest) !== digest) throw Error("track unavailable");
+    // External media is fetched and verified by clients; never SSRF arbitrary chain URLs.
+    if (record.external_uri) return;
     let batch = (await musicConfig(this.client)).version >= 3 ? MUSIC_READ_BATCH_CHUNKS : 1;
     const chunks = new Array<Uint8Array>(record.chunk_hashes.length);
     let cursor = 0, stopped = false;

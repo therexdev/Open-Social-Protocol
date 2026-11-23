@@ -1,5 +1,5 @@
 import type { IndexedPostEconomy } from "@osp/sdk";
-import { searchPeople as matchPeople } from "@osp/sdk";
+import { hydrateContent, searchPeople as matchPeople } from "@osp/sdk";
 import { watchPrivateUpdates } from "./privateUpdates";
 /**
  * Typed client for the INDEXER API v1 (see apps/indexer/README.md). Every read the web client
@@ -254,6 +254,7 @@ export class IndexerError extends Error {
 }
 
 export interface IndexerClientOptions {
+  contentLoader?: import("@osp/sdk").ContentLoader;
   baseUrl: string;
   fetch?: FetchLike;
   timeoutMs?: number;
@@ -269,11 +270,13 @@ function qs(params: Record<string, string | number | undefined>): string {
 }
 
 export class IndexerClient {
+  private readonly loadContent: import("@osp/sdk").ContentLoader | undefined;
   readonly baseUrl: string;
   private readonly fetchFn: FetchLike | undefined;
   private readonly timeoutMs: number;
 
   constructor(options: IndexerClientOptions) {
+    this.loadContent = options.contentLoader;
     this.baseUrl = options.baseUrl.replace(/\/+$/, "");
     const fetchFn = options.fetch ?? (globalThis.fetch as FetchLike | undefined);
     // Browser fetch requires Window/WorkerGlobalScope as its receiver, not this client.
@@ -471,7 +474,7 @@ export class IndexerClient {
       const err = (body as { error?: { code?: string; message?: string } } | undefined)?.error;
       throw new IndexerError(response.status, err?.code ?? `http_${response.status}`, err?.message ?? `The indexer responded with ${response.status}.`);
     }
-    return body as T;
+    return this.loadContent ? hydrateContent(body as T, this.loadContent, true) : body as T;
   }
 }
 

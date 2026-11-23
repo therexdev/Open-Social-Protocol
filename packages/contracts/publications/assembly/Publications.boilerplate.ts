@@ -260,6 +260,7 @@ export class Publications {
     // const size = args.size;
     // const chunk_hashes = args.chunk_hashes;
     // const device = args.device;
+    // const external_uri = args.external_uri;
 
     // YOUR CODE HERE
 
@@ -304,6 +305,8 @@ export class Publications {
 
     const res = new publications.get_library_version_result();
     // res.version = ;
+    // res.external_media_version = ;
+    // res.content_reference_version = ;
 
     return res;
   }
@@ -454,6 +457,7 @@ export class Publications {
     // const cover = args.cover;
     // const clip_kind = args.clip_kind;
     // const gzip_original_size = args.gzip_original_size;
+    // const external_uri = args.external_uri;
 
     // YOUR CODE HERE
 

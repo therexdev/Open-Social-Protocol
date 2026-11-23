@@ -4,6 +4,8 @@ import { assertNotReverted, assertReceiptKnown } from "@osp/sdk";
 type SubmitProvider = Pick<ProviderInterface, "sendTransaction" | "getAccountRc">;
 
 export interface SubmitOptions {
+  /** Persist the final transaction ID before the first broadcast. Failure aborts submission. */
+  beforeBroadcast?: (transaction: TransactionJson, simulation: TransactionReceipt) => Promise<void>;
   dryRun?: boolean;
   log?: (message: string) => void;
   sleep?: (ms: number) => Promise<void>;
@@ -50,6 +52,8 @@ export async function submitMeasured(
   transaction.id = Transaction.computeTransactionId(transaction.header!);
   await sign();
   options.log?.(`measured ${measured} RC; transaction limit ${transaction.header!.rc_limit} RC`);
+  options.log?.(`signed transaction ${transaction.id}`);
+  await options.beforeBroadcast?.(transaction, simulated.receipt);
 
   const sleep = options.sleep ?? (ms => new Promise(resolve => setTimeout(resolve, ms)));
   for (let attempt = 0; ; attempt += 1) {

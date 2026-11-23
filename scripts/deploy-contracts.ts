@@ -19,6 +19,7 @@ import {
   CONTRACT_ORDER,
   type ContractName,
   type Deployment,
+  type PendingContractUpload,
   contractSigner,
   deployerSigner,
   formatMana,
@@ -35,6 +36,7 @@ import { submitMeasured } from "./deployment-transactions.ts";
 import { verifyUpload } from "./verify-upload.ts";
 import { deploymentProbe } from "./deployment-probes.ts";
 import { deploymentServiceEndpoints } from "./deployment-services.ts";
+import { confirmDeploymentTransaction, requireFreshDeploymentHead } from "./deployment-confirmation.ts";
 
 const args = parseArgs(process.argv.slice(2));
 const { name: network, preset } = networkFromArgs(args);
@@ -55,6 +57,8 @@ async function main(): Promise<void> {
   if (preset.expectedChainId && preset.expectedChainId !== chainId) {
     throw new Error(`Wrong chain: expected ${preset.expectedChainId}, received ${chainId}`);
   }
+  const initialHead = await requireFreshDeploymentHead(provider);
+  log(`fresh head: ${initialHead.head_topology.height} (${new Date(Number(initialHead.head_block_time)).toISOString()})`);
   log(`deployer: ${deployerAddress} (rc: ${formatMana(await provider.getAccountRc(deployerAddress))})`);
   if (dryRun) log("mode:     DRY RUN (transactions are simulated with broadcast=false; nothing is committed)");
 
@@ -68,6 +72,7 @@ async function main(): Promise<void> {
     deployedAt: new Date().toISOString(),
     deployer: deployerAddress,
     contracts: { ...(previous?.contracts ?? {}) },
+    pendingUploads: { ...(previous?.pendingUploads ?? {}) },
     startHeight: previous?.startHeight,
     registryAdmin: previous?.registryAdmin,
     upgradeDelayMs: previous?.upgradeDelayMs,
@@ -87,6 +92,29 @@ async function main(): Promise<void> {
 
   let minBlock: number | undefined;
   const rcReport: Array<{ step: string; rc: string }> = [];
+
+  const completeUpload = async (name: ContractName, pending: PendingContractUpload) => {
+    if (pending.address !== address(name)) throw new Error(`[${name}] pending upload belongs to a different contract account`);
+    const included = await confirmDeploymentTransaction(provider, pending.txId, Number(pending.startBlock), { log: message => log(`[${name}] ${message}`) });
+    const entry = { address: pending.address, txId: pending.txId, block: String(included.blockNumber), wasmSha256: pending.wasmSha256,
+      abiSha256: pending.abiSha256, rcUsed: String(included.receipt.rc_used ?? pending.rcUsed) };
+    if (!await verifyUpload(provider, entry)) throw new Error(`[${name}] confirmed transaction does not match the expected upload bytes and ABI`);
+    deployment.contracts[name] = entry;
+    delete deployment.pendingUploads![name];
+    minBlock = minBlock === undefined ? included.blockNumber : Math.min(minBlock, included.blockNumber);
+    if (!deployment.startHeight || Number(deployment.startHeight) > minBlock) deployment.startHeight = String(minBlock);
+    writeDeployment(deployment, true);
+    rcReport.push({ step: `upload ${name}`, rc: entry.rcUsed });
+    log(`[${name}] tx ${entry.txId} confirmed in block ${entry.block}: ${formatMana(entry.rcUsed)}`);
+  };
+
+  // A previous run may have broadcast successfully and then lost confirmation.
+  // Resolve those IDs before preparing any new deployment transaction/nonce.
+  if (!dryRun) for (const [name, pending] of Object.entries(deployment.pendingUploads ?? {})) {
+    if (!CONTRACT_ORDER.includes(name as ContractName) || !pending) throw new Error("Invalid pending upload checkpoint");
+    log(`[${name}] reconciling saved transaction ${pending.txId} before any new upload`);
+    await completeUpload(name as ContractName, pending);
+  }
 
   // 1. Upload contracts.
   for (const name of only) {
@@ -130,6 +158,13 @@ async function main(): Promise<void> {
     const { transaction, receipt } = await submitMeasured(prepared.transaction as TransactionJson, provider, [signer, deployer], {
       dryRun,
       log: message => log(`[${name}] ${message}`),
+      beforeBroadcast: async (tx, simulation) => {
+        const head = await requireFreshDeploymentHead(provider);
+        deployment.pendingUploads![name] = { address: signer.getAddress(), txId: tx.id!, startBlock: head.head_topology.height,
+          submittedAt: new Date().toISOString(), wasmSha256: art.wasmSha256, abiSha256: art.abiSha256, rcUsed: String(simulation.rc_used) };
+        writeDeployment(deployment, true);
+        log(`[${name}] saved upload checkpoint for ${tx.id} before broadcast`);
+      },
     });
     if (dryRun) {
       log(`[${name}] simulated: ${formatMana(receipt?.rc_used)}${receipt?.reverted ? " REVERTED" : ""}`);
@@ -138,20 +173,7 @@ async function main(): Promise<void> {
     }
     if (!transaction || !receipt) throw new Error(`[${name}] deploy returned no receipt`);
     if (receipt.reverted) throw new Error(`[${name}] upload reverted: ${JSON.stringify(receipt)}`);
-    const { blockNumber } = await transaction.wait("byBlock", 120000);
-    log(`[${name}] tx ${transaction.id} in block ${blockNumber}: ${formatMana(receipt.rc_used)}`);
-    rcReport.push({ step: `upload ${name}`, rc: String(receipt.rc_used ?? "?") });
-    if (blockNumber !== undefined) minBlock = minBlock === undefined ? blockNumber : Math.min(minBlock, blockNumber);
-    deployment.contracts[name] = {
-      address: signer.getAddress(),
-      txId: transaction.id!,
-      block: String(blockNumber ?? ""),
-      wasmSha256: art.wasmSha256,
-      abiSha256: art.abiSha256,
-      rcUsed: String(receipt.rc_used ?? ""),
-    };
-    if (minBlock !== undefined && (!deployment.startHeight || Number(deployment.startHeight) > minBlock)) deployment.startHeight = String(minBlock);
-    writeDeployment(deployment, true);
+    await completeUpload(name, deployment.pendingUploads![name]!);
   }
 
   if (dryRun) {
@@ -172,12 +194,14 @@ async function main(): Promise<void> {
     const fn = contract.functions[method];
     if (!fn) throw new Error(`${name}.${method} not in ABI`);
     const prepared = await fn(callArgs, { sendTransaction: false, signTransaction: false });
+    let startHeight = 0;
     const { transaction, receipt } = await submitMeasured(prepared.transaction as TransactionJson, provider, [signer, deployer], {
       log: message => log(`[${name}.${method}] ${message}`),
+      beforeBroadcast: async () => { startHeight = Number((await requireFreshDeploymentHead(provider)).head_topology.height); },
     });
     if (!transaction || !receipt) throw new Error(`${name}.${method} returned no receipt`);
     if (receipt.reverted) throw new Error(`${name}.${method} reverted: ${JSON.stringify(receipt.logs ?? receipt)}`);
-    await transaction.wait("byBlock", 120000);
+    await confirmDeploymentTransaction(provider, transaction.id!, startHeight, { log: message => log(`[${name}.${method}] ${message}`) });
     rcReport.push({ step: `${name}.${method}`, rc: String(receipt.rc_used ?? "?") });
     log(`[${name}] ${method} ok (${formatMana(receipt.rc_used)})`);
   };
@@ -263,6 +287,7 @@ async function main(): Promise<void> {
   if (minBlock !== undefined && (!deployment.startHeight || Number(deployment.startHeight) > minBlock)) {
     deployment.startHeight = String(minBlock);
   }
+  delete deployment.pendingUploads;
   const file = writeDeployment(deployment);
   writeDeployment(deployment, true);
   printRc(rcReport);

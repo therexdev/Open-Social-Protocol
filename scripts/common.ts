@@ -43,6 +43,12 @@ export interface DeployedContract {
   rcUsed: string;
 }
 
+/** Metadata only; no WIF, seed, or reusable signing key is written to progress. */
+export interface PendingContractUpload extends Omit<DeployedContract, "block"> {
+  startBlock: string;
+  submittedAt: string;
+}
+
 export interface Deployment {
   network: string;
   chainId: string;
@@ -51,6 +57,7 @@ export interface Deployment {
   deployedAt: string;
   deployer: string;
   contracts: Partial<Record<ContractName, DeployedContract>>;
+  pendingUploads?: Partial<Record<ContractName, PendingContractUpload>>;
   startHeight?: string;
   registryAdmin?: string;
   upgradeDelayMs?: string;

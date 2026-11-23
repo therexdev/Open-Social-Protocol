@@ -32,6 +32,7 @@ export const MUSIC_MIMES = [
   "audio/webm",
 ] as const;
 export interface MusicConfig {
+  external_media_version?: number;
   clip_version?: number;
   flat_fee?: string;
   native_token: string;
@@ -77,6 +78,7 @@ export interface MusicCover {
   nonce?: Uint8Array;
 }
 export interface MusicRecord {
+  external_uri?: string;
   clip_kind?: number;
   gzip_original_size?: number;
   cover?: MusicCover;
@@ -104,6 +106,7 @@ export interface MusicRecord {
   payer: string;
 }
 export interface BeginMusicArgs {
+  external_uri?: string;
   clip_kind?: number;
   gzip_original_size?: number;
   cover?: MusicCover;

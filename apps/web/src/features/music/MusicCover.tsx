@@ -5,6 +5,7 @@ import { useServices } from "../../api/services";
 import { Icon } from "../../components/Icon";
 import { useVault } from "../../vault/context";
 import { loadMusicArtwork } from "./musicArtwork";
+import { ZoomableImage } from "../../components/ZoomableImage";
 
 export function MusicCover({ id, record }: { id: string; record: MusicRecord }) {
   const services = useServices(), session = useVault(s => s.session), host = useRef<HTMLDivElement>(null);
@@ -37,7 +38,7 @@ export function MusicCover({ id, record }: { id: string; record: MusicRecord }) 
   }, [identity, services, session, visible, retry]);
   const url = image?.identity === identity && (!record.cover?.encrypted || image.session === session) ? image.url : undefined;
   return <div ref={host} className={`music-cover ${url ? "has-art" : "music-cover-placeholder"}`}>
-    {url ? <img src={url} alt={`Cover for ${record.title}`} decoding="async" onError={() => { setImage(undefined); setFailed(true); }}/> : <><span className="music-cover-orbit"/><Icon name="music" size={40}/><span>{record.cover?.encrypted ? "Private artwork" : "OPEN SOCIAL · MUSIC"}</span></>}
+    {url ? <ZoomableImage key={url} src={url} alt={`Cover for ${record.title}`} decoding="async" onError={() => { setImage(undefined); setFailed(true); }}/> : <><span className="music-cover-orbit"/><Icon name="music" size={40}/><span>{record.cover?.encrypted ? "Private artwork" : "OPEN SOCIAL · MUSIC"}</span></>}
     {failed && !record.cover?.encrypted && <button type="button" className="music-cover-retry" onClick={() => setRetry(n => n + 1)}>Retry artwork</button>}
   </div>;
 }

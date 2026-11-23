@@ -79,7 +79,7 @@ function VerifiedClipPlayer({ media, verifyAccess }: ClipPlayerProps) {
         onLoadedData={event => { if (!playRequested.current && event.currentTarget.currentTime === 0) event.currentTarget.currentTime = 0.01; }}/>
         : <audio src={url} controls autoPlay preload="metadata" aria-label={title}/>
     ) : isVideo ? <div className="video-preview">
-      {visible && poster && permitted && <MediaPhoto location={poster.url} hash={poster.contentHash} mime={poster.mime} encryption={poster.encryption} alt={media.altText || "Video preview"}/>}
+      {visible && poster && permitted && <MediaPhoto preview={false} location={poster.url} hash={poster.contentHash} mime={poster.mime} encryption={poster.encryption} alt={media.altText || "Video preview"}/>}
       <button type="button" className="video-preview-play" disabled={!protocol || !permitted} onClick={() => void load()} aria-label={busy ? "Loading video" : "Play video"}>
         <span className="video-play-icon">{busy ? <span className="spinner"/> : <Icon name="play" size={32}/>}</span>
         <span>{!permitted ? "Unlock to view video" : busy ? "Loading video…" : "Play video"}</span>

@@ -2660,6 +2660,11 @@ export namespace messaging {
         writer.uint32(16);
         writer.uint64(message.sequence);
       }
+
+      if (message.content_reference_version != 0) {
+        writer.uint32(24);
+        writer.uint32(message.content_reference_version);
+      }
     }
 
     static decode(reader: Reader, length: i32): get_private_status_result {
@@ -2677,6 +2682,10 @@ export namespace messaging {
             message.sequence = reader.uint64();
             break;
 
+          case 3:
+            message.content_reference_version = reader.uint32();
+            break;
+
           default:
             reader.skipType(tag & 7);
             break;
@@ -2688,10 +2697,16 @@ export namespace messaging {
 
     version: u32;
     sequence: u64;
+    content_reference_version: u32;
 
-    constructor(version: u32 = 0, sequence: u64 = 0) {
+    constructor(
+      version: u32 = 0,
+      sequence: u64 = 0,
+      content_reference_version: u32 = 0
+    ) {
       this.version = version;
       this.sequence = sequence;
+      this.content_reference_version = content_reference_version;
     }
   }
 

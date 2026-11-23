@@ -1,3 +1,4 @@
+import { ZoomableImage } from "../../components/ZoomableImage";
 import { useEffect, useRef, useState } from "react";
 import { photoCost } from "@osp/sdk";
 import { Button, Field, Notice } from "../../components/ui";
@@ -19,8 +20,8 @@ export function MusicArtworkPicker({ value, onChange, disabled = false, privateA
     finally { if (ticket === selection.current) { setBusy(false); onBusyChange?.(false); } }
   };
   return <div className="music-artwork-picker">
-    <Field label="Album art or track image" hint="Optional · stored on-chain with your track. Your audio file stays unchanged.">{id => <input ref={input} id={id} type="file" accept="image/jpeg,image/png,image/webp" disabled={disabled || busy} onChange={e => void choose(e.target.files?.[0])}/>}</Field>
-    {preview && <div className="music-artwork-preview"><img src={preview} alt="Selected track artwork"/><div><strong>Artwork ready</strong><p className="hint">{Math.ceil(value!.length / 1024)} KiB · {photoCost(value!.length + (privateArt ? 16 : 0))} photo usage units{privateArt ? " · encrypted for this audience" : " · public preview"}</p><Button disabled={disabled || busy} variant="ghost" onClick={() => { onChange(undefined); if (input.current) input.current.value = ""; }}><Icon name="close" size={16}/>Remove image</Button></div></div>}
+    <Field label="Album art or track image" hint="Optional · saved with your track. Your audio file stays unchanged.">{id => <input ref={input} id={id} type="file" accept="image/jpeg,image/png,image/webp" disabled={disabled || busy} onChange={e => void choose(e.target.files?.[0])}/>}</Field>
+    {preview && <div className="music-artwork-preview"><ZoomableImage src={preview} alt="Selected track artwork"/><div><strong>Artwork ready</strong><p className="hint">{Math.ceil(value!.length / 1024)} KiB · {photoCost(value!.length + (privateArt ? 16 : 0))} photo usage units{privateArt ? " · encrypted for this audience" : " · public preview"}</p><Button disabled={disabled || busy} variant="ghost" onClick={() => { onChange(undefined); if (input.current) input.current.value = ""; }}><Icon name="close" size={16}/>Remove image</Button></div></div>}
     {busy && <p role="status" className="hint">Preparing artwork…</p>}
     {error && <Notice kind="error">{error}</Notice>}
   </div>;

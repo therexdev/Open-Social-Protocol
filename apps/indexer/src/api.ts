@@ -7,7 +7,7 @@
  */
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
 import cors from "@fastify/cors";
-import { musicEngagementId, toBase64url } from "@osp/sdk";
+import { createContentLoader, hydrateContent, musicEngagementId, searchPeople, toBase64url } from "@osp/sdk";
 import { isAddress } from "@osp/sdk";
 import type { IndexerConfig } from "./config.js";
 import type { IndexerDb } from "./db.js";
@@ -154,6 +154,10 @@ export function statusView(options: ApiOptions): Record<string, unknown> {
 export function buildApi(options: ApiOptions): FastifyInstance {
   const { db, config } = options;
   const app = Fastify({ logger: options.logger ?? false });
+  const loadContent = config.contentPublicUrl && config.deployment ? createContentLoader({ publicUrl: config.contentPublicUrl, chainId: config.deployment.chainId, identityContract: config.deployment.contracts.identity.address }) : undefined;
+  // Keep the chain log/projections independent of hosting availability. Hydrate
+  // API responses on demand; outages must never stop ledger sync or fork replay.
+  if (loadContent) app.addHook("preSerialization", async (_request, _reply, payload) => hydrateContent(payload, loadContent, true));
   const privateUpdates = new PrivateUpdates(db);
   app.addHook("preClose", async () => privateUpdates.close());
 
@@ -285,7 +289,10 @@ export function buildApi(options: ApiOptions): FastifyInstance {
   app.get("/v1/people", async (request) => {
     const search = (query(request, "query") ?? "").trim();
     if (search.length > 64) throw new ApiError(400, "invalid_request", "query must be at most 64 characters");
-    return { items: q.searchPeople(db, search, parseLimit(query(request, "limit"), 20, 100)) };
+    const limit = parseLimit(query(request, "limit"), 20, 100);
+    if (!loadContent) return { items: q.searchPeople(db, search, limit) };
+    const directory = await hydrateContent(q.profileDirectory(db), loadContent, true);
+    return { items: searchPeople(directory, search, limit) };
   });
 
   app.get("/v1/profiles", async (request) => {

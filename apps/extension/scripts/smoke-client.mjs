@@ -61,7 +61,7 @@ try {
   pending.splice(0).forEach(resolve => resolve());
   for (let i = 0; i < 20 && !doc.querySelector(".person-result"); i++) await settle();
   assert.equal(doc.querySelector(".person-result strong")?.textContent, "Rex", "Shipped app could not decode the person's display name");
-  assert.equal(doc.querySelector(".person-result")?.getAttribute("href"), `#/u/${person.account}`, "Name does not link to the selected account");
+  assert.equal(doc.querySelector(".person-result a.person-copy")?.getAttribute("href"), `#/u/${person.account}`, "Name does not link to the selected account");
   // Inspect the effective sponsor through the real Settings UI, not a replacement resolver.
   assert.equal(doc.querySelector("iframe"), null, "No website iframe in the standalone client");
   assert.equal([...doc.querySelectorAll('button')].some(b=>/^(Social|Open in tab)/.test(b.textContent.trim())), false);

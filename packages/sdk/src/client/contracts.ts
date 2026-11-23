@@ -9,6 +9,7 @@ import { CONTRACT_NAMES, type ContractName } from "../constants.js";
 import { decode, EncodingError, fromBase64url, toKoilibJson, type ProtoObject } from "../encoding.js";
 import type { Deployment } from "./deployments.js";
 import type { ContractReadMethods, ContractWriteMethods } from "./types.js";
+import { hydrateContent, type ContentLoader } from "../contentStorage.js";
 
 export interface AbiMethod {
   entry_point: number;
@@ -42,6 +43,8 @@ export class ContractError extends Error {
 }
 
 export class ProtocolContracts {
+  /** Optional verified off-chain body transport. Raw ledger fields remain authoritative. */
+  contentLoader?: ContentLoader;
   readonly deployment: Deployment;
   readonly provider: ProviderInterface | undefined;
   /** koilib Contract per protocol contract (abi + address; provider when given). */
@@ -122,7 +125,8 @@ export class ProtocolContracts {
         (response.result !== undefined && typeof response.result !== "string")) {
       throw new ContractError(`invalid response for ${name}.${method}`);
     }
-    return decode<T>(def.return, fromBase64url(response.result ?? ""));
+    const result = decode<T>(def.return, fromBase64url(response.result ?? ""));
+    return this.contentLoader ? hydrateContent(result, this.contentLoader) : result;
   }
 
   /** Decodes a `call_contract` operation addressed to a protocol contract; undefined otherwise. */

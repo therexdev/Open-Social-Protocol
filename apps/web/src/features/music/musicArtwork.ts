@@ -3,6 +3,7 @@ import {
   newEpochKey, photoCost, photoLocation, randomBytes, toBase64url, verifyPhotoChunks,
   type MusicCover, type MusicRecord, type ProtocolClient,
 } from "@osp/sdk";
+import { fetchStoredMedia } from "../../api/mediaStorage";
 import type { Services } from "../../api/services";
 import { cachedMediaBytes, rememberMediaBytes } from "../../api/mediaCache";
 import { archivePhoto } from "../composer/archivePhoto";
@@ -65,8 +66,11 @@ export async function loadMusicArtwork(services: Services, id: string, record: M
     const location = photoLocation(client.deployment.contracts.publications.address, cover.photo_id), hash = toBase64url(cover.digest);
     let bytes = cachedMediaBytes(location, hash);
     if (!bytes) {
-      const response = await services.indexer.photoChunks(toBase64url(cover.photo_id));
-      bytes = verifyPhotoChunks(archive, response.chunks.map(fromBase64url), cover.digest);
+      if (archive.external_uri) bytes = await fetchStoredMedia(archive.external_uri, cover.digest, archive.size, signal);
+      else {
+        const response = await services.indexer.photoChunks(toBase64url(cover.photo_id));
+        bytes = verifyPhotoChunks(archive, response.chunks.map(fromBase64url), cover.digest);
+      }
       rememberMediaBytes(location, hash, bytes);
     }
     if (bytes.length !== cover.size || !bytesEqual(contentHash(bytes), cover.digest)) throw Error("Artwork failed verification.");

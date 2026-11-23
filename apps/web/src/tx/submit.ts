@@ -7,11 +7,14 @@ import { InsufficientManaError, ProtocolClient, SponsorError, type OperationJson
 import type { PaymentPreference } from "../stores/settings";
 import { useToasts } from "../stores/toasts";
 import { errorMessage } from "../util/format";
+import { prepareHostedContent } from "../api/contentStorage";
 
 export interface SubmitContext {
   client: ProtocolClient;
   signer: SignerInterface;
   payment: PaymentPreference;
+  /** Private messaging aliases pay/send separately from the account hosting ciphertext. */
+  contentSigner?: { account: string; signer: SignerInterface };
 }
 
 export interface SubmitOptions {
@@ -131,8 +134,10 @@ export async function submitAction(ctx: SubmitContext, operations: OperationJson
   try {
     const result = await withAccountSubmission(ctx, async () => {
       await options.beforeSubmit?.();
+      const hostedOperations = await prepareHostedContent(ctx, operations);
+      await options.beforeSubmit?.();
       return ctx.client.submit({
-        operations,
+        operations: hostedOperations,
         signer: ctx.signer,
         ...(ctx.payment === "self-only" && { sponsor: null }),
         selfPayFallback: ctx.payment !== "sponsor-only",

@@ -155,7 +155,7 @@ export function MessagesPage() {
               </Field>
               <div className="conversation-choices">
                 {visibleChats.map(c => <Button key={c.id} aria-pressed={c.id === chat?.id} className="private-chat-choice" onClick={() => { setSelected(c.id); setComposing(false); setError(""); }}>
-                  <Avatar account={c.peer} name={people.name(c.peer)} />
+                  <Avatar account={c.peer} name={people.name(c.peer)} preview={false} />
                   <span className="private-chat-person"><strong>{people.name(c.peer)}</strong><span className="chat-preview">{c.messages.at(-1)?.text || "Start a conversation"}</span></span>
                   <small className="private-chat-status">{chatLabel(c)}</small>
                 </Button>)}

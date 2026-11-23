@@ -1,3 +1,4 @@
+import { ContentReference } from "./common/content";
 import { System, Storage, Protobuf, Arrays, Crypto } from "@koinos/sdk-as";
 import { publications } from "./proto/publications";
 import { token } from "./proto/token";
@@ -79,6 +80,8 @@ export class PhotoLibrary {
       id = this.id(args.id),
       digest = this.id(args.digest);
     Actor.requireAuthorized(identity, owner, args.device, Capability.PUBLISH);
+    const external = args.external_uri != null && args.external_uri!.length > 0;
+    if (external) System.require(args.external_uri!.startsWith("https://") && args.external_uri!.length <= 512, "invalid external media URI");
     const units = this.units(args.size),
       count = (args.size + 16383) / 16384;
     System.require(args.chunk_hashes.length == count, "incorrect chunk count");
@@ -90,6 +93,7 @@ export class PhotoLibrary {
         Arrays.equal(old.owner!, owner) &&
           Arrays.equal(old.digest!, digest) &&
           old.size == args.size &&
+          (old.external_uri == null ? "" : old.external_uri!) == (args.external_uri == null ? "" : args.external_uri!) &&
           old.chunk_hashes.length == args.chunk_hashes.length,
         "archive id already used"
       );
@@ -109,6 +113,8 @@ export class PhotoLibrary {
       0,
       units
     );
+    value.external_uri = args.external_uri;
+    if (external) value.received = count;
     this.photos.put(id, value);
     System.event(
       "osp.publications.photo_started",
@@ -131,6 +137,7 @@ export class PhotoLibrary {
       value != null && Arrays.equal(value!.owner!, owner),
       "archive not owned"
     );
+    System.require(value!.external_uri == null || value!.external_uri!.length == 0, "external media has no chain chunks");
     System.require(
       args.index < <u32>value!.chunk_hashes.length &&
         args.index <= value!.received,
@@ -202,7 +209,7 @@ export class PhotoLibrary {
     System.require(
       args.envelope != null &&
         args.envelope!.length > 0 &&
-        args.envelope!.length <= 4096,
+        ContentReference.size(args.envelope!, 4096) <= 4096,
       "invalid collection metadata"
     );
     const old = this.collections.get(id);
@@ -271,7 +278,7 @@ export class PhotoLibrary {
       args.removed ||
         (args.envelope != null &&
           args.envelope!.length > 0 &&
-          args.envelope!.length <= 4096),
+          ContentReference.size(args.envelope!, 4096) <= 4096),
       "invalid album photo"
     );
     this.charge(owner, 1, usage);

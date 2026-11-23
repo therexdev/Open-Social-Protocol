@@ -450,7 +450,10 @@ export function searchProfiles(db: IndexerDb, query: string, limit: number): Pro
 
 /** Nicknames are derived from the current public document, so edits/replay need no migration. */
 export function searchPeople(db: IndexerDb, query: string, limit: number): ProfileSummary[] {
-  return matchPeople(db.all<Row>("SELECT * FROM identities ORDER BY account ASC").map(profileSummary), query, limit);
+  return matchPeople(profileDirectory(db), query, limit);
+}
+export function profileDirectory(db: IndexerDb): ProfileSummary[] {
+  return db.all<Row>("SELECT * FROM identities ORDER BY account ASC").map(profileSummary);
 }
 
 export interface GraphView {

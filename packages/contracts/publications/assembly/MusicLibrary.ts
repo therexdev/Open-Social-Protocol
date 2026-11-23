@@ -1,3 +1,4 @@
+import { ContentReference } from "./common/content";
 import { Arrays, authority, Crypto, Protobuf, Storage, System, Token } from "@koinos/sdk-as";
 import { publications } from "./proto/publications";
 import { Actor, Capability } from "./common/actor";
@@ -130,6 +131,7 @@ export class MusicLibrary {
       c == null ? new publications.music_config(1, 0, null, 8610000000, MAX_BYTES, false) : c!;
     value.version = 3;
     value.clip_version = 1;
+    value.external_media_version = 1;
     value.native_token = System.getContractAddress("koin");
     return value;
   }
@@ -181,6 +183,8 @@ export class MusicLibrary {
       args.title != null && args.title!.trim().length > 0 && Util.str(args.title!).length <= 240,
       "title must contain 1-240 UTF-8 bytes"
     );
+    const external = args.external_uri != null && args.external_uri!.length > 0;
+    if (external) System.require(args.external_uri!.startsWith("https://") && args.external_uri!.length <= 512, "invalid external media URI");
     const kind = args.clip_kind;
     System.require(kind <= VIDEO, "unknown attachment kind");
     if (args.gzip_original_size > 0) System.require(kind == VIDEO && args.gzip_original_size <= MAX_BYTES &&
@@ -194,6 +198,7 @@ export class MusicLibrary {
       System.require(args.duration_ms > 0 && args.duration_ms <= (kind == VOICE ? 120000 : 3600000), "invalid audio duration");
       if (kind == VOICE) System.require(args.size <= 1048576, "voice must fit 1 MiB");
     }
+    if (ContentReference.text(args.title!, 16384)) System.require((args.artist == null || args.artist!.length == 0) && (args.description == null || args.description!.length == 0), "hosted metadata must omit inline descriptions");
     System.require(
       Util.str(args.artist == null ? "" : args.artist!).length <= 240,
       "artist must fit 240 UTF-8 bytes"
@@ -246,6 +251,7 @@ export class MusicLibrary {
         Arrays.equal(old.owner!, owner) &&
           Arrays.equal(old.digest!, digest) &&
           old.size == args.size &&
+          (old.external_uri == null ? "" : old.external_uri!) == (args.external_uri == null ? "" : args.external_uri!) &&
           old.clip_kind == kind && old.gzip_original_size == args.gzip_original_size &&
           old.title == args.title &&
           old.mime == args.mime &&
@@ -311,6 +317,8 @@ export class MusicLibrary {
     value.cover = args.cover;
     value.clip_kind = kind;
     value.gzip_original_size = args.gzip_original_size;
+    value.external_uri = args.external_uri;
+    if (external) value.received = <u32>args.chunk_hashes.length;
     this.tracks.put(id, value);
     System.event(
       kind == 0 ? "osp.publications.music_paid" : "osp.publications.clip_reserved",
@@ -320,6 +328,7 @@ export class MusicLibrary {
       ),
       [owner, payer, c.recipient!]
     );
+    if (external) this.complete(id, owner, value);
   }
   append(args: publications.append_music_arguments, identity: Uint8Array): void {
     System.require(args.data != null, "missing audio chunk");
@@ -353,6 +362,7 @@ export class MusicLibrary {
         args.chunks.length <= v!.chunk_hashes.length - args.index,
       "unexpected music chunk index"
     );
+    System.require(v!.external_uri == null || v!.external_uri!.length == 0, "external media has no chain chunks");
     const before = v!.received;
     for (let i = 0; i < args.chunks.length; i++) {
       const index = args.index + <u32>i,
@@ -376,21 +386,24 @@ export class MusicLibrary {
     // Never rewrite the immutable manifest. Legacy tracks migrate lazily here.
     this.progress.put(id, new publications.music_progress(v!.received));
     if (v!.received == <u32>v!.chunk_hashes.length) {
-      if (v!.clip_kind == 0) this.directory.put(Util.concat([owner, id]), new publications.get_music_chunk_result(id));
-      if (v!.audience == 2)
+      this.complete(id, owner, v!);
+    }
+  }
+  complete(id: Uint8Array, owner: Uint8Array, value: publications.music_record): void {
+      if (value.clip_kind == 0) this.directory.put(Util.concat([owner, id]), new publications.get_music_chunk_result(id));
+      if (value.audience == 2)
         this.groupDirectory.put(
-          Util.concat([v!.group_id!, id]),
+          Util.concat([value.group_id!, id]),
           new publications.get_music_chunk_result(id)
         );
       System.event(
-        v!.clip_kind == 0 ? "osp.publications.music_completed" : "osp.publications.clip_completed",
+        value.clip_kind == 0 ? "osp.publications.music_completed" : "osp.publications.clip_completed",
         Protobuf.encode(
           new publications.music_completed_event(id, owner),
           publications.music_completed_event.encode
         ),
         [owner]
       );
-    }
   }
   readChunks(args: publications.get_music_chunks_arguments): publications.get_music_chunks_result {
     const id = this.id(args.id);

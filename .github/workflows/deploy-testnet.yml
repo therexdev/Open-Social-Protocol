@@ -18,7 +18,7 @@ on:
         description: Contracts to upgrade (token for automatic OSAT rewards)
         default: all
         type: choice
-        options: [all, token, publications, music, social-media]
+        options: [all, token, publications, music, social-media, content-storage]
       dry_run:
         description: Simulate only (broadcast=false) and print the Mana/RC report
         default: false
@@ -52,11 +52,16 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci --no-audit --no-fund
-      - name: Build schemas, SDK and release contracts
+      - name: Build schemas and SDK
         run: |
           npm run build -w packages/proto
           npm run build -w packages/sdk
-          npm run build -w packages/contracts
+      - name: Check testnet chain freshness before deploying
+        env:
+          KOINOS_RPC: ${{ vars.KOINOS_RPC }}
+        run: node --import tsx scripts/check-deployment-chain.ts --network "${{ inputs.network }}"
+      - name: Build release contracts
+        run: npm run build -w packages/contracts
       - name: Contract build manifest
         run: cat packages/contracts/build/release/manifest.json
       - name: Execute release contract bootstrap before spending Mana
@@ -79,6 +84,7 @@ jobs:
         run: |
           contract_args=()
           case "$DEPLOY_CONTRACTS" in
+            content-storage) contract_args+=(--only publications,messaging) ;;
             social-media) contract_args+=(--only publications,token) ;;
             music) contract_args+=(--only token,publications,sponsorship) ;;
             token) contract_args+=(--only token) ;;

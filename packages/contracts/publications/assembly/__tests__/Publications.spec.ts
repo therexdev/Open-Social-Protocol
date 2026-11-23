@@ -1792,6 +1792,10 @@ describe("publications: react", () => {
     const target = contract.musicVoteTarget(key, null)!;
     expect(Arrays.equal(target.author!, ALICE)).toBe(true);
     expect(Arrays.equal(target.latest_version!, contract.music.hash(body))).toBe(true);
+    comment.body = hostedBody(body);
+    contract.musicAccess.comments.put(key, comment);
+    const hostedTarget = contract.musicVoteTarget(key, null)!;
+    expect(Arrays.equal(hostedTarget.latest_version!, contract.music.hash(body))).toBe(true);
     const id = new Uint8Array(65); id[0] = 2; id.set(key, 1);
     asOwner(BOB); REACT = react(BOB, id, 2); callReact();
     expectImpacted(lastEvent(), [BOB, ALICE]);
@@ -2376,5 +2380,44 @@ describe("private group publication", (): void => {
     contract.library.collections.put(MANIFEST, new publications.collection_record(ALICE, 2, 4, publications.audience_kind.custom, [], ENV_A));
     MockVM.commitTransaction(); asOwner(BOB);
     expect((): void => { contract.publish(PUBLISH); }).toThrow("group access required");
+  });
+});
+
+function hostedBody(body: Uint8Array): Uint8Array {
+  const reference = new Uint8Array(44);
+  reference.set(Util.str("OSPREF1"));
+  reference.set(Util.u32be(<u32>body.length), 8);
+  reference.set(sha256(body), 12);
+  return reference;
+}
+describe("hosted publication bodies", () => {
+  beforeEach(() => { setupConfigured(); });
+  it("commits to original bytes but emits only the compact reference", () => {
+    asOwner(ALICE);
+    PUBLISH = firstPost(ALICE, 1, ENV_A);
+    const reference = hostedBody(ENV_A);
+    PUBLISH.envelope = reference;
+    callPublish();
+    expect(Arrays.equal(postOrFail(PUBLISH.post_id!).latest_version!, sha256(ENV_A))).toBe(true);
+    const event = publishedData(lastEvent());
+    expect(Arrays.equal(event.envelope!, reference)).toBe(true);
+    expect(event.envelope!.length).toBe(44);
+  });
+  it("rejects a reference with another body fingerprint", () => {
+    asOwner(ALICE);
+    PUBLISH = firstPost(ALICE, 1, ENV_A);
+    PUBLISH.envelope = hostedBody(ENV_B);
+    expect(callPublish).toThrow();
+  });
+  it("keeps only committed poll wording and positional voting slots", () => {
+    asOwner(ALICE);
+    PUBLISH = firstPost(ALICE, 1, ENV_A);
+    PUBLISH.envelope = hostedBody(ENV_A);
+    PUBLISH.poll = new publications.poll_definition("osp:content:v1:100:" + "a".repeat(64), ["0", "1"], T0 + HOUR);
+    callPublish();
+    const result = contract.get_poll(new publications.get_poll_arguments(PUBLISH.post_id));
+    expect(result.value!.counts.length).toBe(2);
+    expect(result.value!.definition!.options[0]).toBe("0");
+    expect(result.value!.definition!.closes_at).toBe(T0 + HOUR);
   });
 });

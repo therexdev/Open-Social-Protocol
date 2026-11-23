@@ -53,10 +53,10 @@ export function Icon({ name, size = 20, className = "" }: { name: IconName; size
 export function BrandMark() {
   return <span className="brand-mark" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none"><path d="M23 9a10 10 0 1 0 0 14" stroke="currentColor" strokeWidth="4" strokeLinecap="round"/><path d="M16 11v10m-5-5h10" stroke="currentColor" strokeWidth="3" strokeLinecap="round"/></svg></span>;
 }
-export function Avatar({ account, name, large = false }: { account: string; name?: string; large?: boolean }) {
+export function Avatar({ account, name, large = false, preview = true }: { account: string; name?: string; large?: boolean; preview?: boolean }) {
   const uri = useProfiles(state => state.profiles[account]?.profileUri);
   const document = useMemo(() => parseProfileUri(uri), [uri]);
   const hue = [...account].reduce((n, c) => (n * 31 + c.charCodeAt(0)) % 360, 0);
   const initials = (name && !name.includes("…") ? name.trim().split(/\s+/).slice(0, 2).map(x => [...x][0]).join("") : account.slice(0, 2)).toUpperCase();
-  return <span className={`avatar${large ? " avatar-large" : ""}`} style={{ "--avatar-hue": hue } as CSSProperties} aria-hidden="true">{initials || <Icon name="profile" />}{document && (document.avatar || document.avatar_photo_hash?.length === 32) && <ProfileImage account={account} document={document}/>}</span>;
+  return <span className={`avatar${large ? " avatar-large" : ""}`} style={{ "--avatar-hue": hue } as CSSProperties} aria-hidden={preview ? undefined : true}><span aria-hidden="true">{initials || <Icon name="profile" />}</span>{document && (document.avatar || document.avatar_photo_hash?.length === 32) && <ProfileImage account={account} document={document} preview={preview}/>}</span>;
 }

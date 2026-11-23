@@ -39,5 +39,5 @@ export function MusicFeedCard({ item }: { item: MusicFeedView }) {
 }
 function MusicFeedHeading({ owner }: { owner: string }) {
   const name = useProfileName(owner);
-  return <header className="music-feed-heading"><Link to={`/u/${owner}`}><Avatar account={owner} name={name}/><span><strong>{name}</strong><small>Shared a track</small></span></Link><Icon name="music"/></header>;
+  return <header className="music-feed-heading"><div className="music-feed-author"><Avatar account={owner} name={name}/><Link to={`/u/${owner}`}><strong>{name}</strong><small>Shared a track</small></Link></div><Icon name="music"/></header>;
 }

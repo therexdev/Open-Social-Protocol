@@ -215,6 +215,6 @@ message get_private_packet_result { private_packet value = 1; }
 // @description Read the private transport version and latest log sequence
 // @read-only true
 message get_private_status_arguments {}
-message get_private_status_result { uint32 version = 1; uint64 sequence = 2 [jstype = JS_STRING]; }
+message get_private_status_result { uint32 version = 1; uint64 sequence = 2 [jstype = JS_STRING]; uint32 content_reference_version = 3; }
 message private_packet_event { private_packet value = 1; bytes envelope = 2; }
 message private_channel_event { conversation_record value = 1; }

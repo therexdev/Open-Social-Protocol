@@ -1,3 +1,4 @@
+import { fetchStoredMedia } from "../api/mediaStorage";
 import { useOptionalServices } from "../api/services";
 import { useEffect, useRef, useState } from "react";
 import { parsePhotoLocation, verifyPhotoChunks, toBase64url, IMAGE_MIMES, fetchIpfsMedia, openMedia, fromBase64url } from "@osp/sdk";
@@ -5,16 +6,17 @@ import { useSettings } from "../stores/settings";
 import { useVault } from "../vault/context";
 import { Button } from "./ui";
 import { cachedMediaBytes, rememberMediaBytes } from "../api/mediaCache";
+import { ZoomableImage } from "./ZoomableImage";
 
-export interface MediaPhotoProps { location: string; hash: string; mime: string; alt?: string; decorative?: boolean; encryption?: { key: string; nonce: string } }
+export interface MediaPhotoProps { location: string; hash: string; mime: string; alt?: string; decorative?: boolean; preview?: boolean; encryption?: { key: string; nonce: string } }
 /** Only verified raster bytes become a blob URL. Private URLs are revoked on lock/unmount. */
-export function MediaPhoto({ location, hash, mime, alt = "Attached photo", encryption, decorative = false }: MediaPhotoProps) {
+export function MediaPhoto({ location, hash, mime, alt = "Attached photo", encryption, decorative = false, preview = true }: MediaPhotoProps) {
   const services = useOptionalServices();
   const gateways = useSettings(s => s.ipfsGateways);
   const session = useVault(s => s.session);
   const host = useRef<HTMLDivElement & HTMLSpanElement>(null);
   const [visible,setVisible] = useState(false), [retry,setRetry] = useState(0);
-  const [loaded,setLoaded] = useState<{ id: string; url?: string; error?: string }>();
+  const [loaded,setLoaded] = useState<{ id: string; url?: string; error?: string; session?: typeof session }>();
   const id = JSON.stringify([location,hash,mime,encryption]);
   const gatewayKey = JSON.stringify(gateways);
   useEffect(() => {
@@ -36,8 +38,12 @@ export function MediaPhoto({ location, hash, mime, alt = "Attached photo", encry
           const id = parsePhotoLocation(location,services.protocol.deployment.contracts.publications.address);
           const record = (await services.protocol.reads.publications.get_photo({id}))?.value;
           if (!record) throw new Error("This photo is still confirming on the archive.");
-          const response = await services.indexer.photoChunks(toBase64url(id));
-          bytes = verifyPhotoChunks(record,response.chunks.map(fromBase64url),fromBase64url(hash));
+          if (record.external_uri) {
+            bytes = await fetchStoredMedia(record.external_uri, fromBase64url(hash), record.size, controller.signal);
+          } else {
+            const response = await services.indexer.photoChunks(toBase64url(id));
+            bytes = verifyPhotoChunks(record,response.chunks.map(fromBase64url),fromBase64url(hash));
+          }
         }
         bytes ??= await fetchIpfsMedia(location,fromBase64url(hash),{ gateways, signal: controller.signal });
         if (controller.signal.aborted) return;
@@ -45,14 +51,15 @@ export function MediaPhoto({ location, hash, mime, alt = "Attached photo", encry
         const plain = openMedia(bytes,fromBase64url(hash),encryption ? { key: fromBase64url(encryption.key), nonce: fromBase64url(encryption.nonce) } : undefined);
         if (controller.signal.aborted) return;
         objectUrl = URL.createObjectURL(new Blob([new Uint8Array(plain)],{ type: mime }));
-        setLoaded({ id,url: objectUrl });
-      } catch (error) { if (!controller.signal.aborted) setLoaded({ id,error: error instanceof Error ? error.message : "Photo unavailable" }); }
+        setLoaded({ id,url: objectUrl, session });
+      } catch (error) { if (!controller.signal.aborted) setLoaded({ id,error: error instanceof Error ? error.message : "Photo unavailable", session }); }
     })();
     return () => { controller.abort(); if (objectUrl) URL.revokeObjectURL(objectUrl); };
   },[id,gatewayKey,visible,retry,services,encryption ? session : undefined]);
-  const result = loaded?.id === id ? loaded : undefined;
-  if (decorative) return <span ref={host} className="profile-image">{result?.url && <img src={result.url} alt={alt} decoding="async"/>}</span>;
+  const result = loaded?.id === id && (!encryption || !!session && loaded.session === session) ? loaded : undefined;
+  const image = result?.url && (preview ? <ZoomableImage key={result.url} src={result.url} alt={alt} decoding="async" onError={() => setLoaded({ id,error: "This photo could not be displayed.", session })}/> : <img src={result.url} alt={alt} decoding="async"/>);
+  if (decorative) return <span ref={host} className="profile-image">{image}</span>;
   return <div className="ipfs-photo" ref={host}>
-    {encryption && !session ? <p>Unlock to view this photo.</p> : result?.url ? <img src={result.url} alt={alt} decoding="async" onError={() => setLoaded({ id,error: "This photo could not be displayed." })}/> : result?.error ? <div className="photo-placeholder"><p>{result.error}</p><Button variant="ghost" onClick={() => setRetry(n => n + 1)}>Retry photo</Button></div> : <div className="photo-placeholder" role="status">Loading photo…</div>}
+    {encryption && !session ? <p>Unlock to view this photo.</p> : image ? image : result?.error ? <div className="photo-placeholder"><p>{result.error}</p><Button variant="ghost" onClick={() => setRetry(n => n + 1)}>Retry photo</Button></div> : <div className="photo-placeholder" role="status">Loading photo…</div>}
   </div>;
 }
