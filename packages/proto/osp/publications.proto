@@ -377,6 +377,8 @@ message photo_archive_record {
   repeated bytes chunk_hashes = 4;
   uint32 received = 5;
   uint32 units = 6;
+  // HTTPS content-addressed ciphertext or public file; empty means legacy chain chunks.
+  string external_uri = 7;
 }
 // @description Begin a resumable photo archive; charge size-based usage once
 // @read-only false
@@ -387,6 +389,7 @@ message begin_photo_arguments {
   uint32 size = 4;
   repeated bytes chunk_hashes = 5;
   bytes device = 6 [(koinos.btype) = ADDRESS];
+  string external_uri = 7;
 }
 message begin_photo_result {}
 // @description Append the next verified 16 KiB archive chunk, idempotently
@@ -406,7 +409,7 @@ message get_photo_result { photo_archive_record value = 1; }
 // @description Archive and collections capability version
 // @read-only true
 message get_library_version_arguments {}
-message get_library_version_result { uint32 version = 1; }
+message get_library_version_result { uint32 version = 1; uint32 external_media_version = 2; }
 message photo_chunk_event { bytes id = 1; uint32 index = 2; bytes data = 3; }
 message photo_started_event { bytes id = 1; photo_archive_record value = 2; }
 
@@ -473,6 +476,7 @@ message music_config {
   uint64 flat_fee = 8 [jstype = JS_STRING];
   // Clip transport capability: 1 supports voice (usage units) and short video (100 native tokens).
   uint32 clip_version = 9;
+  uint32 external_media_version = 10;
 }
 message music_record {
   bytes owner = 1 [(koinos.btype) = ADDRESS];
@@ -503,6 +507,7 @@ message music_record {
   uint32 clip_kind = 24;
   // Zero = original file bytes; nonzero = gzip video with this exact restored length.
   uint32 gzip_original_size = 25;
+  string external_uri = 26;
 }
 // A committed photo archive. Restricted artwork uses the track key and a distinct nonce/context.
 message music_cover {
@@ -573,6 +578,7 @@ message begin_music_arguments {
   music_cover cover = 22;
   uint32 clip_kind = 23;
   uint32 gzip_original_size = 24;
+  string external_uri = 25;
 }
 message begin_music_result {}
 // @description Append a committed music chunk; identical retries are free

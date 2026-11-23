@@ -517,7 +517,7 @@ function MusicPanel({ owner }: { owner: string }) {
           {draft && !source && !selecting && (
             <Notice>
               Select the original audio file above to enable Resume upload. Your payment and
-              confirmed chunks are saved.
+              confirmed upload progress is saved.
             </Notice>
           )}
           {busy && unlockLease.current && !run.current.cancelled && (
@@ -566,7 +566,7 @@ function MusicPanel({ owner }: { owner: string }) {
             <div role="status" aria-live="polite">
               <progress value={received} max={total} aria-label="Audio upload progress" />
               <p className="hint">
-                {received} / {total} chunks confirmed · {Math.floor((received / total) * 100)}%
+                {Math.floor((received / total) * 100)}% complete
               </p>
             </div>
           )}

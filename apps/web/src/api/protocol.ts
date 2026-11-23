@@ -4,6 +4,7 @@
  */
 import { ProtocolClient, SponsorPool, type ProviderInterface } from "@osp/sdk";
 import type { ResolvedSettings } from "../stores/settings";
+import { configureMediaStorage } from "./mediaStorage";
 import { configureMusicGateway } from "../features/music/musicGateway";
 
 export interface CreateProtocolOptions {
@@ -21,5 +22,7 @@ export function createProtocolClient(resolved: ResolvedSettings, options: Create
   });
   const client = new ProtocolClient({ rpc, deployment: resolved.deployment, sponsors });
   configureMusicGateway(client, resolved.indexerUrl, options.fetch);
+  if (resolved.network === "harbinger" && import.meta.env.VITE_OSP_MEDIA_STORAGE !== "chain")
+    configureMediaStorage(client, resolved.mediaUploadUrl || `${resolved.sponsorUrls[0]?.replace(/\/+$/, "") ?? ""}/v1/media`, options.fetch);
   return client;
 }

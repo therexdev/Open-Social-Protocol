@@ -21,6 +21,7 @@ export function photoChunks(bytes: Uint8Array): Uint8Array[] {
   return chunks;
 }
 export interface PhotoArchiveRecord {
+  external_uri?: string;
   owner: string;
   digest: Uint8Array;
   size: number;

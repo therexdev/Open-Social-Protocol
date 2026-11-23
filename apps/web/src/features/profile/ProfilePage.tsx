@@ -50,7 +50,7 @@ export function ProfilePage() {
   return (
     <div className="page profile-page">
       <Card className="profile-card">
-        <div className="profile-cover" aria-hidden="true">{info?.document?.banner_photo_hash?.length === 32 && <ProfileImage banner account={account} document={info.document}/>}</div>
+        <div className="profile-cover">{info?.document?.banner_photo_hash?.length === 32 && <ProfileImage banner account={account} document={info.document}/>}</div>
         <div className="profile-header">
           <div className="profile-identity">
             <Avatar account={account} name={info?.displayName} large/>

@@ -13,6 +13,7 @@ import {
   type ProtocolClient,
 } from "@osp/sdk";
 import { submitAction, type SubmitContext } from "../../tx/submit";
+import { uploadStoredMedia, usesExternalMedia } from "../../api/mediaStorage";
 import { rememberMediaBytes } from "../../api/mediaCache";
 import type { MediaAttachment } from "./publish";
 
@@ -72,6 +73,12 @@ export async function archivePhoto(
   let record = (await client.reads.publications.get_photo({ id }))?.value;
   assertActive?.();
   if (!record) {
+    let external_uri: string | undefined;
+    if (usesExternalMedia(client)) {
+      const capability = await client.reads.publications.get_library_version({});
+      if (capability?.external_media_version !== 1) throw Error("Upgrade the testnet publications contract before using cloud media storage.");
+      external_uri = await uploadStoredMedia(ctx, owner, data, assertActive);
+    }
     await submitAction(
       ctx,
       [
@@ -81,6 +88,7 @@ export async function archivePhoto(
           digest,
           size: data.length,
           chunk_hashes: chunks.map(contentHash),
+          ...(external_uri && { external_uri }),
         }),
       ],
       {

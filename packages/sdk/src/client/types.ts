@@ -377,7 +377,7 @@ export interface PublicationsWriteMethods {
   comment_music: { author: Address; id: Bytes; comment_id: Bytes; body: Bytes; nonce?: Bytes; reply_to?: Bytes };
   delete_music_comment: { author: Address; id: Bytes; comment_id: Bytes };
   append_music: { owner: Address; id: Bytes; index: number; data: Bytes; device?: Address };
-  begin_photo: { owner: Address; id: Bytes; digest: Bytes; size: number; chunk_hashes: Bytes[]; device?: Address };
+  begin_photo: { external_uri?: string; owner: Address; id: Bytes; digest: Bytes; size: number; chunk_hashes: Bytes[]; device?: Address };
   append_photo: { owner: Address; id: Bytes; index: number; data: Bytes; device?: Address };
   save_collection: { owner: Address; id: Bytes; previous_revision: number; kind: number; audience: number; members: Address[]; envelope: Bytes; closed?: boolean; device?: Address };
   set_album_item: { owner: Address; collection_id: Bytes; id: Bytes; epoch: number; previous_revision: number; envelope?: Bytes; removed?: boolean; device?: Address };
@@ -402,7 +402,7 @@ export interface PublicationsReadMethods {
   get_music_chunk: [{ id: Bytes; index: number }, { data: Bytes }];
   get_music_chunks: [{ id: Bytes; index: number; count: number }, { chunks: Bytes[] }];
   list_music: [{ owner?: Address; group_id?: Bytes; after?: Bytes }, { ids: Bytes[] }];
-  get_library_version: [Record<string, never>, { version: number }];
+  get_library_version: [Record<string, never>, { version: number; external_media_version?: number }];
   get_photo: [{ id: Bytes }, ValueResult<PhotoArchiveRecord>];
   get_collection: [{ id: Bytes }, ValueResult<CollectionRecord>];
   get_album_item: [{ collection_id: Bytes; id: Bytes }, ValueResult<AlbumItemRecord>];

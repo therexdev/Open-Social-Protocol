@@ -17,6 +17,7 @@ import { loadMusic, newMusicDraft, uploadMusic, type MusicDraft } from "./musicS
 import * as cacheModule from "./musicCache";
 import { memoryStorage } from "../../vault/storage";
 import { playableMusic } from "./musicAccessService";
+import { configureMediaStorage } from "../../api/mediaStorage";
 import { configureMusicGateway } from "./musicGateway";
 vi.mock("../../tx/submit", () => ({ submitAction: vi.fn() }));
 const alice = identityFromSeed(new Uint8Array(32).fill(8));
@@ -91,7 +92,8 @@ beforeEach(() => {
         size: a.size as number,
         digest: a.digest as Uint8Array,
         chunk_hashes: a.chunk_hashes as Uint8Array[],
-        received: 0,
+        received: a.external_uri ? (a.chunk_hashes as Uint8Array[]).length : 0,
+        external_uri: a.external_uri as string | undefined,
         fee: a.max_fee as string,
         recipient: config.recipient,
       };
@@ -603,4 +605,31 @@ it("restores exact original video bytes after lossless transport compression, bo
   record!.gzip_original_size = 12 * 1024 * 1024;
   await expect(loadClip(video, client)).rejects.toThrow("Invalid compressed video size");
   expect(paid).toBe(1);
+});
+
+it("publishes only an R2 manifest, resumes without paying twice, and loads verified cloud bytes", async () => {
+  config.external_media_version = 1;
+  const hash = toBase64url(contentHash(bytes)), location = `https://media.example/osp/test/${hash}`;
+  const fetchFn = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+    if (url === location) return new Response(new Uint8Array(bytes));
+    return new Response(JSON.stringify(init?.method === "POST" ? { url: location, hash, size: bytes.length } : {
+      enabled: true, provider: "r2", chainId: client.chainId, contract: client.deployment.contracts.identity.address,
+      maxFileBytes: 10485760, publicUrl: "https://media.example",
+    }));
+  });
+  configureMediaStorage(client, "https://uploads.example/v1/media", fetchFn);
+  await uploadMusic(ctx, draft, bytes, () => {}, () => {});
+  expect(record!.external_uri).toBe(location);
+  expect(saved.size).toBe(0);
+  expect(paid).toBe(1);
+  expect(vi.mocked(submitAction)).toHaveBeenCalledTimes(1);
+  await uploadMusic(ctx, draft, bytes, () => {}, () => {});
+  expect(paid).toBe(1);
+  // Remove the upload-side cache and exercise playback through cloud delivery.
+  vi.spyOn(cacheModule, "musicCache").mockReturnValue(undefined);
+  vi.stubGlobal("fetch", fetchFn);
+  try {
+    expect((await loadMusic(client, draft.id)).bytes).toEqual(bytes);
+    expect(client.reads.publications.get_music_chunk).not.toHaveBeenCalled();
+  } finally { vi.unstubAllGlobals(); }
 });

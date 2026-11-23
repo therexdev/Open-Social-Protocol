@@ -129,7 +129,7 @@ export function MessageRecipientPicker(props: Props) {
           type="button" role="option" aria-selected={props.value === person.account}
           className={`message-person ${active === index ? "is-active" : ""}`}
           tabIndex={-1} onMouseDown={event => event.preventDefault()} onClick={() => choose(person)}>
-          <Avatar account={person.account} name={person.name} />
+          <Avatar account={person.account} name={person.name} preview={false} />
           <span className="message-person-copy"><strong>{person.name}</strong><small className="mono">{person.account}</small></span>
           {props.friends.includes(person.account) && <small className="message-friend-tag">Friend</small>}
         </button>)}

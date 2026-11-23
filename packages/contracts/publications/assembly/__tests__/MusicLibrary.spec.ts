@@ -422,3 +422,18 @@ describe("detached voice and video storage", (): void => {
     expect(lib.list(new publications.list_music_arguments(ALICE)).ids.length).toBe(0);
   });
 });
+
+it("completes an external track atomically without storing media chunks", (): void => {
+  begin.external_uri = "https://media.example/osp/file";
+  start();
+  const record = lib.get(ID)!;
+  expect(record.external_uri).toBe(begin.external_uri);
+  expect(record.received).toBe(1);
+  expect(lib.chunks.get(Util.concat([ID, Util.u32be(0)])) == null).toBe(true);
+  expect(Testing.eventNames().includes("osp.publications.music_completed")).toBe(true);
+  auth(ALICE);
+  lib.begin(begin, IDENTITY);
+  expect(Testing.eventNames().length).toBe(2);
+  auth(ALICE);
+  expect((): void => { lib.append(append, IDENTITY); }).toThrow("external media has no chain chunks");
+});

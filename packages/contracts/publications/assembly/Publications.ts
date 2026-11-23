@@ -125,7 +125,7 @@ export class Publications {
   list_music(args: publications.list_music_arguments): publications.list_music_result { return this.music.list(args); }
 
   library: PhotoLibrary = new PhotoLibrary();
-  get_library_version(args: publications.get_library_version_arguments): publications.get_library_version_result { return new publications.get_library_version_result(1); }
+  get_library_version(args: publications.get_library_version_arguments): publications.get_library_version_result { return new publications.get_library_version_result(1, 1); }
   begin_photo(args: publications.begin_photo_arguments): publications.begin_photo_result { this.library.begin(args, this.identityContract(), this.get_token_contract(new publications.get_token_contract_arguments()).value); return new publications.begin_photo_result(); }
   append_photo(args: publications.append_photo_arguments): publications.append_photo_result { this.library.append(args, this.identityContract()); return new publications.append_photo_result(); }
   get_photo(args: publications.get_photo_arguments): publications.get_photo_result { return new publications.get_photo_result(this.library.photos.get(this.library.id(args.id))); }

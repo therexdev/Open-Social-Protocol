@@ -59,7 +59,7 @@ try {
   pending.splice(0).forEach(resolve => resolve());
   for (let i = 0; i < 20 && !doc.querySelector(".person-result"); i++) await settle();
   assert.equal(doc.querySelector(".person-result strong")?.textContent, "Rex", "Shipped app could not decode the person's display name");
-  assert.equal(doc.querySelector(".person-result")?.getAttribute("href"), `/u/${person.account}`, "Name does not link to the selected account");
+  assert.equal(doc.querySelector(".person-result a.person-copy")?.getAttribute("href"), `/u/${person.account}`, "Name does not link to the selected account");
   // Inspect the effective sponsor through the real Settings UI, not a replacement resolver.
   doc.querySelector('.sidebar a[href="/settings"]').click();
   for (let i = 0; i < 20 && !doc.body.textContent.includes("Network and endpoints"); i++) await settle();

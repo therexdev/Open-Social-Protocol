@@ -108,3 +108,12 @@ it("validates configuration and leaves the feature off unless explicitly enabled
   expect(() => loadConfig({ OSP_MUSIC_CACHE: "yes" })).toThrow("true or false");
   expect(() => loadConfig({ OSP_MUSIC_CACHE_MAX_MB: "10000" })).toThrow("4096");
 });
+
+it("does not fetch external chain URLs or request nonexistent cloud chunks", async () => {
+  const f = await fixture();
+  f.record.external_uri = "https://untrusted.example/private";
+  await f.mirror.get(f.id, f.digest);
+  await f.mirror.close();
+  expect(f.client.reads.publications.get_music_chunks).not.toHaveBeenCalled();
+  expect(f.client.reads.publications.get_music_chunk).not.toHaveBeenCalled();
+});

@@ -45,7 +45,7 @@ export function PeopleSearch({ initialQuery = "" }: { initialQuery?: string }) {
       {results?.length === 0 && <Empty>No people found. Try part of their nickname or their account address.</Empty>}
       {results && results.length > 0 && <ul className="list">{results.map(person => {
         const profile = parseProfileUri(person.profileUri);
-        return <li key={person.account}><Link className="person-result" to={`/u/${person.account}`}><Avatar account={person.account} name={profile?.display_name} /><span className="person-copy"><strong>{profile?.display_name || shortAddress(person.account)}</strong><span className="mono muted">{person.account}</span>{profile?.bio && <span className="muted person-bio">{profile.bio}</span>}</span><Icon name="arrow" /></Link></li>;
+        return <li key={person.account} className="person-result"><Avatar account={person.account} name={profile?.display_name} /><Link className="person-copy" to={`/u/${person.account}`}><strong>{profile?.display_name || shortAddress(person.account)}</strong><span className="mono muted">{person.account}</span>{profile?.bio && <span className="muted person-bio">{profile.bio}</span>}</Link><Icon name="arrow" /></li>;
       })}</ul>}
       {!query.trim() && <div className="discovery-empty"><span className="feature-icon"><Icon name="people" size={26}/></span><h2>Your people are here.</h2><p className="muted">Find a familiar name, make a new connection, or bring a friend along.</p></div>}
       {results?.length === 20 && <p className="hint">Showing the first 20 matches. Keep typing to narrow your search.</p>}

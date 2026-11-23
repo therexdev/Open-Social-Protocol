@@ -179,7 +179,7 @@ export function MentionTextarea({ account, value, onValueChange, showHint = true
           role="option" aria-selected={active === i} tabIndex={-1} className="mention-person"
           onPointerDown={event => { if (event.pointerType !== "touch") event.preventDefault(); }}
           onMouseDown={event => event.preventDefault()} onClick={() => choose(person)}>
-          <Avatar account={person.account} name={person.name}/>
+          <Avatar account={person.account} name={person.name} preview={false}/>
           <span className="mention-person-copy"><strong>{person.name}</strong><small>{person.account}</small></span>
           {friends.has(person.account) && <small className="mention-friend">Friend</small>}
         </button>)}

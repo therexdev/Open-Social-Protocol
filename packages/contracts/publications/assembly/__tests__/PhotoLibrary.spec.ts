@@ -169,3 +169,20 @@ describe("album and group membership", (): void => {
     expect(stored != null && stored!.removed).toBe(true);
   });
 });
+
+it("commits external ciphertext without appending any bytes and rejects URI replacement", (): void => {
+  const hash = lib.hash(new Uint8Array(100).fill(17));
+  begin = new publications.begin_photo_arguments(ALICE, ID, hash, 100, [hash]);
+  begin.external_uri = "https://media.example/osp/file";
+  auth(ALICE, true);
+  lib.begin(begin, IDENTITY, CONTRACT);
+  MockVM.commitTransaction();
+  expect(lib.photos.get(ID)!.received).toBe(1);
+  expect(lib.photos.get(ID)!.external_uri).toBe(begin.external_uri);
+  expect(Testing.eventNames().length).toBe(1);
+  auth(ALICE);
+  lib.begin(begin, IDENTITY, CONTRACT);
+  begin.external_uri = "https://media.example/osp/replaced";
+  auth(ALICE);
+  expect((): void => { lib.begin(begin, IDENTITY, CONTRACT); }).toThrow("archive id already used");
+});

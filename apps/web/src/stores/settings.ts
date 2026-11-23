@@ -141,6 +141,7 @@ export interface ResolvedSettings {
   indexerUrl: string;
   sponsorUrls: string[];
   payment: PaymentPreference;
+  mediaUploadUrl?: string;
 }
 
 export interface ResolveOptions {
@@ -170,6 +171,7 @@ export function resolveSettings(settings: Settings, options: ResolveOptions = {}
     rpcUrls,
     indexerUrl,
     sponsorUrls,
+    ...(settings.mediaUploadUrl && { mediaUploadUrl: settings.mediaUploadUrl }),
     payment: settings.payment,
   };
 }

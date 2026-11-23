@@ -68,3 +68,21 @@ describe("IPFS service", () => {
     expect(() => loadMediaConfig({ OSP_MEDIA_PROVIDER: "pinata" })).toThrow(/JWT/);
   });
 });
+
+it("stores R2 receipts and reuses them without a second upload", async () => {
+  const bytes = utf8("encrypted-video"), hash = toBase64url(contentHash(bytes));
+  const url = `https://media.example/osp/test/${hash}`;
+  const r2 = { accountId: "a".repeat(32), bucket: "test-media", accessKeyId: "id", secretAccessKey: "secret", publicUrl: "https://media.example" };
+  const { app, pin } = await setup({ config: { ...config, provider: "r2", r2 }, pin: vi.fn().mockResolvedValue(url) });
+  const discovery = (await app.inject({ method: "GET", url: "/v1/media" })).json();
+  expect(discovery).toMatchObject({ provider: "r2", enabled: true, maxFileBytes: 10485760 });
+  expect(JSON.stringify(discovery)).not.toContain("secret");
+  expect((await upload(app, bytes)).json()).toEqual({ url, hash, size: bytes.length });
+  expect((await upload(app, bytes)).statusCode).toBe(200);
+  expect(pin).toHaveBeenCalledTimes(1);
+});
+it("refuses an R2 adapter receipt outside the configured media domain", async () => {
+  const r2 = { accountId: "a".repeat(32), bucket: "test-media", accessKeyId: "id", secretAccessKey: "secret", publicUrl: "https://media.example" };
+  const { app } = await setup({ config: { ...config, provider: "r2", r2 }, pin: vi.fn().mockResolvedValue("https://evil.example/osp/file") });
+  expect((await upload(app, utf8("private"))).statusCode).toBe(503);
+});

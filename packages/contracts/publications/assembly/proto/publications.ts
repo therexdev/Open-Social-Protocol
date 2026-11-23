@@ -3270,6 +3270,12 @@ export namespace publications {
         writer.uint32(48);
         writer.uint32(message.units);
       }
+
+      const unique_name_external_uri = message.external_uri;
+      if (unique_name_external_uri !== null) {
+        writer.uint32(58);
+        writer.string(unique_name_external_uri);
+      }
     }
 
     static decode(reader: Reader, length: i32): photo_archive_record {
@@ -3303,6 +3309,10 @@ export namespace publications {
             message.units = reader.uint32();
             break;
 
+          case 7:
+            message.external_uri = reader.string();
+            break;
+
           default:
             reader.skipType(tag & 7);
             break;
@@ -3318,6 +3328,7 @@ export namespace publications {
     chunk_hashes: Array<Uint8Array>;
     received: u32;
     units: u32;
+    external_uri: string | null;
 
     constructor(
       owner: Uint8Array | null = null,
@@ -3325,7 +3336,8 @@ export namespace publications {
       size: u32 = 0,
       chunk_hashes: Array<Uint8Array> = [],
       received: u32 = 0,
-      units: u32 = 0
+      units: u32 = 0,
+      external_uri: string | null = null
     ) {
       this.owner = owner;
       this.digest = digest;
@@ -3333,6 +3345,7 @@ export namespace publications {
       this.chunk_hashes = chunk_hashes;
       this.received = received;
       this.units = units;
+      this.external_uri = external_uri;
     }
   }
 
@@ -3374,6 +3387,12 @@ export namespace publications {
         writer.uint32(50);
         writer.bytes(unique_name_device);
       }
+
+      const unique_name_external_uri = message.external_uri;
+      if (unique_name_external_uri !== null) {
+        writer.uint32(58);
+        writer.string(unique_name_external_uri);
+      }
     }
 
     static decode(reader: Reader, length: i32): begin_photo_arguments {
@@ -3407,6 +3426,10 @@ export namespace publications {
             message.device = reader.bytes();
             break;
 
+          case 7:
+            message.external_uri = reader.string();
+            break;
+
           default:
             reader.skipType(tag & 7);
             break;
@@ -3422,6 +3445,7 @@ export namespace publications {
     size: u32;
     chunk_hashes: Array<Uint8Array>;
     device: Uint8Array | null;
+    external_uri: string | null;
 
     constructor(
       owner: Uint8Array | null = null,
@@ -3429,7 +3453,8 @@ export namespace publications {
       digest: Uint8Array | null = null,
       size: u32 = 0,
       chunk_hashes: Array<Uint8Array> = [],
-      device: Uint8Array | null = null
+      device: Uint8Array | null = null,
+      external_uri: string | null = null
     ) {
       this.owner = owner;
       this.id = id;
@@ -3437,6 +3462,7 @@ export namespace publications {
       this.size = size;
       this.chunk_hashes = chunk_hashes;
       this.device = device;
+      this.external_uri = external_uri;
     }
   }
 
@@ -3685,6 +3711,11 @@ export namespace publications {
         writer.uint32(8);
         writer.uint32(message.version);
       }
+
+      if (message.external_media_version != 0) {
+        writer.uint32(16);
+        writer.uint32(message.external_media_version);
+      }
     }
 
     static decode(reader: Reader, length: i32): get_library_version_result {
@@ -3698,6 +3729,10 @@ export namespace publications {
             message.version = reader.uint32();
             break;
 
+          case 2:
+            message.external_media_version = reader.uint32();
+            break;
+
           default:
             reader.skipType(tag & 7);
             break;
@@ -3708,9 +3743,11 @@ export namespace publications {
     }
 
     version: u32;
+    external_media_version: u32;
 
-    constructor(version: u32 = 0) {
+    constructor(version: u32 = 0, external_media_version: u32 = 0) {
       this.version = version;
+      this.external_media_version = external_media_version;
     }
   }
 
@@ -4663,6 +4700,11 @@ export namespace publications {
         writer.uint32(72);
         writer.uint32(message.clip_version);
       }
+
+      if (message.external_media_version != 0) {
+        writer.uint32(80);
+        writer.uint32(message.external_media_version);
+      }
     }
 
     static decode(reader: Reader, length: i32): music_config {
@@ -4708,6 +4750,10 @@ export namespace publications {
             message.clip_version = reader.uint32();
             break;
 
+          case 10:
+            message.external_media_version = reader.uint32();
+            break;
+
           default:
             reader.skipType(tag & 7);
             break;
@@ -4726,6 +4772,7 @@ export namespace publications {
     native_token: Uint8Array | null;
     flat_fee: u64;
     clip_version: u32;
+    external_media_version: u32;
 
     constructor(
       version: u32 = 0,
@@ -4736,7 +4783,8 @@ export namespace publications {
       enabled: bool = false,
       native_token: Uint8Array | null = null,
       flat_fee: u64 = 0,
-      clip_version: u32 = 0
+      clip_version: u32 = 0,
+      external_media_version: u32 = 0
     ) {
       this.version = version;
       this.revision = revision;
@@ -4747,6 +4795,7 @@ export namespace publications {
       this.native_token = native_token;
       this.flat_fee = flat_fee;
       this.clip_version = clip_version;
+      this.external_media_version = external_media_version;
     }
   }
 
@@ -4896,6 +4945,12 @@ export namespace publications {
         writer.uint32(200);
         writer.uint32(message.gzip_original_size);
       }
+
+      const unique_name_external_uri = message.external_uri;
+      if (unique_name_external_uri !== null) {
+        writer.uint32(210);
+        writer.string(unique_name_external_uri);
+      }
     }
 
     static decode(reader: Reader, length: i32): music_record {
@@ -5005,6 +5060,10 @@ export namespace publications {
             message.gzip_original_size = reader.uint32();
             break;
 
+          case 26:
+            message.external_uri = reader.string();
+            break;
+
           default:
             reader.skipType(tag & 7);
             break;
@@ -5039,6 +5098,7 @@ export namespace publications {
     cover_revision: u32;
     clip_kind: u32;
     gzip_original_size: u32;
+    external_uri: string | null;
 
     constructor(
       owner: Uint8Array | null = null,
@@ -5065,7 +5125,8 @@ export namespace publications {
       cover: music_cover | null = null,
       cover_revision: u32 = 0,
       clip_kind: u32 = 0,
-      gzip_original_size: u32 = 0
+      gzip_original_size: u32 = 0,
+      external_uri: string | null = null
     ) {
       this.owner = owner;
       this.digest = digest;
@@ -5092,6 +5153,7 @@ export namespace publications {
       this.cover_revision = cover_revision;
       this.clip_kind = clip_kind;
       this.gzip_original_size = gzip_original_size;
+      this.external_uri = external_uri;
     }
   }
 
@@ -5752,6 +5814,12 @@ export namespace publications {
         writer.uint32(192);
         writer.uint32(message.gzip_original_size);
       }
+
+      const unique_name_external_uri = message.external_uri;
+      if (unique_name_external_uri !== null) {
+        writer.uint32(202);
+        writer.string(unique_name_external_uri);
+      }
     }
 
     static decode(reader: Reader, length: i32): begin_music_arguments {
@@ -5857,6 +5925,10 @@ export namespace publications {
             message.gzip_original_size = reader.uint32();
             break;
 
+          case 25:
+            message.external_uri = reader.string();
+            break;
+
           default:
             reader.skipType(tag & 7);
             break;
@@ -5890,6 +5962,7 @@ export namespace publications {
     cover: music_cover | null;
     clip_kind: u32;
     gzip_original_size: u32;
+    external_uri: string | null;
 
     constructor(
       owner: Uint8Array | null = null,
@@ -5915,7 +5988,8 @@ export namespace publications {
       key_hash: Uint8Array | null = null,
       cover: music_cover | null = null,
       clip_kind: u32 = 0,
-      gzip_original_size: u32 = 0
+      gzip_original_size: u32 = 0,
+      external_uri: string | null = null
     ) {
       this.owner = owner;
       this.id = id;
@@ -5941,6 +6015,7 @@ export namespace publications {
       this.cover = cover;
       this.clip_kind = clip_kind;
       this.gzip_original_size = gzip_original_size;
+      this.external_uri = external_uri;
     }
   }
 

@@ -13,6 +13,7 @@ import { toBase64url } from "../../util/bytes";
 import { ClipPlayer } from "../media/ClipPlayer";
 import { posterReference } from "../media/posterReference";
 import { MediaPhoto } from "../../components/MediaPhoto";
+import { ZoomableImage } from "../../components/ZoomableImage";
 import { formatDateTime, timeAgo } from "../../util/format";
 import { Avatar, Icon } from "../../components/Icon";
 import { AccountLink, Button, Details } from "../../components/ui";
@@ -57,7 +58,7 @@ function MediaList({ content }: { content: OpenedContent }) {
                 <Button variant="ghost" onClick={() => setShown((s) => ({ ...s, [index]: !s[index] }))}>
                   {shown[index] ? "Hide image" : "Show image"}
                 </Button>
-                {shown[index] && <img src={url} alt={item.alt_text || ""} className="media-preview" />}
+                {shown[index] && <ZoomableImage src={url} alt={item.alt_text || "Attached photo"} className="media-preview" />}
               </>
             )}
           </li>
@@ -140,7 +141,7 @@ export function OpenedPostCard({ post, onChanged, expanded = false, content }: P
   return (
     <article className={`post post-${audience === AUDIENCE.EVERYONE ? "public" : "friends"}`} aria-label={`Post by ${name}`}>
       <header className="post-header">
-        <Link to={`/u/${post.author}`} tabIndex={-1} aria-hidden="true"><Avatar account={post.author} name={name}/></Link>
+        <Avatar account={post.author} name={name}/>
         <div className="post-heading"><AccountLink account={post.author} name={name} className="post-author"/><span className="post-meta"><time dateTime={new Date(Number(post.createdAt) || 0).toISOString()} title={formatDateTime(post.createdAt)}>{timeAgo(post.createdAt)}</time>{post.versionNumber > 1 && !deleted && <> · <Link to={`/post/${post.postId}?history=1`}>Edited</Link></>}{!expanded && <PostEditLink post={post} />}</span></div>
         <span className={`chip chip-${audience === AUDIENCE.EVERYONE ? "public" : "friends"}`}><Icon name={audience === AUDIENCE.EVERYONE ? "globe" : "lock"} size={13}/>{audience === AUDIENCE.EVERYONE ? "Public" : audienceLabel(audience)}</span>
       </header>

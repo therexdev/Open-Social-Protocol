@@ -1,3 +1,4 @@
+import { ZoomableImage } from "../../components/ZoomableImage";
 import { useEffect, useRef, useState } from "react";
 import { contentHash, photoCost, PHOTO_MAX_BYTES, photoLocation, profilePhotoId, toBase64url } from "@osp/sdk";
 import { buildProfileDocument, parseProfileUri, PROFILE_URI_MAX_CHARS } from "../../api/profiles";
@@ -21,7 +22,7 @@ function Preview({ bytes, label }: { bytes: Uint8Array; label: string }) {
     setUrl(next);
     return () => URL.revokeObjectURL(next);
   }, [bytes]);
-  return url ? <img className="profile-editor-preview" src={url} alt={label}/> : null;
+  return url ? <ZoomableImage className="profile-editor-preview" src={url} alt={label}/> : null;
 }
 
 export function ProfileEditor({ account, view, onDone }: { account: string; view: ProfileView; onDone: () => void }) {
