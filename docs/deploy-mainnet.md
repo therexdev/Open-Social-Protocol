@@ -12,8 +12,10 @@ IDs. A workflow file, an accounts report, or a simulation is not a deployment.
 
 ## 1. Mainnet keys and GitHub configuration
 
-Use **Settings → Environments → New environment → `mainnet`** in this repository.
-These are separate from the testnet deployment secrets. Add these environment secrets:
+Open **Settings → Environments → `mainnet`** in this repository. The environment
+and its two public endpoint variables are already configured for this rollout.
+For a fresh repository, create the environment first. Add these environment secrets
+separately from the testnet deployment secrets:
 
 | Secret | Value |
 | --- | --- |
@@ -32,7 +34,8 @@ A seed can be generated locally with `openssl rand -hex 32`. Save it in your pas
 manager/offline backup before entering it in GitHub. Changing it changes every
 derived contract address and prevents upgrades using the original keys.
 
-Add these **environment variables** (public configuration):
+These **environment variables** contain public configuration (the two URL values
+below are already set for this rollout):
 
 | Variable | Example / value |
 | --- | --- |
@@ -52,6 +55,10 @@ website. Open **Actions → deploy-mainnet → Run workflow** and choose
 job executes that job's original code.
 
 ## 2. Verify addresses, then fund the sponsor
+
+The [initial address-only check](https://github.com/therexdev/Open-Social-Protocol/actions/runs/45308705089)
+stopped before any transaction because the mainnet signing secrets had not been
+configured. After adding all three secrets, start a new run.
 
 Run `deploy-mainnet` with **action = `accounts`** first. This prints only public
 addresses in the run summary. It submits no transaction and needs no wallet balance.
@@ -232,11 +239,16 @@ optional encrypted upload/read-back check: set a registered test profile's
 `OSP_MEDIA_TEST_ACCOUNT`/`OSP_MEDIA_TEST_WIF` locally and add `--upload`. That check
 stores an encrypted object; it does not publish a post.
 
-If the existing `deploy-web` workflow/Hostinger import builds automatically, set the
-repository variable `VITE_OSP_NETWORK=mainnet` after mainnet services are healthy,
-and clear testnet `VITE_OSP_INDEXER_URL`, `VITE_OSP_SPONSOR_URL` and
-`VITE_OSP_RPC_URLS` overrides. Otherwise a later automatic build can restore testnet
-defaults. The manual mainnet workflow artifact takes endpoints from its manifest.
+For subsequent automatic releases through `deploy-web` or a Hostinger Git import,
+the default branch must contain the complete mainnet release **and its generated
+`deployments/mainnet.json`**. Once mainnet services and the manual client release
+are verified, set the repository variable `VITE_OSP_NETWORK=mainnet` and clear
+testnet `VITE_OSP_INDEXER_URL`, `VITE_OSP_SPONSOR_URL` and `VITE_OSP_RPC_URLS`
+overrides immediately before merging that complete release into the default branch.
+Then build/publish from the updated default branch. The mainnet workflow was
+registered separately so the initial launch can run from `codex/mainnet-token-free`
+while this cutover is being prepared. Its manual artifact takes endpoints from
+the mainnet manifest.
 
 ## 7. Operations and later changes
 
