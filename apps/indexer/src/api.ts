@@ -123,7 +123,7 @@ export function statusView(options: ApiOptions): Record<string, unknown> {
     ? Object.fromEntries(Object.entries(deployment.contracts).map(([name, entry]) => [name, entry.address]))
     : null;
   return {
-    features: { tokenEconomy: 1, rewardSettlementQueue: 1, privateMessaging: 2, privateUpdates: 1, photoLibrary: 1, musicFeed: 1,
+    features: { tokenEconomy: deployment?.economy === "token-free" ? 0 : 1, rewardSettlementQueue: deployment?.economy === "token-free" ? 0 : 1, privateMessaging: 2, privateUpdates: 1, photoLibrary: 1, musicFeed: 1,
       ...(config.musicCache && deployment && { musicGateway: 1 }) },
     network: config.network,
     chainId: deployment?.chainId ?? null,

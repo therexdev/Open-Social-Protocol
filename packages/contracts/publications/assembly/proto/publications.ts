@@ -2551,6 +2551,11 @@ export namespace publications {
         writer.uint32(10);
         writer.bytes(unique_name_address);
       }
+
+      if (message.token_free != false) {
+        writer.uint32(16);
+        writer.bool(message.token_free);
+      }
     }
 
     static decode(reader: Reader, length: i32): set_token_contract_arguments {
@@ -2564,6 +2569,10 @@ export namespace publications {
             message.address = reader.bytes();
             break;
 
+          case 2:
+            message.token_free = reader.bool();
+            break;
+
           default:
             reader.skipType(tag & 7);
             break;
@@ -2574,9 +2583,11 @@ export namespace publications {
     }
 
     address: Uint8Array | null;
+    token_free: bool;
 
-    constructor(address: Uint8Array | null = null) {
+    constructor(address: Uint8Array | null = null, token_free: bool = false) {
       this.address = address;
+      this.token_free = token_free;
     }
   }
 
@@ -2636,6 +2647,11 @@ export namespace publications {
         writer.uint32(10);
         writer.bytes(unique_name_value);
       }
+
+      if (message.token_free != false) {
+        writer.uint32(16);
+        writer.bool(message.token_free);
+      }
     }
 
     static decode(reader: Reader, length: i32): get_token_contract_result {
@@ -2649,6 +2665,10 @@ export namespace publications {
             message.value = reader.bytes();
             break;
 
+          case 2:
+            message.token_free = reader.bool();
+            break;
+
           default:
             reader.skipType(tag & 7);
             break;
@@ -2659,9 +2679,11 @@ export namespace publications {
     }
 
     value: Uint8Array | null;
+    token_free: bool;
 
-    constructor(value: Uint8Array | null = null) {
+    constructor(value: Uint8Array | null = null, token_free: bool = false) {
       this.value = value;
+      this.token_free = token_free;
     }
   }
 
@@ -4720,6 +4742,11 @@ export namespace publications {
         writer.uint32(80);
         writer.uint32(message.external_media_version);
       }
+
+      if (message.token_free != false) {
+        writer.uint32(88);
+        writer.bool(message.token_free);
+      }
     }
 
     static decode(reader: Reader, length: i32): music_config {
@@ -4769,6 +4796,10 @@ export namespace publications {
             message.external_media_version = reader.uint32();
             break;
 
+          case 11:
+            message.token_free = reader.bool();
+            break;
+
           default:
             reader.skipType(tag & 7);
             break;
@@ -4788,6 +4819,7 @@ export namespace publications {
     flat_fee: u64;
     clip_version: u32;
     external_media_version: u32;
+    token_free: bool;
 
     constructor(
       version: u32 = 0,
@@ -4799,7 +4831,8 @@ export namespace publications {
       native_token: Uint8Array | null = null,
       flat_fee: u64 = 0,
       clip_version: u32 = 0,
-      external_media_version: u32 = 0
+      external_media_version: u32 = 0,
+      token_free: bool = false
     ) {
       this.version = version;
       this.revision = revision;
@@ -4811,6 +4844,7 @@ export namespace publications {
       this.flat_fee = flat_fee;
       this.clip_version = clip_version;
       this.external_media_version = external_media_version;
+      this.token_free = token_free;
     }
   }
 

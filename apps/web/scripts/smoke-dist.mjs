@@ -70,6 +70,10 @@ try {
   assert.equal(doc.querySelector('section[aria-label="Network settings"]')?.hidden, false, "Network settings did not open");
   const hint = [...doc.querySelectorAll(".field")].find(field => field.querySelector("label")?.textContent.includes("Sponsors"))?.querySelector(".hint")?.textContent;
   assert.ok(hint && !hint.includes("none") && hint.includes("http"), "Release has no sponsor configured");
+  if (process.env.VITE_OSP_NETWORK === "mainnet") {
+    assert.ok(doc.querySelector(".header-osat")?.textContent.includes("Mana"), "Mainnet release must display sponsored Mana");
+    assert.ok(!doc.querySelector(".header-osat")?.textContent.includes("OSAT"), "Token-free release must not display an OSAT balance");
+  }
   assert.deepEqual(errors, [], "Shipped app encountered runtime errors");
   console.log(`web dist smoke passed: saved empty overrides resolve indexer ${people.origin}, nickname search reaches it, and Settings reports a sponsor`);
 } finally {

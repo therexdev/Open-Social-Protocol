@@ -1,7 +1,8 @@
 # Token-free mainnet launch policy
 
-Status: approved launch plan; implementation and mainnet activation remain pending.
-This document records the decisions. It does not fund a wallet or change a running service.
+Status: approved launch policy. The mainnet launch implementation and configuration are in this branch; wallet funding and live activation remain operator steps.
+See [deploy-mainnet.md](deploy-mainnet.md) for deployment and hosting instructions.
+This document does not fund a wallet or change a running service.
 
 ## Approved starting policy
 
@@ -69,8 +70,8 @@ resources, even when an individual account has unused daily allowance.
    and show allowance exhaustion separately from token balances and storage
    quotas. Provide aggregate pool capacity, consumption and regeneration views.
 6. Implement an explicit token-free mode across contracts, website, extension,
-   indexer and sponsor. Mandatory OSAT/usage dependencies remain in parts of
-   messaging and media today; leaving the token contract undeployed is insufficient.
+   indexer and sponsor. Explicit token-free dependency flags are required in
+   messaging and media; leaving the token contract undeployed alone is insufficient.
    Review existing native-KOIN media charges for the intended free social launch.
 7. Preserve versioned ledger events, identifiers, storage layouts and a controlled
    upgrade path for enabling the economic modules later. Historical engagement
@@ -85,6 +86,7 @@ sponsor account, and verify the 50-Mana cap under concurrent requests, account
 recovery, multiple devices, private aliases, UTC rollover, service restarts and
 uncertain transaction outcomes.
 
-The existing sponsor's operation-count quotas are not this Mana allowance.
+The legacy sponsor's operation-count quotas are not this Mana allowance. Mainnet
+configuration selects the durable Mana budget; other networks retain their existing policy.
 Funding is a separate operator action; no 10,000-KOIN transfer has been performed
 as part of recording this plan.

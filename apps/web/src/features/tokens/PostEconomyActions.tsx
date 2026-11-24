@@ -84,6 +84,7 @@ export function PostEconomyActions({ post, onChanged, children, song = false }: 
     } catch (e) { setError(humanizeError(e)); }
     finally { setBusy(false); }
   };
+  if (protocol?.deployment?.economy === "token-free") return <div className="engagement-row">{children}</div>;
   if (version === 0) return <div className="engagement-row">{children}{!song && !own && me ? <Button variant="ghost" disabled={!can.ok || post.state !== 0 || busy} onClick={() => void perform("support")}><Icon name="spark" size={18}/>Support</Button> : null}</div>;
   if (!policy || !me) return <div className="engagement-row">{children}</div>;
   const reward = view ? view.reward : post.economy?.reward;

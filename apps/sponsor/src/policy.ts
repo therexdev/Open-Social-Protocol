@@ -236,6 +236,7 @@ export interface PolicyLimits {
   maxRcPerOp: string;
   maxOpsPerTx: number;
   dailyOps: number;
+  dailyManaRc?: string;
   burstOps: number;
   burstWindowSec: number;
 }
@@ -253,6 +254,6 @@ export function discoveryPolicy(allowlist: Allowlist, limits: PolicyLimits): Spo
     maxBytesPerOp: limits.maxBytesPerOp,
     maxRcPerOp: limits.maxRcPerOp,
     maxOpsPerTx: limits.maxOpsPerTx,
-    perUser: { dailyOps: limits.dailyOps, burstOps: limits.burstOps, burstWindowSec: limits.burstWindowSec },
+    perUser: { dailyOps: limits.dailyOps, burstOps: limits.burstOps, burstWindowSec: limits.burstWindowSec, ...(limits.dailyManaRc && { dailyRc: limits.dailyManaRc, reset: "utc-calendar-day" as const }) },
   };
 }

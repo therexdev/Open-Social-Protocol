@@ -633,3 +633,20 @@ it("publishes only an R2 manifest, resumes without paying twice, and loads verif
     expect(client.reads.publications.get_music_chunk).not.toHaveBeenCalled();
   } finally { vi.unstubAllGlobals(); }
 });
+
+it("uploads token-free music without native approvals or an OSAT price", async () => {
+  config.token_free = true;
+  const free = newMusicDraft({ owner:alice.account,payer:alice.account,bytes,config,title:"Free mainnet audio",mime:"audio/mpeg",durationMs:10000 });
+  expect(free.fee).toBe("0");
+  await uploadMusic(ctx,free,bytes,()=>{},()=>{});
+  expect(vi.mocked(submitAction).mock.calls[0]![1]).toHaveLength(1);
+  expect(record?.fee).toBe("0");
+  expect(() => newMusicDraft({owner:alice.account,payer:alice.account,bytes,config,title:"Paid",mime:"audio/mpeg",durationMs:10000,unlockPrice:"1"})).toThrow("Paid unlocks are not active");
+});
+it("reserves token-free video without the legacy 100-KOIN upload bundle", async () => {
+  config.token_free = true; config.clip_version = 1;
+  const video=await prepareVideoClip({bytes,mime:"video/mp4",durationMs:15000},client,true);
+  await archiveClip(video,ctx,alice.account);
+  expect(vi.mocked(submitAction).mock.calls[0]![1]).toHaveLength(1);
+  expect(record?.fee).toBe("0");
+});

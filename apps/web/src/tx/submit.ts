@@ -70,6 +70,7 @@ export function sponsorWording(error: SponsorError): string {
   }
   switch (error.category) {
     case "quota_exceeded":
+      if (/daily sponsored Mana/i.test(error.message)) return "Your daily sponsored Mana allowance is used or reserved by pending transactions. Confirmed spending resets at 00:00 UTC. Your posts and stored files are unaffected.";
       return "The free allowance from the sponsor is used up for now. Try again later, add another sponsor in Settings, or pay from your own account.";
     case "method_not_allowed":
       return "The sponsor does not cover this kind of action. You can pay from your own account or add another sponsor in Settings.";

@@ -32,6 +32,7 @@ export const MUSIC_MIMES = [
   "audio/webm",
 ] as const;
 export interface MusicConfig {
+  token_free?: boolean;
   external_media_version?: number;
   clip_version?: number;
   flat_fee?: string;

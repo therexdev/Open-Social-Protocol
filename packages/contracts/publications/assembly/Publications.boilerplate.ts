@@ -201,6 +201,7 @@ export class Publications {
     args: publications.set_token_contract_arguments
   ): publications.set_token_contract_result {
     // const address = args.address;
+    // const token_free = args.token_free;
 
     // YOUR CODE HERE
 
@@ -216,6 +217,7 @@ export class Publications {
 
     const res = new publications.get_token_contract_result();
     // res.value = ;
+    // res.token_free = ;
 
     return res;
   }

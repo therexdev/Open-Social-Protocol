@@ -106,3 +106,23 @@ describe("consent and replay protection", (): void => {
     }).toThrow();
   });
 });
+
+describe("token-free launch", (): void => {
+  beforeEach(setup);
+  it("requires explicit owner configuration and retains private allocation accounting", (): void => {
+    Testing.authorize([ID]);
+    c.set_dependencies(new messaging.set_dependencies_arguments(DEP, DEP, null, true));
+    MockVM.commitTransaction();
+    // No token result has been queued: consume must not call a token contract.
+    c.consume(ALICE, 20);
+    expect(c.get_dependencies(new messaging.get_dependencies_arguments()).token_free).toBe(true);
+    expect((): void => { c.debitPrivate(ALICE); }).toThrow("private usage allowance exhausted");
+  });
+  it("keeps consent and blocking checks in token-free mode", (): void => {
+    Testing.authorize([ID]);
+    c.set_dependencies(new messaging.set_dependencies_arguments(DEP, DEP, null, true));
+    MockVM.commitTransaction();
+    auth(ALICE, true);
+    expect((): void => { c.request_conversation(new messaging.request_conversation_arguments(ALICE, BOB)); }).toThrow("conversation blocked");
+  });
+});

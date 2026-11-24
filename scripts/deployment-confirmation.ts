@@ -8,10 +8,10 @@ export async function requireFreshDeploymentHead(provider: HeadProvider, options
   const head = await provider.getHeadInfo(), now = (options.now ?? Date.now)();
   const height = Number(head.head_topology.height), timestamp = Number(head.head_block_time);
   if (!head.head_topology.id || !Number.isSafeInteger(height) || height < 1 || !Number.isSafeInteger(timestamp) || timestamp < 1 || timestamp > now + 60_000)
-    throw new Error("The testnet RPC returned invalid head information. No new deployment transaction will be submitted against this head.");
+    throw new Error("The chain RPC returned invalid head information. No new deployment transaction will be submitted against this head.");
   const age = now - timestamp;
   if (age > (options.maxAgeMs ?? 180_000)) {
-    throw new Error(`Testnet RPC is stale or block production has stopped: head ${height}, last block ${new Date(timestamp).toISOString()} (${Math.floor(age / 1000)} seconds old). No new deployment transaction will be submitted against this head. Wait for a fresh, advancing testnet or use a healthy RPC for the same chain.`);
+    throw new Error(`Chain RPC is stale or block production has stopped: head ${height}, last block ${new Date(timestamp).toISOString()} (${Math.floor(age / 1000)} seconds old). No new deployment transaction will be submitted against this head. Wait for a fresh, advancing testnet or use a healthy RPC for the same chain.`);
   }
   return head;
 }
@@ -66,5 +66,5 @@ export async function confirmDeploymentTransaction(
     const remaining = deadline - now();
     if (remaining > 0) await sleep(Math.min(2000, remaining));
   }
-  throw new Error(`Confirmation of deployment transaction ${txId} is still unknown after ${timeout} ms; RPC head ${lastHead}${lastError ? `; last RPC error: ${lastError}` : ""}. The upload checkpoint is preserved. Start a new workflow run after the testnet is healthy to reconcile this transaction before another upload.`);
+  throw new Error(`Confirmation of deployment transaction ${txId} is still unknown after ${timeout} ms; RPC head ${lastHead}${lastError ? `; last RPC error: ${lastError}` : ""}. The upload checkpoint is preserved. Start a new workflow run after the chain RPC is healthy to reconcile this transaction before another upload.`);
 }

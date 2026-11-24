@@ -257,6 +257,11 @@ export namespace messaging {
         writer.uint32(26);
         writer.bytes(unique_name_token);
       }
+
+      if (message.token_free != false) {
+        writer.uint32(32);
+        writer.bool(message.token_free);
+      }
     }
 
     static decode(reader: Reader, length: i32): set_dependencies_arguments {
@@ -278,6 +283,10 @@ export namespace messaging {
             message.token = reader.bytes();
             break;
 
+          case 4:
+            message.token_free = reader.bool();
+            break;
+
           default:
             reader.skipType(tag & 7);
             break;
@@ -290,15 +299,18 @@ export namespace messaging {
     identity: Uint8Array | null;
     relationships: Uint8Array | null;
     token: Uint8Array | null;
+    token_free: bool;
 
     constructor(
       identity: Uint8Array | null = null,
       relationships: Uint8Array | null = null,
-      token: Uint8Array | null = null
+      token: Uint8Array | null = null,
+      token_free: bool = false
     ) {
       this.identity = identity;
       this.relationships = relationships;
       this.token = token;
+      this.token_free = token_free;
     }
   }
 
@@ -367,6 +379,11 @@ export namespace messaging {
         writer.uint32(26);
         writer.bytes(unique_name_token);
       }
+
+      if (message.token_free != false) {
+        writer.uint32(32);
+        writer.bool(message.token_free);
+      }
     }
 
     static decode(reader: Reader, length: i32): get_dependencies_result {
@@ -388,6 +405,10 @@ export namespace messaging {
             message.token = reader.bytes();
             break;
 
+          case 4:
+            message.token_free = reader.bool();
+            break;
+
           default:
             reader.skipType(tag & 7);
             break;
@@ -400,15 +421,18 @@ export namespace messaging {
     identity: Uint8Array | null;
     relationships: Uint8Array | null;
     token: Uint8Array | null;
+    token_free: bool;
 
     constructor(
       identity: Uint8Array | null = null,
       relationships: Uint8Array | null = null,
-      token: Uint8Array | null = null
+      token: Uint8Array | null = null,
+      token_free: bool = false
     ) {
       this.identity = identity;
       this.relationships = relationships;
       this.token = token;
+      this.token_free = token_free;
     }
   }
 

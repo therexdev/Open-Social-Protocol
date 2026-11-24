@@ -1,3 +1,4 @@
+import { SponsorAllowance } from "./SponsorAllowance";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { walletBalance } from "@osp/sdk";
@@ -15,7 +16,7 @@ export function HeaderOsat() {
   const balance = me && lastRead?.protocol === protocol && lastRead?.account === me.account ? lastRead.amount : undefined;
 
   useEffect(() => {
-    if (!protocol || !me) return;
+    if (!protocol || !me || protocol.deployment?.economy === "token-free") return;
     let active = true;
     let reading = false;
     const refresh = async () => {
@@ -44,6 +45,7 @@ export function HeaderOsat() {
     };
   }, [protocol, me]);
 
+  if (protocol?.deployment?.economy === "token-free") return <SponsorAllowance/>;
   const tokens = balance === undefined ? undefined : BigInt(balance);
   const amount = tokens === undefined ? undefined : balanceFormat.format(tokens);
   const balanceLabel = amount !== undefined ? `${amount} OSAT` : me ? "OSAT balance unavailable" : "OSAT";

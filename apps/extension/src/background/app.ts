@@ -301,6 +301,7 @@ export function createBackground(options: BackgroundOptions): Background {
 
   async function inspectEconomy(postId: string): Promise<EconomyInspection> {
       const session = await requireSession(), clients = await registry.get(), client = requireProtocol(clients);
+      if (client.deployment.economy === "token-free") return { version: "0", own: false, active: false, canVote: false, ownerAvailable: false };
       const [config, view, account, post, board, device, preview] = await Promise.all([
         client.reads.token.get_economy({}), client.reads.token.get_post_economy({ post_id: bytesOf(postId), viewer: session.account }),
         client.reads.token.get_account({ account: session.account }), client.reads.publications.get_post({ post_id: bytesOf(postId) }),

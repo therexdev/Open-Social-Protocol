@@ -39,7 +39,7 @@ export class ClientRegistry {
       });
       const rpc = this.options.provider ?? (resolved.rpcUrls.length > 0 ? resolved.rpcUrls : resolved.deployment.rpc);
       protocol = new ProtocolClient({ rpc, deployment: resolved.deployment, sponsors });
-      if (resolved.network === "harbinger") configureMediaStorage(protocol, `${(resolved.deployment.sponsors?.[0] ?? resolved.sponsorUrls[0])?.replace(/\/+$/, "") ?? ""}/v1/media`, this.options.fetch as typeof fetch | undefined);
+      if ((resolved.network === "harbinger" || resolved.deployment.economy === "token-free")) configureMediaStorage(protocol, `${(resolved.deployment.sponsors?.[0] ?? resolved.sponsorUrls[0])?.replace(/\/+$/, "") ?? ""}/v1/media`, this.options.fetch as typeof fetch | undefined);
     }
     const indexer = new IndexerClient({ baseUrl: resolved.indexerUrl, ...(this.options.fetch && { fetch: this.options.fetch }), ...(protocol?.contracts.contentLoader && { contentLoader: protocol.contracts.contentLoader }) });
     const clients: Clients = { resolved, ...(protocol && { protocol }), indexer };

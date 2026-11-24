@@ -186,3 +186,14 @@ it("commits external ciphertext without appending any bytes and rejects URI repl
   auth(ALICE);
   expect((): void => { lib.begin(begin, IDENTITY, CONTRACT); }).toThrow("archive id already used");
 });
+
+describe("token-free archive", (): void => {
+  it("reserves and finalizes a photo without a usage contract while checking ownership and hashes", (): void => {
+    const data = new Uint8Array(100).fill(17), hash = lib.hash(data);
+    begin = new publications.begin_photo_arguments(ALICE, ID, hash, 100, [hash]);
+    auth(ALICE); lib.begin(begin, IDENTITY, null, true);
+    MockVM.commitTransaction();
+    auth(ALICE); lib.append(new publications.append_photo_arguments(ALICE, ID, 0, data), IDENTITY);
+    expect(lib.photos.get(ID)!.received).toBe(1);
+  });
+});

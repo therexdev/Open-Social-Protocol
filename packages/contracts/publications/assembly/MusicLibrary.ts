@@ -168,7 +168,7 @@ export class MusicLibrary {
     const divisor: u64 = 1000000 * COIN;
     return ((<u64>size * rate + divisor - 1) / divisor) * COIN;
   }
-  begin(args: publications.begin_music_arguments, identity: Uint8Array, usage: Uint8Array | null = null): void {
+  begin(args: publications.begin_music_arguments, identity: Uint8Array, usage: Uint8Array | null = null, tokenFree: bool = false): void {
     const owner = Util.requireAddress(args.owner, "owner"),
       id = this.id(args.id),
       digest = this.id(args.digest);
@@ -281,13 +281,14 @@ export class MusicLibrary {
     System.require(c.enabled && c.recipient != null, "music uploads are not enabled");
     System.require(args.config_revision == c.revision, "music price changed; review the new quote");
     System.require(args.size <= c.max_bytes, "audio exceeds configured size limit");
-    const price: u64 = kind == VOICE ? 0 : kind == VIDEO ? 100 * COIN : this.fee(args.size, c.rate_per_mb, c.flat_fee);
+    System.require(!tokenFree || args.unlock_price == 0, "paid unlocks are disabled in token-free mode");
+    const price: u64 = tokenFree || kind == VOICE ? 0 : kind == VIDEO ? 100 * COIN : this.fee(args.size, c.rate_per_mb, c.flat_fee);
     System.require(args.max_fee == price, "music fee does not match the accepted quote");
-    if (kind != VOICE) System.require(!Arrays.equal(payer, c.recipient!), "payer cannot be the music fee recipient");
+    if (!tokenFree && kind != VOICE) System.require(!Arrays.equal(payer, c.recipient!), "payer cannot be the music fee recipient");
     System.requireAuthority(authority.authorization_type.contract_call, payer);
     if (kind == VOICE) {
-      new PhotoLibrary().charge(owner, (args.size + 32767) / 32768, usage);
-    } else {
+      new PhotoLibrary().charge(owner, (args.size + 32767) / 32768, usage, tokenFree);
+    } else if (!tokenFree) {
       const native = new Token(System.getContractAddress("koin"));
       System.require(native.transfer(payer, c.recipient!, price), "native KOIN payment failed (balance or locked Mana)");
     }
@@ -353,7 +354,7 @@ export class MusicLibrary {
     Actor.requireAuthorized(identity, owner, args.device, Capability.PUBLISH);
     const v = this.get(id);
     System.require(
-      v != null && Arrays.equal(v!.owner!, owner) && (v!.fee > 0 || v!.clip_kind == VOICE),
+      v != null && Arrays.equal(v!.owner!, owner),
       "paid music upload not owned"
     );
     System.require(

@@ -26,6 +26,7 @@ message set_dependencies_arguments {
   bytes identity = 1 [(koinos.btype) = ADDRESS];
   bytes relationships = 2 [(koinos.btype) = ADDRESS];
   bytes token = 3 [(koinos.btype) = ADDRESS];
+  bool token_free = 4;
 }
 message set_dependencies_result {
 
@@ -39,6 +40,7 @@ message get_dependencies_result {
   bytes identity = 1 [(koinos.btype) = ADDRESS];
   bytes relationships = 2 [(koinos.btype) = ADDRESS];
   bytes token = 3 [(koinos.btype) = ADDRESS];
+  bool token_free = 4;
 }
 // @description request conversation
 // @read-only false

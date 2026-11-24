@@ -18,7 +18,7 @@ export function TokensPage() {
   const [activity, setActivity] = useState<Awaited<ReturnType<typeof indexer.tokenActivity>>["items"]>([]);
   const version = useRef(0);
   const refresh = useCallback(async () => {
-    if (!me || !protocol) return;
+    if (!me || !protocol || protocol.deployment?.economy === "token-free") return;
     const current = ++version.current;
     try {
       const r = await protocol.reads.token.get_account({ account: me.account });
@@ -39,13 +39,14 @@ export function TokensPage() {
     setActivity([]);
     void refresh();
     const timer = window.setInterval(() => { if (document.visibilityState === "visible") void refresh(); }, 30000);
-    return () => {
+  return () => {
       window.clearInterval(timer);
       version.current++;
     };
   }, [refresh]);
   const { v2, ready, precision, free, paid, actions } = tokenResources(account);
   const credits = account ? actions : undefined;
+if (protocol?.deployment?.economy === "token-free") return <Card><h1>Tokens</h1><p>Token features will be available after a later network update. Posting and social activity do not require OSAT.</p></Card>;
   return (
     <div className="page-stack">
       <h1>Action tokens</h1>

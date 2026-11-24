@@ -68,6 +68,7 @@ const secondary = [
 ] as const;
 
 export function Layout({ children }: { children: ReactNode }) {
+  const { protocol } = useServices();
   const location = useLocation();
   const navigate = useNavigate();
   const status = useVault((s) => s.status);
@@ -131,7 +132,7 @@ export function Layout({ children }: { children: ReactNode }) {
     </div>
     <button type="button" className="icon-button mobile-more" aria-label="More menu" onClick={() => setMenuOpen(true)} aria-haspopup="dialog" aria-expanded={menuOpen}><Icon name="more"/></button>
     <nav className="mobile-nav" aria-label="Mobile navigation">{primary.map(item => navItem(item, true))}</nav>
-    <dialog ref={menu} className="dialog more-menu" aria-labelledby="more-menu-title" onCancel={() => setMenuOpen(false)} onClose={() => setMenuOpen(false)}><div className="page-header"><h2 id="more-menu-title">More to explore</h2><Button variant="ghost" aria-label="Close menu" onClick={() => setMenuOpen(false)}><Icon name="close"/></Button></div><nav aria-label="More navigation">{navItem(primary[1])}{secondary.map(item => navItem(item))}</nav><div className="menu-footer"><InstallButton/>{lockControl}</div></dialog>
+    <dialog ref={menu} className="dialog more-menu" aria-labelledby="more-menu-title" onCancel={() => setMenuOpen(false)} onClose={() => setMenuOpen(false)}><div className="page-header"><h2 id="more-menu-title">More to explore</h2><Button variant="ghost" aria-label="Close menu" onClick={() => setMenuOpen(false)}><Icon name="close"/></Button></div><nav aria-label="More navigation">{navItem(primary[1])}{secondary.filter(item => item.to !== "/tokens" || protocol?.deployment?.economy !== "token-free").map(item => navItem(item))}</nav><div className="menu-footer"><InstallButton/>{lockControl}</div></dialog>
     <Toasts/>
   </div>;
 }

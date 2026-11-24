@@ -27,7 +27,7 @@ export function ExtensionLayout({children}:{children:ReactNode}) {
       <HeaderOsat/><button className="icon-button" aria-label="More menu" aria-expanded={menu} onClick={()=>setMenu(!menu)}><Icon name={menu?"close":"more"}/></button>
     </header>
     <nav className="client-nav" aria-label="Browser tools navigation">{primary.map(item=><NavLink key={item.to} to={item.to==="/me"&&vault.account?`/u/${vault.account}`:item.to} end={item.to==="/"} className={({isActive})=>isActive?"active":""}><Icon name={item.icon} size={18}/><span>{item.label}</span></NavLink>)}</nav>
-    {menu&&<section className="client-menu" aria-label="More navigation"><nav>{more.map(item=><Link key={item.to} to={item.to}>{item.label}{item.to==="/notifications"&&unread>0?` (${unread})`:""}</Link>)}</nav>
+    {menu&&<section className="client-menu" aria-label="More navigation"><nav>{more.filter(item=>item.to!=="/tokens"||resolved.deployment?.economy!=="token-free").map(item=><Link key={item.to} to={item.to}>{item.label}{item.to==="/notifications"&&unread>0?` (${unread})`:""}</Link>)}</nav>
       <a href={chrome.runtime.getURL("src/permissions/index.html")} target="_blank" rel="noopener noreferrer">Microphone / camera permissions</a>
       {vault.status==="unlocked"?<button className="btn" onClick={()=>{vault.lock();void rpc("vault.lock").catch(e=>setError(e.message));setMenu(false);}}>Lock account and site connections</button>:<Link className="btn btn-primary" to="/welcome">{vault.account?"Unlock account":"Sign in"}</Link>}
     </section>}

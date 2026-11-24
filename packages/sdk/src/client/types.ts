@@ -224,7 +224,7 @@ export interface AddressResult {
 }
 
 export interface RelationshipsWriteMethods {
-  set_token_contract: SetContractAddressArgs;
+  set_token_contract: { address?: Address; token_free?: boolean };
   set_identity_contract: SetContractAddressArgs;
   request_friend: RequestFriendArgs;
   accept_friend: AcceptFriendArgs;
@@ -236,7 +236,7 @@ export interface RelationshipsWriteMethods {
   rotate_audience: RotateAudienceArgs;
 }
 export interface RelationshipsReadMethods {
-  get_token_contract: [Record<string, never>, AddressResult];
+  get_token_contract: [Record<string, never>, AddressResult & { token_free?: boolean }];
   get_relationship: [PairArgs, ValueResult<RelationshipRecord>];
   get_audience: [AccountArgs, ValueResult<AudienceState>];
   is_blocked: [ActorTargetArgs, BoolResult];
@@ -382,7 +382,7 @@ export interface PublicationsWriteMethods {
   save_collection: { owner: Address; id: Bytes; previous_revision: number; kind: number; audience: number; members: Address[]; envelope: Bytes; closed?: boolean; device?: Address };
   set_album_item: { owner: Address; collection_id: Bytes; id: Bytes; epoch: number; previous_revision: number; envelope?: Bytes; removed?: boolean; device?: Address };
   answer_poll: { actor: Address; post_id: Bytes; option: number; device?: Address };
-  set_token_contract: SetContractAddressArgs;
+  set_token_contract: { address?: Address; token_free?: boolean };
   set_identity_contract: SetContractAddressArgs;
   set_relationships_contract: SetContractAddressArgs;
   publish: PublishArgs;
@@ -407,7 +407,7 @@ export interface PublicationsReadMethods {
   get_collection: [{ id: Bytes }, ValueResult<CollectionRecord>];
   get_album_item: [{ collection_id: Bytes; id: Bytes }, ValueResult<AlbumItemRecord>];
   get_poll: [{ post_id: Bytes; viewer?: Address }, PollView];
-  get_token_contract: [Record<string, never>, AddressResult];
+  get_token_contract: [Record<string, never>, AddressResult & { token_free?: boolean }];
   get_post: [PostIdArgs, ValueResult<PostRecord>];
   get_author_state: [AuthorArgs, ValueResult<AuthorState>];
   get_post_by_idempotency_key: [PostByIdempotencyKeyArgs, ValueResult<PostRef>];
@@ -670,7 +670,7 @@ export interface MessagingWriteMethods {
   open_private_channel: { actor: Address; peer: Address };
   close_private_channel: { actor: Address; peer: Address };
   post_private_packet: { actor: Address; peer?: Address; packet_id: Bytes; envelope: Bytes };
-  set_dependencies: { identity: Address; relationships: Address; token: Address };
+  set_dependencies: { identity: Address; relationships: Address; token?: Address; token_free?: boolean };
   request_conversation: ConversationArgs;
   accept_conversation: ConversationArgs;
   close_conversation: ConversationArgs;
@@ -684,7 +684,7 @@ export interface MessagingReadMethods {
   get_private_channel: [{ a: Address; b: Address }, ValueResult<ConversationRecord>];
   get_private_packet: [{ actor: Address; packet_id: Bytes }, ValueResult<PrivatePacket>];
   get_private_status: [Record<string, never>, { version: number; sequence: string; content_reference_version?: number }];
-  get_dependencies: [Record<string, never>, { identity: string; relationships: string; token: string }];
+  get_dependencies: [Record<string, never>, { identity: string; relationships: string; token: string; token_free?: boolean }];
   get_conversation: [{ a: Address; b: Address }, ValueResult<ConversationRecord>];
   get_message: [{ sender: Address; message_id: Bytes }, ValueResult<DirectMessageRecord>];
 }

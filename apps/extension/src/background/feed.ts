@@ -92,7 +92,7 @@ export class FeedService {
     return this.boardCache.value;
   }
   private async withPromotions(posts: PostView[], scope: string, clients: Clients, session?: UnlockedSession): Promise<PostView[]> {
-    if (!clients.protocol || posts.length < 3) return posts;
+    if (!clients.protocol || clients.protocol.deployment.economy === "token-free" || posts.length < 3) return posts;
     const key = `osp.promotion-delivery:${clients.resolved.chainId}:${session?.account ?? "guest"}`;
     try {
       let cached = this.promotionCache.get(`${key}:${scope}`);

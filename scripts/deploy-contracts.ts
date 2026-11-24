@@ -42,13 +42,20 @@ const args = parseArgs(process.argv.slice(2));
 const { name: network, preset } = networkFromArgs(args);
 const dryRun = args["dry-run"] === true;
 const force = args.force === true;
-const only = typeof args.only === "string" ? (args.only.split(",").map((s) => s.trim()) as ContractName[]) : [...CONTRACT_ORDER];
+const tokenFree = args.economy === "token-free";
+if (network === "mainnet" && !tokenFree) throw new Error("Mainnet launch requires --economy token-free");
+const only = (typeof args.only === "string" ? (args.only.split(",").map((s) => s.trim()) as ContractName[]) : [...CONTRACT_ORDER]).filter(name => !tokenFree || name !== "token");
+if (only.some(name => !CONTRACT_ORDER.includes(name))) throw new Error("Unknown contract selection");
 
 async function main(): Promise<void> {
+  if (network === "mainnet") {
+    requiredHttps("OSP_MAINNET_INDEXER_URL"); requiredHttps("OSP_MAINNET_SPONSOR_URL");
+    if (!process.env.OSP_MAINNET_SPONSOR_ADDRESS) throw new Error("OSP_MAINNET_SPONSOR_ADDRESS is required");
+  }
   const provider = providerFor(preset);
   const deployer = deployerSigner(preset, provider);
   const deployerAddress = deployer.getAddress();
-  const seed = requireSeed();
+  const seed = requireSeed(network);
 
   const chainId = await provider.getChainId();
   log(`network:  ${network}`);
@@ -66,6 +73,7 @@ async function main(): Promise<void> {
   const previous = readDeployment(network, true) ?? published;
   const deployment: Deployment = {
     network,
+    ...(tokenFree && { economy: "token-free" as const }),
     chainId,
     rpc: preset.rpc,
     protocolVersion: PROTOCOL_VERSION,
@@ -77,8 +85,9 @@ async function main(): Promise<void> {
     registryAdmin: previous?.registryAdmin,
     upgradeDelayMs: previous?.upgradeDelayMs,
     ...deploymentServiceEndpoints(published, previous),
+    ...(network === "mainnet" && { indexers: [requiredHttps("OSP_MAINNET_INDEXER_URL")], sponsors: [requiredHttps("OSP_MAINNET_SPONSOR_URL")] }),
   };
-  if (previous && previous.chainId !== chainId && !force) {
+  if (previous && previous.chainId !== chainId && (!force || network === "mainnet")) {
     throw new Error(`deployments/${network}.json was written for chain ${previous.chainId}; pass --force to overwrite`);
   }
 
@@ -86,6 +95,9 @@ async function main(): Promise<void> {
   const signers = new Map<ContractName, Signer>();
   for (const name of CONTRACT_ORDER) signers.set(name, contractSigner(network, name, seed, provider));
   const address = (name: ContractName): string => signers.get(name)!.getAddress();
+  if (tokenFree && previous?.contracts.token && !previous.contracts.token.reserved) throw new Error("Refusing to disable an existing token deployment through the launch script");
+  if (previous?.economy === "token-free" && !tokenFree) throw new Error("Economic activation requires a separate reviewed migration");
+  if (tokenFree) deployment.contracts.token = { address: address("token"), reserved: true, txId: "", block: "0", wasmSha256: "", abiSha256: "", rcUsed: "0" };
   log("");
   log("contract accounts (derived from OSP_CONTRACT_SEED):");
   for (const name of CONTRACT_ORDER) log(`  ${name.padEnd(14)} ${address(name)}`);
@@ -234,14 +246,21 @@ async function main(): Promise<void> {
 
   for (const name of ["relationships", "publications"] as const) {
     const usage = await read(name, "get_token_contract");
-    if (usage?.value !== address("token")) await call(name, "set_token_contract", { address: address("token") }, signers.get(name)!);
+    if (tokenFree ? usage?.token_free !== true : usage?.value !== address("token")) await call(name, "set_token_contract", tokenFree ? { token_free: true } : { address: address("token") }, signers.get(name)!);
   }
   const messagingDeps = await read("messaging", "get_dependencies").catch(() => undefined);
-  if (messagingDeps?.identity !== identity || messagingDeps?.relationships !== relationships || messagingDeps?.token !== address("token")) {
-    await call("messaging", "set_dependencies", { identity, relationships, token: address("token") }, signers.get("messaging")!);
+  if (messagingDeps?.identity !== identity || messagingDeps?.relationships !== relationships || (tokenFree ? messagingDeps?.token_free !== true : messagingDeps?.token !== address("token"))) {
+    await call("messaging", "set_dependencies", { identity, relationships, ...(tokenFree ? { token_free: true } : { token: address("token") }) }, signers.get("messaging")!);
   }
-  const tokenConfig = await read("token", "get_config");
-  if (!tokenConfig?.value) await call("token", "init", { identity, relationships, publications: address("publications"), messaging: address("messaging") }, signers.get("token")!);
+  if (!tokenFree) {
+    const tokenConfig = await read("token", "get_config");
+    if (!tokenConfig?.value) await call("token", "init", { identity, relationships, publications: address("publications"), messaging: address("messaging") }, signers.get("token")!);
+  } else {
+    const sponsor = process.env.OSP_MAINNET_SPONSOR_ADDRESS;
+    if (!sponsor) throw new Error("OSP_MAINNET_SPONSOR_ADDRESS is required for hosted media configuration");
+    const music = (await read("publications", "get_music_config"))?.value as Record<string,unknown> | undefined;
+    if (!music?.enabled || music.recipient !== sponsor) await call("publications", "set_music_config", { recipient: sponsor, rate_per_mb: "1", flat_fee: "0", max_bytes: 10485760, enabled: true }, signers.get("publications")!);
+  }
 
   // 3. Registry bootstrap.
   const admin = process.env.OSP_REGISTRY_ADMIN || deployerAddress;
@@ -260,7 +279,7 @@ async function main(): Promise<void> {
       const entry = await read("registry", "get_contract", { name });
       const current = entry?.value as Record<string, unknown> | undefined;
       const wanted = deployment.contracts[name];
-      if (!wanted) continue;
+      if (!wanted || wanted.reserved) continue;
       if (current && current.address === wanted.address) {
         log(`[registry] ${name} already registered at ${wanted.address}`);
         continue;
@@ -292,6 +311,14 @@ async function main(): Promise<void> {
   writeDeployment(deployment, true);
   printRc(rcReport);
   log(`\nwrote ${file}`);
+}
+
+function requiredHttps(key: string): string {
+  const value = process.env[key];
+  if (!value) throw new Error(`${key} must be configured before mainnet deployment`);
+  const url = new URL(value);
+  if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash) throw new Error(`${key} must be a public HTTPS URL`);
+  return url.toString().replace(/\/+$/, "");
 }
 
 function printRc(report: Array<{ step: string; rc: string }>): void {

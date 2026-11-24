@@ -188,6 +188,7 @@ export class Relationships {
     args: relationships.set_token_contract_arguments
   ): relationships.set_token_contract_result {
     // const address = args.address;
+    // const token_free = args.token_free;
 
     // YOUR CODE HERE
 
@@ -203,6 +204,7 @@ export class Relationships {
 
     const res = new relationships.get_token_contract_result();
     // res.value = ;
+    // res.token_free = ;
 
     return res;
   }

@@ -1,3 +1,4 @@
+import { ManaBudget } from "./manaBudget.js";
 import { RewardSettler, type RewardSettlementStatus } from "./rewardSettlement.js";
 import { musicAllowance } from "./music.js";
 /**
@@ -12,6 +13,7 @@ import cors from "@fastify/cors";
 import { registerMediaRoutes } from "./media.js";
 import {
   Provider,
+  NETWORKS,
   NATIVE_TRANSFER_ENTRY,
   resolveNativeToken,
   ProtocolClient,
@@ -34,9 +36,9 @@ import {
   type TransactionReceipt,
 } from "@osp/sdk";
 import { SPONSOR_VERSION, type SponsorConfig } from "./config.js";
-import { buildAllowlist, discoveryPolicy, Allowlist, type PolicyLimits } from "./policy.js";
+import { buildAllowlist, discoveryPolicy, Allowlist, actorField, deviceMaySign, type PolicyLimits } from "./policy.js";
 import { QuotaStore, type UtilizationReport } from "./quota.js";
-import { SponsorRefusal, validateOperations, validateTransaction, type ValidationContext } from "./validate.js";
+import { SponsorRefusal, validateOperations, validateTransaction, type ValidationContext, type ValidatedTransaction } from "./validate.js";
 
 export type ServiceState = "serving" | "not_deployed" | "invalid_deployment" | "no_key";
 
@@ -134,6 +136,9 @@ export class SponsorService {
   allowlist: Allowlist | undefined;
   readonly limits: PolicyLimits;
   readonly quota: QuotaStore;
+  readonly mana?: ManaBudget;
+  private manaTimer?: ReturnType<typeof setInterval>;
+  private manaReconciliation: { lastCompletedAt?: string; lastError?: string } = {};
   private readonly options: SponsorServiceOptions;
   private readonly now: () => number;
   private discoveryDoc: Promise<SponsorDiscovery> | undefined;
@@ -154,12 +159,15 @@ export class SponsorService {
       maxRcPerOp: c.maxRcPerOp,
       maxOpsPerTx: c.maxOpsPerTx,
       dailyOps: c.dailyOps,
+      ...(c.dailyManaRc && { dailyManaRc: c.dailyManaRc }),
       burstOps: c.burstOps,
       burstWindowSec: c.burstWindowSec,
     };
+    if (c.network === "mainnet" && (!c.dailyManaRc || options.deployment?.network !== "mainnet" || options.deployment?.chainId !== NETWORKS.mainnet.expectedChainId || options.deployment?.economy !== "token-free" || c.autoSettleRewards)) throw new Error("Mainnet launch requires the pinned mainnet deployment, token-free mode, daily Mana cap and disabled rewards");
     this.quota =
       options.quota ??
       new QuotaStore({ path: c.dbPath, limits: { dailyOps: c.dailyOps, burstOps: c.burstOps, burstWindowSec: c.burstWindowSec }, now: this.now });
+    if (c.dailyManaRc && options.deployment && options.signer) this.mana = new ManaBudget(c.dbPath === ":memory:" ? ":memory:" : `${c.dbPath}.mana`, `${options.deployment.chainId}:${options.deployment.contracts.identity.address}:${options.signer.getAddress()}`, c.dailyManaRc);
     this.deployment = options.deployment;
     this.signer = options.signer;
     this.address = options.signer?.getAddress();
@@ -188,6 +196,7 @@ export class SponsorService {
     if (!config || ![1, 2, 3].includes(config.version) || !isAddress(config.native_token)) throw new Error("Music contract update is not available");
     if (!this.allowlist.entries.some(e => e.contract === "publications" && e.method === "begin_music")) return;
     this.clipUploads = config.clip_version === 1 && config.enabled && config.recipient === this.address ? 1 : 0;
+    if (this.deployment?.economy === "token-free") return;
     this.allowlist = new Allowlist([...this.allowlist.entries.filter(e => e.contract !== "native" || e.method !== "approve"), {contract: "native", address: config.native_token, method: "approve", entryPoint: 0x74e21680}]);
     this.discoveryDoc = undefined;
   }
@@ -196,7 +205,7 @@ export class SponsorService {
   async initializeWallet(): Promise<void> {
     // A custom allowlist remains restrictive. OSAT can be opted in with token:transfer;
     // native wallet sponsorship is enabled only with the default platform policy.
-    if (!this.client || !this.allowlist || this.config.allowlist) return;
+    if (!this.client || !this.allowlist || this.config.allowlist || this.deployment?.economy === "token-free") return;
     const address = await resolveNativeToken(this.client);
     this.allowlist = new Allowlist([...this.allowlist.entries.filter(e => e.contract !== "native" || e.method !== "transfer"), { contract: "native", address, method: "transfer", entryPoint: NATIVE_TRANSFER_ENTRY }]);
     this.discoveryDoc = undefined;
@@ -256,6 +265,7 @@ export class SponsorService {
     let grantId: string;
     try { grantId = this.quota.assignPrivateUsage(`${scope.chainId}:${scope.contract}:${sponsor}`, reservationId, actor); }
     catch { throw new SponsorRefusal("invalid_transaction", "This reservation was already assigned to another wallet"); }
+    this.mana?.bindAlias(actor, reservation.account, owner);
     const existing = (await client.reads.messaging.get_private_grant({ grant_id: fromBase64url(grantId) }))?.value;
     if (existing) {
       if (existing.actor !== actor || existing.sponsor !== sponsor || existing.units !== reservation.units) throw new SponsorRefusal("invalid_transaction", "Private grant mismatch");
@@ -267,6 +277,17 @@ export class SponsorService {
       // or quota reservation, and the assignment survives process restarts.
       if (this.allocationJobs.size >= 32) throw new SponsorRefusal("temporarily_unavailable", "Message allowance queue is busy; retry this same reservation");
       task = this.withPayerNonce(async () => {
+        if (this.mana) {
+          const op = await client.ops.messaging.allocate_private_usage({ sponsor, actor, grant_id: fromBase64url(grantId), units: reservation.units });
+          const tx = await client.prepare([op], { payer: sponsor, payee: sponsor, rcLimit: this.limits.maxRcPerOp });
+          const block = Number((await provider.getHeadInfo()).head_topology.height);
+          this.mana.reserve(tx.id!, reservation.account, String(tx.header!.rc_limit), block, this.now(), await provider.getAccountRc(sponsor));
+          let signed;
+          try { signed = await signer.signTransaction(tx); } catch (e) { this.mana.releaseUnsent(tx.id!); throw e; }
+          // An uncertain grant remains held; retries keep its durable grant id.
+          try { await provider.sendTransaction(signed, true); await provider.wait(tx.id!, "byTransactionId", 20000); } catch { return { grantId, pending: true }; }
+          return { grantId, pending: true };
+        }
         const held = this.quota.reserve(reservation.account, 1, this.now());
         if (!held.ok) throw new SponsorRefusal("quota_exceeded", held.message);
         try {
@@ -358,9 +379,11 @@ export class SponsorService {
       let available: bigint;
       try {
         available = BigInt(await provider.getAccountRc(sponsor));
+        if (this.mana) available = available > BigInt(this.mana.outstanding().reservedRc) ? available - BigInt(this.mana.outstanding().reservedRc) : 0n;
       } catch (error) {
         throw new SponsorRefusal("temporarily_unavailable", `rpc failure while reading sponsor RC: ${(error as Error).message}`);
       }
+      if (this.mana && available <= 0n) throw new SponsorRefusal("temporarily_unavailable", "Sponsor Mana pool is busy or depleted; your daily allowance has not been charged");
       if (available < rcLimit) rcLimit = available;
       try {
         return stripWait(await client.prepare(ops, { payee, payer: sponsor, rcLimit: rcLimit.toString() }));
@@ -390,12 +413,21 @@ export class SponsorService {
       this.refuse(error);
     }
     const { payee, operations, transaction } = validated;
+    let budgetAccount: string | undefined;
+    if (this.mana) { try { budgetAccount = await this.manaAccount(validated); } catch (error) { this.refuse(error); } }
     let paidMusic;
     try { paidMusic = await musicAllowance(client, sponsor, payee, transaction.operations ?? []); }
     catch (error) { this.refuse(error); }
-    const reservation = this.quota.reserve(paidMusic?.key ?? payee, paidMusic?.units ?? operations.length, at, paidMusic?.limit ?? this.limits.dailyOps);
+    const reservation = this.quota.reserve(budgetAccount ?? paidMusic?.key ?? payee, paidMusic?.units ?? operations.length, at, paidMusic?.limit ?? this.limits.dailyOps);
     if (!reservation.ok) {
       this.refuse(new SponsorRefusal("quota_exceeded", reservation.message, { retryAfterSec: reservation.retryAfterSec }));
+    }
+    if (this.mana) {
+      try {
+        const head = await provider.getHeadInfo();
+        if (!Number.isSafeInteger(Number(head.head_block_time)) || Number(head.head_block_time) > this.now() + 60000 || this.now() - Number(head.head_block_time) > 180000) throw new SponsorRefusal("temporarily_unavailable", "Chain RPC is stale");
+        this.mana.reserve(transaction.id!, budgetAccount!, String(transaction.header!.rc_limit), Number(head.head_topology.height), at, await provider.getAccountRc(sponsor));
+      } catch (error) { reservation.release(); this.refuse(error); }
     }
     // Never touch the user's transaction after it was signed: only append the sponsor signature.
     let signed: TransactionJson;
@@ -403,6 +435,7 @@ export class SponsorService {
       signed = await signer.signTransaction({ ...transaction, signatures: [...(transaction.signatures ?? [])] });
     } catch (error) {
       reservation.release();
+      this.mana?.releaseUnsent(transaction.id!);
       this.refuse(new SponsorRefusal("temporarily_unavailable", `cannot co-sign the transaction: ${(error as Error).message}`));
     }
     const response: TransactionJson = {
@@ -415,7 +448,11 @@ export class SponsorService {
     try {
       sent = await provider.sendTransaction(signed, true);
     } catch (error) {
-      // The node rejected it or was unreachable: nothing was broadcast, nothing is charged.
+      if (this.mana) {
+        reservation.commit();
+        return { transaction: response, receipt: { id: response.id!, rpc_error: "Submission outcome is unknown; check the original transaction before retrying" } as TransactionReceipt };
+      }
+      // Legacy operation policy.
       reservation.release();
       this.refuse(classifySendError(error));
     }
@@ -438,6 +475,83 @@ export class SponsorService {
     return { transaction: response, receipt };
   }
 
+  /** Resolve from verified operation arguments, never from an arbitrary HTTP account. */
+  private async manaAccount(validated: ValidatedTransaction): Promise<string> {
+    const { client } = this.serving();
+    const roots = new Set<string>();
+    for (const op of validated.operations) {
+      const decoded = client.contracts.decodeOperation({ call_contract: op.operation });
+      if (!decoded) throw new SponsorRefusal("method_not_allowed", "An account-bound social operation is required");
+      const args = decoded.args as Record<string, unknown>;
+      const field = actorField(decoded.contract, decoded.method, args);
+      const account = field ? String(args[field] ?? "") : validated.payee;
+      const aliasRoot = this.mana!.aliasAccount(account);
+      if (aliasRoot || (decoded.contract === "messaging" && ["open_private_channel", "close_private_channel", "post_private_packet"].includes(decoded.method))) {
+        const root = aliasRoot;
+        if (!root) throw new SponsorRefusal("invalid_transaction", "Private wallet needs an authenticated allowance allocation");
+        const owner = (await client.reads.identity.get_identity({ account: root }))?.value?.owner;
+        if (!owner || owner !== this.mana!.aliasOwner(account)) throw new SponsorRefusal("invalid_signature", "Private wallet needs a new allocation after account recovery");
+        roots.add(root); continue;
+      }
+      if (decoded.contract === "identity" && decoded.method === "register") {
+        const existing = (await client.reads.identity.get_identity({ account }))?.value;
+        if (existing && existing.owner !== validated.payee) throw new SponsorRefusal("invalid_signature", "Registration cannot bypass a recovered account owner");
+        if (account !== validated.payee) throw new SponsorRefusal("invalid_signature", "Registration must use the account wallet");
+        roots.add(account); continue;
+      }
+      const identity = (await client.reads.identity.get_identity({ account }))?.value;
+      const device = deviceMaySign(decoded.contract, decoded.method) ? args.device : undefined;
+      if (device === validated.payee) {
+        const resolved = await client.reads.identity.resolve_actor({ account, device: validated.payee, capability: 0 });
+        if (!resolved?.ok || resolved.signer !== validated.payee) throw new SponsorRefusal("invalid_signature", "Device is not authorized for this account");
+      } else if (!identity || identity.owner !== validated.payee) {
+        throw new SponsorRefusal("invalid_signature", "Sponsorship requires the current account owner");
+      }
+      roots.add(account);
+    }
+    if (roots.size !== 1) throw new SponsorRefusal("method_not_allowed", "One protocol account per sponsored transaction is required");
+    return [...roots][0]!;
+  }
+  async startManaAccounting(): Promise<void> {
+    if (!this.mana || !this.provider || !this.address) return;
+    if (await this.provider.getChainId() !== this.deployment!.chainId) throw new Error("Sponsor RPC is on the wrong chain");
+    for (const name of ["publications", "relationships"] as const) {
+      const mode = await this.client!.reads[name].get_token_contract({});
+      if (this.deployment!.economy === "token-free" && !mode?.token_free) throw new Error(`${name} is not configured for token-free launch`);
+    }
+    const messaging = await this.client!.reads.messaging.get_dependencies({});
+    if (this.deployment!.economy === "token-free" && !messaging?.token_free) throw new Error("Messaging is not configured for token-free launch");
+    const reconcile = () => { void this.mana!.reconcile(this.provider!, this.address!).then(
+      () => { this.manaReconciliation = { lastCompletedAt:new Date(this.now()).toISOString() }; },
+      error => { this.manaReconciliation = { ...this.manaReconciliation, lastError:error instanceof Error ? error.message : "Mana reconciliation unavailable" }; }); };
+    reconcile(); this.manaTimer = setInterval(reconcile, 10000); this.manaTimer.unref();
+  }
+  async manaAllowance(input: unknown) {
+    const { client, deployment } = this.serving();
+    if (!this.mana) throw new SponsorRefusal("method_not_allowed", "This sponsor uses a different allowance policy");
+    const body = input as { account?: unknown; signer?: unknown; endpoint?: unknown; expiresAt?: unknown; signature?: unknown };
+    if (!body || !isAddress(body.account) || !isAddress(body.signer) || body.endpoint !== this.config.publicUrl ||
+      typeof body.expiresAt !== "number" || !Number.isSafeInteger(body.expiresAt) || body.expiresAt <= this.now() || body.expiresAt > this.now()+120000 ||
+      typeof body.signature !== "string" || body.signature.length > 100) throw new SponsorRefusal("invalid_signature", "Invalid allowance proof");
+    const payload = { account: body.account, signer: body.signer, endpoint: body.endpoint, expiresAt: body.expiresAt };
+    if (!verifyPrivateStatement({ chainId: deployment.chainId, contract: deployment.contracts.identity.address }, "mana-allowance", payload, body.signature, body.signer))
+      throw new SponsorRefusal("invalid_signature", "Invalid allowance signature");
+    const identity = (await client.reads.identity.get_identity({ account: body.account }))?.value;
+    if (identity?.owner !== body.signer) {
+      const resolved = identity && await client.reads.identity.resolve_actor({ account: body.account, device: body.signer, capability: 0 });
+      if (!resolved?.ok || resolved.signer !== body.signer) throw new SponsorRefusal("invalid_signature", "Allowance requires the current owner or authorized device");
+    }
+    return this.mana.allowance(body.account, this.now());
+  }
+  async manaUtilization() {
+    const { client, provider, sponsor } = this.serving();
+    const { walletBalance } = await import("@osp/sdk");
+    const balance = await walletBalance(client, "native", sponsor, sponsor);
+    return { policy: { dailyRc: this.mana?.dailyRc, reset: "utc-calendar-day" }, today: this.mana?.aggregate(this.now()),
+      outstanding:this.mana?.outstanding(), reconciliation:this.manaReconciliation,
+      pool: { balanceRc: balance.balance, availableRc: await provider.getAccountRc(sponsor), regenerationRcPerDay: (BigInt(balance.balance) / 5n).toString() } };
+  }
+
   utilization(): UtilizationReport {
     return this.quota.utilization(this.now());
   }
@@ -446,6 +560,9 @@ export class SponsorService {
     this.closing = true;
     await this.rewards?.stop();
     await this.payerQueue;
+    if (this.manaTimer) clearInterval(this.manaTimer);
+    await this.mana?.reconcile(this.provider!, this.address!).catch(() => undefined);
+    this.mana?.close();
     this.quota.close();
   }
 }
@@ -495,6 +612,9 @@ export async function createServer(options: ServerOptions): Promise<FastifyInsta
   app.setNotFoundHandler((request, reply) => {
     void reply.status(404).send({ error: { category: "invalid_transaction", message: `no route for ${request.method} ${request.url}` } });
   });
+
+  app.post<{ Body: unknown }>("/v1/mana-allowance", async request => service.manaAllowance(request.body));
+  app.get("/v1/mana-utilization", async () => service.manaUtilization());
 
   app.get("/healthz", async (_request, reply) => {
     const status = service.status();

@@ -52,12 +52,12 @@ export function GroupBannerPicker({ current, value, onChange, disabled, onBusyCh
   return <div className="group-banner-picker">
     <Field label="Group banner">{id => <input id={id} type="file" accept="image/*" disabled={disabled || preparing || !protocol} onChange={pick}/>}</Field>
     {selected && <GroupBanner banner={selected}/>}
-    {value && <p className="hint">{photoCost(value.size)} photo usage units · {Math.ceil(value.size / 1024)} KiB</p>}
+    {value && <p className="hint">{protocol?.deployment?.economy !== "token-free" && `${photoCost(value.size)} photo usage units · `} {Math.ceil(value.size / 1024)} KiB</p>}
     <div className="row wrap">
       {selected && <Button variant="ghost" disabled={disabled || preparing} onClick={() => onChange(null)}>Remove banner</Button>}
       {value !== undefined && <Button variant="ghost" disabled={disabled || preparing} onClick={() => onChange(undefined)}>Undo banner change</Button>}
     </div>
-    <p className="hint">{preparing ? "Preparing banner…" : "Only group members can view this banner. Uploading uses the same free and regenerating OSAT capacity as other photos."}</p>
+    <p className="hint">{preparing ? "Preparing banner…" : protocol?.deployment?.economy === "token-free" ? "Only group members can view this banner." : "Only group members can view this banner. Uploading uses the same free and regenerating OSAT capacity as other photos."}</p>
     <input ref={files} className="visually-hidden" type="file" aria-label="Choose group banner from files" disabled={disabled || preparing} onChange={pick}/>
     {error && <Notice kind="error">{error}{readFailed && <div className="row"><Button disabled={disabled || preparing} onClick={() => files.current?.click()}>Choose from files</Button></div>}</Notice>}
   </div>;

@@ -28,12 +28,12 @@ Its S3 Access Key ID and Secret Access Key belong on the sponsor server, never i
 frontend build variables or GitHub source. Retain the secret in your normal password
 manager; Cloudflare only displays it when created.
 
-Set this bucket CORS policy (add the exact test frontend origin if different):
+Set this read-only bucket CORS policy so the web app, extension and other protocol clients can read public or encrypted objects:
 
 ```json
 [
   {
-    "AllowedOrigins": ["https://opensocial.online", "https://social.usekoinos.com"],
+    "AllowedOrigins": ["*"],
     "AllowedMethods": ["GET", "HEAD"],
     "AllowedHeaders": ["Range"],
     "ExposeHeaders": ["Content-Length", "Content-Type", "ETag"],

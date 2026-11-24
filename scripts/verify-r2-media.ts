@@ -2,8 +2,10 @@ import { readFileSync } from "node:fs";
 import { Signer, ProtocolClient, loadDeployment, encryptMedia, contentHash, toBase64url,
   utf8, openMedia, createContentLoader, contentReference, encodeContentReference, parseContentReference, signMediaUpload, type MediaUploadStatement } from "@osp/sdk";
 
-const deployment = loadDeployment(JSON.parse(readFileSync(new URL("../deployments/harbinger.json", import.meta.url), "utf8")));
-if (deployment.network !== "harbinger") throw Error("This check is restricted to the testnet deployment.");
+const network = process.env.OSP_NETWORK || "harbinger";
+if (!["mainnet", "harbinger"].includes(network)) throw Error("Choose mainnet or harbinger with OSP_NETWORK");
+const deployment = loadDeployment(JSON.parse(readFileSync(new URL(`../deployments/${network}.json`, import.meta.url), "utf8")));
+if (deployment.network !== network) throw Error("Deployment network mismatch.");
 const client = new ProtocolClient({ rpc: deployment.rpc, deployment });
 if (await client.provider.getChainId() !== deployment.chainId) throw Error("Wrong chain.");
 const library = await client.reads.publications.get_library_version({});
@@ -15,7 +17,7 @@ const endpoint = process.env.OSP_MEDIA_ENDPOINT || `${deployment.sponsors?.[0]?.
 const response = await fetch(endpoint, { redirect: "error", signal: AbortSignal.timeout(15000) });
 if (!response.ok) throw Error(`Media discovery returned ${response.status}`);
 const discovery = await response.json() as { provider: string; enabled: boolean; chainId: string; contract: string; publicUrl: string };
-if (!discovery.enabled || discovery.provider !== "r2" || discovery.chainId !== deployment.chainId || discovery.contract !== deployment.contracts.identity.address) throw Error("R2 discovery does not match this testnet.");
+if (!discovery.enabled || discovery.provider !== "r2" || discovery.chainId !== deployment.chainId || discovery.contract !== deployment.contracts.identity.address) throw Error("R2 discovery does not match this network.");
 if (process.argv.includes("--upload")) {
   if (!process.env.OSP_MEDIA_TEST_WIF || !process.env.OSP_MEDIA_TEST_ACCOUNT) throw Error("Set OSP_MEDIA_TEST_WIF and OSP_MEDIA_TEST_ACCOUNT for a registered test account.");
   const signer = Signer.fromWif(process.env.OSP_MEDIA_TEST_WIF), account = process.env.OSP_MEDIA_TEST_ACCOUNT;

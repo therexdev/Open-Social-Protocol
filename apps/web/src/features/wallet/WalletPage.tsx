@@ -13,7 +13,7 @@ export function WalletPage() {
 }
 function WalletPanel() {
   const me = useMe(), session = useSession(), ctx = useSubmitContext(), { protocol, resolved } = useServices();
-  const [token, setToken] = useState<WalletToken>("osat"), [balance, setBalance] = useState<WalletBalance>();
+  const [token, setToken] = useState<WalletToken>(protocol?.deployment?.economy === "token-free" ? "native" : "osat"), [balance, setBalance] = useState<WalletBalance>();
   const [to, setTo] = useState(""), [amount, setAmount] = useState(""), [all, setAll] = useState(false);
   const [loading, setLoading] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState("");
   const [notice, setNotice] = useState(""), [review, setReview] = useState<WalletReview>();
@@ -99,10 +99,10 @@ function WalletPanel() {
       <Button onClick={() => void check()} busy={busy}>Check transfer status</Button>
     </Card>}
     <Card title="Your balance" actions={<Button onClick={() => { setError(""); void refresh(); }} disabled={busy || loading || !protocol}>Refresh</Button>}>
-      <Field label="Token">{id => <select id={id} value={token} disabled={blocked || Boolean(review)} onChange={e => changeToken(e.target.value as WalletToken)}><option value="osat">OSAT — Open Social action tokens</option><option value="native">{nativeSymbol} — Koinos native token</option></select>}</Field>
+      <Field label="Token">{id => <select id={id} value={token} disabled={blocked || Boolean(review)} onChange={e => changeToken(e.target.value as WalletToken)}>{protocol?.deployment?.economy !== "token-free" && <option value="osat">OSAT — Open Social action tokens</option>}<option value="native">{nativeSymbol} — Koinos native token</option></select>}</Field>
       <p className="token-number">{balance ? formatWalletAmount(balance.balance, balance.decimals) : "—"} <small>{symbol}</small></p>
       {balance && <p>{formatWalletAmount(balance.available, balance.decimals)} {symbol} available to send{balance.locked !== "0" ? ` · ${formatWalletAmount(balance.locked, balance.decimals)} ${symbol} recharging` : ""}</p>}
-      <p className="hint">Network: {resolved.network}{token === "osat" ? ". Send all includes only fully charged OSAT." : ". Previous Mana use can temporarily lock some tokens. This transfer’s Mana is covered by Open Social."}</p>
+      <p className="hint">Network: {resolved.network}{token === "osat" ? ". Send all includes only fully charged OSAT." : protocol?.deployment?.economy === "token-free" ? ". Previous Mana use can temporarily lock some tokens. Native wallet transfers use your own Mana during this launch." : ". Previous Mana use can temporarily lock some tokens. This transfer’s Mana is covered by Open Social."}</p>
       {balance && <div className="wallet-receive"><span className="hint">Your {symbol} address</span><code className="wallet-address">{balance.address}</code><CopyButton text={balance.address} label="Copy address" /></div>}
       {token === "native" && balance && me && balance.address !== me.account && <p className="hint">Native tokens are held by your current signing wallet. Your Open Social profile has a separate address.</p>}
     </Card>

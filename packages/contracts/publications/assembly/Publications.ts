@@ -105,7 +105,8 @@ export class Publications {
   get_music_art_version(args: publications.get_music_art_version_arguments): publications.get_music_art_version_result { return new publications.get_music_art_version_result(1); }
   set_music_cover(args: publications.set_music_cover_arguments): publications.set_music_cover_result { this.music.setCover(args, this.identityContract()); return new publications.set_music_cover_result(); }
   musicAccess: MusicAccess = new MusicAccess();
-  musicToken(): Uint8Array { return Util.requireAddress(this.get_token_contract(new publications.get_token_contract_arguments()).value, "OSAT contract"); }
+  tokenFree(): bool { return this.get_token_contract(new publications.get_token_contract_arguments()).token_free; }
+  musicToken(): Uint8Array { const c = this.get_token_contract(new publications.get_token_contract_arguments()); return c.token_free ? new Uint8Array(0) : Util.requireAddress(c.value, "OSAT contract"); }
   append_music_batch(args: publications.append_music_batch_arguments): publications.append_music_batch_result { this.music.appendBatch(args, this.identityContract()); return new publications.append_music_batch_result(); }
   request_music_access(args: publications.request_music_access_arguments): publications.request_music_access_result { this.musicAccess.request(args, this.identityContract(), this.relationshipsContract(), this.musicToken()); return new publications.request_music_access_result(); }
   grant_music_access(args: publications.grant_music_access_arguments): publications.grant_music_access_result { this.musicAccess.grant(args, this.identityContract(), this.relationshipsContract(), this.musicToken()); return new publications.grant_music_access_result(); }
@@ -117,8 +118,8 @@ export class Publications {
   list_music_comments(args: publications.list_music_comments_arguments): publications.list_music_comments_result { return this.musicAccess.listComments(args); }
   music: MusicLibrary = new MusicLibrary();
   set_music_config(args: publications.set_music_config_arguments): publications.set_music_config_result { this.music.setConfig(args); return new publications.set_music_config_result(); }
-  get_music_config(args: publications.get_music_config_arguments): publications.get_music_config_result { return new publications.get_music_config_result(this.music.settings()); }
-  begin_music(args: publications.begin_music_arguments): publications.begin_music_result { this.music.begin(args, this.identityContract(), this.get_token_contract(new publications.get_token_contract_arguments()).value); return new publications.begin_music_result(); }
+  get_music_config(args: publications.get_music_config_arguments): publications.get_music_config_result { const c = this.music.settings(); c.token_free = this.tokenFree(); return new publications.get_music_config_result(c); }
+  begin_music(args: publications.begin_music_arguments): publications.begin_music_result { this.music.begin(args, this.identityContract(), this.get_token_contract(new publications.get_token_contract_arguments()).value, this.tokenFree()); return new publications.begin_music_result(); }
   append_music(args: publications.append_music_arguments): publications.append_music_result { this.music.append(args, this.identityContract()); return new publications.append_music_result(); }
   get_music(args: publications.get_music_arguments): publications.get_music_result { return new publications.get_music_result(this.music.get(this.music.id(args.id))); }
   get_music_chunk(args: publications.get_music_chunk_arguments): publications.get_music_chunk_result { return this.music.chunks.get(Util.concat([this.music.id(args.id), Util.u32be(args.index)])) || new publications.get_music_chunk_result(); }
@@ -127,12 +128,12 @@ export class Publications {
 
   library: PhotoLibrary = new PhotoLibrary();
   get_library_version(args: publications.get_library_version_arguments): publications.get_library_version_result { return new publications.get_library_version_result(1, 1, 1); }
-  begin_photo(args: publications.begin_photo_arguments): publications.begin_photo_result { this.library.begin(args, this.identityContract(), this.get_token_contract(new publications.get_token_contract_arguments()).value); return new publications.begin_photo_result(); }
+  begin_photo(args: publications.begin_photo_arguments): publications.begin_photo_result { this.library.begin(args, this.identityContract(), this.get_token_contract(new publications.get_token_contract_arguments()).value, this.tokenFree()); return new publications.begin_photo_result(); }
   append_photo(args: publications.append_photo_arguments): publications.append_photo_result { this.library.append(args, this.identityContract()); return new publications.append_photo_result(); }
   get_photo(args: publications.get_photo_arguments): publications.get_photo_result { return new publications.get_photo_result(this.library.photos.get(this.library.id(args.id))); }
-  save_collection(args: publications.save_collection_arguments): publications.save_collection_result { this.library.save(args, this.identityContract(), this.get_token_contract(new publications.get_token_contract_arguments()).value); return new publications.save_collection_result(); }
+  save_collection(args: publications.save_collection_arguments): publications.save_collection_result { this.library.save(args, this.identityContract(), this.get_token_contract(new publications.get_token_contract_arguments()).value, this.tokenFree()); return new publications.save_collection_result(); }
   get_collection(args: publications.get_collection_arguments): publications.get_collection_result { return new publications.get_collection_result(this.library.collections.get(this.library.id(args.id))); }
-  set_album_item(args: publications.set_album_item_arguments): publications.set_album_item_result { this.library.setItem(args, this.identityContract(), this.get_token_contract(new publications.get_token_contract_arguments()).value); return new publications.set_album_item_result(); }
+  set_album_item(args: publications.set_album_item_arguments): publications.set_album_item_result { this.library.setItem(args, this.identityContract(), this.get_token_contract(new publications.get_token_contract_arguments()).value, this.tokenFree()); return new publications.set_album_item_result(); }
   get_album_item(args: publications.get_album_item_arguments): publications.get_album_item_result { return new publications.get_album_item_result(this.library.items.get(Util.concat([this.library.id(args.collection_id), this.library.id(args.id)]))); }
 
   polls: Storage.Map<Uint8Array, publications.poll_record> = new Storage.Map<Uint8Array, publications.poll_record>(System.getContractId(), 5, publications.poll_record.decode, publications.poll_record.encode, null);
@@ -200,14 +201,15 @@ export class Publications {
   usage: Storage.Obj<publications.get_token_contract_result> = new Storage.Obj<publications.get_token_contract_result>(System.getContractId(), 20, publications.get_token_contract_result.decode, publications.get_token_contract_result.encode, null);
   set_token_contract(args: publications.set_token_contract_arguments): publications.set_token_contract_result {
     System.requireAuthority(authority.authorization_type.contract_call, System.getContractId());
-    this.usage.put(new publications.get_token_contract_result(Util.requireAddress(args.address,"token")));
+    System.require(!args.token_free || Util.isEmpty(args.address), "token-free mode requires no token address");
+    this.usage.put(new publications.get_token_contract_result(args.token_free ? null : Util.requireAddress(args.address,"token"), args.token_free));
     return new publications.set_token_contract_result();
   }
   get_token_contract(args: publications.get_token_contract_arguments): publications.get_token_contract_result {
     const c=this.usage.get();return c==null?new publications.get_token_contract_result():c;
   }
   consume(account: Uint8Array): void {
-    const c=this.usage.get();if(c==null || Util.isEmpty(c.value))return; // pre-token deployments
+    const c=this.usage.get();if(c==null || c.token_free || Util.isEmpty(c.value))return; // legacy and explicit token-free deployments
     const result=System.call(c.value!, 0x96f39e35, Protobuf.encode(new token.consume_arguments(account,1),token.consume_arguments.encode));
     System.require(result.code==0,"usage allowance exhausted");
   }

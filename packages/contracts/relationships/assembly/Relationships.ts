@@ -47,14 +47,15 @@ export class Relationships {
   usage: Storage.Obj<relationships.get_token_contract_result> = new Storage.Obj<relationships.get_token_contract_result>(System.getContractId(), 20, relationships.get_token_contract_result.decode, relationships.get_token_contract_result.encode, null);
   set_token_contract(args: relationships.set_token_contract_arguments): relationships.set_token_contract_result {
     System.requireAuthority(authority.authorization_type.contract_call, System.getContractId());
-    this.usage.put(new relationships.get_token_contract_result(Util.requireAddress(args.address,"token")));
+    System.require(!args.token_free || Util.isEmpty(args.address), "token-free mode requires no token address");
+    this.usage.put(new relationships.get_token_contract_result(args.token_free ? null : Util.requireAddress(args.address,"token"), args.token_free));
     return new relationships.set_token_contract_result();
   }
   get_token_contract(args: relationships.get_token_contract_arguments): relationships.get_token_contract_result {
     const c=this.usage.get();return c==null?new relationships.get_token_contract_result():c;
   }
   consume(account: Uint8Array): void {
-    const c=this.usage.get();if(c==null || Util.isEmpty(c.value))return; // pre-token deployments
+    const c=this.usage.get();if(c==null || c.token_free || Util.isEmpty(c.value))return; // legacy and explicit token-free deployments
     const result=System.call(c.value!, 0x96f39e35, Protobuf.encode(new token.consume_arguments(account,1),token.consume_arguments.encode));
     System.require(result.code==0,"usage allowance exhausted");
   }

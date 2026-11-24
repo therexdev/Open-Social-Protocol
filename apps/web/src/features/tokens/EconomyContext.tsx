@@ -10,7 +10,7 @@ export function EconomyProvider({ protocol, children }: { protocol?: ProtocolCli
     let alive = true, busy = false;
     setState({});
     const load = async () => {
-      if (!protocol || busy || document.visibilityState === "hidden") return;
+      if (!protocol || protocol.deployment?.economy === "token-free" || busy || document.visibilityState === "hidden") return;
       busy = true;
       try {
         const config = await protocol.reads.token.get_config({});

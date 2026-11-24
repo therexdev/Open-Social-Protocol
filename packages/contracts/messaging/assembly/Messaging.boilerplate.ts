@@ -8,6 +8,7 @@ export class Messaging {
     // const identity = args.identity;
     // const relationships = args.relationships;
     // const token = args.token;
+    // const token_free = args.token_free;
 
     // YOUR CODE HERE
 
@@ -25,6 +26,7 @@ export class Messaging {
     // res.identity = ;
     // res.relationships = ;
     // res.token = ;
+    // res.token_free = ;
 
     return res;
   }

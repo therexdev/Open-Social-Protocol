@@ -22,7 +22,7 @@ export function createProtocolClient(resolved: ResolvedSettings, options: Create
   });
   const client = new ProtocolClient({ rpc, deployment: resolved.deployment, sponsors });
   configureMusicGateway(client, resolved.indexerUrl, options.fetch);
-  if (resolved.network === "harbinger")
+  if ((resolved.network === "harbinger" || resolved.deployment.economy === "token-free"))
     configureMediaStorage(client, resolved.mediaUploadUrl || `${(resolved.deployment.sponsors?.[0] ?? resolved.sponsorUrls[0])?.replace(/\/+$/, "") ?? ""}/v1/media`, options.fetch);
   return client;
 }

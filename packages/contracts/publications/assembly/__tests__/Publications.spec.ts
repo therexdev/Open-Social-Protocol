@@ -2421,3 +2421,15 @@ describe("hosted publication bodies", () => {
     expect(result.value!.definition!.closes_at).toBe(T0 + HOUR);
   });
 });
+
+describe("explicit token-free publications", (): void => {
+  beforeEach(setupConfigured);
+  it("publishes with normal identity checks and no OSAT call", (): void => {
+    Testing.authorize([CONTRACT_ID]);
+    contract.set_token_contract(new publications.set_token_contract_arguments(null, true));
+    MockVM.commitTransaction();
+    asOwner(ALICE); PUBLISH = firstPost(ALICE, 1, ENV_A); callPublish();
+    expect(postOrFail(PUBLISH.post_id!).sequence).toBe(1);
+    expect(contract.get_token_contract(new publications.get_token_contract_arguments()).token_free).toBe(true);
+  });
+});

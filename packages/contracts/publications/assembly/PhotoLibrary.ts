@@ -44,7 +44,8 @@ export class PhotoLibrary {
     );
     return value!;
   }
-  charge(account: Uint8Array, units: u64, usage: Uint8Array | null): void {
+  charge(account: Uint8Array, units: u64, usage: Uint8Array | null, tokenFree: bool = false): void {
+    if (tokenFree) return;
     // Unlike legacy publications, archive writes cannot silently bypass usage.
     System.require(
       !Util.isEmpty(usage),
@@ -74,7 +75,7 @@ export class PhotoLibrary {
   begin(
     args: publications.begin_photo_arguments,
     identity: Uint8Array,
-    usage: Uint8Array | null
+    usage: Uint8Array | null, tokenFree: bool = false
   ): void {
     const owner = Util.requireAddress(args.owner, "owner"),
       id = this.id(args.id),
@@ -104,7 +105,7 @@ export class PhotoLibrary {
         );
       return; // retrying the same commitment never charges again
     }
-    this.charge(owner, units, usage);
+    this.charge(owner, units, usage, tokenFree);
     const value = new publications.photo_archive_record(
       owner,
       digest,
@@ -173,7 +174,7 @@ export class PhotoLibrary {
   save(
     args: publications.save_collection_arguments,
     identity: Uint8Array,
-    usage: Uint8Array | null
+    usage: Uint8Array | null, tokenFree: bool = false
   ): void {
     const owner = Util.requireAddress(args.owner, "owner"),
       id = this.id(args.id);
@@ -226,7 +227,7 @@ export class PhotoLibrary {
         "collection type and visibility are immutable"
       );
     }
-    this.charge(owner, 1, usage);
+    this.charge(owner, 1, usage, tokenFree);
     const value = new publications.collection_record(
       owner,
       args.kind,
@@ -249,7 +250,7 @@ export class PhotoLibrary {
   setItem(
     args: publications.set_album_item_arguments,
     identity: Uint8Array,
-    usage: Uint8Array | null
+    usage: Uint8Array | null, tokenFree: bool = false
   ): void {
     const owner = Util.requireAddress(args.owner, "owner"),
       collectionId = this.id(args.collection_id),
@@ -281,7 +282,7 @@ export class PhotoLibrary {
           ContentReference.size(args.envelope!, 4096) <= 4096),
       "invalid album photo"
     );
-    this.charge(owner, 1, usage);
+    this.charge(owner, 1, usage, tokenFree);
     const value = new publications.album_item_record(
       args.removed ? null : args.envelope,
       args.epoch,

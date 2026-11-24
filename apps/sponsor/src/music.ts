@@ -20,6 +20,7 @@ export async function musicAllowance(
   payee: string,
   operations: OperationJson[]
 ): Promise<{ key: string; limit: number; units?: number } | undefined> {
+  if (client.deployment.economy === "token-free") return undefined;
   const decoded = operations.map((op) => client.contracts.decodeOperation(op));
   const music = decoded.filter(
     (op) =>

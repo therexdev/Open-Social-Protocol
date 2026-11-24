@@ -321,12 +321,12 @@ message cross_post_outcome_event {
 
 // @description Configure protocol usage limits (contract account only)
 // @read-only false
-message set_token_contract_arguments { bytes address = 1 [(koinos.btype) = ADDRESS]; }
+message set_token_contract_arguments { bytes address = 1 [(koinos.btype) = ADDRESS]; bool token_free = 2; }
 message set_token_contract_result {}
 // @description Get protocol usage contract
 // @read-only true
 message get_token_contract_arguments {}
-message get_token_contract_result { bytes value = 1 [(koinos.btype) = ADDRESS]; }
+message get_token_contract_result { bytes value = 1 [(koinos.btype) = ADDRESS]; bool token_free = 2; }
 
 // Poll ballots are participation, never automatic reward votes. Choices are public.
 message poll_definition {
@@ -477,6 +477,7 @@ message music_config {
   // Clip transport capability: 1 supports voice (usage units) and short video (100 native tokens).
   uint32 clip_version = 9;
   uint32 external_media_version = 10;
+  bool token_free = 11;
 }
 message music_record {
   bytes owner = 1 [(koinos.btype) = ADDRESS];

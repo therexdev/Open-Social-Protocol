@@ -1,0 +1,115 @@
+name: deploy-mainnet
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: Print accounts, simulate uploads, or deploy token-free mainnet
+        type: choice
+        options: [accounts, simulate, deploy]
+        default: accounts
+
+permissions:
+  contents: write
+
+concurrency:
+  group: osp-mainnet-contract-deployment
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: mainnet
+    timeout-minutes: 60
+    env:
+      KOINOS_RPC: ${{ vars.KOINOS_MAINNET_RPC }}
+      OSP_MAINNET_INDEXER_URL: ${{ vars.OSP_MAINNET_INDEXER_URL }}
+      OSP_MAINNET_SPONSOR_URL: ${{ vars.OSP_MAINNET_SPONSOR_URL }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.ref }}
+      - name: Check selected launch branch
+        run: test -f scripts/mainnet-accounts.ts || { echo "::error::Select codex/mainnet-token-free in the Run workflow branch selector"; exit 1; }
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Build schemas and SDK
+        run: npm run build -w packages/proto -w packages/sdk
+      - name: Show public funding addresses
+        env:
+          KOINOS_MAINNET_DEPLOYER_WIF: ${{ secrets.KOINOS_MAINNET_DEPLOYER_WIF }}
+          OSP_MAINNET_CONTRACT_SEED: ${{ secrets.OSP_MAINNET_CONTRACT_SEED }}
+          OSP_MAINNET_SPONSOR_WIF: ${{ secrets.OSP_MAINNET_SPONSOR_WIF }}
+        run: node --import tsx scripts/mainnet-accounts.ts
+      - name: Check mainnet chain ID and freshness
+        if: inputs.action != 'accounts'
+        run: node --import tsx scripts/check-deployment-chain.ts --network mainnet
+      - name: Check sponsor funding and deployer Mana
+        if: inputs.action != 'accounts'
+        run: node --import tsx scripts/check-mainnet-funding.ts
+      - name: Build release contracts
+        if: inputs.action != 'accounts'
+        run: npm run build -w packages/contracts
+      - name: Verify tests and executable release contracts
+        if: inputs.action != 'accounts'
+        run: |
+          npm test
+          npx tsc -p scripts/tsconfig.json --noEmit
+      - name: Simulate or deploy seven social contracts without OSAT
+        if: inputs.action != 'accounts'
+        env:
+          DEPLOY_ACTION: ${{ inputs.action }}
+          KOINOS_MAINNET_DEPLOYER_WIF: ${{ secrets.KOINOS_MAINNET_DEPLOYER_WIF }}
+          OSP_MAINNET_CONTRACT_SEED: ${{ secrets.OSP_MAINNET_CONTRACT_SEED }}
+        run: |
+          extra=()
+          if [ "$DEPLOY_ACTION" = simulate ]; then extra+=(--dry-run); fi
+          node --import tsx scripts/deploy-contracts.ts --network mainnet --economy token-free "${extra[@]}"
+      - name: Verify confirmed mainnet deployment
+        if: inputs.action == 'deploy'
+        run: node --import tsx scripts/verify-deployment.ts --network mainnet
+      - name: Commit verified deployment manifest
+        if: inputs.action == 'deploy'
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add deployments/mainnet.json deployment-progress/mainnet.json
+          if ! git diff --cached --quiet; then
+            git commit -m 'Record verified token-free mainnet deployment'
+            git push origin HEAD:${{ github.ref_name }}
+          fi
+      - name: Build mainnet clients and services
+        if: inputs.action == 'deploy'
+        env:
+          VITE_OSP_NETWORK: mainnet
+          VITE_OSP_INDEXER_URL: ''
+          VITE_OSP_SPONSOR_URL: ''
+        run: |
+          npm run build -w apps/sponsor -w apps/indexer -w apps/web -w apps/extension
+          cd apps/web/dist
+          zip -qr ../../../OpenSocial-Mainnet-Web.zip .
+      - name: Preserve uncertain deployment progress
+        if: failure() && inputs.action == 'deploy'
+        run: |
+          if [ ! -f deployment-progress/mainnet.json ]; then exit 0; fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add deployment-progress/mainnet.json
+          if ! git diff --cached --quiet; then
+            git commit -m 'Preserve mainnet deployment transaction checkpoints'
+            git push origin HEAD:${{ github.ref_name }}
+          fi
+      - uses: actions/upload-artifact@v6
+        if: always() && inputs.action != 'accounts'
+        with:
+          name: mainnet-deployment
+          if-no-files-found: ignore
+          path: |
+            deployments/mainnet.json
+            deployment-progress/mainnet.json
+            packages/contracts/build/release
+            OpenSocial-Mainnet-Web.zip
+            apps/extension/dist

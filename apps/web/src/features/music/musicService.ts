@@ -174,6 +174,7 @@ export function newMusicDraft(input: {
     new TextEncoder().encode(description).length > 2000
   )
     throw new Error("Artist must fit 240 bytes and description 2000 bytes.");
+  if (input.config.token_free && price !== "0") throw new Error("Paid unlocks are not active on this network.");
   if (!/^(0|[1-9][0-9]*)$/.test(price) || BigInt(price) > 1000000n)
     throw new Error("Enter a whole OSAT price from 0 to 1,000,000.");
   if (
@@ -225,7 +226,7 @@ export function newMusicDraft(input: {
     mime: input.mime,
     durationMs: input.durationMs,
     configRevision: input.config.revision,
-    fee: musicFee(stored.length, input.config.rate_per_mb, input.config.flat_fee),
+    fee: input.config.token_free ? "0" : musicFee(stored.length, input.config.rate_per_mb, input.config.flat_fee),
     recipient: input.config.recipient,
     batchSize: musicBatchChunks(input.config.version),
     ...(key && nonce && ownerKey
@@ -299,7 +300,7 @@ export async function uploadMusic(
     throw new Error("Saved upload does not match the on-chain reservation.");
   if (!record) {
     const config = await musicConfig(client);
-    const expectedFee = draft.clipKind === CLIP_KIND.video ? VIDEO_UPLOAD_FEE : draft.clipKind === CLIP_KIND.voice ? "0" : musicFee(draft.size, config.rate_per_mb, config.flat_fee);
+    const expectedFee = config.token_free ? "0" : draft.clipKind === CLIP_KIND.video ? VIDEO_UPLOAD_FEE : draft.clipKind === CLIP_KIND.voice ? "0" : musicFee(draft.size, config.rate_per_mb, config.flat_fee);
     if (
       !config.enabled || (draft.clipKind && config.clip_version !== 1) ||
       config.revision !== draft.configRevision ||
@@ -340,11 +341,11 @@ export async function uploadMusic(
       max_fee: draft.fee,
     };
     if (draft.artwork) await archiveMusicArtwork(ctx, draft.owner, draft.artwork, assertActive);
-    const operations = draft.clipKind === CLIP_KIND.voice
+    const operations = config.token_free || draft.clipKind === CLIP_KIND.voice
       ? [await client.ops.publications.begin_music(args)]
       : await musicPaymentOperations(client, args, config.native_token);
     await submitAction(ctx, operations, {
-      label: draft.clipKind === CLIP_KIND.voice ? "Reserving voice storage" : draft.clipKind === CLIP_KIND.video ? "Paying for video upload" : "Paying for music upload",
+      label: config.token_free ? "Reserving media storage" : draft.clipKind === CLIP_KIND.voice ? "Reserving voice storage" : draft.clipKind === CLIP_KIND.video ? "Paying for video upload" : "Paying for music upload",
       quietProgress: true,
       beforeSubmit: async () => assertActive(),
     });

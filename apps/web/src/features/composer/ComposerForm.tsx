@@ -109,6 +109,7 @@ export function ComposerForm({ draft, replyTo, replyGuard, edit, initialMode = "
   const photoUnits = media.reduce((sum, m) => sum + (m.archiveBytes && m.url.startsWith("osp-photo://") ? photoCost(m.size) : 0) + (m.videoPoster?.archiveBytes ? photoCost(m.videoPoster.size) : 0), 0);
   const voiceUnits = media.filter(m => m.archiveBytes && m.url.startsWith("osp-clip://") && m.mime.startsWith("audio/")).reduce((sum, m) => sum + voiceStorageUnits(m.size), 0);
   const videoUploads = media.filter(m => m.archiveBytes && m.url.startsWith("osp-clip://") && m.mime.startsWith("video/")).length;
+  const tokenFree = resolved.deployment?.economy === "token-free";
   const currency = resolved.network === "mainnet" ? "KOIN" : "tKOIN";
   const remaining = LIMITS.maxEnvelopeBytes - bytes;
   const tooLong = remaining < 0;
@@ -278,8 +279,8 @@ export function ComposerForm({ draft, replyTo, replyGuard, edit, initialMode = "
       {galleryOnly && !edit && <label className="gallery-also-post"><input type="checkbox" checked={alsoPost} onChange={e=>setAlsoPost(e.target.checked)}/>Also share as a post</label>}
       {media.length > 0 && <p className="hint">Remove attachments before changing who can see this post.</p>}
       {mode !== "post" && <div className="clip-compose">
-        <p className="hint">{mode === "video" ? `10–30 seconds · MP4 or WebM · up to 10 MiB · 100 ${currency} per upload` : "Up to 2 minutes · 1 usage unit per 32 KiB"}</p>
-        {clip?.videoPoster && <p className="hint">Video preview ready · 1 photo usage unit from your free/regenerating OSAT capacity.</p>}
+        <p className="hint">{mode === "video" ? `10–30 seconds · MP4 or WebM · up to 10 MiB · ${tokenFree ? "covered by your sponsored Mana allowance" : `100 ${currency} per upload`}` : tokenFree ? "Up to 2 minutes · covered by your sponsored Mana allowance" : "Up to 2 minutes · 1 usage unit per 32 KiB"}</p>
+        {clip?.videoPoster && <p className="hint">{tokenFree ? "Video preview ready." : "Video preview ready · 1 photo usage unit from your free/regenerating OSAT capacity."}</p>}
         {clip && captured && captured.file.size > clip.size && <span className="hint">Lossless transfer: {(clip.size / 1024).toFixed(0)} KiB transferred · {(captured.file.size / 1024).toFixed(0)} KiB original</span>}
         {clip && !captured ? <div className="row"><span>{mode === "video" ? "Attached video" : "Attached voice recording"} · {(clip.size / 1024).toFixed(0)} KiB</span><Button onClick={() => void addClip(undefined)}>Remove attachment</Button></div> :
           <MediaCapture key={`${account}:${session ? "open" : "locked"}:${mode}`} kind={mode} value={captured} onChange={value => void addClip(value)} onBusyChange={setCapturing} disabled={!can.ok || needsGroup || attaching || busy}/>}
@@ -329,12 +330,12 @@ export function ComposerForm({ draft, replyTo, replyGuard, edit, initialMode = "
         <Button variant="ghost" onClick={() => removeMedia(i)}>Remove attachment {i + 1}</Button>
       </div>)}</div>}
       {tool === "photo" && <AttachmentDialog title="Photo size budget" onClose={() => setTool(undefined)}>
-        <p className="hint">Choose a maximum per photo. Storage uses free capacity first, then regenerating OSAT capacity. You'll see the actual cost before publishing.</p>
+        <p className="hint">{tokenFree ? "Choose the maximum image size to upload." : "Choose a maximum per photo. Storage uses free capacity first, then regenerating OSAT capacity. You'll see the actual cost before publishing."}</p>
         <div className="photo-budget-options">{PHOTO_RATES.map(units => <Button key={units} onClick={() => {
           photoLimit.current = units * PHOTO_BLOCK_BYTES;
           setTool(undefined);
           photoInput.current?.click();
-        }}><strong>Up to {units * PHOTO_BLOCK_BYTES / 1024} KiB</strong><small>{units} usage {units === 1 ? "unit" : "units"}</small></Button>)}</div>
+        }}><strong>Up to {units * PHOTO_BLOCK_BYTES / 1024} KiB</strong>{!tokenFree && <small>{units} usage {units === 1 ? "unit" : "units"}</small>}</Button>)}</div>
       </AttachmentDialog>}
       {tool === "url" && <AttachmentDialog title="Add media by URL" onClose={() => { uploadController.current?.abort(); setTool(undefined); }}>
         <Field label="Media URL" hint="Use a public media file that allows your browser to read it.">
@@ -370,10 +371,10 @@ export function ComposerForm({ draft, replyTo, replyGuard, edit, initialMode = "
             <p>
               <strong>Audience: {confirm.collectionId ? "Group" : audienceLabel(confirm.audience)}.</strong> {confirm.collectionId ? "Only current members of this group receive the reading key." : confirm.audience === AUDIENCE.CUSTOM ? "Only you and the selected accounts can read the current version. Previous recipients may keep earlier versions." : confirm.audience === AUDIENCE.FRIENDS ? friendsExplanation : everyoneExplanation}
             </p>
-            {videoUploads > 0 && <p><strong>Video upload fee: {videoUploads * 100} {currency}.</strong> Confirming reserves the upload. A retry resumes the same file and payment.</p>}
-            {voiceUnits > 0 && <p>Voice storage: {voiceUnits} usage {voiceUnits === 1 ? "unit" : "units"}.</p>}
-            {photoUnits > 0 && <p>Photo storage: {photoUnits} usage {photoUnits === 1 ? "unit" : "units"}.</p>}
-            <p>Publishing uses 1 usage unit.</p>
+            {!tokenFree && videoUploads > 0 && <p><strong>Video upload fee: {videoUploads * 100} {currency}.</strong> Confirming reserves the upload. A retry resumes the same file and payment.</p>}
+            {!tokenFree && voiceUnits > 0 && <p>Voice storage: {voiceUnits} usage {voiceUnits === 1 ? "unit" : "units"}.</p>}
+            {!tokenFree && photoUnits > 0 && <p>Photo storage: {photoUnits} usage {photoUnits === 1 ? "unit" : "units"}.</p>}
+            <p>{tokenFree ? "Your payment preference applies to the network Mana for this post. No OSAT or media upload payment is required." : "Publishing uses 1 usage unit."}</p>
             <p>{confirm.galleryOnly ? "Your photos will appear in your profile while saving finishes." : confirm.collectionId ? "Your post will appear in this group while publishing finishes." : "Your post will appear in your feed right away while it finishes publishing."} You can keep browsing.</p>
             <p>
               Publishing is permanent: the network records it and copies may be kept by anyone who can read it. You can edit or mark it deleted later, but

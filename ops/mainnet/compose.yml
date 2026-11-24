@@ -1,0 +1,30 @@
+name: osp-mainnet
+services:
+  indexer:
+    build:
+      context: ../..
+      dockerfile: ops/mainnet/Dockerfile
+    image: osp-mainnet-services:local
+    command: [node, --experimental-sqlite, apps/indexer/dist/main.js]
+    env_file: /etc/osp/mainnet-indexer.env
+    environment:
+      OSP_NETWORK: mainnet
+      OSP_INDEXER_DB: /app/data/indexer-mainnet.sqlite
+    ports: ['127.0.0.1:8789:8787']
+    volumes: [mainnet-indexer:/app/data]
+    restart: unless-stopped
+    init: true
+  sponsor:
+    image: osp-mainnet-services:local
+    env_file: /etc/osp/mainnet-sponsor.env
+    environment:
+      OSP_NETWORK: mainnet
+      OSP_AUTO_SETTLE_REWARDS: 'false'
+      OSP_SPONSOR_DB: /app/data/sponsor-mainnet.sqlite
+    ports: ['127.0.0.1:8790:8788']
+    volumes: [mainnet-sponsor:/app/data]
+    restart: unless-stopped
+    init: true
+volumes:
+  mainnet-indexer:
+  mainnet-sponsor:

@@ -22,6 +22,7 @@ export interface NetworkPreset {
 }
 
 export const NETWORKS: Record<string, NetworkPreset> = {
+  mainnet: { rpc: [...SDK_NETWORKS.mainnet.rpc], expectedChainId: SDK_NETWORKS.mainnet.expectedChainId, wifEnv: "KOINOS_MAINNET_DEPLOYER_WIF" },
   harbinger: {
     rpc: [...SDK_NETWORKS.harbinger.rpc],
     expectedChainId: SDK_NETWORKS.harbinger.expectedChainId,
@@ -35,6 +36,7 @@ export const NETWORKS: Record<string, NetworkPreset> = {
 };
 
 export interface DeployedContract {
+  reserved?: boolean;
   address: string;
   txId: string;
   block: string;
@@ -50,6 +52,7 @@ export interface PendingContractUpload extends Omit<DeployedContract, "block"> {
 }
 
 export interface Deployment {
+  economy?: "token-free" | "token";
   network: string;
   chainId: string;
   rpc: string[];
@@ -99,7 +102,7 @@ export function providerFor(preset: NetworkPreset): Provider {
 }
 
 export function deployerSigner(preset: NetworkPreset, provider: Provider): Signer {
-  const wif = process.env[preset.wifEnv] || process.env.KOINOS_DEPLOYER_WIF || preset.defaultWif;
+  const wif = process.env[preset.wifEnv] || (preset.wifEnv !== "KOINOS_MAINNET_DEPLOYER_WIF" ? process.env.KOINOS_DEPLOYER_WIF || preset.defaultWif : undefined);
   if (!wif) {
     throw new Error(`missing deployer key: set ${preset.wifEnv} (WIF of a funded account)`);
   }
@@ -115,10 +118,11 @@ export function contractSigner(network: string, name: string, seed: string, prov
   return signer;
 }
 
-export function requireSeed(): string {
-  const seed = process.env.OSP_CONTRACT_SEED;
-  if (!seed || seed.length < 16) {
-    throw new Error("OSP_CONTRACT_SEED must be set to a long random string (>= 16 chars); contract addresses derive from it");
+export function requireSeed(network?: string): string {
+  const seed = network === "mainnet" ? process.env.OSP_MAINNET_CONTRACT_SEED : process.env.OSP_CONTRACT_SEED;
+  const minimum = network === "mainnet" ? 32 : 16;
+  if (!seed || seed.length < minimum) {
+    throw new Error(`${network === "mainnet" ? "OSP_MAINNET_CONTRACT_SEED" : "OSP_CONTRACT_SEED"} must be set to a long random string (>= ${minimum} chars); contract addresses derive from it`);
   }
   return seed;
 }

@@ -85,7 +85,7 @@ export async function archiveClip(
     clipKind: CLIP_KIND[kind], gzipOriginalSize: media.gzipOriginalSize, clipEncrypted: !!media.encryption, id: toBase64url(id), owner, payer: ctx.signer.getAddress(),
     digest: toBase64url(media.contentHash), size: media.size, title: kind === "video" ? "Video" : "Voice recording",
     mime: media.mime, durationMs: media.durationMs, configRevision: config.revision,
-    fee: kind === "video" ? VIDEO_UPLOAD_FEE : "0", recipient: config.recipient, batchSize: musicBatchChunks(config.version),
+    fee: config.token_free ? "0" : kind === "video" ? VIDEO_UPLOAD_FEE : "0", recipient: config.recipient, batchSize: musicBatchChunks(config.version),
   };
   await uploadMusic(ctx, draft, bytes, assertActive, progress);
 }

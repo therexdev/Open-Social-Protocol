@@ -18,7 +18,7 @@ export interface SponsorPolicy {
   allowed: Array<{ contract: string; entryPoints: number[] }>;
   maxBytesPerOp: number;
   maxRcPerOp: string;
-  perUser: { dailyOps: number; burstOps: number; burstWindowSec: number };
+  perUser: { dailyOps: number; burstOps: number; burstWindowSec: number; dailyRc?: string; reset?: "utc-calendar-day" };
   [extra: string]: unknown;
 }
 
