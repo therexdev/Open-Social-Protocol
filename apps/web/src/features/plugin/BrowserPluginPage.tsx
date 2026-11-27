@@ -9,7 +9,7 @@ export function BrowserPluginPage() {
       <div className="plugin-hero-copy"><span className="plugin-release"><Icon name="puzzle" size={17}/> CHROME DESKTOP <span className="plugin-beta">BETA {BROWSER_PLUGIN.version}</span></span>
         <h1>Your people.<br/><span>Beyond one website.</span></h1>
         <p className="plugin-lead">Open Social is more than a destination. Bring your network into the places you already browse.</p>
-        <div className="plugin-hero-actions"><a className="btn btn-primary" href={BROWSER_PLUGIN.download} download><Icon name="download"/> Download Chrome beta</a><a className="btn btn-ghost" href="#install">How to install <Icon name="down" size={17}/></a></div>
+        <div className="plugin-hero-actions"><a className="btn btn-primary" href={BROWSER_PLUGIN.download} download><Icon name="download"/> Download Chrome beta</a><button type="button" className="btn btn-ghost" onClick={() => document.getElementById("install")?.scrollIntoView({ behavior: "smooth", block: "start" })}>How to install <Icon name="down" size={17}/></button></div>
         <p className="hint">Version {BROWSER_PLUGIN.version} beta · Desktop Chrome 116 or newer · Manual installation</p>
         <p className="plugin-mobile-note">On your phone? Open this page in Chrome on your computer to install the plugin.</p>
       </div>
