@@ -1,3 +1,4 @@
+import { PostMarkdown } from "../../../web/src/components/PostMarkdown";
 import { POST_TEXT_MAX_CHARACTERS } from "@osp/sdk";
 import { FEED_ORIGINS, feedHost } from "../shared/hosts";
 import { Icon } from "../../../web/src/components/Icon";
@@ -29,7 +30,7 @@ export function PostCard({ item, rootId = item.postId, compact = false, depth = 
   const [comments,setComments]=useState(false),[replying,setReplying]=useState(false),[replies,setReplies]=useState<FeedItem[]>([]);
   const [cursor,setCursor]=useState<string|null>(),[loadingReplies,setLoadingReplies]=useState(false),[text,setText]=useState('');
   const [added,setAdded]=useState(0),[expanded,setExpanded]=useState(false),[clock,setClock]=useState(Date.now());
-  const initialReplyCount=useRef(item.replyCount),copy=useRef<HTMLParagraphElement>(null);
+  const initialReplyCount=useRef(item.replyCount),copy=useRef<HTMLDivElement>(null);
   const [overflowing,setOverflowing]=useState(false);
   const draft=useRef<{id:string;text:string}|undefined>(undefined);
   const name=item.authorName?.trim()||shortAddress(item.author), readable=['plain','decrypted'].includes(item.status);
@@ -90,13 +91,13 @@ export function PostCard({ item, rootId = item.postId, compact = false, depth = 
     <header className="card-header">
       <a className="card-avatar" href={`${SITE}/u/${encodeURIComponent(item.author)}`} target="_blank" rel="noopener noreferrer" aria-label={`${name}'s profile`}><Avatar name={name} postId={rootId} targetId={item.postId} hash={item.authorAvatarHash}/></a>
       <div className="card-heading"><a className="card-author" href={`${SITE}/u/${encodeURIComponent(item.author)}`} target="_blank" rel="noopener noreferrer">{name}</a>
-        <div className="card-meta"><time title={new Date(Number(item.createdAt)).toLocaleString()}>{formatTime(item.createdAt)}</time>{item.versionNumber>1&&' · edited'}<span aria-hidden="true"> · </span><span title={audienceName(item.audience)}><Icon name={item.audience===0?'globe':'lock'} size={12}/></span><span>{audienceName(item.audience)}</span></div>
+        <div className="card-meta"><a href={`${SITE}/post/${encodeURIComponent(item.postId)}`} target="_blank" rel="noopener noreferrer"><time dateTime={new Date(Number(item.createdAt)).toISOString()} title={new Date(Number(item.createdAt)).toLocaleString()}>{formatTime(item.createdAt)}</time></a>{item.versionNumber>1&&' · edited'}<span aria-hidden="true"> · </span><span title={audienceName(item.audience)}><Icon name={item.audience===0?'globe':'lock'} size={12}/></span><span>{audienceName(item.audience)}</span></div>
       </div>
       <a className="card-source" href={`${SITE}/post/${encodeURIComponent(item.postId)}`} target="_blank" rel="noopener noreferrer" title="View original on Open Social"><span className="source-dot"/>Open Social <span aria-hidden="true">↗</span></a>
     </header>
     {item.labels.length>0&&<div className="card-labels">{item.labels.map(l=><span key={`${l.communityId}-${l.label}`} title={l.reason}>{l.label}</span>)}</div>}
     {readable?<>
-      {displayText&&<div className="card-copy"><p ref={copy} className={!expanded?'clamped':''}>{currentPoll?.definition.question??displayText}</p>{(overflowing||expanded)&&<button className="text-button" onClick={()=>setExpanded(!expanded)}>{expanded?'See less':'See more'}</button>}</div>}
+      {displayText&&<div className="card-copy"><div ref={copy} className={!expanded?'clamped':''}><PostMarkdown text={currentPoll?.definition.question??displayText} linkBase={SITE}/></div>{(overflowing||expanded)&&<button className="text-button" onClick={()=>setExpanded(!expanded)}>{expanded?'See less':'See more'}</button>}</div>}
       {currentPoll&&<section className="card-poll" aria-label="Poll">
         {!item.text&&<p>{currentPoll.definition.question}</p>}
         <fieldset disabled={busy||closed||!item.viewer||!poll?.value}><legend>Choose an answer</legend>

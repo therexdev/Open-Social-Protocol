@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Avatar, Icon } from "./Icon";
+import { PublicJoinPrompt } from "./PublicJoinPrompt";
 
 export function QuickComposer({ account, name }: { account?: string; name?: string }) {
   const [audience, setAudience] = useState("public");
   const to = `/compose?audience=${audience}`;
+  if (!account) return <PublicJoinPrompt/>;
   return <div className="quick-composer">
     <Avatar account={account ?? ""} name={name}/>
     <Link className="compose-prompt" to={to}>What’s happening?</Link>

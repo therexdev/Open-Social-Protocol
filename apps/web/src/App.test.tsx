@@ -211,10 +211,10 @@ describe("App", () => {
     expect(returnPath({ from: "/post/example?view=full#replies" })).toBe("/post/example?view=full#replies");
   });
 
-  it("routes a fresh visitor to onboarding and shows the not-deployed banner", async () => {
+  it("lets a fresh visitor browse and shows the not-deployed banner", async () => {
     const { container } = await render("/");
-    expect(container.textContent).toContain("Welcome to Open Social");
-    expect(container.textContent).toContain("Create an account");
+    expect(container.textContent).toContain("Your people.");
+    expect(container.textContent).not.toContain("Welcome to Open Social");
     expect(container.textContent).toContain("Protocol contracts are not deployed on harbinger yet");
     expect(container.querySelector("nav[aria-label='Primary']")).not.toBeNull();
   });
@@ -246,12 +246,13 @@ describe("App", () => {
     expect(submit?.disabled).toBe(true);
   });
 
-  it("keeps a deep link for a visitor without an account and says so on the onboarding page", async () => {
-    const { container } = await render("/post/abc123");
-    expect(container.textContent).toContain("Welcome to Open Social");
-    expect(container.textContent).toContain("return to the page you opened");
-    const { container: plain } = await render("/");
-    expect(plain.textContent).not.toContain("return to the page you opened");
+  it("opens a public deep link directly for a first-time visitor without creating an account", async () => {
+    const { container, vault } = await render("/post/abc123", undefined, deployedServices([]));
+    expect(container.textContent).toContain("Back to feed");
+    expect(container.textContent).not.toContain("Welcome to Open Social");
+    expect(container.querySelector(".guest-join")?.textContent).toBe("Join Open Social");
+    expect(vault.getState().status).toBe("empty");
+    expect(vault.getState().account).toBeUndefined();
   });
 
   it("tells an unlocked but unregistered account to register and disables actions until then", async () => {

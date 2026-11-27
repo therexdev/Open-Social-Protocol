@@ -42,18 +42,10 @@ function RequireAccount({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
-/**
- * Pages readable without an account (public feed, posts, profiles). A visitor without a vault
- * still starts at onboarding, but the link they opened is kept and restored afterwards.
- */
+/** Public reading does not create, unlock, or require an account. */
 function Optional({ children }: { children: ReactNode }) {
   const status = useVault((s) => s.status);
-  const location = useLocation();
   if (status === "loading") return <Spinner label="Opening your vault" />;
-  if (status === "empty")
-    return (
-      <Navigate to="/welcome" replace state={{ from: `${location.pathname}${location.search}` }} />
-    );
   return <>{children}</>;
 }
 

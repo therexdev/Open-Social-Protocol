@@ -75,6 +75,13 @@ try {
   return fulfill({json:{items:[],nextCursor:null,counts:{},pending:0}});
  });
  const page=await context.newPage();page.setDefaultTimeout(15000);page.on('pageerror',e=>errors.push(e.message));
+ // First-time visitors can browse; writing still asks them to create an account.
+ await page.goto('https://extension.test/src/sidepanel/index.html#/');
+ await page.getByRole('tab',{name:'Public',exact:true}).waitFor();
+ await page.getByText('Join Open Social to post, comment and react. Public posts are free to explore.',{exact:true}).waitFor();
+ assert.equal(await page.getByRole('heading',{name:'Welcome to Open Social',exact:true}).count(),0);
+ await page.goto('https://extension.test/src/sidepanel/index.html#/compose');
+ await page.getByRole('heading',{name:'Continue with your account',exact:true}).waitFor();
  await page.goto('https://extension.test/setup');
  await page.evaluate(async record=>{
   await new Promise((resolve,reject)=>{const open=indexedDB.open('osp-web');open.onupgradeneeded=()=>open.result.createObjectStore('vault');open.onerror=()=>reject(open.error);open.onsuccess=()=>{const db=open.result,tx=db.transaction('vault','readwrite');tx.objectStore('vault').put(record,'osp.web.vault');tx.oncomplete=()=>{db.close();resolve();};tx.onerror=()=>reject(tx.error);};});
@@ -92,9 +99,20 @@ try {
  assert.equal(story.length,100000);
  const storyField=page.getByRole('textbox',{name:'Write a post',exact:true});
  assert.equal(await storyField.getAttribute('maxlength'),'100000');
+ await storyField.fill('A formatted post');
+ await storyField.evaluate(el=>el.setSelectionRange(0,11));
+ await page.getByRole('button',{name:'Bold',exact:true}).click();
+ assert.equal(await storyField.inputValue(),'**A formatted** post');
+ await storyField.evaluate(el=>el.setSelectionRange(0,0));
+ await page.getByRole('button',{name:'Heading',exact:true}).click();
+ await page.getByRole('button',{name:'Preview',exact:true}).click();
+ assert.equal(await page.getByRole('region',{name:'Post preview'}).locator('h2 strong').textContent(),'A formatted');
+ assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'The formatting toolbar fits the narrow panel');
+ if(process.env.COMPOSER_SCREENSHOT)await page.screenshot({path:process.env.COMPOSER_SCREENSHOT});
+ await page.getByRole('button',{name:'Write',exact:true}).click();
  await storyField.fill(story);await page.getByRole('button',{name:'Review and publish',exact:true}).click();
  const review=page.getByRole('dialog');await review.waitFor();
- assert.ok((await review.textContent()).includes(story.slice(-1000)),'The complete story reaches review');
+ assert.equal((await review.locator('.post-markdown').textContent()).replace(/\s+/g,' ').trim(),story.replace(/\s+/g,' ').trim(),'The complete story reaches the rendered Markdown review');
  await review.getByRole('button',{name:'Cancel',exact:true}).click();
  assert.equal(await storyField.inputValue(),story,'Cancelling keeps the entire story');
  await storyField.fill('');
@@ -137,6 +155,6 @@ try {
  await page.getByRole('button',{name:'More menu',exact:true}).click();await page.getByRole('button',{name:'Lock account and site connections',exact:true}).click();
  await nav.getByRole('link',{name:'Groups',exact:true}).click();await page.getByRole('heading',{name:'Unlock your account'}).waitFor();
  assert.equal(context.pages().length,1,'Feature navigation stays inside the panel');assert.deepEqual(errors,[]);
- console.log('Standalone panel browser checks passed: encrypted account reuse/unlock, 100,000-character story review and retention, native composer/voice/video, groups/messages/friends, settings, lock, narrow layout, no website/iframe/new-tab navigation; fixture network only');
+ console.log('Standalone panel browser checks passed: encrypted account reuse/unlock, guest public feed and protected compose, Markdown toolbar and preview, 100,000-character story review and retention, native composer/voice/video, groups/messages/friends, settings, lock, narrow layout, no website/iframe/new-tab navigation; fixture network only');
  await context.close();
 } finally {await browser.close();}

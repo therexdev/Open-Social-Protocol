@@ -113,9 +113,10 @@ export function FeedPage() {
   const status = useVault(s => s.status);
   const viewer = status === "unlocked" ? account : undefined;
   const [params, setParams] = useSearchParams();
-  const tab: Tab = params.get("feed") === "friends" ? "friends" : params.get("feed") === "public" ? "public" : "all";
+  const guest = !account;
+  const tab: Tab = guest ? "public" : params.get("feed") === "friends" ? "friends" : params.get("feed") === "public" ? "public" : "all";
   const name = useProfileName(account ?? "");
-  const options: Tab[] = ["all", "public", "friends"];
+  const options: Tab[] = guest ? ["public"] : ["all", "public", "friends"];
   const [visited, setVisited] = useState<Tab[]>([tab]);
   useEffect(() => { setVisited(previous => previous.includes(tab) ? previous : [...previous, tab]); }, [tab]);
   const [direction, setDirection] = useState(1);
@@ -124,7 +125,7 @@ export function FeedPage() {
   return <div className="page feed-page">
     <div className="page-header feed-heading"><div><h1>Your <span>people.</span><br className="hero-break"/> Your world.</h1><p className="page-subtitle">Real connections. Conversations that belong to you.</p></div><Link to="/compose" className="btn btn-primary mobile-compose" aria-label="New post"><Icon name="plus"/></Link></div>
     <BrowserPluginPromo variant="inline"/>
-    <div className="feed-tabs"><Tabs<Tab> value={tab} label="Feed scope" onChange={changeTab} options={[{ value: "all", label: "All posts" }, { value: "public", label: <><Icon name="globe" size={17}/> Public</> }, { value: "friends", label: <><Icon name="lock" size={17}/> Friends</> }]} /><span className="feed-sort">Most recent</span></div>
+    <div className="feed-tabs"><Tabs<Tab> value={tab} label="Feed scope" onChange={changeTab} options={options.map(value => ({ value, label: value === "all" ? "All posts" : value === "public" ? <><Icon name="globe" size={17}/> Public</> : <><Icon name="lock" size={17}/> Friends</> }))} /><span className="feed-sort">Most recent</span></div>
     <QuickComposer account={account} name={name}/>
     <div className="feed-panels" style={{ "--feed-enter": `${direction * 12}px` } as CSSProperties} {...swipe} key={viewer ?? "locked"}>
       {options.filter(scope => visited.includes(scope) || scope === tab).map(scope => <FeedPanel key={scope} scope={scope} viewer={viewer} active={tab === scope}/>)}

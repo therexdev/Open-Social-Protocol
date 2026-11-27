@@ -20,7 +20,7 @@ import { AccountLink, Button, Details } from "../../components/ui";
 import { useProfileName } from "../profile/useProfileName";
 import { usePostContent } from "./usePostContent";
 import type { OpenedContent, PostContent } from "../../api/decrypt";
-import { RichText } from "../../components/RichText";
+import { PostText } from "./PostText";
 
 export function audienceLabel(audience: number): string {
   if (audience === AUDIENCE.EVERYONE) return "Everyone";
@@ -68,17 +68,6 @@ function MediaList({ content }: { content: OpenedContent }) {
   );
 }
 
-function PostText({ text, expanded }: { text: string; expanded: boolean }) {
-  const [show, setShow] = useState(false);
-  const collapsed = !expanded && !show && text.length > 1600;
-  let preview = text.slice(0, 1200);
-  const boundary = Math.max(preview.lastIndexOf(" "), preview.lastIndexOf("\n"));
-  if (boundary > 1000) preview = preview.slice(0, boundary);
-  if (/[\uD800-\uDBFF]$/.test(preview)) preview = preview.slice(0, -1);
-  return <><p className="post-text"><RichText text={collapsed ? `${preview}…` : text}/></p>
-    {collapsed && <Button variant="ghost" onClick={() => setShow(true)}>Read more</Button>}
-    {show && !expanded && <Button variant="ghost" onClick={() => setShow(false)}>Show less</Button>}</>;
-}
 export function PostBody({ content, expanded = false }: { content: PostContent | undefined; expanded?: boolean }) {
   if (!content) return <div className="post-opening" role="status" aria-label="Opening post"><span className="skeleton skeleton-line"/><span className="skeleton skeleton-line short"/></div>;
   switch (content.status) {
@@ -153,7 +142,7 @@ export function OpenedPostCard({ post, onChanged, expanded = false, content }: P
     <article className={`post post-${audience === AUDIENCE.EVERYONE ? "public" : "friends"}`} aria-label={`Post by ${name}`}>
       <header className="post-header">
         <Avatar account={post.author} name={name}/>
-        <div className="post-heading"><AccountLink account={post.author} name={name} className="post-author"/><span className="post-meta"><time dateTime={new Date(Number(post.createdAt) || 0).toISOString()} title={formatDateTime(post.createdAt)}>{timeAgo(post.createdAt)}</time>{post.versionNumber > 1 && !deleted && <> · <Link to={`/post/${post.postId}?history=1`}>Edited</Link></>}{!expanded && <PostEditLink post={post} />}</span></div>
+        <div className="post-heading"><AccountLink account={post.author} name={name} className="post-author"/><span className="post-meta"><Link className="post-permalink" to={`/post/${post.postId}`} aria-label={`Open post from ${formatDateTime(post.createdAt)}`}><time dateTime={new Date(Number(post.createdAt) || 0).toISOString()} title={formatDateTime(post.createdAt)}>{timeAgo(post.createdAt)}</time></Link>{post.versionNumber > 1 && !deleted && <> · <Link to={`/post/${post.postId}?history=1`}>Edited</Link></>}{!expanded && <PostEditLink post={post} />}</span></div>
         <span className={`chip chip-${audience === AUDIENCE.EVERYONE ? "public" : "friends"}`}><Icon name={audience === AUDIENCE.EVERYONE ? "globe" : "lock"} size={13}/>{audience === AUDIENCE.EVERYONE ? "Public" : audienceLabel(audience)}</span>
       </header>
       {post.labels.length > 0 && (

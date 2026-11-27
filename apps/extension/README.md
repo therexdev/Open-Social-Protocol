@@ -1,9 +1,9 @@
 # Open Social Chrome extension
 
-Version 0.7.6 beta is a standalone protocol frontend in the Chrome side panel, plus
+Version 0.7.7 beta is a standalone protocol frontend in the Chrome side panel, plus
 optional Facebook and X feed integration and composer cross-posting. It does not load the website
 or a separately bundled website application. The Social switch and Open in tab
-button are removed. See [release instructions](../../docs/chrome-extension-0.7.6.md).
+button are removed. See [release instructions](../../docs/chrome-extension-0.7.7.md).
 
 The public download and setup guide is https://opensocial.online/browser-plugin.
 

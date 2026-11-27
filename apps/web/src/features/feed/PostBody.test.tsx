@@ -12,6 +12,7 @@ it("keeps long stories compact in the feed and opens their complete text without
   try {
     await act(async () => root.render(<MemoryRouter><PostBody content={content}/></MemoryRouter>));
     expect(host.textContent).not.toContain("The final sentence.");
+    expect(host.querySelector(".post-text")!.textContent!.length).toBeLessThanOrEqual(601);
     await act(async () => [...host.querySelectorAll("button")].find(b => b.textContent === "Read more")!.click());
     expect(host.querySelector(".post-text")!.textContent).toBe(text);
     await act(async () => root.render(<MemoryRouter><PostBody content={content} expanded/></MemoryRouter>));

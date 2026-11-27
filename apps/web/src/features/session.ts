@@ -30,6 +30,7 @@ export function useCanAct(): ActAbility {
   const registration = useAccount((s) => s.registration);
   const { resolved } = useServices();
   if (!resolved.deployed) return { ok: false, reason: `Protocol contracts are not deployed on ${resolved.network} yet.` };
+  if (status === "empty") return { ok: false, reason: "Join Open Social to post, comment or react." };
   if (status !== "unlocked") return { ok: false, reason: "Unlock your account first." };
   if (registration === "unregistered") return { ok: false, reason: REGISTER_FIRST };
   const blocker = paymentBlocker(resolved.payment, resolved.sponsorUrls.length);

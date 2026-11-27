@@ -1,0 +1,21 @@
+.post-markdown { min-width: 0; overflow-wrap: anywhere; white-space: normal; line-height: 1.65; }
+.post-markdown p { white-space: pre-wrap; margin: 0 0 .8em; }
+.post-markdown > :first-child { margin-top: 0; }
+.post-markdown > :last-child { margin-bottom: 0; }
+.post-markdown :is(h1,h2,h3,h4,h5,h6) { line-height: 1.3; letter-spacing: -.02em; margin: 1.1em 0 .45em; color: inherit; }
+.post-markdown .markdown-h1 { font-size: 1.65em; }
+.post-markdown h2 { font-size: 1.4em; }
+.post-markdown h3 { font-size: 1.2em; }
+.post-markdown :is(h4,h5,h6) { font-size: 1.05em; }
+.post-markdown :is(ul,ol) { padding-left: 1.5em; margin: .6em 0 .9em; }
+.post-markdown li { margin: .25em 0; }
+.post-markdown li > p { margin-bottom: .3em; }
+.post-markdown blockquote { border-left: 3px solid var(--accent, #43cebd); margin: .8em 0; padding: .1em 0 .1em 1em; opacity: .9; }
+.post-markdown code { font-size: .88em; padding: .12em .3em; border-radius: 4px; background: #7c97a51c; white-space: break-spaces; }
+.post-markdown pre { max-width: 100%; overflow-x: auto; padding: .8em; border-radius: 8px; background: #7c97a51c; white-space: pre; }
+.post-markdown pre code { padding: 0; background: none; white-space: pre; }
+.post-markdown hr { border: 0; border-top: 1px solid #7c97a54d; margin: 1em 0; }
+.post-markdown .markdown-table { max-width: 100%; overflow-x: auto; margin: .8em 0; }
+.post-markdown table { border-collapse: collapse; font-size: .92em; width: auto; }
+.post-markdown :is(th,td) { border: 1px solid #7c97a54d; padding: .4em .65em; }
+.post-markdown input[type=checkbox] { width: auto; margin-right: .4em; }

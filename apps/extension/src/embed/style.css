@@ -149,3 +149,9 @@ button{border:0;background:transparent;color:inherit}
 :root[data-host=x] #root{padding:0}
 :root[data-host=x][data-theme=dark]{--muted:#8b98a5;--line:#2f3336}
 :root[data-host=x][data-theme=dark] .social-card{background:#000;border-color:#2f3336}
+
+.card-copy > .clamped { display: block; max-height: 4.5em; overflow: hidden; }
+.card-meta a { color: inherit; text-decoration: none; }
+.card-meta a:hover { text-decoration: underline; }
+.card-copy .post-markdown p { margin-bottom: .7em; }
+.card-copy .post-markdown > :last-child { margin-bottom: 0; }

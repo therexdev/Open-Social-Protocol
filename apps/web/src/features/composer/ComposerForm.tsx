@@ -31,6 +31,7 @@ import { MediaPhoto } from "../../components/MediaPhoto";
 import { toBase64url } from "../../util/bytes";
 import { MentionTextarea } from "./MentionTextarea";
 import { RichText } from "../../components/RichText";
+import { PostMarkdown } from "../../components/PostMarkdown";
 
 export interface ComposerFormProps {
   replyGuard?: { parentHash: string; friendsEpoch?: number };
@@ -298,6 +299,7 @@ export function ComposerForm({ draft, replyTo, replyGuard, edit, initialMode = "
       <Field label={pollEnabled ? "Your poll question" : edit ? "Edit your post" : replyTo ? "Your reply" : <span className="visually-hidden">Write a post</span>} hint={hosted ? tooLong ? `${(-remaining).toLocaleString()} characters over the limit` : `${remaining.toLocaleString()} characters left` : tooLong ? `${-remaining} bytes over the limit` : `${remaining} bytes left`}>
         {(id) => (
           <MentionTextarea
+            formatting={!pollEnabled}
             showHint={false}
             id={id}
             account={account}
@@ -390,7 +392,7 @@ export function ComposerForm({ draft, replyTo, replyGuard, edit, initialMode = "
               Publishing is permanent: the network records it and copies may be kept by anyone who can read it. You can edit or mark it deleted later, but
               earlier versions stay in the public history.
             </p>
-            <blockquote className="preview"><RichText text={text}/></blockquote>
+            <div className="preview">{confirm.poll ? <RichText text={text}/> : <PostMarkdown text={text}/>}</div>
             {confirm.poll && <><ul>{confirm.poll.options.map((o, i) => <li key={i}>{o}</li>)}</ul><p>Closes {new Date(Number(confirm.poll.closes_at)).toLocaleString()}. Answers are public and separate from upvotes and downvotes.</p></>}
           </>
         )}
