@@ -7,6 +7,7 @@ import { isAddress } from "@osp/sdk";
 import { splitPostText, tagHref } from "../util/postText";
 import type { Root, RootContent, PhrasingContent } from "mdast";
 import "./post-markdown.css";
+import { markdownSource } from "../util/markdownSource";
 
 /** Keep the existing social links, but never create nested links or format code. */
 function socialLinks() {
@@ -36,6 +37,7 @@ function safeUrl(url: string): string {
 
 export const PostMarkdown = memo(function PostMarkdown({ text, linkBase = "" }: { text: string; linkBase?: string }) {
   const router = useInRouterContext();
+  const source = useMemo(() => markdownSource(text), [text]);
   const linkClass = (href: string) => `text-link${href.startsWith("/u/") ? " mention-link" : href.startsWith("/tags/") ? " hashtag-link" : ""}`;
   const components = useMemo<Components>(() => ({
     a: ({ href, children, title }) => !href ? <>{children}</> : router && href.startsWith("/") && !href.startsWith("//")
@@ -46,5 +48,5 @@ export const PostMarkdown = memo(function PostMarkdown({ text, linkBase = "" }: 
     h1: ({ children }) => <h2 className="markdown-h1">{children}</h2>,
     table: ({ children }) => <div className="markdown-table"><table>{children}</table></div>,
   }), [router, linkBase]);
-  return <div className="post-markdown"><Markdown remarkPlugins={[remarkGfm, socialLinks]} components={components} urlTransform={safeUrl}>{text}</Markdown></div>;
+  return <div className="post-markdown"><Markdown remarkPlugins={[remarkGfm, socialLinks]} components={components} urlTransform={safeUrl}>{source}</Markdown></div>;
 });

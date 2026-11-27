@@ -37,3 +37,12 @@ it("opens social links from the browser plugin on the website without a router",
   expect(host.querySelector("strong")?.textContent).toBe("Hello");
   expect(host.querySelector("a")?.href).toBe("https://opensocial.online/tags/community");
 });
+it("keeps portable mention names literal even with brackets, HTML, formatting or entities, and leaves code examples intact", async () => {
+  const account = Signer.fromSeed("portable-mention-name").getAddress(), name = 'Alex [Team] **Stars** <img src=x> &amp;';
+  const tagged = encodeMention(name, account), example = encodeMention("Alice", account);
+  await render(`Hello ${tagged}!\n\n\`${example}\`\n\n\`\`\`text\n${tagged}\n\`\`\``);
+  expect(host.querySelector(`a[href='/u/${account}']`)?.textContent).toBe(name);
+  expect(host.querySelector("strong,img")).toBeNull();
+  expect(host.querySelector("code")?.textContent).toBe(example);
+  expect(host.querySelector("pre code")?.textContent?.trim()).toBe(tagged);
+});
