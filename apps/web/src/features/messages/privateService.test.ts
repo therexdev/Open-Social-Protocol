@@ -1203,6 +1203,9 @@ describe("two-browser private conversations", () => {
   });
   it("keeps later packets behind an unobserved alias transaction even after the HTTP response", async () => {
     const h = harness(true, true), chat = await h.connect();
+    // Rapidly queued messages can share a timestamp; their display order then
+    // depends on random IDs, independently of the alias's submission order.
+    vi.spyOn(Date, "now").mockReturnValue(Date.now());
     const submit = h.protocol.submit.bind(h.protocol);
     let held: PrivatePacketView | undefined;
     const sent = vi.spyOn(h.protocol, "submit").mockImplementation(async options => {
@@ -1214,9 +1217,15 @@ describe("two-browser private conversations", () => {
     await h.a.service.queueMessage(bob.account, "Second");
     await h.a.service.load(); await h.a.service.sync(); await h.a.service.sync();
     expect(sent).toHaveBeenCalledTimes(1);
-    expect(h.a.snapshot.chats[0]?.messages[0]?.state).toBe("submitted");
+    const messages = h.a.snapshot.chats[0]!.messages;
+    expect(messages).toHaveLength(2);
+    expect(messages[0]!.timestamp).toBe(messages[1]!.timestamp);
+    expect(Object.fromEntries(messages.map(m => [m.text, m.state]))).toEqual({
+      First: "submitted", Second: "sending",
+    });
+    expect(held?.packet_id).toBe(messages.find(m => m.text === "First")!.id);
     sent.mockRestore(); h.packets.push(held!); await h.pump();
-    expect(h.b.snapshot.chats[0]?.messages.map(m => m.text)).toEqual(["First", "Second"]);
+    expect(h.b.snapshot.chats[0]?.messages.map(m => m.text).sort()).toEqual(["First", "Second"]);
   });
   it("reuses prepaid conversation credits for closure and hides only its finality wait", async () => {
     const h = harness(true, true), chat = await h.connect();
