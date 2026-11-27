@@ -1,6 +1,6 @@
 {
   "name": "@osp/extension",
-  "version": "0.7.4",
+  "version": "0.7.5",
   "private": true,
   "description": "Open Social Protocol standalone Chrome client with optional Facebook and X feed integration and cross-posting",
   "license": "MIT",

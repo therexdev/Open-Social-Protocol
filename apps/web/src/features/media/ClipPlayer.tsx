@@ -6,7 +6,7 @@ import { MediaPhoto } from "../../components/MediaPhoto";
 import { toArrayBuffer, toBase64url } from "../../util/bytes";
 import { useVault } from "../../vault/context";
 import type { MediaAttachment } from "../composer/publish";
-import { clipStreamUrl, loadClip } from "./clipArchive";
+import { clipStreamUrl, loadClip, loadClipBlob } from "./clipArchive";
 import { queueVideoPreview } from "./videoPoster";
 
 type ClipPlayerProps = { media: MediaAttachment; verifyAccess?: () => Promise<void> };
@@ -53,9 +53,11 @@ function VerifiedClipPlayer({ media, verifyAccess }: ClipPlayerProps) {
       const stream = await clipStreamUrl(input.current.media, protocol, request.signal);
       if (request.signal.aborted) return;
       if (stream) { setUrl(stream); return; }
-      const bytes = await loadClip(input.current.media, protocol, request.signal);
+      const recording = input.current.media.url.startsWith("osp-file:")
+        ? await loadClipBlob(input.current.media, protocol, request.signal)
+        : new Blob([toArrayBuffer(await loadClip(input.current.media, protocol, request.signal))], { type: input.current.media.mime });
       if (request.signal.aborted) return;
-      blob.current = URL.createObjectURL(new Blob([toArrayBuffer(bytes)], { type: input.current.media.mime }));
+      blob.current = URL.createObjectURL(recording);
       setUrl(blob.current);
     } catch (e) {
       if (!request.signal.aborted) setError(e instanceof Error ? e.message : String(e));
@@ -75,7 +77,7 @@ function VerifiedClipPlayer({ media, verifyAccess }: ClipPlayerProps) {
       if (!playRequested.current) controller.current?.abort();
     };
   }, [isVideo, visible, !!poster, permitted, url, error, load]);
-  const title = media.altText || (isVideo ? "Video" : "Voice message");
+  const title = media.altText || (isVideo ? "Video" : "Audio recording");
   return <div className={`clip-player${isVideo ? " clip-video" : ""}`} ref={host}>
     {url && permitted ? (
       isVideo ? <video src={url} controls autoPlay={playRequested.current} playsInline preload="metadata" crossOrigin="anonymous" aria-label={title}

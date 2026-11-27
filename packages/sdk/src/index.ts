@@ -48,3 +48,4 @@ export * from "./musicCrypto.js";
 
 export * from "./clips.js";
 export * from "./contentStorage.js";
+export * from "./hostedFiles.js";

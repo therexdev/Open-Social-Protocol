@@ -1,6 +1,8 @@
 import { ZoomableImage } from "../../components/ZoomableImage";
 import { MediaCapture, type CapturedMedia, type ClipKind } from "../media/MediaCapture";
 import { prepareClip, prepareVideoClip } from "../media/clipArchive";
+import { uploadHostedRecording } from "../media/hostedRecording";
+import { isClipLocation } from "@osp/sdk";
 import { createVideoPoster } from "../media/videoPoster";
 import { AttachmentDialog } from "./AttachmentDialog";
 import { GroupPicker } from "./GroupPicker";
@@ -78,7 +80,7 @@ export function ComposerForm({ draft, replyTo, replyGuard, edit, initialMode = "
   const [chosenMode, setMode] = useState<"post" | ClipKind>(initialMode);
   const [captured, setCaptured] = useState<CapturedMedia>();
   const [capturing, setCapturing] = useState(false);
-  const clip = media.find(m => m.url.startsWith("osp-clip://"));
+  const clip = media.find(m => isClipLocation(m.url));
   const mode = clip ? (clip.mime.startsWith("video/") ? "video" : "voice") : chosenMode;
   const needsClip = mode !== "post" && !clip;
   const [attaching, setAttaching] = useState(false);
@@ -146,7 +148,7 @@ export function ComposerForm({ draft, replyTo, replyGuard, edit, initialMode = "
   const addClip = async (value: CapturedMedia | undefined) => {
     if (!value) {
       setCaptured(undefined);
-      setMedia(items => items.filter(m => !m.url.startsWith("osp-clip://")));
+      setMedia(items => items.filter(m => !isClipLocation(m.url)));
       return;
     }
     if (mode === "post" || !session || !protocol || attaching) return;
@@ -155,10 +157,15 @@ export function ComposerForm({ draft, replyTo, replyGuard, edit, initialMode = "
     setAttaching(true);
     setError(undefined);
     try {
-      const bytes = new Uint8Array(await value.file.arrayBuffer());
-      if (controller.signal.aborted || vault.getState().session !== session) return;
-      const source = { bytes, mime: value.mime, durationMs: value.durationMs };
-      const item = mode === "video" ? await prepareVideoClip(source, protocol, encrypted) : prepareClip(source, mode, protocol, encrypted);
+      const check = () => { if (controller.signal.aborted || vault.getState().session !== session) throw Error("Upload cancelled."); };
+      let item: MediaAttachment;
+      if (hosted) item = await uploadHostedRecording(value, { client: protocol, signer: session.identity.signer, payment: resolved.payment }, session.identity.account, encrypted, check,
+        (received, total) => setUploadStatus(received < total ? `Uploading recording · ${Math.round(received / total * 100)}%` : "Finishing recording upload…"), controller.signal);
+      else {
+        const bytes = new Uint8Array(await value.file.arrayBuffer()); check();
+        const source = { bytes, mime: value.mime, durationMs: value.durationMs };
+        item = mode === "video" ? await prepareVideoClip(source, protocol, encrypted) : prepareClip(source, mode, protocol, encrypted);
+      }
       if (mode === "video") {
         const poster = await createVideoPoster(value.file, controller.signal);
         if (poster && !controller.signal.aborted) {
@@ -167,12 +174,12 @@ export function ComposerForm({ draft, replyTo, replyGuard, edit, initialMode = "
         }
       }
       if (controller.signal.aborted || vault.getState().session !== session) return;
-      setMedia(items => [...items.filter(m => !m.url.startsWith("osp-clip://")), item]);
+      setMedia(items => [...items.filter(m => !isClipLocation(m.url)), item]);
       setCaptured(value);
     } catch (e) {
       if (!controller.signal.aborted) setError(errorMessage(e));
     } finally {
-      if (!controller.signal.aborted) setAttaching(false);
+      if (!controller.signal.aborted) { setAttaching(false); setUploadStatus(""); }
     }
   };
 
@@ -281,7 +288,7 @@ export function ComposerForm({ draft, replyTo, replyGuard, edit, initialMode = "
       {galleryOnly && !edit && <label className="gallery-also-post"><input type="checkbox" checked={alsoPost} onChange={e=>setAlsoPost(e.target.checked)}/>Also share as a post</label>}
       {media.length > 0 && <p className="hint">Remove attachments before changing who can see this post.</p>}
       {mode !== "post" && <div className="clip-compose">
-        <p className="hint">{mode === "video" ? `10–30 seconds · MP4 or WebM · up to ${hosted ? 25 : 10} MiB · ${tokenFree ? "included in free usage" : `100 ${currency} per upload`}` : tokenFree ? "Up to 2 minutes · included in free usage" : "Up to 2 minutes · 1 usage unit per 32 KiB"}</p>
+        <p className="hint">{hosted ? mode === "video" ? "Full-length videos · MP4 or WebM · up to 2 GiB · included in free usage" : "Record or upload audio and podcasts · no duration limit · up to 2 GiB · included in free usage" : mode === "video" ? `10–30 seconds · MP4 or WebM · up to 10 MiB · ${tokenFree ? "included in free usage" : `100 ${currency} per upload`}` : tokenFree ? "Up to 2 minutes · included in free usage" : "Up to 2 minutes · 1 usage unit per 32 KiB"}</p>
         {clip?.videoPoster && <p className="hint">{tokenFree ? "Video preview ready." : "Video preview ready · 1 photo usage unit from your free/regenerating OSAT capacity."}</p>}
         {clip && captured && captured.file.size > clip.size && <span className="hint">Lossless transfer: {(clip.size / 1024).toFixed(0)} KiB transferred · {(captured.file.size / 1024).toFixed(0)} KiB original</span>}
         {clip && !captured ? <div className="row"><span>{mode === "video" ? "Attached video" : "Attached voice recording"} · {(clip.size / 1024).toFixed(0)} KiB</span><Button onClick={() => void addClip(undefined)}>Remove attachment</Button></div> :
@@ -324,9 +331,10 @@ export function ComposerForm({ draft, replyTo, replyGuard, edit, initialMode = "
         <input ref={fileInput} className="visually-hidden" type="file" multiple aria-label="Choose photo files" disabled={attaching || !can.ok} onChange={e => { const input = e.currentTarget; const files = Array.from(input.files ?? []); void addPhotos(files).finally(() => { input.value = ""; }); }}/>
         {fileReadFailed && <Button variant="ghost" disabled={attaching || !can.ok} onClick={() => fileInput.current?.click()}>Choose from files</Button>}
         {uploadStatus && <span role="status">{uploadStatus}</span>}
+        {attaching && uploadStatus && <Button variant="ghost" onClick={() => { uploadController.current?.abort(); setAttaching(false); setUploadStatus(""); }}>Cancel upload</Button>}
 
       </div>
-      {media.length > 0 && <div className="composer-photos">{media.map((m,i) => m.url.startsWith("osp-clip://") ? null : <div className="composer-photo" key={`${m.url}:${i}`}>
+      {media.length > 0 && <div className="composer-photos">{media.map((m,i) => isClipLocation(m.url) ? null : <div className="composer-photo" key={`${m.url}:${i}`}>
         {previews.current.has(m.url) ? <div className="ipfs-photo"><ZoomableImage src={previews.current.get(m.url)} alt={m.altText || "Attached photo"}/></div> : (m.url.startsWith("ipfs://") || m.url.startsWith("osp-photo://")) ? <MediaPhoto location={m.url} hash={toBase64url(m.contentHash)} mime={m.mime} encryption={m.encryption} alt={m.altText}/> : <span className="mono">{m.url}</span>}
         <Field label={`Attachment ${i + 1} description (optional)`}>{id => <input id={id} value={m.altText ?? ""} maxLength={160} onChange={e => setMedia(list => list.map((item,j) => j === i ? { ...item,altText: e.target.value } : item))}/>}</Field>
         <Button variant="ghost" onClick={() => removeMedia(i)}>Remove attachment {i + 1}</Button>

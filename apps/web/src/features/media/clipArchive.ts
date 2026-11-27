@@ -9,6 +9,7 @@ import type { MediaAttachment } from "../composer/publish";
 import { loadMusic, publicMusicStream, uploadMusic, type MusicDraft } from "../music/musicService";
 
 import { usesExternalMedia } from "../../api/mediaStorage";
+import { hostedFileUrl, openHostedBlob, validateHostedFile } from "@osp/sdk";
 
 export interface ClipSource { bytes: Uint8Array; mime: string; durationMs: number }
 export type ClipReference = Pick<MediaAttachment, "url" | "contentHash" | "mime" | "encryption"> & Partial<Pick<MediaAttachment, "size" | "durationMs">>;
@@ -94,6 +95,7 @@ export async function archiveClip(
 }
 
 export async function loadClip(media: ClipReference, client: ProtocolClient, signal?: AbortSignal): Promise<Uint8Array> {
+  if (media.url.startsWith("osp-file:")) return new Uint8Array(await (await loadClipBlob(media, client, signal)).arrayBuffer());
   const id = parseClipLocation(media.url, client.deployment.contracts.publications.address);
   const { record, bytes } = await loadMusic(client, toBase64url(id), signal, undefined, manifest => verifyClipManifest(media, manifest));
   let opened = bytes;
@@ -103,6 +105,18 @@ export async function loadClip(media: ClipReference, client: ProtocolClient, sig
     finally { key.fill(0); }
   }
   return record.gzip_original_size ? restoreVideo(opened, record.gzip_original_size, signal) : opened;
+}
+
+export async function loadClipBlob(media: ClipReference, client: ProtocolClient, signal?: AbortSignal): Promise<Blob> {
+  if (!media.url.startsWith("osp-file:")) return new Blob([toArrayBuffer(await loadClip(media, client, signal))], { type: media.mime });
+  validateHostedFile(media.mime, media.size ?? 0, media.durationMs ?? 1);
+  const location = hostedFileUrl(media.url, media.contentHash);
+  const key = media.encryption ? fromBase64url(media.encryption.key) : undefined;
+  try {
+    const response = await fetch(location, { credentials: "omit", referrerPolicy: "no-referrer", redirect: "error", signal });
+    return await openHostedBlob(response, media.contentHash, media.size!, media.mime,
+      key && media.encryption ? { key, nonce: fromBase64url(media.encryption.nonce) } : undefined, signal);
+  } finally { key?.fill(0); }
 }
 
 function verifyClipManifest(media: ClipReference, manifest: MusicRecord): void {
@@ -118,6 +132,11 @@ function verifyClipManifest(media: ClipReference, manifest: MusicRecord): void {
  * stay on the verified, in-memory decryption path. No reading key enters a URL. */
 export async function clipStreamUrl(media: ClipReference, client: ProtocolClient, signal?: AbortSignal): Promise<string | undefined> {
   if (media.encryption) return;
+  if (media.url.startsWith("osp-file:")) {
+    validateHostedFile(media.mime, media.size ?? 0, media.durationMs ?? 1);
+    if (signal?.aborted) throw Error("Media loading cancelled.");
+    return hostedFileUrl(media.url, media.contentHash);
+  }
   const id = parseClipLocation(media.url, client.deployment.contracts.publications.address);
   const record = (await client.reads.publications.get_music({ id }))?.value;
   if (signal?.aborted) throw Error("Media loading cancelled.");

@@ -1,9 +1,16 @@
 import { expect, it, vi } from "vitest";
+import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { contentHash, contentReference, createContentLoader, toBase64url, utf8 } from "@osp/sdk";
 const send = vi.hoisted(() => vi.fn().mockResolvedValue({}));
 vi.mock("@aws-sdk/client-s3", () => ({
   S3Client: class { send = send; destroy() {} },
   PutObjectCommand: class { constructor(public input: unknown) {} },
+  CreateMultipartUploadCommand: class { constructor(public input: unknown) {} },
+  UploadPartCommand: class { constructor(public input: unknown) {} },
+  CompleteMultipartUploadCommand: class { constructor(public input: unknown) {} },
+  AbortMultipartUploadCommand: class { constructor(public input: unknown) {} },
 }));
 import { createR2Writer, loadR2Config, r2Key } from "./r2.js";
 const env = {
@@ -16,6 +23,29 @@ it("requires scoped credentials and a safe HTTPS media base", () => {
   expect(() => loadR2Config({ ...env, OSP_MEDIA_R2_SECRET_ACCESS_KEY: "" })).toThrow("SECRET_ACCESS_KEY");
   expect(() => loadR2Config({ ...env, OSP_MEDIA_R2_PUBLIC_URL: "https://user:password@example.org" })).toThrow("HTTPS");
   expect(() => loadR2Config({ ...env, OSP_MEDIA_R2_ACCOUNT_ID: "../other" })).toThrow("Invalid R2");
+});
+
+it("streams fixed-size R2 multipart parts from disk and aborts an uncertain upload", async () => {
+  const folder = await mkdtemp(join(tmpdir(), "osp-r2-test-")), path = join(folder, "recording"), bytes = new Uint8Array(8 * 1024 * 1024 + 7);
+  await writeFile(path, bytes); const inputs: any[] = [];
+  send.mockImplementation(async command => {
+    const input = command.input; inputs.push(input);
+    if (input.PartNumber) { let size = 0; for await (const part of input.Body) size += part.length; expect(size).toBe(input.ContentLength); return { ETag: `part-${input.PartNumber}` }; }
+    if (input.MultipartUpload) return { ETag: "complete" };
+    if (!input.UploadId) return { UploadId: "upload-1" };
+    return {};
+  });
+  const writer = createR2Writer(loadR2Config(env), "mainnet", "1ABC");
+  try {
+    const hash = toBase64url(contentHash(bytes));
+    expect(await writer.putFile(path, hash, bytes.length)).toContain(`/osp/`);
+    expect(inputs.filter(i => i.PartNumber).map(i => i.ContentLength)).toEqual([8 * 1024 * 1024, 7]);
+    expect(inputs.find(i => i.MultipartUpload).MultipartUpload.Parts).toEqual([{ PartNumber: 1, ETag: "part-1" }, { PartNumber: 2, ETag: "part-2" }]);
+    inputs.length = 0;
+    send.mockImplementation(async command => { inputs.push(command.input); if (!command.input.UploadId) return { UploadId: "broken" }; if (command.input.PartNumber) throw Error("provider failed"); return {}; });
+    await expect(writer.putFile(path, hash, bytes.length)).rejects.toThrow("provider failed");
+    expect(inputs.at(-1)).toMatchObject({ UploadId: "broken" }); expect(inputs.at(-1).PartNumber).toBeUndefined();
+  } finally { writer.close(); send.mockReset().mockResolvedValue({}); await rm(folder, { recursive: true, force: true }); }
 });
 it("names immutable objects by deployment and ciphertext hash and uploads opaque bytes", async () => {
   send.mockClear();

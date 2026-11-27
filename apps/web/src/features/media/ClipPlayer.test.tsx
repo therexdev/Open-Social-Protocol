@@ -7,7 +7,7 @@ import type { MediaAttachment } from "../composer/publish";
 const mocks = vi.hoisted(() => ({ session: undefined as any, protocol: {}, visible: undefined as ((v: boolean) => void) | undefined }));
 vi.mock("../../api/services", () => ({ useServices: () => ({ protocol: mocks.protocol }) }));
 vi.mock("../../vault/context", () => ({ useVault: (select: any) => select({ session: mocks.session }) }));
-vi.mock("./clipArchive", () => ({ loadClip: vi.fn(), clipStreamUrl: vi.fn().mockResolvedValue(undefined) }));
+vi.mock("./clipArchive", () => ({ loadClip: vi.fn(), loadClipBlob: vi.fn(), clipStreamUrl: vi.fn().mockResolvedValue(undefined) }));
 vi.mock("../../components/MediaPhoto", () => ({ MediaPhoto: ({ alt }: { alt: string }) => <img alt={alt}/> }));
 const media: MediaAttachment = { url: "osp-clip://contract/video", mime: "video/mp4", size: 100, contentHash: new Uint8Array(32),
   videoPoster: { url: "osp-photo://contract/poster", contentHash: "hash", mime: "image/jpeg", size: 20 } };

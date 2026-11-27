@@ -38,7 +38,7 @@ function PendingPost({ draft }: { draft: DraftRecord }) {
     {draft.edit && <p className="muted">Your updated post</p>}
     {draft.replyTo && <p className="muted">Reply to <Link to={`/post/${draft.replyTo}`}>a post</Link></p>}
     <div className="post-body"><p className="post-text"><RichText text={draft.text}/></p>
-      {draft.media?.map((m,i) => m.url.startsWith("osp-clip://") ? <p key={m.url} className="hint"><Icon name={m.mime.startsWith("video/") ? "camera" : "mic"}/> {m.mime.startsWith("video/") ? "Video" : "Voice recording"} · {(m.size / 1024).toFixed(0)} KiB</p> : (m.url.startsWith("ipfs://") || m.url.startsWith("osp-photo://")) ? <MediaPhoto key={`${m.url}:${i}`} location={m.url} hash={m.contentHash} mime={m.mime} alt={m.altText} encryption={m.encryption}/> : <p key={`${m.url}:${i}`}><a href={m.url} target="_blank" rel="noreferrer noopener">{m.altText || m.url}</a></p>)}
+      {draft.media?.map((m,i) => (m.url.startsWith("osp-clip://") || m.url.startsWith("osp-file:")) ? <p key={m.url} className="hint"><Icon name={m.mime.startsWith("video/") ? "camera" : "mic"}/> {m.mime.startsWith("video/") ? "Video" : "Audio recording"} · {(m.size / 1024).toFixed(0)} KiB</p> : (m.url.startsWith("ipfs://") || m.url.startsWith("osp-photo://")) ? <MediaPhoto key={`${m.url}:${i}`} location={m.url} hash={m.contentHash} mime={m.mime} alt={m.altText} encryption={m.encryption}/> : <p key={`${m.url}:${i}`}><a href={m.url} target="_blank" rel="noreferrer noopener">{m.altText || m.url}</a></p>)}
     </div>
     {(failed || unknown) && <footer className="pending-actions">
       <p>{localError || (failed ? draft.lastError : "You can keep browsing. We’re checking whether your post was published.")}</p>

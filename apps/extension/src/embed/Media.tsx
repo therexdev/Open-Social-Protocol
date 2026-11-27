@@ -9,7 +9,7 @@ export function CardMedia({ postId, targetId, index, media }: { postId: string; 
   const [visible,setVisible] = useState(false), [play,setPlay] = useState(false), [retry,setRetry] = useState(0);
   const [url,setUrl] = useState(""), [poster,setPoster] = useState(""), [error,setError] = useState("");
   const source = media.locations?.[0] ?? "", mime=media.mime ?? "";
-  const archived = /^(osp-photo|osp-clip|osp-music|ipfs):\/\//.test(source);
+  const archived = /^(osp-photo|osp-clip|osp-music|ipfs):\/\//.test(source) || source.startsWith("osp-file:");
   const video=mime.startsWith("video/"), audio=mime.startsWith("audio/"), photo=mime.startsWith("image/");
   const external=archived ? undefined : safeHttpUrl(source);
   useEffect(()=>{
@@ -32,6 +32,7 @@ export function CardMedia({ postId, targetId, index, media }: { postId: string; 
     let alive=true, objectUrl="";setError("");setUrl("");
     void rpc<EmbeddedMedia>('embed.media',{postId,targetId,index,poster:false}).then(result=>{
       if(!alive)return;
+      if(result.url){const stream=safeHttpUrl(result.url);if(!stream)throw Error('Invalid recording URL.');setUrl(stream);return;}
       objectUrl=URL.createObjectURL(new Blob([new Uint8Array(fromBase64url(result.data))],{type:result.mime}));setUrl(objectUrl);
     }).catch(e=>{if(alive)setError(e.message);});
     return()=>{alive=false;if(objectUrl)URL.revokeObjectURL(objectUrl);};

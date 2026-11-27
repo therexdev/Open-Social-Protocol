@@ -114,6 +114,10 @@ upload route. If changing CORS on a hostname already serving cached objects, pur
 its cache so responses receive the new headers. See the
 [Cloudflare CORS documentation](https://developers.cloudflare.com/r2/buckets/cors/).
 
+For the large-recording update (2 GiB files without duration limits), follow
+[the recording rollout](mainnet-recording-uploads.md). It uses 8 MiB requests and
+the existing R2 bucket, with no further contract deployment.
+
 Create DNS records for `api.opensocial.online` and `sponsor.opensocial.online`
 pointing at your service VPS. R2's media hostname is configured through Cloudflare
 R2, not pointed at this VPS. The main `opensocial.online` website can remain on

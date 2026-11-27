@@ -15,6 +15,7 @@ import {
   type CollectionRecord,
   type Deployment,
   parseClipLocation,
+  hostedFileUrl,
   validatePoll,
   type PollDefinition,
   LIMITS,
@@ -235,8 +236,9 @@ export async function buildPublishPlan(input: PublishInput): Promise<PublishPlan
   const key = idempotencyKey(input.me.account, attemptId);
   const contentKey = input.audience !== AUDIENCE.EVERYONE ? newEpochKey(input.rng) : undefined;
   for (const media of input.media ?? []) {
-    const isClip = media.url.startsWith("osp-clip://");
-    if (isClip) parseClipLocation(media.url, input.chain.deployment.contracts.publications.address);
+    const isClip = media.url.startsWith("osp-clip://") || media.url.startsWith("osp-file:");
+    if (media.url.startsWith("osp-clip://")) parseClipLocation(media.url, input.chain.deployment.contracts.publications.address);
+    if (media.url.startsWith("osp-file:")) hostedFileUrl(media.url, media.contentHash);
     if (input.audience !== AUDIENCE.EVERYONE && !media.encryption) throw new PublishError("Linked media files are public at their original host. Remove the attachment and attach the file again with private sharing selected.");
     if (input.audience === AUDIENCE.EVERYONE && media.encryption) throw new PublishError("Remove private attachments before changing this post to Public.");
     if (media.encryption) {

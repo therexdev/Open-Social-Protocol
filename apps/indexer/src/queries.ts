@@ -307,7 +307,8 @@ export function accountPosts(db: IndexerDb, account: string, cursor: PositionCur
     const publicVideo = `(p.audience = 0 AND EXISTS (
       SELECT 1 FROM json_each(p.media_json) AS attachment
       WHERE json_extract(attachment.value, '$.mime') LIKE 'video/%'
-      AND json_extract(attachment.value, '$.locations[0]') LIKE 'osp-clip://%'
+      AND (json_extract(attachment.value, '$.locations[0]') LIKE 'osp-clip://%'
+        OR json_extract(attachment.value, '$.locations[0]') LIKE 'osp-file:https://%')
     ))`;
     const privateCandidate = `(p.audience <> 0 AND (p.author = ? OR EXISTS (
       SELECT 1 FROM key_packages k WHERE k.author = p.author AND k.audience_id = p.audience_id

@@ -114,7 +114,7 @@ export interface FeedMedia {
   mime?: string; locations?: string[]; alt_text?: string; size?: string;
   contentHash?: string; encrypted?: boolean; poster?: FeedMedia;
 }
-export interface EmbeddedMedia { data: string; mime: string }
+export interface EmbeddedMedia { data: string; mime: string; url?: string }
 
 export interface FeedPage {
   items: FeedItem[];

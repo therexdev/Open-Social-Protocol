@@ -1272,6 +1272,35 @@ describe("linked messaging browsers", () => {
     expect(phone.snapshot.links!.some(l => l.status === "ready")).toBe(true);
     expect(a.snapshot.error).toBe(""); expect(phone.snapshot.error).toBe("");
   }
+  it("backs off a CORS-hidden rate limit without losing a link and resumes with explicit approval", async () => {
+    const h = harness(); await h.a.service.enable(); await h.pump(); const phone = await add(h);
+    await h.a.service.linkDevice(phone.snapshot.deviceId!); await pump([h.a], 2);
+    const read = vi.spyOn(h.protocol.reads.messaging, "get_private_devices").mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    await h.a.service.sync();
+    expect(h.a.snapshot.error).toContain("retry automatically");
+    expect(h.a.snapshot.links?.some(l => l.status === "outgoing")).toBe(true);
+    const calls = read.mock.calls.length;
+    for (let i = 0; i < 6; i++) await h.a.service.sync();
+    expect(read).toHaveBeenCalledTimes(calls);
+    const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 6000);
+    await pump([h.a, phone], 5);
+    expect(phone.snapshot.links?.some(l => l.status === "incoming")).toBe(true);
+    expect(phone.snapshot.links?.some(l => l.status === "ready")).toBe(false);
+    const incoming = phone.snapshot.links!.find(l => l.status === "incoming")!;
+    await phone.service.accept(incoming.id); await pump([h.a, phone], 12);
+    expect(h.a.snapshot.links?.some(l => l.status === "ready")).toBe(true);
+    expect(phone.snapshot.links?.some(l => l.status === "ready")).toBe(true);
+    expect(h.a.snapshot.error).toBe(""); clock.mockRestore();
+  });
+  it("waits for the finality boundary without repeatedly checking the same future invitation", async () => {
+    const h = harness(); await h.a.service.enable(); await h.b.service.enable(); await h.pump();
+    h.setLib("1"); await h.a.service.start(bob.account); await pump([h.a], 3);
+    const read = vi.spyOn(h.protocol.reads.messaging, "get_private_packet");
+    await pump([h.b], 5);
+    expect(read).not.toHaveBeenCalled(); expect(h.b.snapshot.chats).toHaveLength(0);
+    h.setLib("1000"); await pump([h.b], 2);
+    expect(read).toHaveBeenCalled(); expect(h.b.snapshot.chats[0]?.status).toBe("incoming");
+  });
   it("requires explicit approval despite auto-connect, copies existing history, and never exports the live session", async () => {
     const h = harness(); const chat = await h.connect();
     await h.a.service.send(chat, "Earlier desktop message"); await h.pump();

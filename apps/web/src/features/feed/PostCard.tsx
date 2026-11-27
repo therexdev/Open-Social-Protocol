@@ -35,7 +35,7 @@ function MediaList({ content }: { content: OpenedContent }) {
     <ul className="media-list">
       {content.media.map((item, index) => {
         const url = item.locations?.[0];
-        if (url?.startsWith("osp-clip://")) return <li key={url} className="media-item"><ClipPlayer media={{
+        if (url && (url.startsWith("osp-clip://") || url.startsWith("osp-file:"))) return <li key={url} className="media-item"><ClipPlayer media={{
           url, mime: item.mime, size: Number(item.size), contentHash: item.content_hash, altText: item.alt_text,
           videoPoster: posterReference(item),
           ...(item.mediaKey && { encryption: { key: toBase64url(item.mediaKey), nonce: toBase64url(item.nonce) } }),

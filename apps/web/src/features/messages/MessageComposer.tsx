@@ -1,4 +1,4 @@
-import { HOSTED_MEDIA_DEFAULT_MAX_BYTES, voiceStorageUnits, VOICE_MAX_BYTES } from "@osp/sdk";
+import { HOSTED_FILE_MAX_BYTES, voiceStorageUnits, VOICE_MAX_BYTES } from "@osp/sdk";
 import { useOptionalServices } from "../../api/services";
 import { usesExternalMedia } from "../../api/mediaStorage";
 import { useRef, useState } from "react";
@@ -17,7 +17,7 @@ export function MessageComposer({ disabled, onSend }: {
   const [error, setError] = useState("");
   const submitting = useRef(false);
   const storedBytes = voice ? voice.file.size + 16 : 0;
-  const tooLarge = storedBytes > (hosted ? HOSTED_MEDIA_DEFAULT_MAX_BYTES : VOICE_MAX_BYTES);
+  const tooLarge = storedBytes > (hosted ? HOSTED_FILE_MAX_BYTES : VOICE_MAX_BYTES);
   const storageUnits = !hosted && storedBytes && !tooLarge ? voiceStorageUnits(storedBytes) : 0;
   async function send() {
     if (submitting.current || disabled || capturing || tooLarge || (!voice && !text.trim())) return;
