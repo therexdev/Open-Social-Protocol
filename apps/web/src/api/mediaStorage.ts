@@ -5,16 +5,18 @@ import type { SubmitContext } from "../tx/submit";
 
 const storage = new WeakMap<ProtocolClient, { endpoint: string; fetch: typeof fetch }>();
 export function configureMediaStorage(client: ProtocolClient, endpoint: string, fetchFn: typeof fetch = fetch) {
-  storage.set(client, { endpoint, fetch: fetchFn });
+  // Native browser fetch must keep its Window/Worker receiver when stored on settings.
+  const request = fetchFn.bind(globalThis);
+  storage.set(client, { endpoint, fetch: request });
   let load: ReturnType<typeof createContentLoader> | undefined;
   client.contracts.contentLoader = async reference => {
     if (!load) {
       https(endpoint);
-      const response = await fetchFn(endpoint, { credentials: "omit", redirect: "error", referrerPolicy: "no-referrer", signal: AbortSignal.timeout(15_000) });
+      const response = await request(endpoint, { credentials: "omit", redirect: "error", referrerPolicy: "no-referrer", signal: AbortSignal.timeout(15_000) });
       if (!response.ok) throw Error("Content hosting is temporarily unavailable.");
       const discovery = await response.json() as { enabled: boolean; provider: string; chainId: string; contract: string; publicUrl: string };
       if (!discovery.enabled || discovery.provider !== "r2" || discovery.chainId !== client.chainId || discovery.contract !== client.deployment.contracts.identity.address) throw Error("Content hosting is not enabled for this network.");
-      load = createContentLoader({ publicUrl: discovery.publicUrl, chainId: client.chainId, identityContract: discovery.contract, fetch: fetchFn });
+      load = createContentLoader({ publicUrl: discovery.publicUrl, chainId: client.chainId, identityContract: discovery.contract, fetch: request });
     }
     return load(reference);
   };

@@ -1,5 +1,5 @@
 import { expect, it, vi } from "vitest";
-import { contentHash, toBase64url, utf8 } from "@osp/sdk";
+import { contentHash, contentReference, createContentLoader, toBase64url, utf8 } from "@osp/sdk";
 const send = vi.hoisted(() => vi.fn().mockResolvedValue({}));
 vi.mock("@aws-sdk/client-s3", () => ({
   S3Client: class { send = send; destroy() {} },
@@ -25,4 +25,17 @@ it("names immutable objects by deployment and ciphertext hash and uploads opaque
   expect(send.mock.calls[0]![0].input).toMatchObject({ Bucket: config.bucket, Key: key, Body: bytes, ContentType: "application/octet-stream", ContentLength: bytes.length });
   expect(() => r2Key("testnet", "1ABC", "../bad")).toThrow("identity");
   writer.close();
+});
+it.each(["AQIDBA==", "EiBZK_GGVP0H_fXVAM3j6EAuz3-B-l3ejxRSewi7qIBfSA=="])("reads uploaded content through the SDK using the writer's exact object path (%s)", async chainId => {
+  const config = loadR2Config(env), bytes = utf8("hosted profile"), reference = contentReference(bytes);
+  const contract = "1ABC";
+  const writer = createR2Writer(config, chainId, contract);
+  try {
+    const location = await writer.put(bytes, toBase64url(reference.digest));
+    const fetch = vi.fn(async (url: string | URL | Request) => String(url) === location
+      ? new Response(new Uint8Array(bytes)) : new Response("not found", { status: 404 }));
+    const load = createContentLoader({ publicUrl: config.publicUrl, chainId, identityContract: contract, fetch });
+    await expect(load(reference)).resolves.toEqual(bytes);
+    expect(fetch.mock.calls[0]![0]).toBe(location);
+  } finally { writer.close(); }
 });

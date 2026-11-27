@@ -51,7 +51,8 @@ export function createContentLoader(options: { publicUrl: string; chainId: strin
     const key = `${toBase64url(reference.digest)}:${reference.size}`;
     let pending = cache.get(key);
     if (!pending) {
-      const url = `${base.href.replace(/\/+$/, "")}/osp/${toBase64url(fromBase64url(options.chainId)).replace(/=+$/, "")}/${options.identityContract}/${toBase64url(reference.digest)}`;
+      // R2 scopes object keys with the UTF-8 chain ID string, not its decoded bytes.
+      const url = `${base.href.replace(/\/+$/, "")}/osp/${toBase64url(utf8(options.chainId)).replace(/=+$/, "")}/${options.identityContract}/${toBase64url(reference.digest)}`;
       pending = (async () => {
         const signal = AbortSignal.timeout(15_000);
         const response = await fetchFn(url, { signal, credentials: "omit", referrerPolicy: "no-referrer", redirect: "error" });

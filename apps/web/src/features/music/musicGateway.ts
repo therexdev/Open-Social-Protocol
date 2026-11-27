@@ -7,7 +7,7 @@ export function configureMusicGateway(client: ProtocolClient, url?: string, fetc
   try {
     const parsed = new URL(url);
     if (!["https:", "http:"].includes(parsed.protocol) || parsed.username || parsed.password) return;
-    gateways.set(client, { url: url.replace(/\/+$/, ""), fetch: fetcher });
+    gateways.set(client, { url: url.replace(/\/+$/, ""), fetch: fetcher.bind(globalThis) });
   } catch { /* A malformed optional endpoint must not stop chain playback. */ }
 }
 export function hasMusicGateway(client: ProtocolClient) { return gateways.has(client); }

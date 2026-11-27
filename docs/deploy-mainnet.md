@@ -224,6 +224,13 @@ Upload the **contents** of `OpenSocial-Mainnet-Web.zip` to Hostinger's domain
 enclosing folder. In Chrome, load the produced extension directory as unpacked
 for your initial rollout; store publication is a separate distribution step.
 
+For later client fixes, use the `web-dist` and `extension-dist` artifacts from a
+successful CI run on the deployed branch. When `deployments/mainnet.json` exists,
+CI builds these clients for mainnet and includes `.htaccess` in the website artifact.
+This does not require another contract deployment. After shared SDK/storage changes,
+also pull the updated branch on the VPS and rebuild/recreate the Compose services
+so the indexer's hosted-content reads use the updated SDK.
+
 For a local rebuild instead of the workflow artifact:
 
 ```sh

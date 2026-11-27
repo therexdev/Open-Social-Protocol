@@ -1,26 +1,45 @@
-import { expect, it, vi } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { ProtocolClient, contentHash, encode, encryptMedia, fromBase64url, identityFromSeed, parseContentReference, parseContentReferenceUri, toBase64url, utf8, type ProtoObject } from "@osp/sdk";
 import { fakeProvider, fixtureDeployment } from "../testing/fixtures";
 import { configureMediaStorage } from "./mediaStorage";
 import { prepareHostedContent } from "./contentStorage";
+import { buildProfileDocument } from "./profiles";
 
 const me = identityFromSeed(new Uint8Array(32).fill(71));
-function fixture(version = 1) {
+afterEach(() => vi.unstubAllGlobals());
+function fixture(version = 1, browserTransport?: "default" | "injected") {
   const provider = fakeProvider({ onRead: () => encode("publications.get_library_version_result", { version: 1, external_media_version: 1, content_reference_version: version }) });
   const client = new ProtocolClient({ rpc: provider, deployment: fixtureDeployment() });
   const files = new Map<string, Uint8Array>(), endpoint = "https://uploads.example/v1/media", publicUrl = "https://media.example";
-  const fetchFn = vi.fn(async (url: string, init?: RequestInit) => {
+  const fetchFn = vi.fn(async function (this: unknown, url: string, init?: RequestInit) {
+    if (browserTransport && this !== globalThis) throw new TypeError("Failed to execute 'fetch' on 'Window': Illegal invocation");
     if (url !== endpoint) return new Response(new Uint8Array(files.get(url)!));
     if (init?.method === "POST") {
       const bytes = new Uint8Array(init.body as Uint8Array), hash = toBase64url(contentHash(bytes));
-      const location = `${publicUrl}/osp/network/identity/${hash}`; files.set(location, bytes);
+      const location = `${publicUrl}/osp/${toBase64url(utf8(client.chainId)).replace(/=+$/, "")}/${client.deployment.contracts.identity.address}/${hash}`; files.set(location, bytes);
       return new Response(JSON.stringify({ url: location, hash, size: bytes.length }));
     }
     return new Response(JSON.stringify({ enabled: true, provider: "r2", chainId: client.chainId, contract: client.deployment.contracts.identity.address, maxFileBytes: 10485760, publicUrl }));
   });
-  configureMediaStorage(client, endpoint, fetchFn as typeof fetch);
+  if (browserTransport === "default") {
+    vi.stubGlobal("fetch", fetchFn);
+    configureMediaStorage(client, endpoint);
+  } else configureMediaStorage(client, endpoint, fetchFn as typeof fetch);
   return { client, provider, fetchFn, files, ctx: { client, signer: me.signer, payment: "self-only" as const } };
 }
+it.each(["default", "injected"] as const)("hosts a named registration and reads its profile using browser fetch (%s)", async browserTransport => {
+  const f = fixture(1, browserTransport), profile = buildProfileDocument({ display_name: "Rex" });
+  const op = await f.client.ops.identity.register({ account: me.account, encryption_key: me.encryption.publicKey,
+    key_version: 1, profile_hash: profile.hash, profile_uri: profile.uri });
+  const [hosted] = await prepareHostedContent(f.ctx, [op]);
+  const args = f.client.contracts.decodeOperation(hosted!)!.args;
+  expect(args).toMatchObject({ account: me.account, profile_hash: profile.hash });
+  const reference = parseContentReferenceUri(args.profile_uri as string)!;
+  expect(reference).toEqual({ digest: profile.hash, size: profile.bytes.length });
+  expect([...f.files.values()]).toEqual([profile.bytes]);
+  await expect(f.client.contracts.contentLoader!(reference)).resolves.toEqual(profile.bytes);
+  expect(f.provider.sent).toHaveLength(0);
+});
 it("removes post bodies and poll wording from the operation while preserving IDs, audience and voting controls", async () => {
   const f = fixture(), envelope = utf8("original encoded post envelope"), hash = contentHash(envelope);
   const op = await f.client.ops.publications.publish({ author: me.account, post_id: new Uint8Array(32).fill(7), content_hash: hash, envelope, audience: 0, epoch: 0, version_number: 1, poll: { question: "Lunch?", options: ["Pizza", "Soup"], closes_at: "900000" } } as never);
