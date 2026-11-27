@@ -15,7 +15,7 @@ import { rpc } from "../shared/rpc";
 const primary = [{to:"/",label:"Feed",icon:"home"},{to:"/compose",label:"Post",icon:"plus"},{to:"/groups",label:"Groups",icon:"people"},
   {to:"/messages",label:"Messages",icon:"message"},{to:"/friends",label:"Friends",icon:"people"},{to:"/me",label:"Profile",icon:"profile"}] as const;
 const more = [{to:"/people",label:"Find people"},{to:"/notifications",label:"Activity"},{to:"/wallet",label:"Wallet"},{to:"/tokens",label:"OSAT & rewards"},
-  {to:"/settings",label:"Account & settings"},{to:"/connections",label:"Browser connections"},{to:"/browser-drafts",label:"Unfinished browser posts"},{to:"/about",label:"About the protocol"}];
+  {to:"/settings",label:"Account & settings"},{to:"/connections",label:"Browser connections"},{to:"/browser-drafts",label:"Unfinished browser posts"},{to:"/browser-plugin",label:"Browser Plugin"},{to:"/about",label:"About the protocol"}];
 
 export function ExtensionLayout({children}:{children:ReactNode}) {
   const location=useLocation(),vault=useVault(),name=useProfileName(vault.account||"");

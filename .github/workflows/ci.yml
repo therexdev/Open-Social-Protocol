@@ -43,3 +43,9 @@ jobs:
         with:
           name: extension-dist
           path: apps/extension/dist
+
+      - name: Upload browser plugin download
+        uses: actions/upload-artifact@v4
+        with:
+          name: chrome-plugin-beta
+          path: apps/web/dist/downloads

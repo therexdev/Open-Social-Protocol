@@ -29,7 +29,7 @@ export function useMessagePeople(account: string | undefined, peers: string[]) {
   }, [account, accountsKey, indexer, load]);
 
   return {
-    graph, friends, blocked: graph?.blocked ?? [], loading, error, refresh,
+    graph, friends, blocked: graph?.blocked ?? [], loading: loading && !graph, error, refresh,
     name: (peer: string) => displayNameOf(peer, profiles[peer]),
   };
 }

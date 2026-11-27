@@ -89,6 +89,7 @@ jobs:
           VITE_OSP_SPONSOR_URL: ''
         run: |
           npm run build -w apps/sponsor -w apps/indexer -w apps/web -w apps/extension
+          node scripts/package-browser-plugin.mjs
           cd apps/web/dist
           zip -qr ../../../OpenSocial-Mainnet-Web.zip .
       - name: Preserve uncertain deployment progress

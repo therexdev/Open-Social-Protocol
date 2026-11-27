@@ -3,6 +3,7 @@ import {
   musicCipher, musicKeyContext, openEpochKey, openMedia, parsePhotoLocation,
   toBase64url, verifyPhotoChunks, addressToBytes,
 } from "@osp/sdk";
+import { fetchStoredMedia } from "../../../web/src/api/mediaStorage";
 import { loadClip } from "../../../web/src/features/media/clipArchive";
 import { loadMusic } from "../../../web/src/features/music/musicService";
 import { configureMusicGateway } from "../../../web/src/features/music/musicGateway";
@@ -64,8 +65,10 @@ export async function embeddedMedia(deps: FeedDeps, postId: string, index: numbe
     if (url.startsWith("osp-photo://")) {
       const id = parsePhotoLocation(url, client.deployment.contracts.publications.address);
       const record = (await client.reads.publications.get_photo({ id }))?.value;
-      if (!record) throw Error("This photo is still confirming.");
-      stored = verifyPhotoChunks(record, (await clients.indexer.photoChunks(toBase64url(id))).chunks.map(fromBase64url), hash);
+      if (!record || !bytesEqual(record.digest, hash) || record.size !== Number(media.size) || record.received !== record.chunk_hashes.length) throw Error("This photo could not be verified.");
+      stored = record.external_uri
+        ? await fetchStoredMedia(record.external_uri, hash, record.size, signal)
+        : verifyPhotoChunks(record, (await clients.indexer.photoChunks(toBase64url(id))).chunks.map(fromBase64url), hash);
     } else if (url.startsWith("ipfs://")) stored = await fetchIpfsMedia(url, hash, { signal });
     else throw Error("This attachment is not in the archive.");
     bytes = openMedia(stored, hash, encryption ? { key: fromBase64url(encryption.key), nonce: fromBase64url(encryption.nonce) } : undefined);

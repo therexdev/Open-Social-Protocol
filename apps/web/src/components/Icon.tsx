@@ -5,6 +5,7 @@ import { ProfileImage } from "../features/profile/ProfileImage";
 import type { CSSProperties } from "react";
 
 const paths = {
+  puzzle: "M3 9V4h5a3 3 0 1 1 6 0h5v5a3 3 0 1 1 0 6v5h-5a3 3 0 1 0-6 0H3v-5a3 3 0 1 0 0-6Z",
   mic: "M9 5a3 3 0 0 1 6 0v7a3 3 0 1 1-6 0zM5 11v1a7 7 0 0 0 14 0v-1M12 19v3m-4 0h8",
   camera: "M3 6h12v12H3zm12 4 6-4v12l-6-4",
   stop: "M5 5h14v14H5z",

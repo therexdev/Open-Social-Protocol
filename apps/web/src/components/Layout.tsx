@@ -63,6 +63,7 @@ const secondary = [
   { to: "/notifications", label: "Activity", icon: "bell" },
   { to: "/tokens", label: "Tokens", icon: "token" },
   { to: "/wallet", label: "Wallet", icon: "wallet" },
+  { to: "/browser-plugin", label: "Browser Plugin", icon: "puzzle" },
   { to: "/settings", label: "Settings", icon: "settings" },
   { to: "/about", label: "About Open Social", icon: "info" },
 ] as const;
@@ -106,7 +107,7 @@ export function Layout({ children }: { children: ReactNode }) {
     return <NavLink key={item.to} to={profile ? ownProfile : item.to} end={item.to === "/"} className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}><span className="nav-icon"><Icon name={item.icon} size={22} />{item.to === "/notifications" && unread > 0 && <span className="badge" aria-label={`${unread} new`}>{unread > 99 ? "99+" : unread}</span>}</span><span>{mobile && profile ? "Profile" : item.label}</span></NavLink>;
   };
   const lockControl = status === "unlocked" ? <Button variant="ghost" onClick={() => lock()}><Icon name="lock"/> Lock account</Button> : status === "locked" ? <Link className="btn btn-ghost" to="/welcome" state={{ from: `${location.pathname}${location.search}${location.hash}` }}><Icon name="lock"/> Unlock account</Link> : <Link className="btn btn-primary" to="/welcome">Get started <Icon name="arrow" /></Link>;
-  const fullWidth = ["/messages", "/settings", "/welcome", "/compose"].includes(location.pathname);
+  const fullWidth = ["/messages", "/settings", "/welcome", "/compose", "/browser-plugin"].includes(location.pathname);
   return <div className={`app${fullWidth ? " app-wide" : ""}${location.pathname === "/compose" ? " app-composing" : ""}`}>
     <a className="skip-link" href="#main">Skip to content</a>
     <aside className="sidebar">
@@ -127,7 +128,7 @@ export function Layout({ children }: { children: ReactNode }) {
           <FriendKeySync/>
           <div key={location.pathname} className="route-content">{children}</div>
         </main>
-        {wide && !fullWidth && <SocialRail/>}
+        {wide && !fullWidth && <SocialRail promotePlugin={location.pathname === "/"}/>}
       </div>
     </div>
     <button type="button" className="icon-button mobile-more" aria-label="More menu" onClick={() => setMenuOpen(true)} aria-haspopup="dialog" aria-expanded={menuOpen}><Icon name="more"/></button>

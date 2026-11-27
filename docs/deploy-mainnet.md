@@ -362,3 +362,11 @@ manifest contract upgrade is deployed, updating to that UI requires only replaci
 the website files with the latest successful CI `web-dist` ZIP and refreshing.
 There is no VPS or contract upgrade for this UI change. The server's existing
 50 Mana/account/day policy and accounting remain unchanged.
+
+
+The website build includes the Chrome beta ZIP and its checksum under `downloads/`.
+Upload that folder with the rest of `web-dist`; `/browser-plugin` links to those
+same-origin files. `VITE_OSP_NETWORK=mainnet npm run build:web` (or `build:all`) builds both clients
+and packages the download. If building individual workspaces, run
+`node scripts/package-browser-plugin.mjs` after the web and extension builds.
+The `chrome-plugin-beta` CI artifact provides the same plugin ZIP separately.

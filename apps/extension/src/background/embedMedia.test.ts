@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { gzipSync } from 'node:zlib';
 import { contentHash, encryptContent, encryptMedia, fromBase64url, identityFromSeed, musicChunks, photoChunks, toBase64url, wrapMediaKey, type MediaItem, type ProtocolClient } from '@osp/sdk';
 import { embeddedMedia } from './embedMedia';
@@ -7,11 +7,12 @@ import type { FeedDeps } from './feed';
 import type { PostView } from '../shared/indexer';
 import type { UnlockedSession } from './vault';
 
+afterEach(() => vi.unstubAllGlobals());
 const identity=identityFromSeed(new Uint8Array(32).fill(31));
 const id=new Uint8Array(32).fill(8),postId=toBase64url(id),chainId=toBase64url(new Uint8Array(34).fill(5));
 const contract=identity.account;
-function fixture(options:{private?:boolean;clip?:boolean;poster?:boolean;compressed?:boolean}={}) {
-  const plain=options.compressed?new Uint8Array(40000).fill(7):new Uint8Array([1,2,3,4,5]);
+function fixture(options:{private?:boolean;clip?:boolean;poster?:boolean;compressed?:boolean;hosted?:boolean;bytes?:Uint8Array}={}) {
+  const plain=options.bytes??(options.compressed?new Uint8Array(40000).fill(7):new Uint8Array([1,2,3,4,5]));
   const transport=options.compressed?new Uint8Array(gzipSync(plain)):plain;
   const sealed=options.private?encryptMedia(transport):undefined,stored=sealed?.ciphertext??transport;
   const hash=contentHash(stored),contentKey=new Uint8Array(32).fill(3),epochKey=new Uint8Array(32).fill(4);
@@ -20,8 +21,8 @@ function fixture(options:{private?:boolean;clip?:boolean;poster?:boolean;compres
   if(options.poster)media.poster={locations:[`osp-photo://${contract}/${postId}`],mime:'image/jpeg',size:stored.length,content_hash:hash,...(sealed&&{wrapped_key:wrapMediaKey(sealed.key,contentKey,hash),nonce:sealed.nonce})};
   const encrypted=encryptContent({content:{text:'Media post',media:[media]},...(options.private&&{epochKey,contentKey,aad:{chainId,author:identity.account,audience:1,epoch:1,versionNumber:1}})});
   const post={postId,author:identity.account,audience:options.private?1:0,epoch:1,versionNumber:1,envelope:toBase64url(encrypted.bytes),contentHash:toBase64url(contentHash(encrypted.bytes)),replyTo:'',audienceId:'',state:0,reactions:{total:0,byType:{}},labels:[]} as unknown as PostView;
-  const chunks=options.clip?musicChunks(stored):photoChunks(stored);
-  const photo={owner:identity.account,digest:hash,size:stored.length,chunk_hashes:chunks.map(contentHash),received:chunks.length,units:1};
+  const chunks=options.hosted?[stored]:options.clip?musicChunks(stored):photoChunks(stored);
+  const photo={...(options.hosted&&{external_uri:"https://media.example/photo"}),owner:identity.account,digest:hash,size:stored.length,chunk_hashes:chunks.map(contentHash),received:chunks.length,units:1};
   const record={...photo,clip_kind:2,mime:'video/mp4',duration_ms:15000,encrypted:!!sealed,...(options.compressed&&{gzip_original_size:plain.length})};
   const getPhoto=vi.fn(async()=>({value:photo}));
   const client={chainId,deployment:{contracts:{publications:{address:contract}}},reads:{publications:{
@@ -65,4 +66,15 @@ describe('embedded verified media',()=>{
     const loaded=await embeddedMedia(f.deps,postId,0,true);
     expect(loaded.mime).toBe('image/jpeg');expect(fromBase64url(loaded.data)).toEqual(f.plain);expect(f.getPhoto).toHaveBeenCalledTimes(1);
   });
+});
+
+it("loads large hosted public and private photos without chain chunk reads or exposing keys", async () => {
+  for (const privateMedia of [false, true]) {
+    const f = fixture({ private: privateMedia, hosted: true, bytes: new Uint8Array(2 * 1024 * 1024).fill(17) });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(new Uint8Array(f.stored))));
+    const result = await embeddedMedia(f.deps, postId, 0, false);
+    expect(contentHash(fromBase64url(result.data))).toEqual(contentHash(f.plain));
+    expect(Object.keys(result).sort()).toEqual(["data", "mime"]);
+    expect(f.indexer.photoChunks).not.toHaveBeenCalled();
+  }
 });

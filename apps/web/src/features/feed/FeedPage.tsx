@@ -10,6 +10,7 @@ import { useSwipeTabs } from "../../components/useSwipeTabs";
 import { usePublishing } from "../composer/PublishingProvider";
 import { PendingPosts } from "../composer/PendingPosts";
 import { PromotedFeed } from "../tokens/PromotedFeed";
+import { BrowserPluginPromo } from "../../components/BrowserPluginPromo";
 import { QuickComposer } from "../../components/QuickComposer";
 import { useProfileName } from "../profile/useProfileName";
 
@@ -122,6 +123,7 @@ export function FeedPage() {
   const swipe = useSwipeTabs(direction => { const next = options[options.indexOf(tab) + direction]; if (next) changeTab(next); });
   return <div className="page feed-page">
     <div className="page-header feed-heading"><div><h1>Your <span>people.</span><br className="hero-break"/> Your world.</h1><p className="page-subtitle">Real connections. Conversations that belong to you.</p></div><Link to="/compose" className="btn btn-primary mobile-compose" aria-label="New post"><Icon name="plus"/></Link></div>
+    <BrowserPluginPromo variant="inline"/>
     <div className="feed-tabs"><Tabs<Tab> value={tab} label="Feed scope" onChange={changeTab} options={[{ value: "all", label: "All posts" }, { value: "public", label: <><Icon name="globe" size={17}/> Public</> }, { value: "friends", label: <><Icon name="lock" size={17}/> Friends</> }]} /><span className="feed-sort">Most recent</span></div>
     <QuickComposer account={account} name={name}/>
     <div className="feed-panels" style={{ "--feed-enter": `${direction * 12}px` } as CSSProperties} {...swipe} key={viewer ?? "locked"}>

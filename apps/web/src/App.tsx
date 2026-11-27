@@ -5,6 +5,7 @@ import { GroupsPage, CollectionPage } from "./features/library/LibraryPages";
 import { useEffect, useRef, type ReactNode } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { ServicesProvider, useServices, type ServicesProviderProps } from "./api/services";
+import { BrowserPluginPage } from "./features/plugin/BrowserPluginPage";
 import { AboutPage } from "./features/about/AboutPage";
 import { PeoplePage } from "./features/people/PeopleSearch";
 import { Layout } from "./components/Layout";
@@ -126,6 +127,7 @@ export function AppRoutes() {
           </Optional>
         }
       />
+      <Route path="/browser-plugin" element={<BrowserPluginPage />} />
       <Route path="/about" element={<AboutPage />} />
       <Route path="/people" element={<PeoplePage />} />
       <Route

@@ -3,6 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router-dom";
 import { ProtocolClient } from "@osp/sdk";
+import { BROWSER_PLUGIN } from "./features/plugin/pluginRelease";
 import { App, type AppProps } from "./App";
 import { IndexerClient } from "./api/indexer";
 import type { Services } from "./api/services";
@@ -351,4 +352,14 @@ it("offers remembered sign-in explicitly and enables it through the unlock check
   expect(id).toBeTruthy();
   await act(async () => { useAccount.getState().markRegistered(vault.getState().account!); });
   expect(container.textContent).toContain("Remembered until");
+});
+
+it("opens the Browser Plugin guide without an account and exposes the real beta download", async () => {
+  const { container } = await render("/browser-plugin");
+  const main = container.querySelector("main")!;
+  expect(main.querySelector("h1")?.textContent).toContain("Beyond one website");
+  expect(main.textContent).toContain("Developer mode");
+  expect(main.textContent).toContain("Load unpacked");
+  expect(main.querySelector(`a[href="${BROWSER_PLUGIN.download}"]`)).toBeTruthy();
+  expect(container.querySelector('.more-menu a[href="/browser-plugin"]')?.textContent).toContain("Browser Plugin");
 });
