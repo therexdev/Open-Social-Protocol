@@ -87,6 +87,17 @@ try {
  assert.equal(await page.locator('.client-nav a').count(),6);
  const nav=page.getByRole('navigation',{name:'Browser tools navigation'});
  await page.getByText('Total: $11.90',{exact:true}).waitFor();
+ const ending='The final sentence is here.';
+ const story=('A complete short story with paragraphs and room to breathe. '.repeat(4)+'\n\n').repeat(500).slice(0,100000-ending.length)+ending;
+ assert.equal(story.length,100000);
+ const storyField=page.getByRole('textbox',{name:'Write a post',exact:true});
+ assert.equal(await storyField.getAttribute('maxlength'),'100000');
+ await storyField.fill(story);await page.getByRole('button',{name:'Review and publish',exact:true}).click();
+ const review=page.getByRole('dialog');await review.waitFor();
+ assert.ok((await review.textContent()).includes(story.slice(-1000)),'The complete story reaches review');
+ await review.getByRole('button',{name:'Cancel',exact:true}).click();
+ assert.equal(await storyField.inputValue(),story,'Cancelling keeps the entire story');
+ await storyField.fill('');
  await page.getByRole('button',{name:'Voice',exact:true}).click();await page.getByRole('button',{name:'Record voice',exact:true}).click();
  await page.getByRole('button',{name:/^Stop/}).waitFor();await page.waitForTimeout(1100);await page.getByRole('button',{name:/^Stop/}).click();
  await page.getByRole('button',{name:'Remove recording',exact:true}).click();
@@ -126,6 +137,6 @@ try {
  await page.getByRole('button',{name:'More menu',exact:true}).click();await page.getByRole('button',{name:'Lock account and site connections',exact:true}).click();
  await nav.getByRole('link',{name:'Groups',exact:true}).click();await page.getByRole('heading',{name:'Unlock your account'}).waitFor();
  assert.equal(context.pages().length,1,'Feature navigation stays inside the panel');assert.deepEqual(errors,[]);
- console.log('Standalone panel browser checks passed: encrypted account reuse/unlock, native composer/voice/video, groups/messages/friends, settings, lock, narrow layout, no website/iframe/new-tab navigation; fixture network only');
+ console.log('Standalone panel browser checks passed: encrypted account reuse/unlock, 100,000-character story review and retention, native composer/voice/video, groups/messages/friends, settings, lock, narrow layout, no website/iframe/new-tab navigation; fixture network only');
  await context.close();
 } finally {await browser.close();}

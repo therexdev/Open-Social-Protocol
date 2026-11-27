@@ -1,3 +1,4 @@
+import { POST_TEXT_MAX_CHARACTERS } from "@osp/sdk";
 import { FEED_ORIGINS, feedHost } from "../shared/hosts";
 import { Icon } from "../../../web/src/components/Icon";
 import { useEffect, useRef, useState, type SyntheticEvent } from "react";
@@ -131,7 +132,7 @@ export function PostCard({ item, rootId = item.postId, compact = false, depth = 
     </section>}
     {busy&&<p className="card-status" role="status"><span className="spinner"/>Confirming on the network…</p>}
     {message&&<p className="card-status" role="status">{message}</p>}{error&&<p className="card-error" role="alert">{error}</p>}
-    {replying&&<form className="comment-form" onSubmit={submitReply}><label className="sr-only" htmlFor={`reply-${item.postId}`}>Write a comment</label><textarea id={`reply-${item.postId}`} placeholder={compact?'Write a reply…':'Write a comment…'} value={text} spellCheck maxLength={3000} disabled={busy} onChange={e=>setText(e.target.value)}/>
+    {replying&&<form className="comment-form" onSubmit={submitReply}><label className="sr-only" htmlFor={`reply-${item.postId}`}>Write a comment</label><textarea id={`reply-${item.postId}`} placeholder={compact?'Write a reply…':'Write a comment…'} value={text} spellCheck maxLength={POST_TEXT_MAX_CHARACTERS} disabled={busy} onChange={e=>setText(e.target.value)}/>
       <div className="comment-form-bottom"><span>{item.audience===0?'Public comment':'Encrypted for this thread’s readers'}</span><button className="primary" type="submit" disabled={busy||!text.trim()}>{busy?'Posting…':compact?'Post reply':'Post comment'}</button></div></form>}
     {comments&&<section className="card-comments" aria-label="Comments">
       {replies.map(reply=><PostCard key={`${reply.postId}:${reply.contentHash}:${reply.status}:${reply.viewer}`} item={reply} rootId={rootId} compact depth={depth+1}/>)}

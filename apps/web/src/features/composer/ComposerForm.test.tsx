@@ -77,6 +77,20 @@ async function click(label: string) {
 }
 
 describe("ComposerForm publish confirmation", () => {
+  it("accepts a full short story in a hosted post and keeps all its text through review", async () => {
+    transport.hosted = true;
+    container = document.createElement("div"); document.body.appendChild(container); root = createRoot(container);
+    const text = "A full story, with paragraphs.\n\n".repeat(2000);
+    const draft = { id: "story", attemptId: "00".repeat(16), account: "saved-test-account", state: "draft", text, audience: AUDIENCE.EVERYONE, mediaUrls: [], createdAt: Date.now(), updatedAt: Date.now() } as DraftRecord;
+    transport.start.mockImplementation(async (r: PublishRequest) => r.draft);
+    await act(async () => root.render(<ComposerForm draft={draft}/>));
+    const textarea = container.querySelector("textarea")!;
+    expect(textarea.maxLength).toBe(100000); expect(textarea.value).toBe(text);
+    expect(container.textContent).toContain("characters left");
+    expect(button("Review and publish").disabled).toBe(false);
+    await click("Review and publish"); await click("Publish to Everyone");
+    expect(transport.start.mock.calls[0]![0].draft.text).toBe(text);
+  });
   it.each([[AUDIENCE.EVERYONE, "Everyone"], [AUDIENCE.FRIENDS, "Friends"]] as const)("publishes to %s exactly once after local saving, without waiting for network confirmation", async (audience, label) => {
     let finish!: (value: DraftRecord) => void;
     transport.start.mockImplementation(() => new Promise<DraftRecord>((resolve) => { finish = resolve; }));

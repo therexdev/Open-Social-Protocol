@@ -5,6 +5,13 @@ import { draftContent, draftEnvelopeBytes, draftSizeError, measureDraft } from "
 const AAD = { chainId: "EiBncD4pKRIQWco_WRqo5Q-xnXR7JuO3PtZv983mKdKHSQ==", author: "1BKgyD7pZFSyNzupBRvvTYMLJCUuC1QLs3", audience: AUDIENCE.FRIENDS, epoch: 3, versionNumber: 1 as const };
 
 describe("draft size (envelope bytes, not characters)", () => {
+  it("uses the long-post character limit for hosted drafts while retaining legacy envelope checks", () => {
+    const text = "章".repeat(100000);
+    expect(measureDraft(text, undefined, true).ok).toBe(true);
+    expect(draftSizeError(text, undefined, true)).toBeUndefined();
+    expect(draftSizeError(`${text}x`, undefined, true)).toContain("100,000");
+    expect(measureDraft(text).ok).toBe(false);
+  });
   it("measures exactly the suite-1 envelope the post would produce", () => {
     for (const [text, ref] of [
       ["hello", undefined],

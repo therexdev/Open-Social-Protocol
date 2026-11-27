@@ -19,6 +19,8 @@ import {
   validatePoll,
   type PollDefinition,
   LIMITS,
+  LONG_POST_FALLBACK,
+  validatePostText,
   RELATIONSHIP_STATUS,
   buildKeyPackageSets,
   contentHash as sha256Envelope,
@@ -78,6 +80,7 @@ export interface PublishIdentity {
 }
 
 export interface PublishInput {
+  hostText?: (text: string, encrypted: boolean) => Promise<string>;
   replyGuard?: { parentHash: string; friendsEpoch?: number };
   poll?: PollDefinition;
   chain: PublishChain;
@@ -247,6 +250,7 @@ export async function buildPublishPlan(input: PublishInput): Promise<PublishPlan
       if (media.url.startsWith("ipfs://")) ipfsCid(media.url);
     }
   }
+  validatePostText(input.text);
   const content = buildContent(input, contentKey);
   if (!content.text?.trim() && !input.media?.length) throw new PublishError("Write something or add a photo first.");
   if ((input.media?.length ?? 0) > LIMITS.maxMediaRefs) throw new PublishError(`At most ${LIMITS.maxMediaRefs} media attachments per post.`);
@@ -328,6 +332,10 @@ export async function buildPublishPlan(input: PublishInput): Promise<PublishPlan
     epoch,
     versionNumber,
   };
+  if (input.hostText && content.text && estimateEnvelopeBytes(content, input.audience !== AUDIENCE.EVERYONE) > LIMITS.maxEnvelopeBytes) {
+    content.text_ref = await input.hostText(content.text, input.audience !== AUDIENCE.EVERYONE);
+    content.text = LONG_POST_FALLBACK;
+  }
   const encrypted = input.audience !== AUDIENCE.EVERYONE ? encryptContent({ content, aad, epochKey, contentKey, ...(input.rng && { rng: input.rng }) }) : encryptContent({ content, aad });
   const envelope = encrypted.bytes;
   if (envelope.length > LIMITS.maxEnvelopeBytes) {

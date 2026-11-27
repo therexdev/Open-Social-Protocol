@@ -10,7 +10,7 @@ import { AccountPicker } from "../library/AccountPicker";
 import { prepareArchivedPhoto } from "./archivePhoto";
 /** Text + audience + optional media reference, ending in an explicit confirmation dialog. */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AUDIENCE, LIMITS, voiceStorageUnits, validatePoll, PHOTO_MAX_BYTES, HOSTED_MEDIA_DEFAULT_MAX_BYTES, PHOTO_BLOCK_BYTES, PHOTO_RATES, photoCost, requirePhotoLibrary } from "@osp/sdk";
+import { AUDIENCE, LIMITS, POST_TEXT_MAX_CHARACTERS, voiceStorageUnits, validatePoll, PHOTO_MAX_BYTES, HOSTED_MEDIA_DEFAULT_MAX_BYTES, PHOTO_BLOCK_BYTES, PHOTO_RATES, photoCost, requirePhotoLibrary } from "@osp/sdk";
 import { usesExternalMedia } from "../../api/mediaStorage";
 import { Button, ConfirmDialog, Field, Notice } from "../../components/ui";
 import { errorMessage } from "../../util/format";
@@ -115,7 +115,7 @@ export function ComposerForm({ draft, replyTo, replyGuard, edit, initialMode = "
   const videoUploads = media.filter(m => m.archiveBytes && m.url.startsWith("osp-clip://") && m.mime.startsWith("video/")).length;
   const tokenFree = resolved.deployment?.economy === "token-free";
   const currency = resolved.network === "mainnet" ? "KOIN" : "tKOIN";
-  const remaining = LIMITS.maxEnvelopeBytes - bytes;
+  const remaining = hosted ? (pollEnabled ? 500 : POST_TEXT_MAX_CHARACTERS) - text.length : LIMITS.maxEnvelopeBytes - bytes;
   const tooLong = remaining < 0;
 
   const addPhotos = async (files: File[]) => {
@@ -295,7 +295,7 @@ export function ComposerForm({ draft, replyTo, replyGuard, edit, initialMode = "
           <MediaCapture key={`${account}:${session ? "open" : "locked"}:${mode}`} kind={mode} hosted={hosted} value={captured} onChange={value => void addClip(value)} onBusyChange={setCapturing} disabled={!can.ok || needsGroup || attaching || busy}/>}
       </div>}
       <div className="composer-content">
-      <Field label={pollEnabled ? "Your poll question" : edit ? "Edit your post" : replyTo ? "Your reply" : <span className="visually-hidden">Write a post</span>} hint={tooLong ? `${-remaining} bytes over the limit` : `${remaining} bytes left`}>
+      <Field label={pollEnabled ? "Your poll question" : edit ? "Edit your post" : replyTo ? "Your reply" : <span className="visually-hidden">Write a post</span>} hint={hosted ? tooLong ? `${(-remaining).toLocaleString()} characters over the limit` : `${remaining.toLocaleString()} characters left` : tooLong ? `${-remaining} bytes over the limit` : `${remaining} bytes left`}>
         {(id) => (
           <MentionTextarea
             showHint={false}
@@ -304,7 +304,7 @@ export function ComposerForm({ draft, replyTo, replyGuard, edit, initialMode = "
             value={text}
             onValueChange={setText}
             rows={compact || mode !== "post" ? 3 : 6}
-            maxLength={LIMITS.maxEnvelopeBytes}
+            maxLength={hosted ? (pollEnabled ? 500 : POST_TEXT_MAX_CHARACTERS) : LIMITS.maxEnvelopeBytes}
             aria-invalid={tooLong || undefined}
             placeholder={mode !== "post" ? "Add a caption (optional)…" : replyTo ? "Write a reply…" : "Write a post…"}
             required={!galleryOnly && !media.length}

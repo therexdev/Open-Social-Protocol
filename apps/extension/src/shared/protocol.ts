@@ -3,7 +3,7 @@
  * content scripts). Every message is `{ type, payload? }`; every response is a `Reply`.
  * Content scripts may send audience-selected `crosspost.publish`, legacy draft proposals and `feed.request`.
  */
-import type { CrossPostRecord, IndexedPostEconomy } from "@osp/sdk";
+import { POST_TEXT_MAX_CHARACTERS, type CrossPostRecord, type IndexedPostEconomy } from "@osp/sdk";
 
 export interface Message<T extends string = string, P = unknown> {
   type: T;
@@ -15,14 +15,13 @@ export type Reply<T = unknown> = { ok: true; result: T } | { ok: false; error: {
 export const CONTENT_SCRIPT_TYPES = ["crosspost.propose", "crosspost.publish", "crosspost.facebookComplete", "crosspost.xPrepare", "crosspost.xComplete", "feed.request", "adapter.preferences"] as const;
 export type ContentScriptType = (typeof CONTENT_SCRIPT_TYPES)[number];
 
-/** Payload size ceiling (bytes of the JSON encoding of the whole message). */
-export const MAX_MESSAGE_BYTES = 32 * 1024;
+/** Bounded JSON requests, including a 100,000-character text with JSON escaping. */
+export const MAX_MESSAGE_BYTES = 768 * 1024;
 /**
- * Composer text ceiling in characters (a coarse schema guard). The binding limit is the encoded
- * envelope size (`LIMITS.maxEnvelopeBytes`, 4096 bytes), checked byte-exactly at draft time with
- * `src/shared/draft.ts` so a draft that cannot be published is never created.
+ * Composer text ceiling. Hosted posts carry long text through an authenticated
+ * R2 reference; chain-only networks retain the 4096-byte envelope checks.
  */
-export const MAX_POST_CHARS = 3000;
+export const MAX_POST_CHARS = POST_TEXT_MAX_CHARACTERS;
 
 // ---------------------------------------------------------------------------
 // Vault / identity

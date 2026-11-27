@@ -1,5 +1,7 @@
 import { archiveClip } from "../media/clipArchive";
 import { archivePhoto } from "./archivePhoto";
+import { usesExternalMedia } from "../../api/mediaStorage";
+import { uploadPostText } from "../../api/postText";
 /** Publication transport; UI may wait for it or run it in the background. */
 import { AUDIENCE, LIFECYCLE, MUSIC_CHUNK_BYTES, requirePhotoLibrary, type ProtocolClient } from "@osp/sdk";
 import type { KeyVerifier } from "../../api/keystore";
@@ -44,6 +46,8 @@ export async function planDraft(deps: PublishDeps, request: PublishRequest): Pro
   if (request.draft.audience === AUDIENCE.CUSTOM || request.draft.galleryOnly || request.draft.collectionId) await requirePhotoLibrary(deps.protocol);
   const audience = request.draft.audience === AUDIENCE.CUSTOM ? AUDIENCE.CUSTOM : request.draft.audience === AUDIENCE.FRIENDS ? AUDIENCE.FRIENDS : AUDIENCE.EVERYONE;
   return buildPublishPlan({
+    ...(usesExternalMedia(deps.protocol) && { hostText: (text: string, encrypted: boolean) => uploadPostText(
+      { client: deps.protocol, signer: deps.session.identity.signer, payment: deps.payment }, deps.session.identity.account, text, encrypted, deps.assertActive) }),
     chain: deps.protocol,
     indexer: deps.indexer,
     me: deps.session.identity,

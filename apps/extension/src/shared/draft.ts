@@ -1,12 +1,13 @@
 /**
- * Draft size rules. The chain limit is the encoded envelope (`LIMITS.maxEnvelopeBytes`, 4096
+ * Draft size rules. Hosted text uses a 100,000-character ceiling and a small
+ * authenticated reference. On legacy networks the chain limit is the encoded envelope (`LIMITS.maxEnvelopeBytes`, 4096
  * bytes), not a character count: a 3000-character CJK post encodes to ~9 KiB. The check builds
  * the same content document `publishPost` builds (text, mime, created_at, external_ref) and
  * measures the suite-1 (friends) envelope, the larger of the two suites, because the audience can
  * still change at confirmation time. Used by the composer counter and by the service worker before
  * a draft is created, so a draft that cannot be published never enters the queue.
  */
-import { ENVELOPE_VERSION, LIMITS, SUITE, encodeContent, encodeEnvelope, type Content } from "@osp/sdk";
+import { POST_TEXT_MAX_CHARACTERS, ENVELOPE_VERSION, LIMITS, SUITE, encodeContent, encodeEnvelope, type Content } from "@osp/sdk";
 
 export const MAX_ENVELOPE_BYTES = LIMITS.maxEnvelopeBytes;
 
@@ -46,20 +47,23 @@ export function draftEnvelopeBytes(text: string, externalRef?: string): number {
 }
 
 export interface DraftSize {
+  /** Display count: characters in hosted mode, encoded bytes in legacy mode. */
   bytes: number;
   limit: number;
   ok: boolean;
 }
 
-export function measureDraft(text: string, externalRef?: string): DraftSize {
+export function measureDraft(text: string, externalRef?: string, hosted = false): DraftSize {
+  if (hosted) return { bytes: text.length, limit: POST_TEXT_MAX_CHARACTERS, ok: text.length <= POST_TEXT_MAX_CHARACTERS };
   const bytes = draftEnvelopeBytes(text, externalRef);
   return { bytes, limit: MAX_ENVELOPE_BYTES, ok: bytes <= MAX_ENVELOPE_BYTES };
 }
 
 /** A human message when the draft cannot be published as is; undefined when it fits. */
-export function draftSizeError(text: string, externalRef?: string): string | undefined {
-  const size = measureDraft(text, externalRef);
+export function draftSizeError(text: string, externalRef?: string, hosted = false): string | undefined {
+  const size = measureDraft(text, externalRef, hosted);
   if (size.ok) return undefined;
+  if (hosted) return "Posts can contain up to 100,000 characters, including any shared link.";
   const over = size.bytes - size.limit;
   return `The post is ${size.bytes} bytes once encoded, ${over} above the ${size.limit}-byte limit. Shorten the text${externalRef ? " or drop the shared link" : ""}.`;
 }

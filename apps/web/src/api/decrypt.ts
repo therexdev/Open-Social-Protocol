@@ -2,7 +2,7 @@
  * Opening PostViews: plaintext (everyone) directly, friends-only through the key store.
  * Decryption happens on the device; a missing key is a normal state, not an error.
  */
-import { LIFECYCLE, SUITE, bytesEqual, contentHash, decodeEnvelope, decryptContent, unwrapContentKey, unwrapMediaKey, type AadInput, type Envelope, type MediaItem, type ProtocolClient } from "@osp/sdk";
+import { LIFECYCLE, SUITE, bytesEqual, contentHash, decodeEnvelope, decryptContent, resolvePostText, unwrapContentKey, unwrapMediaKey, type AadInput, type Envelope, type MediaItem, type ProtocolClient } from "@osp/sdk";
 import { bytesOf } from "../util/bytes";
 import type { KeyResolverIdentity, KeySource, KeyStore, KeyVerifier } from "./keystore";
 import type { PostVersionView, PostView } from "./indexer";
@@ -10,6 +10,7 @@ import { readPostRevision } from "./postRevision";
 import { parseContentReference } from "@osp/sdk";
 
 export interface OpenedContent {
+  text_ref?: string;
   share_with?: string[];
   version: number;
   text: string;
@@ -33,6 +34,11 @@ export interface OpenContext {
   /** Checks on chain where a sealed key served by the indexer came from (keyProvenance.ts). */
   verify?: KeyVerifier;
   chain?: Pick<ProtocolClient, "reads">;
+}
+
+async function fullContent(status: "plain" | "decrypted", content: OpenedContent): Promise<PostContent> {
+  try { return { status, content: await resolvePostText(content, status === "decrypted") }; }
+  catch (error) { return { status: "error", message: error instanceof Error ? error.message : "This post's full text could not be loaded. Please try again." }; }
 }
 
 function tryDecrypt(envelope: Envelope, epochKey: Uint8Array, aad: AadInput): OpenedContent | undefined {
@@ -101,7 +107,7 @@ async function openEnvelope(post: PostView, ctx: OpenContext): Promise<PostConte
   }
   if (envelope.suite === SUITE.PLAINTEXT) {
     try {
-      return { status: "plain", content: decryptContent({ envelope }) as OpenedContent };
+      return fullContent("plain", decryptContent({ envelope }) as OpenedContent);
     } catch {
       return { status: "error", message: "This post is not readable by this client version." };
     }
@@ -128,7 +134,7 @@ async function openEnvelope(post: PostView, ctx: OpenContext): Promise<PostConte
     versionNumber: post.versionNumber,
   };
   const content = tryDecrypt(envelope, entry.key, aad);
-  if (content) return { status: "decrypted", content };
+  if (content) return fullContent("decrypted", content);
   // The cached key does not fit this envelope: try the other sealed copies addressed to us.
   if (ctx.keySource) {
     let candidates: Awaited<ReturnType<KeyStore["candidates"]>> = [];
@@ -143,7 +149,7 @@ async function openEnvelope(post: PostView, ctx: OpenContext): Promise<PostConte
       if (!opened) continue;
       // Replace an unverified cache entry with the key that actually opens the author's posts.
       if (!entry.trusted) await ctx.keys.adopt(ref, candidate, ctx.verify);
-      return { status: "decrypted", content: opened };
+      return fullContent("decrypted", opened);
     }
   }
   // Never keep an unverified key that does not open the author's posts.

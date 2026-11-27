@@ -68,14 +68,25 @@ function MediaList({ content }: { content: OpenedContent }) {
   );
 }
 
-export function PostBody({ content }: { content: PostContent | undefined }) {
+function PostText({ text, expanded }: { text: string; expanded: boolean }) {
+  const [show, setShow] = useState(false);
+  const collapsed = !expanded && !show && text.length > 1600;
+  let preview = text.slice(0, 1200);
+  const boundary = Math.max(preview.lastIndexOf(" "), preview.lastIndexOf("\n"));
+  if (boundary > 1000) preview = preview.slice(0, boundary);
+  if (/[\uD800-\uDBFF]$/.test(preview)) preview = preview.slice(0, -1);
+  return <><p className="post-text"><RichText text={collapsed ? `${preview}…` : text}/></p>
+    {collapsed && <Button variant="ghost" onClick={() => setShow(true)}>Read more</Button>}
+    {show && !expanded && <Button variant="ghost" onClick={() => setShow(false)}>Show less</Button>}</>;
+}
+export function PostBody({ content, expanded = false }: { content: PostContent | undefined; expanded?: boolean }) {
   if (!content) return <div className="post-opening" role="status" aria-label="Opening post"><span className="skeleton skeleton-line"/><span className="skeleton skeleton-line short"/></div>;
   switch (content.status) {
     case "plain":
     case "decrypted":
       return (
         <div className="post-body">
-          <p className="post-text"><RichText text={content.content.text}/></p>
+          <PostText text={content.content.text} expanded={expanded}/>
           <MediaList content={content.content} />
         </div>
       );
@@ -159,7 +170,7 @@ export function OpenedPostCard({ post, onChanged, expanded = false, content }: P
           Reply to <Link to={`/post/${post.replyTo}`}>a post</Link>
         </p>
       )}
-      {post.poll && post.state === LIFECYCLE.ACTIVE ? <><PollCard post={post} onChanged={onChanged}/>{(content?.status === "plain" || content?.status === "decrypted") && <MediaList content={content.content}/>}</> : <PostBody content={content} />}
+      {post.poll && post.state === LIFECYCLE.ACTIVE ? <><PollCard post={post} onChanged={onChanged}/>{(content?.status === "plain" || content?.status === "decrypted") && <MediaList content={content.content}/>}</> : <PostBody content={content} expanded={expanded} />}
       {post.promoted && <p className="promotion-label"><Icon name="spark" size={14}/> Promoted · paid for by the author</p>}
       <footer className="post-footer">
         <PostEconomyActions post={post} onChanged={onChanged}>

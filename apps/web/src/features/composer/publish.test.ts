@@ -24,6 +24,10 @@ import {
   unwrapContentKey,
   decodeEnvelope,
   utf8,
+  storePostText,
+  createPostTextResolver,
+  LONG_POST_FALLBACK,
+  contentHash as hashStoredText,
 } from "@osp/sdk";
 import { KeyStore } from "../../api/keystore";
 import { chainKeyVerifier } from "../../api/keyProvenance";
@@ -123,6 +127,30 @@ function sealedItem(epochKey: Uint8Array, epoch: number, txId: string): SealedKe
 }
 
 describe("buildPublishPlan", () => {
+  it.each([AUDIENCE.EVERYONE, AUDIENCE.FRIENDS, AUDIENCE.CUSTOM])("publishes a complete long post with a small reference for audience %s, including edits", async audience => {
+    const { chain, indexer } = setup(), text = "A chapter with room to breathe.\n".repeat(2500);
+    const bodies = new Map<string, Uint8Array>();
+    const hostText = vi.fn((body: string, encrypted: boolean) => storePostText(body, encrypted, async bytes => {
+      const url = `https://media.example/osp/test/identity/${toBase64url(hashStoredText(bytes))}`;
+      bodies.set(url, new Uint8Array(bytes)); return url;
+    }));
+    const resolve = createPostTextResolver(async url => new Response(new Uint8Array(bodies.get(String(url))!)));
+    const input = { chain, indexer, me, keys: new KeyStore(), text, audience, selectedAccounts: [alice.account], attemptId: new Uint8Array(16).fill(31), hostText };
+    const first = await buildPublishPlan(input);
+    const open = async (plan: typeof first, revision: number) => {
+      const args = chain.contracts.decodeOperation(plan.operations.at(-1)!)!.args, envelope = args.envelope as Uint8Array;
+      expect(envelope.length).toBeLessThan(4096);
+      const body = decryptContent({ envelope, ...(audience !== AUDIENCE.EVERYONE && { epochKey: plan.epochKey, aad: {
+        chainId: chain.chainId, author: me.account, postId: plan.postId, audience, audienceId: plan.audienceId, epoch: plan.epoch, versionNumber: revision,
+      } }) });
+      expect(body.text).toBe(LONG_POST_FALLBACK);
+      return resolve(body, audience !== AUDIENCE.EVERYONE);
+    };
+    expect((await open(first, 1)).text).toBe(text);
+    const second = await buildPublishPlan({ ...input, text: `${text}The end.`, edit: { postId: toBase64url(first.postId), previousVersion: toBase64url(first.contentHash), versionNumber: 2 } });
+    expect(second.postId).toEqual(first.postId); expect((await open(second, 2)).text).toBe(`${text}The end.`);
+    expect(hostText).toHaveBeenCalledTimes(2);
+  });
   it("does not expose public attachment references in a friends-only post", async () => {
     const { chain, indexer } = setup();
     await expect(buildPublishPlan({ chain, indexer, me, keys: new KeyStore(), text: "private", audience: AUDIENCE.FRIENDS, attemptId: new Uint8Array(16).fill(8), media: [{ url: "https://example.com/photo.jpg", mime: "image/jpeg", size: 10, contentHash: new Uint8Array(32) }] })).rejects.toThrow(/public at their original host/);
