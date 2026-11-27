@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {readFileSync,existsSync,readdirSync} from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
-import {identityFromSeed,lockVault,encodeProfile,toBase64url,encode} from '@osp/sdk';
+import {identityFromSeed,lockVault,encodeProfile,toBase64url,encode,contentHash} from '@osp/sdk';
 import {ABIS} from '@osp/proto';
 const {chromium}=await import(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?pathToFileURL(path.join(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES,'playwright/index.mjs')).href:'playwright');
 const dist=path.resolve(fileURLToPath(new URL('../dist/',import.meta.url))),manifest=JSON.parse(readFileSync(path.join(dist,'manifest.json'),'utf8'));
@@ -15,7 +15,7 @@ const profile={account:me.account,profileUri,profileHash:'',encryptionKey:toBase
 const blob=await lockVault({seed,keyVersion:1,account:me.account},passphrase,{kdf:{N:1024,r:8,p:1}});
 const browser=await chromium.launch({...(process.env.CHROMIUM_PATH&&{executablePath:process.env.CHROMIUM_PATH}),args:['--no-sandbox','--use-fake-ui-for-media-stream','--use-fake-device-for-media-stream']});
 try {
- const context=await browser.newContext({viewport:{width:390,height:900}}),requests=[],errors=[];
+ const context=await browser.newContext({viewport:{width:390,height:900}}),requests=[],errors=[],hostedFiles=new Map();
  await context.addInitScript(({account})=>{
   const listeners=new Set();window.__xEnabled=false;window.__xFeed=false;window.__xAuto=true;window.__xAttribution=true;window.__xScope="all";window.__permissions=[];
   window.chrome={runtime:{getManifest:()=>({version:'0.7.0'}),getURL:p=>'https://extension.test/'+p,openOptionsPage:async()=>{},sendMessage:async({type,payload})=>{
@@ -32,6 +32,9 @@ try {
  },{account:me.account});
  await context.route('**/*',async route=>{
   const req=route.request(),url=new URL(req.url());requests.push(url.href);
+  const cors={'access-control-allow-origin':'*','access-control-allow-methods':'GET,HEAD,POST,OPTIONS','access-control-allow-headers':'*','access-control-expose-headers':'Content-Length'};
+  const fulfill=options=>route.fulfill({...options,headers:{...options.headers,...cors}});
+  if(req.method()==='OPTIONS')return fulfill({status:204});
   if(url.origin==='https://extension.test') {
    if(url.pathname==='/setup')return route.fulfill({contentType:'text/html',body:'<!doctype html><body>Fixture setup</body>'});
    const file=path.resolve(dist,'.'+url.pathname);
@@ -39,6 +42,17 @@ try {
    return route.fulfill({body:readFileSync(file),contentType:({'.html':'text/html','.js':'text/javascript','.css':'text/css','.wasm':'application/wasm'})[path.extname(file)]||'application/octet-stream',headers:{'content-security-policy':manifest.content_security_policy.extension_pages}});
   }
   assert.notEqual(url.hostname,'opensocial.online','The website is never loaded');
+  if(url.hostname==='media.fixture.test'){
+   const body=hostedFiles.get(url.pathname);assert.ok(body,'Only fixture-owned recordings are delivered');
+   return fulfill({status:200,headers:{'content-length':String(body.length),'content-type':'application/octet-stream'},...(req.method()!=='HEAD'&&{body})});
+  }
+  if(url.pathname==='/v1/media'){
+   if(req.method()==='POST'){
+    const body=req.postDataBuffer(),hash=toBase64url(contentHash(body)),key=`/osp/test/identity/${hash}`;hostedFiles.set(key,body);
+    return fulfill({json:{url:`https://media.fixture.test${key}`,hash,size:body.length}});
+   }
+   return fulfill({json:{enabled:true,provider:'r2',chainId:deployment.chainId,contract:deployment.contracts.identity.address,publicUrl:'https://media.fixture.test',maxFileBytes:26214400}});
+  }
   if(req.method()==='POST') {
    const input=req.postDataJSON();
    const answer=m=>{
@@ -54,11 +68,11 @@ try {
     }
     return {jsonrpc:'2.0',id:m.id,result:m.method==='chain.read_contract'?{result:'',logs:[]}:m.method==='chain.get_head_info'?{head_topology:{height:'1'},head_block_time:String(Date.now())}:m.method==='chain.get_chain_id'?{chain_id:'EiAIKVvm6-V2qmsmUvPJy09vCCLbtn9lHFpwrJbcTIEWRQ=='}:{}};
    };
-   return route.fulfill({json:Array.isArray(input)?input.map(answer):answer(input)});
+   return fulfill({json:Array.isArray(input)?input.map(answer):answer(input)});
   }
-  if(url.pathname.startsWith('/v1/profiles/'))return route.fulfill({json:profile});
-  if(url.pathname.startsWith('/v1/graph/'))return route.fulfill({json:{account:me.account,friends:[],followers:[],following:[],pendingIncoming:[],pendingOutgoing:[],audienceEpoch:0,blocked:[]}});
-  return route.fulfill({json:{items:[],nextCursor:null,counts:{},pending:0}});
+  if(url.pathname.startsWith('/v1/profiles/'))return fulfill({json:profile});
+  if(url.pathname.startsWith('/v1/graph/'))return fulfill({json:{account:me.account,friends:[],followers:[],following:[],pendingIncoming:[],pendingOutgoing:[],audienceEpoch:0,blocked:[]}});
+  return fulfill({json:{items:[],nextCursor:null,counts:{},pending:0}});
  });
  const page=await context.newPage();page.setDefaultTimeout(15000);page.on('pageerror',e=>errors.push(e.message));
  await page.goto('https://extension.test/setup');
