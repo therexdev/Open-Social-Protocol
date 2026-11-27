@@ -170,11 +170,12 @@ sudo docker compose -f ops/mainnet/compose.yml build indexer
 sudo docker compose -f ops/mainnet/compose.yml up -d
 sudo docker compose -f ops/mainnet/compose.yml logs --tail=100
 curl --fail http://127.0.0.1:8790/healthz
-curl --fail http://127.0.0.1:8789/healthz
+curl --fail http://127.0.0.1:8789/v1/status
 ```
 
 The sponsor checks the RPC chain ID and live contracts' token-free flags before
-listening. The indexer may need time to catch up from the manifest's first block.
+listening. The indexer's status endpoint is `/v1/status`; wait for `healthy: true` and
+`chainIdMatch: true`. It may need time to catch up from the manifest's first block.
 The mainnet sponsor listens internally on 8788/externally on loopback 8790; the
 indexer uses 8787/loopback 8789. The `mainnet.json` manifest is copied into the
 image at build time; rebuild when that manifest changes.
@@ -202,11 +203,12 @@ their reservation until reviewed; do not clear the database to restore quotas.
 
 ## 6. Verify hosting and publish the clients
 
-From a checkout containing the verified manifest and built schemas/SDK:
+Run the read-only verification inside the sponsor container, which already has
+Node, the schemas and SDK installed:
 
 ```sh
-node --import tsx scripts/verify-deployment.ts --network mainnet
-OSP_NETWORK=mainnet node --import tsx scripts/verify-r2-media.ts
+sudo docker compose -f ops/mainnet/compose.yml exec -T sponsor node --import tsx scripts/verify-deployment.ts --network mainnet
+sudo docker compose -f ops/mainnet/compose.yml exec -T sponsor node --import tsx scripts/verify-r2-media.ts
 curl --fail https://sponsor.opensocial.online/.well-known/osp-sponsor.json
 curl --fail https://sponsor.opensocial.online/v1/mana-utilization
 ```
