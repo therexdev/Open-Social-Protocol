@@ -9,7 +9,7 @@ const mana = (rc: string) => (Number(rc) / 100000000).toLocaleString(undefined, 
 export function SponsorAllowance() {
   const { protocol, resolved } = useServices(), me = useMe();
   const endpoint = resolved.sponsorUrls[0]?.replace(/\/+$/, "");
-  const [state, setState] = useState<{ dailyRc: string; remainingRc?: string; reservedRc?: string }>();
+  const [state, setState] = useState<{ dailyRc: string; remainingRc?: string; reservedRc?: string; usedRc?: string }>();
   useEffect(() => {
     let alive = true, busy = false;
     setState(undefined);
@@ -26,8 +26,8 @@ export function SponsorAllowance() {
         const response = await fetch(`${endpoint}/v1/mana-allowance`, { method: "POST", redirect: "error", credentials: "omit",
           headers: { "content-type": "application/json" }, body: JSON.stringify({ ...payload, signature }), signal: AbortSignal.timeout(15000) });
         if (!response.ok) throw new Error("Allowance unavailable");
-        const result = await response.json() as { dailyRc: string; remainingRc: string; reservedRc: string };
-        if (![result.dailyRc, result.remainingRc, result.reservedRc].every(v => typeof v === "string" && /^\d{1,16}$/.test(v))) throw new Error("Invalid allowance response");
+        const result = await response.json() as { dailyRc: string; remainingRc: string; reservedRc: string; usedRc: string };
+        if (![result.dailyRc, result.remainingRc, result.reservedRc, result.usedRc].every(v => typeof v === "string" && /^\d{1,16}$/.test(v))) throw new Error("Invalid allowance response");
         if (alive) setState(result);
       } catch { if (alive) setState(undefined); }
       finally { busy = false; }
@@ -36,8 +36,8 @@ export function SponsorAllowance() {
     return () => { alive = false; clearInterval(timer); };
   }, [protocol, endpoint, me?.account, me?.signer]);
   return <Link className="header-osat" to="/settings" aria-label="Sponsored Mana allowance"
-    title={state ? `${mana(state.dailyRc)} sponsored Mana per account per UTC day. ${mana(state.reservedRc ?? "0")} reserved for pending transactions. Resets at 00:00 UTC.` : "Sponsored Mana allowance unavailable"}>
-    <strong>{state?.remainingRc !== undefined ? `${mana(state.remainingRc)} Mana` : "Sponsored Mana"}</strong>
-    {state && <small>{mana(state.dailyRc)} sponsored / UTC day</small>}
+    title={state ? `${mana(state.dailyRc)} sponsored Mana per account per UTC day. ${mana(state.usedRc ?? "0")} actually used; ${mana(state.reservedRc ?? "0")} temporarily reserved while transactions become irreversible. ${mana(state.remainingRc ?? state.dailyRc)} available. Reservations are maximums, not charges. Resets at 00:00 UTC.` : "Sponsored Mana allowance unavailable"}>
+    <strong>{state?.usedRc !== undefined ? `${mana(state.usedRc)} / ${mana(state.dailyRc)} Mana used` : "Sponsored Mana"}</strong>
+    {state && <small>{state.remainingRc === undefined ? `${mana(state.dailyRc)} sponsored / UTC day` : `${mana(state.remainingRc)} available · ${mana(state.reservedRc ?? "0")} pending`}</small>}
   </Link>;
 }

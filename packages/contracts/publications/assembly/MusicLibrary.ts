@@ -173,9 +173,11 @@ export class MusicLibrary {
       id = this.id(args.id),
       digest = this.id(args.digest);
     Actor.requireAuthorized(identity, owner, args.device, Capability.PUBLISH);
-    System.require(args.size > 0 && args.size <= MAX_BYTES, "music must fit 10 MiB");
+    const external = args.external_uri != null && args.external_uri!.length > 0;
+    const compact = external && args.chunk_hashes.length == 1 && Arrays.equal(args.chunk_hashes[0], digest);
+    System.require(args.size > 0 && args.size <= (compact ? 268435456 : MAX_BYTES), "media exceeds size limit");
     System.require(
-      args.chunk_hashes.length == (args.size + CHUNK - 1) / CHUNK,
+      args.chunk_hashes.length == (compact ? 1 : (args.size + CHUNK - 1) / CHUNK),
       "incorrect chunk count"
     );
     for (let i = 0; i < args.chunk_hashes.length; i++) this.id(args.chunk_hashes[i]);
@@ -183,7 +185,6 @@ export class MusicLibrary {
       args.title != null && args.title!.trim().length > 0 && Util.str(args.title!).length <= 240,
       "title must contain 1-240 UTF-8 bytes"
     );
-    const external = args.external_uri != null && args.external_uri!.length > 0;
     if (external) System.require(args.external_uri!.startsWith("https://") && args.external_uri!.length <= 512, "invalid external media URI");
     const kind = args.clip_kind;
     System.require(kind <= VIDEO, "unknown attachment kind");
@@ -196,7 +197,7 @@ export class MusicLibrary {
       System.require(args.mime == "audio/mpeg" || args.mime == "audio/ogg" || args.mime == "audio/mp4" ||
         args.mime == "audio/wav" || args.mime == "audio/webm", "unsupported audio type");
       System.require(args.duration_ms > 0 && args.duration_ms <= (kind == VOICE ? 120000 : 3600000), "invalid audio duration");
-      if (kind == VOICE) System.require(args.size <= 1048576, "voice must fit 1 MiB");
+      if (kind == VOICE && !compact) System.require(args.size <= 1048576, "voice must fit 1 MiB");
     }
     if (ContentReference.text(args.title!, 16384)) System.require((args.artist == null || args.artist!.length == 0) && (args.description == null || args.description!.length == 0), "hosted metadata must omit inline descriptions");
     System.require(
@@ -280,7 +281,7 @@ export class MusicLibrary {
     const c = this.settings();
     System.require(c.enabled && c.recipient != null, "music uploads are not enabled");
     System.require(args.config_revision == c.revision, "music price changed; review the new quote");
-    System.require(args.size <= c.max_bytes, "audio exceeds configured size limit");
+    System.require(compact || args.size <= c.max_bytes, "audio exceeds configured size limit");
     System.require(!tokenFree || args.unlock_price == 0, "paid unlocks are disabled in token-free mode");
     const price: u64 = tokenFree || kind == VOICE ? 0 : kind == VIDEO ? 100 * COIN : this.fee(args.size, c.rate_per_mb, c.flat_fee);
     System.require(args.max_fee == price, "music fee does not match the accepted quote");

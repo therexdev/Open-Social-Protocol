@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import type { MusicRecord } from "@osp/sdk";
+import { bytesEqual, fromBase64url, type MusicRecord } from "@osp/sdk";
 import { useServices } from "../../api/services";
 import { Button, Notice } from "../../components/ui";
 import { useVault } from "../../vault/context";
@@ -8,7 +8,7 @@ import { toArrayBuffer } from "../../util/bytes";
 import { Icon } from "../../components/Icon";
 import { MusicEngagement } from "./MusicEngagement";
 import { MusicCover } from "./MusicCover";
-import { musicDuration } from "./musicService";
+import { musicDuration, publicMusicStream } from "./musicService";
 import { playableMusic } from "./musicAccessService";
 export const musicAudienceLabel = (record: MusicRecord) =>
   record.audience === 2 ? "Group" : record.audience === 1 ? "Friends" : "Public";
@@ -35,12 +35,22 @@ export function MusicTrack({
     setUrl("");
     setBusy(false);
     setError("");
+    const c = new AbortController();
+    if (protocol && !playbackLocked && !record.encrypted && record.external_uri) {
+      void protocol.reads.publications.get_music({ id: fromBase64url(id) }).then(result => {
+        if (c.signal.aborted) return;
+        const current = result?.value;
+        if (!current || current.owner !== record.owner || !bytesEqual(current.digest, record.digest) || current.mime !== record.mime) throw Error("Track could not be verified.");
+        setUrl(publicMusicStream(current) ?? "");
+      }).catch(e => { if (!c.signal.aborted) setError(e instanceof Error ? e.message : String(e)); });
+    }
     return () => {
+      c.abort();
       controller.current?.abort();
       if (blob.current) URL.revokeObjectURL(blob.current);
       blob.current = "";
     };
-  }, [id, protocol, session, playbackLocked]);
+  }, [id, protocol, session, playbackLocked, record.external_uri, record.encrypted]);
   const load = async () => {
     if (!protocol || busy) return;
     const c = new AbortController();
@@ -83,7 +93,7 @@ export function MusicTrack({
       </div>
       <div className="music-track-actions">
       {url && !playbackLocked ? (
-        <audio controls preload="metadata" src={url} aria-label={`Play ${record.title}`} />
+        <audio controls preload="metadata" crossOrigin="anonymous" src={url} aria-label={`Play ${record.title}`} />
        ) : playbackLocked ? (
         <p className="hint">Unlock access below to play this track.</p>
       ) : record.encrypted && !expanded ? (
@@ -91,7 +101,7 @@ export function MusicTrack({
       ) : (
         <Button variant="primary" busy={busy} onClick={() => void load()}>
           {!busy && <Icon name="play" size={17}/>}
-          {busy ? `Loading audio ${percent}%` : "Load & play"}
+          {busy ? `Loading audio ${percent}%` : "Play"}
         </Button>
       )}
 

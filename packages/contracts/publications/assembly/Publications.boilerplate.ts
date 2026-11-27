@@ -309,6 +309,7 @@ export class Publications {
     // res.version = ;
     // res.external_media_version = ;
     // res.content_reference_version = ;
+    // res.hosted_manifest_version = ;
 
     return res;
   }

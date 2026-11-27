@@ -1,4 +1,4 @@
-import { fromBase64url, MUSIC_MIMES, toBase64url, utf8, utf8Decode, type ProtocolClient } from "@osp/sdk";
+import { HOSTED_MEDIA_MAX_BYTES, fromBase64url, MUSIC_MIMES, toBase64url, utf8, utf8Decode, type ProtocolClient } from "@osp/sdk";
 import type { MediaAttachment } from "../composer/publish";
 import type { Session } from "../../vault/store";
 import { EncryptedStore, deriveAesKey } from "../../vault/encryptedStore";
@@ -40,7 +40,7 @@ export function decodeMusicComment(plain: Uint8Array, restricted: boolean): { te
   const v = JSON.parse(utf8Decode(plain.subarray(HEADER.length)));
   if (!v || typeof v.text !== "string" || typeof v.url !== "string" ||
       !/^osp-clip:\/\/[1-9A-HJ-NP-Za-km-z]{25,35}\/[A-Za-z0-9_-]{43}=$/.test(v.url) ||
-      !MUSIC_MIMES.includes(v.mime) || !Number.isSafeInteger(v.size) || v.size < 1 || v.size > 1048576 ||
+      !MUSIC_MIMES.includes(v.mime) || !Number.isSafeInteger(v.size) || v.size < 1 || v.size > HOSTED_MEDIA_MAX_BYTES ||
       !canonicalBytes(v.digest, 32)) throw Error("Invalid voice comment");
   if (restricted ? !(canonicalBytes(v.key,32) && canonicalBytes(v.nonce,24)) : (v.key !== undefined || v.nonce !== undefined))
     throw Error("Voice comment audience mismatch");

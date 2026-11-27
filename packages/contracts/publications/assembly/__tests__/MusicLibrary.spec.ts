@@ -452,3 +452,25 @@ describe("token-free media", (): void => {
     expect((): void => { lib.begin(begin, IDENTITY); }).toThrow("music fee does not match");
   });
 });
+
+it("records hosted encrypted video with constant metadata and preserves the inline ceiling", (): void => {
+  begin.external_uri = "https://media.example/osp/whole-file";
+  begin.size = 268435456; begin.max_fee = 0;
+  begin.clip_kind = 2; begin.mime = "video/mp4"; begin.duration_ms = 15000; begin.encrypted = true;
+  const large = Protobuf.encode(begin, publications.begin_music_arguments.encode).length;
+  auth(); lib.begin(begin, IDENTITY, null, true);
+  MockVM.commitTransaction();
+  expect(lib.get(ID)!.received).toBe(1);
+  expect(lib.get(ID)!.chunk_hashes.length).toBe(1);
+  expect(lib.get(ID)!.encrypted).toBe(true);
+  expect(lib.get(ID)!.fee).toBe(0);
+  expect(lib.chunks.get(Util.concat([ID, Util.u32be(0)])) == null).toBe(true);
+  auth(); lib.begin(begin, IDENTITY, null, true);
+  expect(Testing.eventNames().length).toBe(2);
+  begin.size = 100;
+  expect(large - Protobuf.encode(begin, publications.begin_music_arguments.encode).length).toBeLessThan(5);
+  begin.id = new Uint8Array(32).fill(99); begin.size = 268435457;
+  auth(); expect((): void => { lib.begin(begin, IDENTITY, null, true); }).toThrow("size limit");
+  begin.size = 10485761; begin.external_uri = null;
+  auth(); expect((): void => { lib.begin(begin, IDENTITY, null, true); }).toThrow("size limit");
+});

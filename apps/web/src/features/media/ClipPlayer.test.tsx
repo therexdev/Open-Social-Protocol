@@ -7,7 +7,7 @@ import type { MediaAttachment } from "../composer/publish";
 const mocks = vi.hoisted(() => ({ session: undefined as any, protocol: {}, visible: undefined as ((v: boolean) => void) | undefined }));
 vi.mock("../../api/services", () => ({ useServices: () => ({ protocol: mocks.protocol }) }));
 vi.mock("../../vault/context", () => ({ useVault: (select: any) => select({ session: mocks.session }) }));
-vi.mock("./clipArchive", () => ({ loadClip: vi.fn() }));
+vi.mock("./clipArchive", () => ({ loadClip: vi.fn(), clipStreamUrl: vi.fn().mockResolvedValue(undefined) }));
 vi.mock("../../components/MediaPhoto", () => ({ MediaPhoto: ({ alt }: { alt: string }) => <img alt={alt}/> }));
 const media: MediaAttachment = { url: "osp-clip://contract/video", mime: "video/mp4", size: 100, contentHash: new Uint8Array(32),
   videoPoster: { url: "osp-photo://contract/poster", contentHash: "hash", mime: "image/jpeg", size: 20 } };
@@ -49,4 +49,16 @@ it("cancels an in-flight passive load when the video leaves the viewport", async
   const signal = vi.mocked(loadClip).mock.calls[0]![2]!;
   await act(async () => mocks.visible?.(false)); expect(signal.aborted).toBe(true);
   await act(async () => resolve(new Uint8Array([1]))); expect(box.querySelector("video")).toBeNull();
+});
+
+it("plays public hosted video directly without downloading a local Blob and checks access first", async () => {
+  const { clipStreamUrl } = await import("./clipArchive");
+  vi.mocked(clipStreamUrl).mockResolvedValueOnce("https://media.example/video");
+  const access = vi.fn().mockResolvedValue(undefined);
+  await act(async () => root.render(<ClipPlayer media={media} verifyAccess={access}/>));
+  await act(async () => box.querySelector<HTMLButtonElement>('button[aria-label="Play video"]')!.click());
+  expect(access).toHaveBeenCalledOnce(); expect(clipStreamUrl).toHaveBeenCalledOnce();
+  expect(loadClip).not.toHaveBeenCalled(); expect(URL.createObjectURL).not.toHaveBeenCalled();
+  expect(box.querySelector("video")?.src).toBe("https://media.example/video");
+  expect(box.querySelector("video")?.preload).toBe("metadata");
 });

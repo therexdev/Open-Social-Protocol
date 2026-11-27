@@ -9,7 +9,7 @@ import { MusicFeedCard } from "./MusicFeedCard";
 import { GroupMusic } from "./GroupMusic";
 import type { MusicFeedView } from "../../api/indexer";
 const mocks = vi.hoisted(() => ({ services: {} as any, session: undefined as any }));
-vi.mock("../../api/services", () => ({ useServices: () => mocks.services }));
+vi.mock("../../api/services", () => ({ useServices: () => mocks.services, useOptionalServices: () => undefined }));
 vi.mock("../../vault/context", () => ({ useVault: (select: any) => select({ session: mocks.session }) }));
 vi.mock("../profile/useProfileName", () => ({ useProfileName: () => "The artist" }));
 const owner = identityFromSeed(new Uint8Array(32).fill(12)), buyer = identityFromSeed(new Uint8Array(32).fill(13));

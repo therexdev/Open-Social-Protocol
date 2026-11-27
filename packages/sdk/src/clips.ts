@@ -13,15 +13,18 @@ export function voiceStorageUnits(bytes: number): number {
     throw new Error("Voice recordings must fit 1 MiB including encryption.");
   return Math.ceil(bytes / 32768);
 }
-export function validateClip(kind: ClipKind, mime: string, size: number, durationMs: number): void {
+export function validateClip(kind: ClipKind, mime: string, size: number, durationMs: number, hostedMaxBytes?: number): void {
+  if (hostedMaxBytes !== undefined && (!Number.isSafeInteger(hostedMaxBytes) || hostedMaxBytes < 1 || hostedMaxBytes > 268435456)) throw Error("Invalid hosting limit.");
   if (!Number.isInteger(durationMs)) throw new Error("The recording duration is unavailable.");
   if (kind === "video") {
     if (!(VIDEO_MIMES as readonly string[]).includes(mime)) throw new Error("Choose an MP4 or WebM video.");
-    if (!Number.isSafeInteger(size) || size < 1 || size > MUSIC_MAX_BYTES) throw new Error("Videos must fit 10 MiB including encryption.");
+    if (!Number.isSafeInteger(size) || size < 1 || size > (hostedMaxBytes ?? MUSIC_MAX_BYTES)) throw new Error(hostedMaxBytes ? "Video exceeds the hosting limit." : "Videos must fit 10 MiB including encryption.");
     if (durationMs < 10000 || durationMs > 30000) throw new Error("Choose a video between 10 and 30 seconds.");
   } else {
     if (!(MUSIC_MIMES as readonly string[]).includes(mime)) throw new Error("Unsupported voice recording format.");
-    voiceStorageUnits(size);
+    if (hostedMaxBytes !== undefined) {
+      if (!Number.isSafeInteger(size) || size < 1 || size > hostedMaxBytes) throw Error("Voice recording exceeds the hosting limit.");
+    } else voiceStorageUnits(size);
     if (durationMs < 1 || durationMs > VOICE_MAX_DURATION) throw new Error("Voice recordings can be up to two minutes.");
   }
 }

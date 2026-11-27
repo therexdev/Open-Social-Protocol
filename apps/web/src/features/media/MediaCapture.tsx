@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { MUSIC_MAX_BYTES, VOICE_MAX_BYTES, VOICE_MAX_DURATION, type ClipKind } from "@osp/sdk";
+import { HOSTED_MEDIA_DEFAULT_MAX_BYTES, MUSIC_MAX_BYTES, VOICE_MAX_BYTES, VOICE_MAX_DURATION, type ClipKind } from "@osp/sdk";
+import { useOptionalServices } from "../../api/services";
+import { usesExternalMedia } from "../../api/mediaStorage";
 import { Icon } from "../../components/Icon";
 import { Button, Notice } from "../../components/ui";
 
@@ -33,8 +35,8 @@ export function checkClipDuration(kind: ClipKind, ms: number) {
 }
 
 /** Read duration without rewriting the selected file. Some WebM encoders omit the duration field. */
-export function readVideo(file: File, signal: AbortSignal): Promise<CapturedMedia> {
-  if (!file.size || file.size > maxBytes.video) throw new Error("Choose a video up to 10 MiB.");
+export function readVideo(file: File, signal: AbortSignal, limit = maxBytes.video): Promise<CapturedMedia> {
+  if (!file.size || file.size > limit) throw new Error(`Choose a video up to ${Math.floor(limit / 1048576)} MiB.`);
   const mime = file.type.split(";")[0]?.toLowerCase() ||
     (/\.mp4$/i.test(file.name) ? "video/mp4" : /\.webm$/i.test(file.name) ? "video/webm" : "");
   if (mime !== "video/mp4" && mime !== "video/webm") throw new Error("Choose an MP4 or WebM video.");
@@ -85,17 +87,20 @@ function LocalPreview({ value, kind }: { value: CapturedMedia; kind: ClipKind })
     {kind === "video" ? <video src={url} controls playsInline preload="metadata" aria-label="Video preview"/> :
       <audio src={url} controls preload="metadata" aria-label="Voice preview"/>}
     <div className="row"><span className="hint">{clock(value.durationMs)} · {(value.file.size / 1024).toFixed(0)} KiB</span>
-      <a href={url} download={value.file.name}>Save a copy</a></div>
+</div>
   </>;
 }
 
-export function MediaCapture({ kind, value, onChange, disabled = false, onBusyChange }: {
+export function MediaCapture({ kind, value, onChange, disabled = false, onBusyChange, hosted: hostedOverride }: {
   kind: ClipKind;
+  hosted?: boolean;
   value?: CapturedMedia;
   onChange: (value: CapturedMedia | undefined) => void;
   disabled?: boolean;
   onBusyChange?: (busy: boolean) => void;
 }) {
+  const services = useOptionalServices();
+  const hosted = hostedOverride ?? (!!services?.protocol && usesExternalMedia(services.protocol));
   const [state, setState] = useState<"idle" | "requesting" | "recording" | "reading">("idle");
   const [error, setError] = useState("");
   const [elapsed, setElapsed] = useState(0);
@@ -132,7 +137,7 @@ export function MediaCapture({ kind, value, onChange, disabled = false, onBusyCh
     setError("");
     setState("reading");
     try {
-      const clip = await readVideo(file, controller.signal);
+      const clip = await readVideo(file, controller.signal, hosted ? HOSTED_MEDIA_DEFAULT_MAX_BYTES : maxBytes.video);
       if (ticket === generation.current) publish.current(clip);
     } catch (e) {
       if (ticket === generation.current) setError(e instanceof Error ? e.message : String(e));
@@ -200,7 +205,7 @@ export function MediaCapture({ kind, value, onChange, disabled = false, onBusyCh
         setState("idle");
         try {
           checkClipDuration(kind, duration);
-          if (!file.size || file.size > maxBytes[kind]) throw new Error("The recording exceeds the size limit or contains no data. Record a shorter clip.");
+          if (!file.size || file.size > (hosted ? HOSTED_MEDIA_DEFAULT_MAX_BYTES : maxBytes[kind])) throw new Error("The recording exceeds the size limit or contains no data. Record a shorter clip.");
           publish.current({ file, mime, durationMs: duration });
         } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
       };

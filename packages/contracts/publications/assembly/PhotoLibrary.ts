@@ -83,8 +83,10 @@ export class PhotoLibrary {
     Actor.requireAuthorized(identity, owner, args.device, Capability.PUBLISH);
     const external = args.external_uri != null && args.external_uri!.length > 0;
     if (external) System.require(args.external_uri!.startsWith("https://") && args.external_uri!.length <= 512, "invalid external media URI");
-    const units = this.units(args.size),
-      count = (args.size + 16383) / 16384;
+    const compact = external && args.chunk_hashes.length == 1 && Arrays.equal(args.chunk_hashes[0], digest);
+    if (compact) System.require(args.size > 0 && args.size <= 268435456, "invalid hosted photo size");
+    const units: u32 = compact && tokenFree ? 0 : this.units(compact ? min<u32>(args.size, 327680) : args.size),
+      count: u32 = compact ? 1 : (args.size + 16383) / 16384;
     System.require(args.chunk_hashes.length == count, "incorrect chunk count");
     for (let i = 0; i < args.chunk_hashes.length; i++)
       this.id(args.chunk_hashes[i]);

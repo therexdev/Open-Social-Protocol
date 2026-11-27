@@ -118,7 +118,7 @@ export class Publications {
   list_music_comments(args: publications.list_music_comments_arguments): publications.list_music_comments_result { return this.musicAccess.listComments(args); }
   music: MusicLibrary = new MusicLibrary();
   set_music_config(args: publications.set_music_config_arguments): publications.set_music_config_result { this.music.setConfig(args); return new publications.set_music_config_result(); }
-  get_music_config(args: publications.get_music_config_arguments): publications.get_music_config_result { const c = this.music.settings(); c.token_free = this.tokenFree(); return new publications.get_music_config_result(c); }
+  get_music_config(args: publications.get_music_config_arguments): publications.get_music_config_result { const c = this.music.settings(); c.token_free = this.tokenFree(); c.hosted_manifest_version = 1; return new publications.get_music_config_result(c); }
   begin_music(args: publications.begin_music_arguments): publications.begin_music_result { this.music.begin(args, this.identityContract(), this.get_token_contract(new publications.get_token_contract_arguments()).value, this.tokenFree()); return new publications.begin_music_result(); }
   append_music(args: publications.append_music_arguments): publications.append_music_result { this.music.append(args, this.identityContract()); return new publications.append_music_result(); }
   get_music(args: publications.get_music_arguments): publications.get_music_result { return new publications.get_music_result(this.music.get(this.music.id(args.id))); }
@@ -127,7 +127,7 @@ export class Publications {
   list_music(args: publications.list_music_arguments): publications.list_music_result { return this.music.list(args); }
 
   library: PhotoLibrary = new PhotoLibrary();
-  get_library_version(args: publications.get_library_version_arguments): publications.get_library_version_result { return new publications.get_library_version_result(1, 1, 1); }
+  get_library_version(args: publications.get_library_version_arguments): publications.get_library_version_result { return new publications.get_library_version_result(1, 1, 1, 1); }
   begin_photo(args: publications.begin_photo_arguments): publications.begin_photo_result { this.library.begin(args, this.identityContract(), this.get_token_contract(new publications.get_token_contract_arguments()).value, this.tokenFree()); return new publications.begin_photo_result(); }
   append_photo(args: publications.append_photo_arguments): publications.append_photo_result { this.library.append(args, this.identityContract()); return new publications.append_photo_result(); }
   get_photo(args: publications.get_photo_arguments): publications.get_photo_result { return new publications.get_photo_result(this.library.photos.get(this.library.id(args.id))); }

@@ -1,3 +1,5 @@
+import { HOSTED_MEDIA_DEFAULT_MAX_BYTES } from "@osp/sdk";
+import { usesExternalMedia } from "../../api/mediaStorage";
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
@@ -56,6 +58,7 @@ function MusicPanel({ owner }: { owner: string }) {
   const [config, setConfig] = useState<MusicConfig>(),
     [loading, setLoading] = useState(true),
     [error, setError] = useState("");
+  const uploadMaxBytes = protocol && usesExternalMedia(protocol) && config?.hosted_manifest_version === 1 ? HOSTED_MEDIA_DEFAULT_MAX_BYTES : config?.max_bytes ?? 10485760;
   const [tracks, setTracks] = useState<Array<{ id: string; record: MusicRecord }>>([]),
     [after, setAfter] = useState<string>(),
     [more, setMore] = useState(false);
@@ -205,7 +208,7 @@ function MusicPanel({ owner }: { owner: string }) {
     setSelecting(true);
     setError("");
     try {
-      const result = await prepareAudio(file);
+      const result = await prepareAudio(file, protocol && usesExternalMedia(protocol) && config?.hosted_manifest_version === 1 ? HOSTED_MEDIA_DEFAULT_MAX_BYTES : config?.max_bytes);
       if (!alive.current || selection.current !== ticket) return;
       if (
         draft &&
@@ -493,7 +496,7 @@ function MusicPanel({ owner }: { owner: string }) {
           <Field
             label={draft ? "Select the same audio file to continue" : "Audio file"}
             hint={`MP3, M4A, Ogg, WAV or WebM · up to ${(
-              (config.max_bytes || 10485760) / 1048576
+              uploadMaxBytes / 1048576
             ).toFixed(1)} MiB`}
           >
             {(id) => (
@@ -509,7 +512,7 @@ function MusicPanel({ owner }: { owner: string }) {
           {artSupported && !draft && <MusicArtworkPicker value={artworkBytes} onChange={setArtworkBytes} disabled={busy} privateArt={audience !== 0} onBusyChange={setArtSelecting}/>}
           {draft?.artwork && <p className="hint">Cover artwork is saved with this upload and will resume automatically.</p>}
           {selecting && <Spinner label="Reading audio" />}
-          {source && quoteSize > config.max_bytes && (
+          {source && quoteSize > uploadMaxBytes && (
             <Notice kind="error">
               Audio including encryption exceeds the size limit. Choose a slightly smaller file.
             </Notice>
@@ -585,7 +588,7 @@ function MusicPanel({ owner }: { owner: string }) {
                 !store ||
                 selecting || artSelecting ||
                 (!config.enabled && !paid) ||
-                (!draft && !!source && quoteSize > config.max_bytes)
+                (!draft && !!source && quoteSize > uploadMaxBytes)
               }
               onClick={() => void start()}
             >

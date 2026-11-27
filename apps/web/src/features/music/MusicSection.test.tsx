@@ -19,7 +19,7 @@ const mocks = vi.hoisted(() => ({
   keepUnlocked: vi.fn(),
   storage: { load: vi.fn(), save: vi.fn(), clear: vi.fn() },
 }));
-vi.mock("../../api/services", () => ({ useServices: () => mocks.services }));
+vi.mock("../../api/services", () => ({ useServices: () => mocks.services, useOptionalServices: () => undefined }));
 vi.mock("../../vault/context", () => ({
   useVault: (select: any) =>
     select({
@@ -149,7 +149,7 @@ it("provides public playback on another profile without upload controls", async 
   await mount(other.account);
   expect(box.querySelector('input[type="file"]')).toBeNull();
   const button = [...box.querySelectorAll<HTMLButtonElement>("button")].find(
-    (x) => x.textContent === "Load & play"
+    (x) => x.textContent === "Play"
   )!;
   await act(async () => button.click());
   expect(loadMusic).toHaveBeenCalledWith(

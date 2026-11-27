@@ -9,7 +9,7 @@ import { submitAction } from "../../tx/submit";
 import { decodeMusicComment } from "./voiceComment";
 
 const mock = vi.hoisted(() => ({ services: {} as any, session: {} as any, submit: {} as any, stored: undefined as any }));
-vi.mock("../../api/services", () => ({ useServices: () => mock.services }));
+vi.mock("../../api/services", () => ({ useServices: () => mock.services, useOptionalServices: () => undefined }));
 vi.mock("../../vault/context", () => ({ useVault: (fn: any) => fn({ session: mock.session }), useVaultStore: () => ({ getState: () => ({session: mock.session}) }) }));
 vi.mock("../session", () => ({ useSubmitContext: () => mock.submit }));
 vi.mock("../../tx/submit", () => ({ submitAction: vi.fn() }));

@@ -1,3 +1,4 @@
+import { HOSTED_MEDIA_MAX_BYTES } from "../photoLibrary.js";
 /**
  * Private messaging v2. Olm/Vodozemac owns the Double Ratchet; this module binds
  * its authenticated plaintext to OSP's chain, contract, aliases and packet ids.
@@ -21,7 +22,7 @@ import {
   utf8,
   utf8Decode,
 } from "../encoding.js";
-import { VOICE_MAX_BYTES, VOICE_MAX_DURATION } from "../clips.js";
+import { VOICE_MAX_DURATION } from "../clips.js";
 import { MUSIC_MIMES } from "../music.js";
 import { randomBytes, x25519KeyPair, x25519SharedSecret } from "./keys.js";
 
@@ -75,7 +76,7 @@ export function validPrivateVoiceNote(value: unknown): value is PrivateVoiceNote
     && Object.keys(note).every(key => ["url", "mime", "size", "durationMs", "digest", "key", "nonce"].includes(key))
     && (MUSIC_MIMES as readonly string[]).includes(note.mime)
     && Number.isSafeInteger(note.durationMs) && note.durationMs > 0 && note.durationMs <= VOICE_MAX_DURATION
-    && Number.isSafeInteger(note.size) && note.size > 16 && note.size <= VOICE_MAX_BYTES
+    && Number.isSafeInteger(note.size) && note.size > 16 && note.size <= HOSTED_MEDIA_MAX_BYTES
     && encodedBytes(note.digest, 32) && encodedBytes(note.key, 32) && encodedBytes(note.nonce, 24);
 }
 

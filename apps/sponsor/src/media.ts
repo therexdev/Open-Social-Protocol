@@ -3,7 +3,7 @@ import { mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { FastifyInstance } from "fastify";
-import { MAX_IMAGE_BYTES, MUSIC_MAX_BYTES, MUSIC_MIMES, IMAGE_MIMES, contentHash, toBase64url, fromBase64url, utf8Decode, isAddress, ipfsCid, verifyMediaUpload, type MediaUploadStatement } from "@osp/sdk";
+import { MAX_IMAGE_BYTES, HOSTED_MEDIA_DEFAULT_MAX_BYTES, HOSTED_MEDIA_MAX_BYTES, MUSIC_MIMES, IMAGE_MIMES, contentHash, toBase64url, fromBase64url, utf8Decode, isAddress, ipfsCid, verifyMediaUpload, type MediaUploadStatement } from "@osp/sdk";
 import { createR2Writer, loadR2Config, type R2Config } from "./r2.js";
 import { SponsorRefusal } from "./validate.js";
 
@@ -15,6 +15,7 @@ export interface MediaConfig {
   dailyFiles: number;
   maxFiles: number;
   maxBytes: number;
+  maxFileBytes?: number;
 }
 export function loadMediaConfig(env: Record<string, string | undefined>): MediaConfig | undefined {
   const provider = env.OSP_MEDIA_PROVIDER?.trim();
@@ -30,7 +31,9 @@ export function loadMediaConfig(env: Record<string, string | undefined>): MediaC
   if (provider === "pinata" && !pinataJwt) throw new Error("Set OSP_MEDIA_PINATA_JWT_FILE to your Pinata JWT file");
   const kuboUrl = env.OSP_MEDIA_KUBO_URL?.replace(/\/+$/, "") ?? "http://127.0.0.1:5001";
   if (provider === "kubo" && !/^https?:$/.test(new URL(kuboUrl).protocol)) throw new Error("Invalid OSP_MEDIA_KUBO_URL");
-  return { provider, ...(provider === "r2" && { r2: loadR2Config(env) }), pinataJwt, kuboUrl, dailyFiles: positive("OSP_MEDIA_DAILY_FILES", 10), maxFiles: positive("OSP_MEDIA_MAX_FILES", 450), maxBytes: positive("OSP_MEDIA_MAX_BYTES", 900_000_000) };
+  const maxFileBytes = positive("OSP_MEDIA_MAX_FILE_BYTES", HOSTED_MEDIA_DEFAULT_MAX_BYTES);
+  if (maxFileBytes > HOSTED_MEDIA_MAX_BYTES) throw Error("OSP_MEDIA_MAX_FILE_BYTES exceeds the supported hosting limit");
+  return { provider, ...(provider === "r2" && { r2: loadR2Config(env) }), pinataJwt, kuboUrl, maxFileBytes, dailyFiles: positive("OSP_MEDIA_DAILY_FILES", 10), maxFiles: positive("OSP_MEDIA_MAX_FILES", 450), maxBytes: positive("OSP_MEDIA_MAX_BYTES", 900_000_000) };
 }
 
 /** Pinata public IPFS or the operator's own Kubo node; both return the same portable address. */
@@ -62,7 +65,7 @@ export interface MediaRoutesOptions {
 }
 export async function registerMediaRoutes(app: FastifyInstance, options: MediaRoutesOptions): Promise<void> {
   const { config } = options;
-  const maxFileBytes = config?.provider === "r2" ? MUSIC_MAX_BYTES : MAX_IMAGE_BYTES;
+  const maxFileBytes = config?.provider === "r2" ? config.maxFileBytes ?? HOSTED_MEDIA_DEFAULT_MAX_BYTES : MAX_IMAGE_BYTES;
   const r2 = config?.provider === "r2" && !options.pin ? createR2Writer(config.r2!, options.chainId, options.contract) : undefined;
   const receiptUrl = (value: string) => {
     if (!value.startsWith("https://")) return `ipfs://${ipfsCid(value)}`;

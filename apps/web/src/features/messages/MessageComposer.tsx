@@ -1,4 +1,6 @@
-import { voiceStorageUnits, VOICE_MAX_BYTES } from "@osp/sdk";
+import { HOSTED_MEDIA_DEFAULT_MAX_BYTES, voiceStorageUnits, VOICE_MAX_BYTES } from "@osp/sdk";
+import { useOptionalServices } from "../../api/services";
+import { usesExternalMedia } from "../../api/mediaStorage";
 import { useRef, useState } from "react";
 import { Icon } from "../../components/Icon";
 import { Button, Notice } from "../../components/ui";
@@ -8,13 +10,15 @@ export function MessageComposer({ disabled, onSend }: {
   disabled: boolean;
   onSend: (text: string, voice?: CapturedMedia) => Promise<void>;
 }) {
+  const services = useOptionalServices();
+  const hosted = !!services?.protocol && usesExternalMedia(services.protocol);
   const [text, setText] = useState(""), [voice, setVoice] = useState<CapturedMedia>();
   const [capturing, setCapturing] = useState(false), [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const submitting = useRef(false);
   const storedBytes = voice ? voice.file.size + 16 : 0;
-  const tooLarge = storedBytes > VOICE_MAX_BYTES;
-  const storageUnits = storedBytes && !tooLarge ? voiceStorageUnits(storedBytes) : 0;
+  const tooLarge = storedBytes > (hosted ? HOSTED_MEDIA_DEFAULT_MAX_BYTES : VOICE_MAX_BYTES);
+  const storageUnits = !hosted && storedBytes && !tooLarge ? voiceStorageUnits(storedBytes) : 0;
   async function send() {
     if (submitting.current || disabled || capturing || tooLarge || (!voice && !text.trim())) return;
     submitting.current = true;
@@ -40,7 +44,7 @@ export function MessageComposer({ disabled, onSend }: {
         <Icon name="send" size={18}/> Send message
       </Button>
     </div>
-    {tooLarge && <Notice kind="error">The encrypted recording exceeds 1 MiB. Remove it and record a shorter message.</Notice>}
+    {tooLarge && <Notice kind="error">The encrypted recording exceeds the upload limit. Remove it and record a shorter message.</Notice>}
     {storageUnits > 0 && <small className="hint">Recording storage uses {storageUnits} usage {storageUnits === 1 ? "credit" : "credits"}. Your account is visible on the encrypted upload. Only this conversation receives the playback key.</small>}
     {error && <Notice kind="error">{error}</Notice>}
   </form>;

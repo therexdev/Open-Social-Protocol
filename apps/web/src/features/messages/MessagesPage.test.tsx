@@ -18,7 +18,7 @@ vi.mock("./PrivateMessagingProvider", () => ({ usePrivateMessaging: () => mocks.
 vi.mock("../session", () => ({ useCanAct: () => ({ ok: true }) }));
 vi.mock("../../api/services", () => {
   const indexer = { configured: true, searchPeople: mocks.search };
-  return { useServices: () => ({ indexer }) };
+  return { useServices: () => ({ indexer }), useOptionalServices: () => undefined };
 });
 vi.mock("./useMessagePeople", () => ({ useMessagePeople: () => ({ friends: mocks.friends, blocked: [], loading: false, refresh: vi.fn(), name: (account: string) => mocks.names[account] || account }) }));
 let root: Root, container: HTMLDivElement;

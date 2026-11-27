@@ -8,7 +8,8 @@ import { AccountPicker } from "../library/AccountPicker";
 import { prepareArchivedPhoto } from "./archivePhoto";
 /** Text + audience + optional media reference, ending in an explicit confirmation dialog. */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AUDIENCE, LIMITS, voiceStorageUnits, validatePoll, PHOTO_MAX_BYTES, PHOTO_BLOCK_BYTES, PHOTO_RATES, photoCost, requirePhotoLibrary } from "@osp/sdk";
+import { AUDIENCE, LIMITS, voiceStorageUnits, validatePoll, PHOTO_MAX_BYTES, HOSTED_MEDIA_DEFAULT_MAX_BYTES, PHOTO_BLOCK_BYTES, PHOTO_RATES, photoCost, requirePhotoLibrary } from "@osp/sdk";
+import { usesExternalMedia } from "../../api/mediaStorage";
 import { Button, ConfirmDialog, Field, Notice } from "../../components/ui";
 import { errorMessage } from "../../util/format";
 import type { DraftRecord } from "../../vault/store";
@@ -106,8 +107,9 @@ export function ComposerForm({ draft, replyTo, replyGuard, edit, initialMode = "
       return Number.POSITIVE_INFINITY;
     }
   }, [text, media, encrypted]);
-  const photoUnits = media.reduce((sum, m) => sum + (m.archiveBytes && m.url.startsWith("osp-photo://") ? photoCost(m.size) : 0) + (m.videoPoster?.archiveBytes ? photoCost(m.videoPoster.size) : 0), 0);
-  const voiceUnits = media.filter(m => m.archiveBytes && m.url.startsWith("osp-clip://") && m.mime.startsWith("audio/")).reduce((sum, m) => sum + voiceStorageUnits(m.size), 0);
+  const hosted = !!protocol && usesExternalMedia(protocol);
+  const photoUnits = hosted ? 0 : media.reduce((sum, m) => sum + (m.archiveBytes && m.url.startsWith("osp-photo://") ? photoCost(m.size) : 0) + (m.videoPoster?.archiveBytes ? photoCost(m.videoPoster.size) : 0), 0);
+  const voiceUnits = hosted ? 0 : media.filter(m => m.archiveBytes && m.url.startsWith("osp-clip://") && m.mime.startsWith("audio/")).reduce((sum, m) => sum + voiceStorageUnits(m.size), 0);
   const videoUploads = media.filter(m => m.archiveBytes && m.url.startsWith("osp-clip://") && m.mime.startsWith("video/")).length;
   const tokenFree = resolved.deployment?.economy === "token-free";
   const currency = resolved.network === "mainnet" ? "KOIN" : "tKOIN";
@@ -123,7 +125,7 @@ export function ComposerForm({ draft, replyTo, replyGuard, edit, initialMode = "
       await requirePhotoLibrary(protocol);
       for (let i = 0; i < files.length; i++) {
         setUploadStatus(`Preparing photo ${i + 1} of ${files.length}…`);
-        const bytes = await preparePhoto(files[i]!, controller.signal, photoLimit.current - (encrypted ? 16 : 0));
+        const bytes = await preparePhoto(files[i]!, controller.signal, (hosted ? HOSTED_MEDIA_DEFAULT_MAX_BYTES : photoLimit.current) - (encrypted ? 16 : 0));
         if (controller.signal.aborted || vault.getState().session !== session) return;
         setUploadStatus(`${encrypted ? "Encrypting" : "Preparing"} photo ${i + 1} of ${files.length}…`);
         const attachment = prepareArchivedPhoto(bytes, protocol, encrypted);
@@ -279,11 +281,11 @@ export function ComposerForm({ draft, replyTo, replyGuard, edit, initialMode = "
       {galleryOnly && !edit && <label className="gallery-also-post"><input type="checkbox" checked={alsoPost} onChange={e=>setAlsoPost(e.target.checked)}/>Also share as a post</label>}
       {media.length > 0 && <p className="hint">Remove attachments before changing who can see this post.</p>}
       {mode !== "post" && <div className="clip-compose">
-        <p className="hint">{mode === "video" ? `10–30 seconds · MP4 or WebM · up to 10 MiB · ${tokenFree ? "covered by your sponsored Mana allowance" : `100 ${currency} per upload`}` : tokenFree ? "Up to 2 minutes · covered by your sponsored Mana allowance" : "Up to 2 minutes · 1 usage unit per 32 KiB"}</p>
+        <p className="hint">{mode === "video" ? `10–30 seconds · MP4 or WebM · up to ${hosted ? 25 : 10} MiB · ${tokenFree ? "covered by your sponsored Mana allowance" : `100 ${currency} per upload`}` : tokenFree ? "Up to 2 minutes · covered by your sponsored Mana allowance" : "Up to 2 minutes · 1 usage unit per 32 KiB"}</p>
         {clip?.videoPoster && <p className="hint">{tokenFree ? "Video preview ready." : "Video preview ready · 1 photo usage unit from your free/regenerating OSAT capacity."}</p>}
         {clip && captured && captured.file.size > clip.size && <span className="hint">Lossless transfer: {(clip.size / 1024).toFixed(0)} KiB transferred · {(captured.file.size / 1024).toFixed(0)} KiB original</span>}
         {clip && !captured ? <div className="row"><span>{mode === "video" ? "Attached video" : "Attached voice recording"} · {(clip.size / 1024).toFixed(0)} KiB</span><Button onClick={() => void addClip(undefined)}>Remove attachment</Button></div> :
-          <MediaCapture key={`${account}:${session ? "open" : "locked"}:${mode}`} kind={mode} value={captured} onChange={value => void addClip(value)} onBusyChange={setCapturing} disabled={!can.ok || needsGroup || attaching || busy}/>}
+          <MediaCapture key={`${account}:${session ? "open" : "locked"}:${mode}`} kind={mode} hosted={hosted} value={captured} onChange={value => void addClip(value)} onBusyChange={setCapturing} disabled={!can.ok || needsGroup || attaching || busy}/>}
       </div>}
       <div className="composer-content">
       <Field label={pollEnabled ? "Your poll question" : edit ? "Edit your post" : replyTo ? "Your reply" : <span className="visually-hidden">Write a post</span>} hint={tooLong ? `${-remaining} bytes over the limit` : `${remaining} bytes left`}>
@@ -304,7 +306,7 @@ export function ComposerForm({ draft, replyTo, replyGuard, edit, initialMode = "
       </Field>
       </div>
       {mode === "post" && <div className="composer-tools">
-        <Button disabled={attaching || needsGroup || !can.ok || media.length >= LIMITS.maxMediaRefs} onClick={() => setTool("photo")}><Icon name="photo" size={18}/>Add photos</Button>
+        <Button disabled={attaching || needsGroup || !can.ok || media.length >= LIMITS.maxMediaRefs} onClick={() => hosted ? photoInput.current?.click() : setTool("photo")}><Icon name="photo" size={18}/>Add photos</Button>
         {!galleryOnly && <Button disabled={attaching || encrypted || !can.ok || media.length >= LIMITS.maxMediaRefs} title={encrypted ? "External media URLs are public" : undefined} onClick={() => { setUrlError(""); setTool("url"); }}><Icon name="link" size={18}/>Add media by URL</Button>}
       {!galleryOnly && !collectionId && !edit && !draft?.edit && !replyTo && <Button variant={pollEnabled ? "primary" : "default"} disabled={encrypted || busy || !!draft?.publication} aria-pressed={pollEnabled} onClick={() => setPollEnabled(v => !v)}><Icon name="poll" size={18}/>{pollEnabled ? "Remove poll" : "Add poll"}</Button>}
       </div>}
@@ -329,7 +331,7 @@ export function ComposerForm({ draft, replyTo, replyGuard, edit, initialMode = "
         <Field label={`Attachment ${i + 1} description (optional)`}>{id => <input id={id} value={m.altText ?? ""} maxLength={160} onChange={e => setMedia(list => list.map((item,j) => j === i ? { ...item,altText: e.target.value } : item))}/>}</Field>
         <Button variant="ghost" onClick={() => removeMedia(i)}>Remove attachment {i + 1}</Button>
       </div>)}</div>}
-      {tool === "photo" && <AttachmentDialog title="Photo size budget" onClose={() => setTool(undefined)}>
+      {tool === "photo" && !hosted && <AttachmentDialog title="Photo size budget" onClose={() => setTool(undefined)}>
         <p className="hint">{tokenFree ? "Choose the maximum image size to upload." : "Choose a maximum per photo. Storage uses free capacity first, then regenerating OSAT capacity. You'll see the actual cost before publishing."}</p>
         <div className="photo-budget-options">{PHOTO_RATES.map(units => <Button key={units} onClick={() => {
           photoLimit.current = units * PHOTO_BLOCK_BYTES;

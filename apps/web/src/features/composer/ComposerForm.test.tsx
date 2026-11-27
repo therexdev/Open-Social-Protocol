@@ -10,7 +10,8 @@ import { Signer } from "@osp/sdk";
 import { encodeMention } from "../../util/mentions";
 
 import { HARBINGER_CHAIN_ID } from "../../testing/fixtures";
-const transport = vi.hoisted(() => ({ start: vi.fn(), group: vi.fn(), collections: vi.fn(), session: vi.fn() }));
+const transport = vi.hoisted(() => ({ start: vi.fn(), group: vi.fn(), collections: vi.fn(), session: vi.fn(), hosted: false }));
+vi.mock("../../api/mediaStorage", async original => ({ ...await original<typeof import("../../api/mediaStorage")>(), usesExternalMedia: () => transport.hosted }));
 vi.mock("./usePublish", () => ({ usePublish: () => ({ ...transport, ready: true }) }));
 vi.mock("../session", () => ({ useCanAct: () => ({ ok: true }), useSession: transport.session }));
 vi.mock("../../vault/context", () => ({
@@ -20,7 +21,7 @@ vi.mock("../../vault/context", () => ({
 vi.mock("../../api/services", () => {
   const services = { resolved: { sponsorUrls: [] }, indexer: { configured: false, collections: transport.collections },
     protocol: { get chainId() { return HARBINGER_CHAIN_ID; }, reads: { publications: { get_collection: transport.group } } } };
-  return { useServices: () => services };
+  return { useServices: () => services, useOptionalServices: () => undefined };
 });
 
 let root: Root;
@@ -31,6 +32,7 @@ const dialogMethods = {
 };
 
 beforeEach(() => {
+  transport.hosted = false;
   transport.start.mockReset();
   // jsdom lacks the native dialog methods; keep native close/cancel event behavior.
   Object.defineProperties(HTMLDialogElement.prototype, {
@@ -206,4 +208,14 @@ it("selects a verified group from the regular composer and queues the post to th
   await click("Review and publish");
   await click("Publish to group");
   expect(transport.start.mock.calls[0]![0].draft).toMatchObject({ collectionId: group, audience: AUDIENCE.CUSTOM, text: "See you tonight" });
+});
+
+it("opens hosted photo files directly without asking for a chain size budget", async () => {
+  transport.hosted = true;
+  container = document.createElement("div"); document.body.appendChild(container); root = createRoot(container);
+  await act(async () => root.render(<ComposerForm/>));
+  const chooseFile = vi.spyOn(container.querySelector<HTMLInputElement>('input[aria-label="Choose photos"]')!, "click");
+  await click("Add photos");
+  expect(chooseFile).toHaveBeenCalledOnce();
+  expect(container.textContent).not.toContain("Photo size budget");
 });

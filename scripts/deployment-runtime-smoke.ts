@@ -27,6 +27,8 @@ export async function smokeDeploymentRuntime(log: (message: string) => void = co
   require("../packages/contracts/scripts/mock-vm-storage.cjs").fixMockStorageOrdering(vm);
   const admin = Signer.fromSeed("osp-release-smoke-admin").getAddress();
   const addresses = Object.fromEntries(CONTRACT_ORDER.map(name => [name, Signer.fromSeed(`osp-release-smoke-${name}`).getAddress()])) as Record<ContractName, string>;
+  // Name lookup is metadata only; this never executes a native or OSAT token module.
+  vm.db.putObject(meta.CONTRACT_ADDRESS_SPACE, new TextEncoder().encode("koin"), koinos.contracts.name_service.address_record.encode({ address: utils.decodeBase58(admin) }).finish());
   const contracts = new Map(CONTRACT_ORDER.map(name => [name, new Contract({ id: addresses[name], abi: ABIS[name] as never })]));
   const modules = new Map(CONTRACT_ORDER.map(name => [name, new WebAssembly.Module(readFileSync(join(CONTRACT_BUILD_DIR, `${name}.wasm`)))]));
   const put = (key: Uint8Array, bytes: Uint8Array) => vm.db.putObject(meta.METADATA_SPACE, key, bytes);
@@ -169,6 +171,8 @@ export async function smokeDeploymentRuntime(log: (message: string) => void = co
   await assert.rejects(invoke("token", "activate_recharge", {}, []));
   await assert.rejects(invoke("token", "activate_recharge"), /already activated/);
   }
+  assert.equal((await invoke("publications", "get_library_version")).hosted_manifest_version, 1);
+  assert.equal((await invoke("publications", "get_music_config")).value.hosted_manifest_version, 1);
   const registryConfig = (await invoke("registry", "get_config")).value;
   assert.equal(registryConfig.admin, admin);
   assert.equal(registryConfig.upgrade_delay_ms, "86400000");

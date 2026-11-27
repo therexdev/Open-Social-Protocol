@@ -1,6 +1,6 @@
 import { readMediaResponse } from "@osp/sdk";
 
-const MAX_SOURCE_BYTES = 20 * 1024 * 1024;
+const MAX_SOURCE_BYTES = 64 * 1024 * 1024;
 const cancelled = () => new Error("Photo upload cancelled");
 export class PhotoReadError extends Error {
   constructor(reason = "empty file") {
@@ -31,7 +31,7 @@ function readFile(blob: Blob, asDataUrl: boolean, signal?: AbortSignal): Promise
  * or support FileReader on the returned handle. All reads stay local and bounded. */
 export async function readPhotoSource(file: File, signal?: AbortSignal, maxBytes = 900_000): Promise<Uint8Array> {
   if (signal?.aborted) throw cancelled();
-  if (file.size > MAX_SOURCE_BYTES) throw new Error("Choose a photo smaller than 20 MB.");
+  if (file.size > MAX_SOURCE_BYTES) throw new Error("Choose a photo smaller than 64 MiB.");
   if (typeof file.stream === "function") {
     const controller = new AbortController(), abort = () => controller.abort();
     const timer = setTimeout(abort, 8_000);
@@ -41,7 +41,7 @@ export async function readPhotoSource(file: File, signal?: AbortSignal, maxBytes
       if (bytes.length) return bytes;
     } catch (error) {
       if (signal?.aborted) throw cancelled();
-      if (error instanceof Error && error.message === "Image is too large") throw new Error("Choose a photo smaller than 20 MB.");
+      if (error instanceof Error && error.message === "Image is too large") throw new Error("Choose a photo smaller than 64 MiB.");
       // Try FileReader if streaming is unsupported or the provider fails a read.
     } finally { clearTimeout(timer); signal?.removeEventListener("abort", abort); controller.abort(); }
   }
@@ -57,7 +57,7 @@ export async function readPhotoSource(file: File, signal?: AbortSignal, maxBytes
   }
   const bytes = new Uint8Array(buffer);
   if (!bytes.length) throw unreadable();
-  if (bytes.length > MAX_SOURCE_BYTES) throw new Error("Choose a photo smaller than 20 MB.");
+  if (bytes.length > MAX_SOURCE_BYTES) throw new Error("Choose a photo smaller than 64 MiB.");
   // A stale/zero size from a document provider must not reject successfully read bytes.
   return bytes;
 }

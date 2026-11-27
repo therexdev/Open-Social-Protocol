@@ -193,7 +193,7 @@ sudo certbot --nginx -d api.opensocial.online -d sponsor.opensocial.online
 
 Retain the existing server blocks for other sites. Open HTTP/HTTPS to the VPS;
 the Node service ports should remain loopback-only. The provided sponsor proxy
-supports 12 MiB requests and 90-second upload timeouts.
+supports 32 MiB requests and 90-second upload timeouts.
 
 The sponsor example permits 10,000 upload attempts/account/day, one million total
 reserved objects and 100 GB total reserved bytes. These are separate R2 abuse/storage
@@ -291,3 +291,63 @@ Later economics are not activated by uploading a token alone. Enabling OSAT will
 need a reviewed contract/dependency/client migration and separately defined reward
 eligibility/activation rules. Early activity is recorded without a promise of
 retroactive token rewards.
+
+
+## Hosted manifest and playback upgrade
+
+Run **Actions → deploy-mainnet → Run workflow**, select branch
+`codex/mainnet-token-free`, and choose **action = deploy**. Keep the existing
+contract seed and all current secrets. The deployment script skips unchanged
+bytecode, upgrades Publications at its existing address, preserves contract state,
+and records the verified manifest. No token is deployed. Wait for the green run
+before updating the VPS and clients.
+
+On the VPS, run:
+
+```sh
+cd /opt/osp-mainnet
+sudo git pull --ff-only
+sudo docker compose -f ops/mainnet/compose.yml build indexer
+sudo docker compose -f ops/mainnet/compose.yml up -d --force-recreate indexer sponsor
+```
+
+Keep the existing private environment files and Docker volumes. R2 now defaults
+to 25 MiB per upload, independently of transaction Mana. To choose another hosting
+ceiling, set `OSP_MEDIA_MAX_FILE_BYTES` (bytes, maximum 268435456) in the existing
+sponsor environment file and adjust the proxy limit to match. The clients currently
+prepare uploads up to 25 MiB. Images are resized automatically; there is no manual
+chain-storage budget selection on hosted networks.
+
+Preserve Certbot's HTTPS configuration when raising the existing proxy limit:
+
+```sh
+sudo cp /etc/nginx/sites-available/osp-mainnet /etc/nginx/sites-available/osp-mainnet.before-hosted-media
+sudo sed -i 's/client_max_body_size [^;]*;/client_max_body_size 32m;/g' /etc/nginx/sites-available/osp-mainnet
+sudo nginx -t && sudo systemctl reload nginx
+curl --fail https://sponsor.opensocial.online/v1/media
+```
+
+Discovery should show `maxFileBytes: 26214400` with the default setting. Verify the
+new capability without sending any transaction:
+
+```sh
+sudo docker compose -f ops/mainnet/compose.yml exec -T sponsor node --input-type=module - <<'JS'
+import { readFileSync } from 'node:fs';
+import { ProtocolClient } from '@osp/sdk';
+const deployment = JSON.parse(readFileSync('/app/deployments/mainnet.json', 'utf8'));
+const client = new ProtocolClient({ deployment, rpc: deployment.rpc });
+console.log(await client.reads.publications.get_library_version({}));
+JS
+```
+
+The result must contain `hosted_manifest_version: 1`. Upload and extract
+`OpenSocial-Mainnet-Web.zip` from the successful deployment artifact into the
+existing Hostinger `public_html`, replacing matching files. Refresh with Ctrl+F5;
+do not clear account/vault storage. Existing posts and images need no migration.
+
+The header separates **Mana used**, **available**, and **pending** maximums. Only
+canonical irreversible `rc_used` counts as spending; the unused reservation is
+released. The 50 Mana/account/day setting remains unchanged. A file can require a
+media-record transaction plus a post/profile transaction, each with real chain
+execution cost. Native public streaming trusts R2 for bytes served during playback;
+encrypted playback still verifies the whole ciphertext and decrypts only locally.

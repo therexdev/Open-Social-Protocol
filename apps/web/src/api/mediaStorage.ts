@@ -1,5 +1,5 @@
 /** R2 is transport only. Existing encrypted drafts, audience keys and chain commitments remain authoritative. */
-import { bytesEqual, contentHash, createContentLoader, openMedia, readMediaResponse, signMediaUpload, toBase64url, utf8,
+import { bytesEqual, contentHash, createContentLoader, HOSTED_MEDIA_MAX_BYTES, openMedia, readMediaResponse, signMediaUpload, toBase64url, utf8,
   type MediaUploadStatement, type ProtocolClient } from "@osp/sdk";
 import type { SubmitContext } from "../tx/submit";
 
@@ -37,9 +37,9 @@ export async function uploadStoredMedia(ctx: SubmitContext, owner: string, bytes
   const discovery = await response.json() as { enabled: boolean; provider: string; chainId: string; contract: string; maxFileBytes: number; publicUrl: string };
   const contract = ctx.client.deployment.contracts.identity.address;
   if (!discovery.enabled || discovery.provider !== "r2" || discovery.chainId !== ctx.client.chainId || discovery.contract !== contract)
-    throw Error("Cloudflare R2 is not enabled for this testnet deployment. Configure the media service first.");
+    throw Error("Cloudflare R2 is not enabled for this deployment. Configure the media service first.");
   https(discovery.publicUrl);
-  if (!Number.isSafeInteger(discovery.maxFileBytes) || discovery.maxFileBytes < 1 || discovery.maxFileBytes > 10 * 1024 * 1024) throw Error("Invalid media service size limit.");
+  if (!Number.isSafeInteger(discovery.maxFileBytes) || discovery.maxFileBytes < 1 || discovery.maxFileBytes > HOSTED_MEDIA_MAX_BYTES) throw Error("Invalid media service size limit.");
   if (!bytes.length || bytes.length > discovery.maxFileBytes) throw Error("This file exceeds the media service size limit.");
   assertActive();
   const proof: MediaUploadStatement = { chainId: ctx.client.chainId, contract, endpoint: settings.endpoint,
@@ -63,7 +63,7 @@ export async function uploadStoredMedia(ctx: SubmitContext, owner: string, bytes
 }
 export async function fetchStoredMedia(location: string, digest: Uint8Array, size: number, signal?: AbortSignal, fetchFn: typeof fetch = fetch): Promise<Uint8Array> {
   https(location);
-  if (!Number.isSafeInteger(size) || size < 1 || size > 10 * 1024 * 1024) throw Error("Invalid media size.");
+  if (!Number.isSafeInteger(size) || size < 1 || size > HOSTED_MEDIA_MAX_BYTES) throw Error("Invalid media size.");
   const controller = new AbortController(), abort = () => controller.abort();
   const timer = setTimeout(abort, 60_000);
   signal?.addEventListener("abort", abort, { once: true });

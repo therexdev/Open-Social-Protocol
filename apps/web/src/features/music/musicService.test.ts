@@ -12,7 +12,7 @@ import {
 } from "@osp/sdk";
 import { fakeProvider, fixtureDeployment } from "../../testing/fixtures";
 import { submitAction, type SubmitContext } from "../../tx/submit";
-import { archiveClip, loadClip, prepareClip, prepareVideoClip } from "../media/clipArchive";
+import { clipStreamUrl, archiveClip, loadClip, prepareClip, prepareVideoClip } from "../media/clipArchive";
 import { loadMusic, newMusicDraft, uploadMusic, type MusicDraft } from "./musicService";
 import * as cacheModule from "./musicCache";
 import { memoryStorage } from "../../vault/storage";
@@ -649,4 +649,54 @@ it("reserves token-free video without the legacy 100-KOIN upload bundle", async 
   await archiveClip(video,ctx,alice.account);
   expect(vi.mocked(submitAction).mock.calls[0]![1]).toHaveLength(1);
   expect(record?.fee).toBe("0");
+});
+
+it("stores a large private hosted track without chunk transactions or persistent playback copies", async () => {
+  config.token_free = true; config.version = 3; config.external_media_version = 1; config.hosted_manifest_version = 1;
+  const data = new Uint8Array(11 * 1024 * 1024).fill(13);
+  let uploaded: Uint8Array | undefined, location = "";
+  const fetchFn = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url === location && uploaded) return new Response(new Uint8Array(uploaded));
+    if (init?.method === "POST") {
+      uploaded = new Uint8Array(init.body as Uint8Array);
+      const hash = toBase64url(contentHash(uploaded)); location = `https://media.example/osp/test/${hash}`;
+      return new Response(JSON.stringify({ url: location, hash, size: uploaded.length }));
+    }
+    return new Response(JSON.stringify({ enabled: true, provider: "r2", chainId: client.chainId,
+      contract: client.deployment.contracts.identity.address, maxFileBytes: 26214400, publicUrl: "https://media.example" }));
+  });
+  configureMediaStorage(client, "https://uploads.example/v1/media", fetchFn);
+  const privateDraft = newMusicDraft({ client, identity: alice, owner: alice.account, payer: alice.account,
+    bytes: data, config, title: "Hosted private track", audience: 1, mime: "audio/mpeg", durationMs: 15000 });
+  const put = vi.fn(), get = vi.fn();
+  vi.spyOn(cacheModule, "musicCache").mockReturnValue({ put, get } as any);
+  await uploadMusic(ctx, privateDraft, data, () => {}, () => {});
+  await uploadMusic(ctx, privateDraft, data, () => {}, () => {});
+  expect(record!.chunk_hashes).toEqual([contentHash(uploaded!)]);
+  expect(record!.received).toBe(1); expect(paid).toBe(1); expect(saved.size).toBe(0);
+  expect(contentHash(uploaded!)).not.toEqual(contentHash(data));
+  vi.stubGlobal("fetch", fetchFn);
+  try {
+    const session = { identity: alice } as any;
+    expect(contentHash((await playableMusic(client, privateDraft.id, session)).bytes)).toEqual(contentHash(data));
+    expect(put).not.toHaveBeenCalled(); expect(get).not.toHaveBeenCalled();
+    expect(client.reads.publications.get_music_chunk).not.toHaveBeenCalled();
+    uploaded![0] = uploaded![0]! ^ 1;
+    await expect(loadMusic(client, privateDraft.id)).rejects.toThrow("fingerprint");
+  } finally { vi.unstubAllGlobals(); }
+});
+
+it("streams only a matching public hosted clip and refuses altered/private manifests", async () => {
+  config.token_free = true; config.clip_version = 1;
+  const media = prepareClip({ bytes, mime: "audio/webm", durationMs: 10000 }, "voice", client, false);
+  await archiveClip(media, ctx, alice.account);
+  record!.external_uri = "https://media.example/voice";
+  expect(await clipStreamUrl(media, client)).toBe(record!.external_uri);
+  record!.encrypted = true;
+  await expect(clipStreamUrl(media, client)).rejects.toThrow("verification");
+  record!.encrypted = false; record!.digest = new Uint8Array(32);
+  await expect(clipStreamUrl(media, client)).rejects.toThrow("verification");
+  record!.digest = media.contentHash; record!.external_uri = "https://user:password@media.example/voice";
+  await expect(clipStreamUrl(media, client)).rejects.toThrow("hosted media");
 });

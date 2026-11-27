@@ -36,7 +36,7 @@ Set this read-only bucket CORS policy so the web app, extension and other protoc
     "AllowedOrigins": ["*"],
     "AllowedMethods": ["GET", "HEAD"],
     "AllowedHeaders": ["Range"],
-    "ExposeHeaders": ["Content-Length", "Content-Type", "ETag"],
+    "ExposeHeaders": ["Content-Length", "Content-Type", "Content-Range", "Accept-Ranges", "ETag"],
     "MaxAgeSeconds": 3600
   }
 ]
@@ -53,6 +53,7 @@ Use the existing server's environment/secret-file mechanism. Example settings:
 
 ```dotenv
 OSP_MEDIA_PROVIDER=r2
+OSP_MEDIA_MAX_FILE_BYTES=26214400
 OSP_MEDIA_R2_ACCOUNT_ID=YOUR_CLOUDFLARE_ACCOUNT_ID
 OSP_MEDIA_R2_BUCKET=opensocial-testnet-media
 OSP_MEDIA_R2_PUBLIC_URL=https://media.opensocial.online
@@ -73,9 +74,9 @@ the sponsor's `.media` SQLite database along with its existing data.
 These object and byte quotas now include text, profile documents, poll wording
 and message ciphertext as well as files. Size them for the intended testnet usage.
 
-The reverse proxy for the sponsor needs `client_max_body_size 12m` (nginx) or an
+The reverse proxy for the sponsor needs `client_max_body_size 32m` (nginx) or an
 equivalent limit and at least a 90-second upload timeout. The application enforces
-the existing 10 MiB media ceiling and verifies account ownership, signature, expiry,
+a configurable hosting ceiling (25 MiB per file by default; `OSP_MEDIA_MAX_FILE_BYTES`, at most 256 MiB) and verifies account ownership, signature, expiry,
 chain, endpoint, size and ciphertext hash before writing to R2. No provider secret
 appears in discovery or frontend configuration.
 
@@ -149,3 +150,17 @@ restores before promising durable media retention. This change introduces no
 community storage rewards or permissionless storage-provider network. Existing
 on-chain media remains in historical blocks; this rollout prevents future bulk
 media writes through the updated client.
+
+The compact hosted manifest upgrade advertises `hosted_manifest_version = 1` in
+both `get_library_version` and `get_music_config.value`. New hosted images and
+tracks commit one whole-file hash, size, owner and HTTPS location; they do not
+append file bytes or one hash per 16 KiB. Older manifests remain readable. Public
+hosted audio/video use native HTTP range playback, trusting the content host for
+stream delivery; the browser does not recompute a complete-file hash before
+playback. Private media is fully fetched, hash-verified and decrypted in memory,
+without writing hosted playback copies to the legacy music cache. Its keys never
+enter R2 URLs or metadata. Interrupted upload drafts remain locally encrypted.
+
+File size limits are hosting controls, independent of Mana accounting. The daily
+Mana allowance reserves each signed transaction maximum until an irreversible
+canonical receipt records actual usage. Pending maximums are not flat action fees.

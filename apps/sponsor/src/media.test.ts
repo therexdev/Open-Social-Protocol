@@ -75,7 +75,7 @@ it("stores R2 receipts and reuses them without a second upload", async () => {
   const r2 = { accountId: "a".repeat(32), bucket: "test-media", accessKeyId: "id", secretAccessKey: "secret", publicUrl: "https://media.example" };
   const { app, pin } = await setup({ config: { ...config, provider: "r2", r2 }, pin: vi.fn().mockResolvedValue(url) });
   const discovery = (await app.inject({ method: "GET", url: "/v1/media" })).json();
-  expect(discovery).toMatchObject({ provider: "r2", enabled: true, maxFileBytes: 10485760 });
+  expect(discovery).toMatchObject({ provider: "r2", enabled: true, maxFileBytes: 26214400 });
   expect(JSON.stringify(discovery)).not.toContain("secret");
   expect((await upload(app, bytes)).json()).toEqual({ url, hash, size: bytes.length });
   expect((await upload(app, bytes)).statusCode).toBe(200);

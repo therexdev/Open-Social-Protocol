@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { PHOTO_MAX_BYTES, photoCost, toBase64url } from "@osp/sdk";
+import { HOSTED_MEDIA_DEFAULT_MAX_BYTES, PHOTO_MAX_BYTES, photoCost, toBase64url } from "@osp/sdk";
 import { useServices } from "../../api/services";
+import { usesExternalMedia } from "../../api/mediaStorage";
 import { MediaPhoto } from "../../components/MediaPhoto";
 import { Button, Field, Notice } from "../../components/ui";
 import { prepareArchivedPhoto } from "../composer/archivePhoto";
@@ -34,7 +35,7 @@ export function GroupBannerPicker({ current, value, onChange, disabled, onBusyCh
     busy.current = true; controller.current = new AbortController();
     setPreparing(true); onBusyChange(true); setError(""); setReadFailed(false);
     try {
-      const bytes = await preparePhoto(file, controller.current.signal, PHOTO_MAX_BYTES - 16);
+      const bytes = await preparePhoto(file, controller.current.signal, (usesExternalMedia(protocol) ? HOSTED_MEDIA_DEFAULT_MAX_BYTES : PHOTO_MAX_BYTES) - 16);
       if (alive.current) onChange(prepareArchivedPhoto(bytes, protocol, true));
     } catch (e) {
       if (alive.current) { setError(e instanceof Error ? e.message : String(e)); setReadFailed(e instanceof PhotoReadError); }

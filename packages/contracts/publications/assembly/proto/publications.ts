@@ -3743,6 +3743,11 @@ export namespace publications {
         writer.uint32(24);
         writer.uint32(message.content_reference_version);
       }
+
+      if (message.hosted_manifest_version != 0) {
+        writer.uint32(32);
+        writer.uint32(message.hosted_manifest_version);
+      }
     }
 
     static decode(reader: Reader, length: i32): get_library_version_result {
@@ -3764,6 +3769,10 @@ export namespace publications {
             message.content_reference_version = reader.uint32();
             break;
 
+          case 4:
+            message.hosted_manifest_version = reader.uint32();
+            break;
+
           default:
             reader.skipType(tag & 7);
             break;
@@ -3776,15 +3785,18 @@ export namespace publications {
     version: u32;
     external_media_version: u32;
     content_reference_version: u32;
+    hosted_manifest_version: u32;
 
     constructor(
       version: u32 = 0,
       external_media_version: u32 = 0,
-      content_reference_version: u32 = 0
+      content_reference_version: u32 = 0,
+      hosted_manifest_version: u32 = 0
     ) {
       this.version = version;
       this.external_media_version = external_media_version;
       this.content_reference_version = content_reference_version;
+      this.hosted_manifest_version = hosted_manifest_version;
     }
   }
 
@@ -4747,6 +4759,11 @@ export namespace publications {
         writer.uint32(88);
         writer.bool(message.token_free);
       }
+
+      if (message.hosted_manifest_version != 0) {
+        writer.uint32(96);
+        writer.uint32(message.hosted_manifest_version);
+      }
     }
 
     static decode(reader: Reader, length: i32): music_config {
@@ -4800,6 +4817,10 @@ export namespace publications {
             message.token_free = reader.bool();
             break;
 
+          case 12:
+            message.hosted_manifest_version = reader.uint32();
+            break;
+
           default:
             reader.skipType(tag & 7);
             break;
@@ -4820,6 +4841,7 @@ export namespace publications {
     clip_version: u32;
     external_media_version: u32;
     token_free: bool;
+    hosted_manifest_version: u32;
 
     constructor(
       version: u32 = 0,
@@ -4832,7 +4854,8 @@ export namespace publications {
       flat_fee: u64 = 0,
       clip_version: u32 = 0,
       external_media_version: u32 = 0,
-      token_free: bool = false
+      token_free: bool = false,
+      hosted_manifest_version: u32 = 0
     ) {
       this.version = version;
       this.revision = revision;
@@ -4845,6 +4868,7 @@ export namespace publications {
       this.clip_version = clip_version;
       this.external_media_version = external_media_version;
       this.token_free = token_free;
+      this.hosted_manifest_version = hosted_manifest_version;
     }
   }
 
