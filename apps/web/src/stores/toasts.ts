@@ -9,7 +9,7 @@ export interface Toast {
   kind: ToastKind;
   title: string;
   message?: string;
-  /** Technical details shown only inside an expander (transaction id, Mana used, ...). */
+  /** Technical details shown only inside an expander (transaction id, payer, ...). */
   details?: string[];
   createdAt: number;
   /** Sticky toasts stay until dismissed. */

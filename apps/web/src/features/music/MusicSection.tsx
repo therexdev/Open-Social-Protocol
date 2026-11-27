@@ -548,7 +548,7 @@ function MusicPanel({ owner }: { owner: string }) {
               </p>
             </div>
           )}
-          {config.token_free ? <p className="hint">No upload payment is required. Your payment preference applies to transaction Mana.</p> : <>
+          {config.token_free ? <p className="hint">Music uploads are included in free usage.</p> : <>
           <p className="hint">
             {BigInt(config.flat_fee ?? "0") > 0n ? `Flat upload fee: ${musicTokens(config.flat_fee!)} ${currency} per song, at any supported size.` : `Current rate: ${Number(config.rate_per_mb) / 100000000} ${currency} per MB, rounded up.`}
             This is a token payment, separate from Mana. Your payment settings determine who

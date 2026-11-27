@@ -7,6 +7,7 @@ import { InsufficientManaError, ProtocolClient, SponsorError, type OperationJson
 import type { PaymentPreference } from "../stores/settings";
 import { useToasts } from "../stores/toasts";
 import { errorMessage } from "../util/format";
+import { presentUsageLimit, usageLimitKind, usageLimitMessage } from "./usageLimit";
 import { prepareHostedContent } from "../api/contentStorage";
 
 export interface SubmitContext {
@@ -70,7 +71,8 @@ export function sponsorWording(error: SponsorError): string {
   }
   switch (error.category) {
     case "quota_exceeded":
-      if (/daily sponsored Mana/i.test(error.message)) return "Your daily sponsored Mana allowance is used or reserved by pending transactions. Confirmed spending resets at 00:00 UTC. Your posts and stored files are unaffected.";
+      if (/burst|too many|too quick/i.test(error.message)) return "You are doing that too quickly. Wait a moment and try again.";
+      if (usageLimitKind(error) === "daily") return usageLimitMessage("daily");
       return "The free allowance from the sponsor is used up for now. Try again later, add another sponsor in Settings, or pay from your own account.";
     case "method_not_allowed":
       return "The sponsor does not cover this kind of action. You can pay from your own account or add another sponsor in Settings.";
@@ -90,9 +92,11 @@ export function sponsorWording(error: SponsorError): string {
 
 /** Turns SDK / RPC failures into plain-language messages without jargon. */
 export function humanizeError(error: unknown): string {
+  const limit = usageLimitKind(error);
+  if (limit) return usageLimitMessage(limit);
   if (error instanceof InsufficientManaError) {
     const refusal = error.refusals.at(-1);
-    if (refusal && /\binvalid account nonce\b/i.test(refusal.error.message)) return sponsorWording(refusal.error);
+    if (refusal && (refusal.error.category === "invalid_transaction" || refusal.error.category === "invalid_signature" || /burst|too many|too quick/i.test(refusal.error.message))) return sponsorWording(refusal.error);
     return refusal
       ? `${sponsorWording(refusal.error)} Your account also has no Mana available for this action.`
       : "Your account has no Mana available for this action. Add a funded sponsor in Settings or fund the paying account.";
@@ -101,7 +105,7 @@ export function humanizeError(error: unknown): string {
   if (error instanceof ActionError) return error.message;
   const message = errorMessage(error);
   const lower = message.toLowerCase();
-  if (lower.includes("insufficient rc") || lower.includes("insufficient mana") || lower.includes("rc limit") || lower.includes("payer does not have enough")) {
+  if (lower.includes("insufficient rc") || lower.includes("insufficient mana") || lower.includes("payer does not have enough")) {
     return "Your account cannot pay for this action right now and no sponsor accepted it. Add a sponsor in Settings or fund the account.";
   }
   if (lower.includes("duplicate idempotency key")) return "This post was already published; it is being reconciled.";
@@ -149,7 +153,6 @@ export async function submitAction(ctx: SubmitContext, operations: OperationJson
     const details = [
       `Transaction ${result.transaction.id ?? "(unknown id)"}`,
       result.sponsored ? `Paid by sponsor ${result.sponsor ?? ""}`.trim() : "Paid from your own account",
-      `Mana used: ${result.rcUsed}`,
       ...result.refusals.map((r) => `Sponsor ${r.endpoint} declined (${r.error.category})`),
     ];
     const reverted = Boolean(result.receipt.reverted);
@@ -169,6 +172,7 @@ export async function submitAction(ctx: SubmitContext, operations: OperationJson
       report({ kind: "info", title: "Still saving", message: "Confirmation is taking longer. Check its status before trying again.", sticky: false, details: [errorMessage(error)] });
       throw new ActionError(message, error);
     }
+    presentUsageLimit(error, ctx, options.quietProgress);
     if (error instanceof Error && error.name === "TransactionRevertedError") {
       const logs = (error as { logs?: string[] }).logs ?? [];
       const message = humanizeError(new Error(logs.join("; ") || "The network rejected this action."));

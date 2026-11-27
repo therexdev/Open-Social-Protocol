@@ -71,7 +71,7 @@ try {
   const hint = [...doc.querySelectorAll(".field")].find(field => field.querySelector("label")?.textContent.includes("Sponsors"))?.querySelector(".hint")?.textContent;
   assert.ok(hint && !hint.includes("none") && hint.includes("http"), "Release has no sponsor configured");
   if (process.env.VITE_OSP_NETWORK === "mainnet") {
-    assert.ok(doc.querySelector(".header-osat")?.textContent.includes("Mana"), "Mainnet release must display sponsored Mana");
+    assert.equal(doc.querySelector(".header-osat"), null, "Token-free release keeps usage counters out of the header");
     assert.ok(!doc.querySelector(".header-osat")?.textContent.includes("OSAT"), "Token-free release must not display an OSAT balance");
   }
   assert.deepEqual(errors, [], "Shipped app encountered runtime errors");

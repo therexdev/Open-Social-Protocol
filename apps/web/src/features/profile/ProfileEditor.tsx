@@ -118,7 +118,7 @@ export function ProfileEditor({ account, view, onDone }: { account: string; view
           <Button variant="ghost" disabled={saving} onClick={() => setPhotos(previous => ({ ...previous, [slot]: undefined }))}>Discard selection</Button></>}
       </div>;
     })}</div>
-    <p className="hint">{preparing ? "Preparing image…" : hosted ? "Profile images are public and stored on the content host. Network Mana covers the profile record." : "Profile images are public. Saving uses the same free and regenerating OSAT capacity as other photos."}</p>
+    <p className="hint">{preparing ? "Preparing image…" : hosted ? "Profile images are public and stored on the content host. Saving is included in free usage." : "Profile images are public. Saving uses the same free and regenerating OSAT capacity as other photos."}</p>
     {remaining < 0 && <Notice kind="warning">Shorten your bio or display name to fit the on-chain profile. The reference exceeds the limit by {-remaining} characters.</Notice>}
     <input ref={filePicker} className="visually-hidden" type="file" aria-label="Choose profile image from files" disabled={preparing || saving} onChange={event => {
       const input = event.currentTarget, slot = failedPhoto, file = input.files?.[0];

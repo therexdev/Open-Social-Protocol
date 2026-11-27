@@ -35,6 +35,7 @@ import { ABIS } from "@osp/proto";
 import { archiveClip, prepareClip } from "../media/clipArchive";
 import { describeVoiceNote, voiceAttachment } from "./voiceNote";
 import type { IndexerClient, PrivatePacketView } from "../../api/indexer";
+import { presentUsageLimit } from "../../tx/usageLimit";
 import { submitAction } from "../../tx/submit";
 import type { PaymentPreference } from "../../stores/settings";
 import {
@@ -1124,6 +1125,9 @@ export class PrivateMessagingService {
         payload,
         this.me.signer,
       ),
+    }).catch(error => {
+      presentUsageLimit(error, { client: this.protocol, signer: this.me.signer, payment: this.payment }, true, false);
+      throw error;
     });
     funding.grantId = grant.grantId;
     await save();

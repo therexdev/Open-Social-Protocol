@@ -281,7 +281,7 @@ export function ComposerForm({ draft, replyTo, replyGuard, edit, initialMode = "
       {galleryOnly && !edit && <label className="gallery-also-post"><input type="checkbox" checked={alsoPost} onChange={e=>setAlsoPost(e.target.checked)}/>Also share as a post</label>}
       {media.length > 0 && <p className="hint">Remove attachments before changing who can see this post.</p>}
       {mode !== "post" && <div className="clip-compose">
-        <p className="hint">{mode === "video" ? `10–30 seconds · MP4 or WebM · up to ${hosted ? 25 : 10} MiB · ${tokenFree ? "covered by your sponsored Mana allowance" : `100 ${currency} per upload`}` : tokenFree ? "Up to 2 minutes · covered by your sponsored Mana allowance" : "Up to 2 minutes · 1 usage unit per 32 KiB"}</p>
+        <p className="hint">{mode === "video" ? `10–30 seconds · MP4 or WebM · up to ${hosted ? 25 : 10} MiB · ${tokenFree ? "included in free usage" : `100 ${currency} per upload`}` : tokenFree ? "Up to 2 minutes · included in free usage" : "Up to 2 minutes · 1 usage unit per 32 KiB"}</p>
         {clip?.videoPoster && <p className="hint">{tokenFree ? "Video preview ready." : "Video preview ready · 1 photo usage unit from your free/regenerating OSAT capacity."}</p>}
         {clip && captured && captured.file.size > clip.size && <span className="hint">Lossless transfer: {(clip.size / 1024).toFixed(0)} KiB transferred · {(captured.file.size / 1024).toFixed(0)} KiB original</span>}
         {clip && !captured ? <div className="row"><span>{mode === "video" ? "Attached video" : "Attached voice recording"} · {(clip.size / 1024).toFixed(0)} KiB</span><Button onClick={() => void addClip(undefined)}>Remove attachment</Button></div> :
@@ -376,7 +376,7 @@ export function ComposerForm({ draft, replyTo, replyGuard, edit, initialMode = "
             {!tokenFree && videoUploads > 0 && <p><strong>Video upload fee: {videoUploads * 100} {currency}.</strong> Confirming reserves the upload. A retry resumes the same file and payment.</p>}
             {!tokenFree && voiceUnits > 0 && <p>Voice storage: {voiceUnits} usage {voiceUnits === 1 ? "unit" : "units"}.</p>}
             {!tokenFree && photoUnits > 0 && <p>Photo storage: {photoUnits} usage {photoUnits === 1 ? "unit" : "units"}.</p>}
-            <p>{tokenFree ? "Your payment preference applies to the network Mana for this post. No OSAT or media upload payment is required." : "Publishing uses 1 usage unit."}</p>
+            {!tokenFree && <p>Publishing uses 1 usage unit.</p>}
             <p>{confirm.galleryOnly ? "Your photos will appear in your profile while saving finishes." : confirm.collectionId ? "Your post will appear in this group while publishing finishes." : "Your post will appear in your feed right away while it finishes publishing."} You can keep browsing.</p>
             <p>
               Publishing is permanent: the network records it and copies may be kept by anyone who can read it. You can edit or mark it deleted later, but

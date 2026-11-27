@@ -345,9 +345,20 @@ The result must contain `hosted_manifest_version: 1`. Upload and extract
 existing Hostinger `public_html`, replacing matching files. Refresh with Ctrl+F5;
 do not clear account/vault storage. Existing posts and images need no migration.
 
-The header separates **Mana used**, **available**, and **pending** maximums. Only
-canonical irreversible `rc_used` counts as spending; the unused reservation is
+The header has no usage counter. When a network action reaches a daily free-usage
+limit or lacks account capacity, a dialog explains waiting/recharge and, for
+eligible actions, provides the current signing wallet address and an explicit
+free-first self-payment setting. It never automatically retries the action or
+suggests funding privacy aliases. Burst limits and outages retain distinct messages.
+Only canonical irreversible `rc_used` counts as spending; the unused reservation is
 released. The 50 Mana/account/day setting remains unchanged. A file can require a
 media-record transaction plus a post/profile transaction, each with real chain
 execution cost. Native public streaming trusts R2 for bytes served during playback;
 encrypted playback still verifies the whole ciphertext and decrypts only locally.
+
+
+The counter-removal and free-usage dialog change is client-only. Once the hosted
+manifest contract upgrade is deployed, updating to that UI requires only replacing
+the website files with the latest successful CI `web-dist` ZIP and refreshing.
+There is no VPS or contract upgrade for this UI change. The server's existing
+50 Mana/account/day policy and accounting remain unchanged.
