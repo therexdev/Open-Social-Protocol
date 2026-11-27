@@ -25,7 +25,7 @@ separately from the testnet deployment secrets:
 
 Create/select the wallets locally using your trusted wallet. Do not put a WIF or
 contract seed in an issue, commit, workflow input or chat. The deployer and sponsor
-may be the same wallet for the initial 10,000-KOIN launch. If they are separate,
+may be the same wallet for the initial 4,050-KOIN launch. If they are separate,
 the deployer also needs sufficient available Mana for deployment; the sponsor's
 balance does not pay a different deployer's transactions automatically. Contract
 accounts themselves do not need funding. Keep the contract seed off the service VPS.
@@ -56,6 +56,10 @@ job executes that job's original code.
 
 ## 2. Verify addresses, then fund the sponsor
 
+The operator revised initial funding to 4,050 KOIN on November 26, 2026. The
+50-Mana per-account daily policy is unchanged. The deployment preflight accepts
+this revised starting balance.
+
 The [initial address-only check](https://github.com/therexdev/Open-Social-Protocol/actions/runs/45308705089)
 stopped before any transaction because the mainnet signing secrets had not been
 configured. After adding all three secrets, start a new run.
@@ -64,12 +68,12 @@ Run `deploy-mainnet` with **action = `accounts`** first. This prints only public
 addresses in the run summary. It submits no transaction and needs no wallet balance.
 
 Verify that the sponsor address matches the wallet you control, then transfer
-**10,000 native mainnet KOIN** to that address. If the deployer is different, fund
+**4,050 native mainnet KOIN** to that address. If the deployer is different, fund
 that wallet for deployment Mana as well. Do not send funds to a contract address
 or to a testnet address copied from an older deployment report.
 
-Using Mana does not burn the KOIN. At 10,000 KOIN, the pool has up to 10,000 Mana
-capacity and approximately 2,000 Mana/day regeneration. The 50-Mana allowance is a
+Using Mana does not burn the KOIN. At 4,050 KOIN, the starting pool has up to 4,050 Mana
+capacity and approximately 810 Mana/day regeneration. The operator can add KOIN later. The 50-Mana allowance is a
 per-account maximum, subject to pool availability. See
 [the launch policy](mainnet-token-free-launch.md) for capacity calculations.
 

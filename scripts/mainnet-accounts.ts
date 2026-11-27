@@ -10,7 +10,7 @@ if (seed.length < 32) throw new Error("OSP_MAINNET_CONTRACT_SEED must contain at
 const wif = process.env.OSP_MAINNET_SPONSOR_WIF;
 if (!wif) throw new Error("Configure OSP_MAINNET_SPONSOR_WIF in the mainnet GitHub environment");
 const sponsor = Signer.fromWif(wif).getAddress();
-const rows = [["Deployer (deployment Mana)", deployer], ["Sponsor (10,000 KOIN funding target)", sponsor],
+const rows = [["Deployer (deployment Mana)", deployer], ["Sponsor (4,050 KOIN initial funding)", sponsor],
   ...CONTRACT_ORDER.map(name => [`${name}${name === "token" ? " (reserved; not deployed)" : ""}`, contractSigner("mainnet", name, seed, provider).getAddress()])];
 const report = "## Mainnet public addresses\n\n| Account | Address |\n| --- | --- |\n" + rows.map(([name,address]) => `| ${name} | ${address} |`).join("\n") +
   "\n\nFund only your verified sponsor/deployer wallets. Contract addresses do not need a KOIN transfer. No OSAT token is deployed by this launch.\n";

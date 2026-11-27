@@ -14,7 +14,7 @@ const contract = new Contract({ id: native, abi: utils.tokenAbi, provider });
 const balance = (await contract.functions.balanceOf!({ owner: sponsor })).result as { value?: string } | undefined;
 if (!balance?.value || !/^\d+$/.test(balance.value)) throw new Error("Cannot read sponsor's native KOIN balance");
 console.log(`Sponsor ${sponsor}: ${formatMana(balance.value)} maximum capacity`);
-if (!readDeployment("mainnet") && BigInt(balance.value) < 1000000000000n) throw new Error("Initial mainnet sponsor funding target is 10,000 KOIN; fund the verified sponsor wallet before deployment");
+if (!readDeployment("mainnet") && BigInt(balance.value) < 405000000000n) throw new Error("Initial mainnet sponsor funding target is 4,050 KOIN; fund the verified sponsor wallet before deployment");
 const rc = await provider.getAccountRc(deployer);
 console.log(`Deployer ${deployer}: ${formatMana(rc)} available for deployment`);
 if (BigInt(rc) <= 0n) throw new Error("Fund the deployer wallet or wait for its Mana to regenerate");
