@@ -91,7 +91,8 @@ or share a new public post URL; each site controls its own preview cache.
 
 - `GET /v1/posts/:id/preview`: public metadata JSON or a generic document.
 - `GET /v1/posts/:id/preview/image?version=<hash>`: freshly authorized, verified
-  image, resized within 1200 × 630 and re-encoded as JPEG without EXIF. Source
+  image, fitted without cropping into a 1200 × 630 frame and encoded as JPEG
+  without EXIF. Small posters and portrait photos receive the same canvas. Source
   image bytes/pixels and processing time are bounded. Video files are not fetched.
 - Both endpoints and PHP HTML return `Cache-Control: no-store`. Successful
   permission checks are coalesced only while requests are in flight.

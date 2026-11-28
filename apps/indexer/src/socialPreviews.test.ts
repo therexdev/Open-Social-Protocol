@@ -83,8 +83,8 @@ it("resolves long hosted text with its fingerprint, refusing other origins and c
   expect((await corrupt.api.inject(corrupt.path)).json().public).toBe(false);
 });
 
-it.each([false, true])("serves a verified, resized JPEG for an uploaded photo/video poster (video=%s), never the video itself", async video => {
-  const image = new Uint8Array(await sharp({ create: { width: 1800, height: 900, channels: 3, background: "#33cab7" } }).png().toBuffer());
+it.each([{ video: false, portrait: false }, { video: true, portrait: false }, { video: false, portrait: true }])("serves a verified, resized JPEG for an uploaded photo/video poster (%j), never the video itself", async ({ video, portrait }) => {
+  const image = new Uint8Array(await sharp({ create: { width: portrait ? 600 : 1800, height: portrait ? 1800 : 900, channels: 3, background: "#33cab7" } }).png().toBuffer());
   const digest = contentHash(image), deployment = testDeployment(), photoId = new Uint8Array(32).fill(35);
   const media = { content_hash: digest, size: image.length, mime: "image/png", locations: [photoLocation(deployment.contracts.publications.address, photoId)] };
   // The protocol's video posters are JPEGs, so encode an actual JPEG for that fixture.
@@ -99,7 +99,7 @@ it.each([false, true])("serves a verified, resized JPEG for an uploaded photo/vi
   const response = await f.api.inject(preview.image.path);
   expect(response.statusCode).toBe(200); expect(response.headers["content-type"]).toBe("image/jpeg");
   const details = await sharp(response.rawPayload).metadata();
-  expect(details.width).toBeLessThanOrEqual(1200); expect(details.height).toBeLessThanOrEqual(630); expect(details.exif).toBeUndefined();
+  expect(details.width).toBe(1200); expect(details.height).toBe(630); expect(details.exif).toBeUndefined();
   expect(f.fetchFn.mock.calls.every(([input]) => String(input).startsWith(f.root))).toBe(true);
   expect((await f.api.inject(`${f.path}/image?version=${toBase64url(new Uint8Array(32))}`)).statusCode).toBe(404);
   f.files.set(url, utf8("<svg>untrusted replacement</svg>"));

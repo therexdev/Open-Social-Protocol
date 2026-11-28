@@ -21,7 +21,7 @@ export function applySocialMetadata(preview?: PostPreviewView, id?: string, api 
   };
   set("description", text);
   for (const [key, value] of Object.entries({ "og:site_name": "Open Social", "og:type": publicPost ? "article" : "website", "og:title": title, "og:description": text, "og:url": canonical,
-    "og:image": image, "og:image:secure_url": image, "og:image:type": attachment?.type ?? "image/png", "og:image:alt": alt })) set(key, value, true);
+    "og:image": image, "og:image:secure_url": image, "og:image:type": attachment?.type ?? "image/png", "og:image:alt": alt, "og:image:width": "1200", "og:image:height": "630" })) set(key, value, true);
   for (const [key, value] of Object.entries({ "twitter:card": "summary_large_image", "twitter:title": title, "twitter:description": text, "twitter:image": image, "twitter:image:alt": alt })) set(key, value);
   let link = document.head.querySelector<HTMLLinkElement>('link[rel="canonical"]');
   if (!link) { link = document.createElement("link"); link.rel = "canonical"; document.head.append(link); }

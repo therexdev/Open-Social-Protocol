@@ -148,7 +148,7 @@ export function registerSocialPreviews(app: FastifyInstance, db: IndexerDb, conf
       if (bytes.length !== image.size || !bytesEqual(contentHash(bytes), image.digest) || imageMime(bytes) !== image.type) throw Error("Image mismatch");
       // A real thumbnail, with EXIF stripped, rather than a multi-megabyte R2 download.
       const thumbnail = await sharp(bytes, { limitInputPixels: 50_000_000 }).rotate()
-        .resize({ width: 1200, height: 630, fit: "inside", withoutEnlargement: true })
+        .resize({ width: 1200, height: 630, fit: "contain", background: "#051724" })
         .flatten({ background: "#051724" }).jpeg({ quality: 82 }).timeout({ seconds: 3 }).toBuffer();
       return reply.type("image/jpeg").send(thumbnail);
     } catch { return reply.code(404).send(); }

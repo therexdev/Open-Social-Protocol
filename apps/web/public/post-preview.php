@@ -82,6 +82,7 @@ $properties = [
     'og:title' => $title, 'og:description' => $description, 'og:url' => $canonical,
     'og:image' => $image, 'og:image:secure_url' => $image, 'og:image:type' => $imageType,
     'og:image:alt' => $imageAlt,
+    'og:image:width' => '1200', 'og:image:height' => '630',
 ];
 foreach ($properties as $property => $value) $tags .= '<meta property="' . $property . '" content="' . osp_preview_escape($value) . '" data-osp-preview />' . "\n";
 foreach (['description' => $description, 'twitter:card' => 'summary_large_image', 'twitter:title' => $title, 'twitter:description' => $description, 'twitter:image' => $image, 'twitter:image:alt' => $imageAlt] as $name => $value) {
