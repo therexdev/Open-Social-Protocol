@@ -1,11 +1,12 @@
 /** Scrolling host-feed placement. Only ids enter Facebook; content renders in extension iframes. */
 import type { FeedRequestReply } from "../shared/protocol";
 import { facebookTheme, watchFacebookTheme, type FacebookTheme } from "./facebookTheme";
+import { FACEBOOK_POST } from "./facebookDom";
 export const FEED_ATTR = "data-osp-feed";
 export const FEED_TITLE = "Open Social posts";
 const controllers = new WeakMap<Document, FeedController>();
 // Numbered rows survive Facebook's loaded -> virtualized -> loaded lifecycle.
-export const FEED_POST_SELECTOR = '[aria-posinset], [data-pagelet^="FeedUnit_"], [role="article"]';
+export const FEED_POST_SELECTOR = FACEBOOK_POST;
 const structuralNodes = new WeakSet<Element>();
 const parkedCards = new WeakSet<Element>();
 export const feedStructuralNode = (element: Element) => structuralNodes.has(element);

@@ -75,7 +75,7 @@ export function presetRpc(network: string, deployments: Record<string, Deploymen
 
 export const APP_NAME = "Open Social Protocol";
 export const APP_VERSION = version;
-export const DEVICE_LABEL = "Chrome extension";
+export const DEVICE_LABEL = "Open Social browser extension";
 /** Device authorizations last 30 days (spec section 3.1: devices carry an expiry). */
 export const DEVICE_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000;
 export { FACEBOOK_ORIGINS } from "./hosts";

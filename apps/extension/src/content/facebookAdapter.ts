@@ -13,14 +13,17 @@ import { ComposerAttribution } from "./attribution";
 import { contextInvalidated, showRefreshNotice } from "./contextInvalidated";
 import { watchPublishedPost } from "./publishedPost";
 import { FacebookPublishNotice } from "./facebookPublishNotice";
+import { FACEBOOK_TEXTBOX, FACEBOOK_COMPOSER, mobileFacebookComposers } from "./facebookDom";
 
 const SUBMIT_LABEL = /^(post|publish)$/i;
-const TEXTBOX = '[contenteditable="true"][role="textbox"], [contenteditable="true"][data-lexical-editor="true"]';
+const TEXTBOX = FACEBOOK_TEXTBOX;
 
 export const facebookAdapter: ComposerAdapter = {
   name: "facebook",
   findComposers(root) {
-    return [...root.querySelectorAll<HTMLElement>('[role="dialog"], dialog')].filter((dialog) => dialog.querySelector(TEXTBOX) !== null);
+    const dialogs = [...root.querySelectorAll<HTMLElement>('[role="dialog"], dialog')].filter(dialog => dialog.querySelector(TEXTBOX) !== null);
+    for (const composer of mobileFacebookComposers(root)) { composer.setAttribute('data-osp-facebook-composer', ''); dialogs.push(composer); }
+    return [...new Set(dialogs)];
   },
   findTextbox(dialog) {
     return dialog.querySelector<HTMLElement>(TEXTBOX);
@@ -126,7 +129,7 @@ export function startFacebookAdapter(runtime: AdapterRuntime = defaultRuntime())
     if (stopped || replaying || !(runtime.trustedEvent?.(event) ?? event.isTrusted)) return;
     event.preventDefault(); event.stopImmediatePropagation();
     if (publishing || completing || pending.size) { showToast(doc, "Finish or dismiss the pending Open Social copy before cross-posting another Facebook post. Your new draft is kept."); return; }
-    const dialog = (event.target as Element | null)?.closest<HTMLElement>('[role="dialog"], dialog');
+    const dialog = (event.target as Element | null)?.closest<HTMLElement>(FACEBOOK_COMPOSER);
     if (!dialog) return;
     const attribution = attributions.get(dialog)?.editor;
     if (attribution?.failed) { showToast(doc, "Automatic link insertion is stopped for this draft. Copy the saved original text into a fresh Facebook composer.", 15000); return; }
@@ -224,16 +227,22 @@ export function startFacebookAdapter(runtime: AdapterRuntime = defaultRuntime())
   }
 
   function showStatus() {
-    if (doc.querySelector(`[${STATUS_ATTR}]`)) return;
+    const existing = doc.querySelector<HTMLElement>(`[${STATUS_ATTR}]`);
+    const mobile = Math.min(doc.defaultView?.innerWidth ?? 1024, doc.defaultView?.innerHeight ?? 768) <= 600
+      || doc.defaultView?.matchMedia?.('(pointer: coarse)').matches === true;
+    const layout = { position: mobile ? 'static' : 'fixed', margin: mobile ? '8px' : '0', maxWidth: mobile ? 'none' : '260px' };
+    if (existing) { Object.assign(existing.style, layout); return; }
     const status = doc.createElement("details");
     status.setAttribute(STATUS_ATTR, "1");
     Object.assign(status.style, { position: "fixed", left: "12px", bottom: "12px", zIndex: "2147483646", maxWidth: "260px", padding: "8px 10px", border: "1px solid #5e84ff", borderRadius: "8px", background: "#f3f6ff", color: "#1b2340", font: "13px/1.4 system-ui, sans-serif" });
+    Object.assign(status.style, layout);
     const summary = doc.createElement("summary");
     summary.textContent = "Open Social enabled";
     const hint = doc.createElement("p");
     hint.textContent = 'Cross-posting is checked by default; you can uncheck it for any post or change the default in Settings. Choose Public or Friends for the Open Social copy. After Facebook publishes, its post link is included on Open Social. Unlock Browser tools before posting.';
     status.append(summary, hint);
-    (doc.body ?? root).append(status);
+    if (mobile) (doc.body ?? root).prepend(status);
+    else (doc.body ?? root).append(status);
   }
 
   const scan = () => {
@@ -312,6 +321,7 @@ export function startFacebookAdapter(runtime: AdapterRuntime = defaultRuntime())
     if (inactive) scan();
   };
   doc.defaultView?.addEventListener("focus", resume);
+  doc.defaultView?.addEventListener("resize", resume);
   doc.addEventListener("visibilitychange", onVisibility);
   // Opening a composer after the observer went idle need not focus the window again.
   doc.addEventListener("pointerdown", wake, true);
@@ -327,6 +337,7 @@ export function startFacebookAdapter(runtime: AdapterRuntime = defaultRuntime())
       publicationNotice?.dispose(); publicationNotice = undefined;
       observer.stop();
       doc.defaultView?.removeEventListener("focus", resume);
+      doc.defaultView?.removeEventListener("resize", resume);
       doc.removeEventListener("visibilitychange", onVisibility);
       doc.removeEventListener("pointerdown", wake, true);
       doc.removeEventListener("keydown", wake, true);
@@ -337,6 +348,7 @@ export function startFacebookAdapter(runtime: AdapterRuntime = defaultRuntime())
       attributions.clear();
       resetFeedCards(doc);
       doc.querySelectorAll(`[${CONTROL_ATTR}], [${FEED_ATTR}], [${TOAST_ATTR}], [${STATUS_ATTR}]`).forEach((el) => el.remove());
+      doc.querySelectorAll('[data-osp-facebook-composer]').forEach(el => el.removeAttribute('data-osp-facebook-composer'));
       root.removeAttribute(ADAPTER_ATTR);
   }
 

@@ -44,5 +44,8 @@ packages/contracts/*/abi/*.abi
 packages/contracts/*/build/
 deployments/localnet.json
 apps/extension/dist.zip
+apps/extension/dist-firefox/
+apps/extension/dist-firefox-unsigned.zip
+apps/extension/web-ext-artifacts/
 # Public testnet rehearsal receipts are uploaded by CI, not source files.
 testnet-evidence/

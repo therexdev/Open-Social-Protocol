@@ -1,5 +1,6 @@
 // Content script entry (registered at runtime with chrome.scripting.registerContentScripts,
 // isolated world, classic script). All logic lives in facebookAdapter.ts so it can be tested.
+import "../shared/webextension";
 import { startFacebookAdapter, type RunningAdapter } from "./facebookAdapter";
 
 // Dynamic registration and immediate injection can race. Keep one controller/listener in the

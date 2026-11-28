@@ -30,7 +30,7 @@ check(typeof manifest.side_panel?.default_path === "string" && existsSync(path.j
 check(typeof manifest.options_page === "string" && existsSync(path.join(dist, manifest.options_page)), "options page missing");
 check(manifest.content_scripts === undefined, "no static content_scripts allowed");
 check(JSON.stringify(manifest.permissions) === JSON.stringify(["storage", "sidePanel", "scripting", "alarms", "activeTab"]), "unexpected permissions");
-check(JSON.stringify(manifest.optional_host_permissions) === JSON.stringify(["https://www.facebook.com/*", "https://web.facebook.com/*", "https://x.com/*", "https://www.x.com/*"]), "unexpected optional_host_permissions");
+check(manifest.optional_host_permissions.includes('https://m.facebook.com/*') && manifest.optional_host_permissions.includes('https://x.com/*') && manifest.optional_host_permissions.every(pattern => /^https:\/\/(?:www\.|web\.|m\.|mobile\.)?(?:facebook\.com|x\.com|twitter\.com)\/\*$/.test(pattern)), "unexpected optional_host_permissions");
 check(manifest.host_permissions === undefined, "no host_permissions allowed (optional only)");
 check(/script-src 'self'/.test(manifest.content_security_policy?.extension_pages ?? "") && !/\x27unsafe-eval\x27/.test(manifest.content_security_policy?.extension_pages ?? ""), "CSP must be script-src 'self' without unsafe-eval");
 check(!existsSync(path.join(dist, "social")), "The embedded website must not be packaged");

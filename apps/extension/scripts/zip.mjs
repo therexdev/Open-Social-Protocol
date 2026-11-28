@@ -5,8 +5,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const distDir = path.join(root, "dist");
-const outFile = path.join(root, "dist.zip");
+const firefox = process.argv.includes('--firefox');
+const distDir = path.join(root, firefox ? 'dist-firefox' : 'dist');
+const outFile = path.join(root, firefox ? 'dist-firefox-unsigned.zip' : 'dist.zip');
 if (!existsSync(path.join(distDir, "manifest.json"))) {
   console.error("dist/manifest.json not found: run `npm run build -w apps/extension` first");
   process.exit(1);

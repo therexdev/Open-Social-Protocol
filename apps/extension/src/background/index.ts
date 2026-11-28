@@ -13,13 +13,24 @@ const background = createBackground({ local: localArea(), session: sessionArea()
 
 chrome.runtime.onMessage.addListener(background.router.listener);
 
+// Firefox for Android has no Chrome side panel. Its toolbar action opens the same
+// standalone client in a full tab, preserving the Facebook/X tab for the return trip.
+if (import.meta.env.VITE_OSP_BROWSER === 'firefox' || !chrome.sidePanel?.setPanelBehavior) chrome.action.onClicked.addListener(() => {
+  void (async () => {
+    const url = chrome.runtime.getURL("src/sidepanel/index.html");
+    const existing = (await chrome.tabs.query({})).find(tab => tab.url?.split("#")[0] === url);
+    if (existing?.id !== undefined) await chrome.tabs.update(existing.id, { active: true });
+    else await chrome.tabs.create({ url });
+  })().catch(console.error);
+});
+
 async function setup(): Promise<void> {
   try {
     await chrome.storage.session.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" });
   } catch {
     // default is already trusted contexts only
   }
-  await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
+  if (import.meta.env.VITE_OSP_BROWSER !== 'firefox' && chrome.sidePanel?.setPanelBehavior) await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
   await chrome.alarms.create(AUTOLOCK_ALARM, { periodInMinutes: 1 });
   await chrome.alarms.create(SWEEP_ALARM, { periodInMinutes: 5 });
   await background.syncAdapters();

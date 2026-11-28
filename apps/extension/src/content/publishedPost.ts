@@ -1,6 +1,7 @@
 import { facebookPostUrl } from "../shared/facebookUrl";
+import { FACEBOOK_POST } from "./facebookDom";
 
-const ROW = '[aria-posinset], [data-pagelet^="FeedUnit_"], [role="article"]';
+const ROW = FACEBOOK_POST;
 const MESSAGE = '[data-ad-preview="message"], [data-ad-comet-preview="message"], [data-ad-rendering-role="story_message"], [data-testid="post_message"]';
 const EXCLUDED = '[role="dialog"], [data-osp-feed], [data-osp-control], [data-osp-toast], [data-osp-facebook-publish], [role="complementary"], aside, [hidden], [aria-hidden="true"]';
 const normalize = (text: string) => text.replace(/[\u200b-\u200f\u2060\ufeff]/g, "").replace(/\s+/g, " ").trim();

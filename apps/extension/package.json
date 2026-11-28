@@ -1,6 +1,6 @@
 {
   "name": "@osp/extension",
-  "version": "0.7.11",
+  "version": "0.7.12",
   "private": true,
   "description": "Open Social Protocol standalone Chrome client with optional Facebook and X feed integration and cross-posting",
   "license": "MIT",
@@ -8,6 +8,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -p tsconfig.json --noEmit && vite build && node scripts/build-content.mjs && node scripts/build-release.mjs && node scripts/smoke-dist.mjs",
+    "build:firefox": "tsc -p tsconfig.json --noEmit && node --import tsx scripts/build-firefox.mjs && node scripts/smoke-firefox.mjs",
+    "zip:firefox": "node scripts/zip.mjs --firefox",
+    "smoke:firefox-browser": "node scripts/smoke-firefox-browser.mjs",
     "smoke": "node scripts/smoke-dist.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",

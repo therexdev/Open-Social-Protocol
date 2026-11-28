@@ -1,3 +1,4 @@
+import "../shared/webextension";
 import { startXAdapter } from "./xAdapter";
 const scope = globalThis as typeof globalThis & { __ospX?: ReturnType<typeof startXAdapter> };
 if (scope.__ospX) scope.__ospX.refresh();

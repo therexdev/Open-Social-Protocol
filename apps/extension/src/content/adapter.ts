@@ -50,9 +50,10 @@ export function buildControl(doc: Document): { host: HTMLElement; checkbox: HTML
     font: "13px/1.4 system-ui, sans-serif",
   });
   const label = doc.createElement("label");
-  style(label, { display: "flex", alignItems: "center", gap: "8px", cursor: "pointer", flex: "1" });
+  style(label, { display: "flex", alignItems: "center", gap: "8px", cursor: "pointer", flex: "1 1 160px", minHeight: "44px" });
   const checkbox = doc.createElement("input");
   checkbox.type = "checkbox";
+  style(checkbox, { width: "20px", height: "20px", flexShrink: "0" });
   checkbox.setAttribute("aria-label", LABEL_TEXT);
   const text = doc.createElement("span");
   text.textContent = LABEL_TEXT;
@@ -63,7 +64,7 @@ export function buildControl(doc: Document): { host: HTMLElement; checkbox: HTML
     const option = doc.createElement("option"); option.value = value!; option.textContent = name!; audience.append(option);
   }
   audience.disabled = true;
-  style(audience, { color: "#1b2340", background: "#fff", border: "1px solid #5e84ff", borderRadius: "6px", padding: "6px", font: "inherit" });
+  style(audience, { color: "#1b2340", background: "#fff", border: "1px solid #5e84ff", borderRadius: "6px", padding: "6px", font: "inherit", minHeight: "44px" });
   checkbox.addEventListener("change", () => { audience.disabled = !checkbox.checked; });
   const badge = doc.createElement("span");
   badge.textContent = BADGE_TEXT;
@@ -86,6 +87,7 @@ export function injectControl(dialog: HTMLElement, adapter: ComposerAdapter, doc
 /** Only the composer text (textContent of the textbox); never other page content. */
 export function readComposerText(dialog: HTMLElement, adapter: ComposerAdapter): string {
   const textbox = adapter.findTextbox(dialog);
+  if (textbox?.tagName === 'TEXTAREA') return (textbox as HTMLTextAreaElement).value.trim();
   // innerText preserves paragraphs/line breaks in real contenteditable editors.
   return (textbox?.innerText ?? textbox?.textContent ?? "").replace(/​/g, "").trim();
 }
@@ -124,9 +126,14 @@ export function hookSubmit(dialog: HTMLElement, adapter: ComposerAdapter, contro
   };
   dialog.addEventListener("click", onClick, true);
   dialog.addEventListener("keydown", onKey, true);
+  const onFormSubmit = (event: Event) => {
+    if (event.target === dialog && dialog.tagName === 'FORM') fire(event);
+  };
+  dialog.addEventListener("submit", onFormSubmit, true);
   return () => {
     dialog.removeEventListener("click", onClick, true);
     dialog.removeEventListener("keydown", onKey, true);
+    dialog.removeEventListener("submit", onFormSubmit, true);
     dialog.removeAttribute(HOOK_ATTR);
   };
 }
