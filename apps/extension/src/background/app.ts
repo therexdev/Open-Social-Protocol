@@ -38,7 +38,8 @@ import { EmbeddedActions } from "./embedActions";
 import { embeddedMedia } from "./embedMedia";
 import { ProfilePhotos } from "./profilePhotos";
 import { EncryptedStore, KeyStore, deriveAesKey, type KeyCache } from "./keystore";
-import { createRouter, defineHandler, type Handlers, type Router } from "./messages";
+import { createRouter, defineHandler, originFromSender, type Handlers, type Router } from "./messages";
+import { extensionOrigin } from "../shared/webextension";
 import { authorizeDevice, lookupDeviceStatus, publishPost, recordCrossPostProof, submitOperations } from "./publish";
 import type { EconomyInspection } from "../sidepanel/Economy";
 import { VaultManager, type UnlockedSession, type VaultManagerOptions } from "./vault";
@@ -645,6 +646,7 @@ export function createBackground(options: BackgroundOptions): Background {
   }
   const router = createRouter({
     runtimeId: options.runtimeId,
+    extensionUrl: api.runtime.getURL(""),
     handlers,
     grantedOrigins: async () => {
       try {
@@ -662,7 +664,7 @@ export function createBackground(options: BackgroundOptions): Background {
     handle: async (message, sender) => {
       const reply = await baseHandle(message, sender);
       const type = (message as { type?: string } | null)?.type;
-      if (reply.ok && typeof type === "string" && !type.startsWith("vault.") && !type.startsWith("embed.") && sender.origin === `chrome-extension://${options.runtimeId}`) void vault.touch();
+      if (reply.ok && typeof type === "string" && !type.startsWith("vault.") && !type.startsWith("embed.") && originFromSender(sender) === extensionOrigin(api.runtime.getURL(""))) void vault.touch();
       return reply;
     },
     listener(message, sender, sendResponse) {

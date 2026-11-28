@@ -1,0 +1,36 @@
+name: Firefox Android extension
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths: ['apps/extension/**', 'packages/sdk/**', 'packages/proto/**', '.github/workflows/firefox-extension.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  firefox:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build -w packages/proto -w packages/sdk
+      - run: npm test -w apps/extension
+      - run: npm run build:firefox -w apps/extension
+      - run: npx --yes web-ext@10.8.0 lint --source-dir apps/extension/dist-firefox
+      - run: npm run zip:firefox -w apps/extension
+      - uses: actions/upload-artifact@v4
+        with:
+          name: open-social-firefox-android-unsigned
+          path: apps/extension/dist-firefox-unsigned.zip
+      - name: Build source archive for Mozilla review
+        run: git archive --format=zip --output=firefox-review-source.zip HEAD
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firefox-review-source
+          path: firefox-review-source.zip

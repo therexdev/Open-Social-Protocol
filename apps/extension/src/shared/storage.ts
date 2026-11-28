@@ -47,5 +47,6 @@ export function localArea(): KeyValueArea {
 }
 
 export function sessionArea(): KeyValueArea {
-  return storageArea(chrome.storage.session);
+  // Never persist an unlocked key in local storage when session storage is absent.
+  return chrome.storage.session ? storageArea(chrome.storage.session) : memoryArea();
 }

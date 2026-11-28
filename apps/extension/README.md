@@ -1,9 +1,23 @@
-# Open Social Chrome extension
+# Open Social browser extension
 
-Version 0.7.8 beta is a standalone protocol frontend in the Chrome side panel, plus
+## Firefox Android beta
+
+`npm run build:firefox -w apps/extension` builds a separate event-page client in
+`dist-firefox/`. `npm run zip:firefox -w apps/extension` packages the unsigned submission ZIP.
+Mozilla signing is required before installing on Android. See
+[the Firefox Android guide](../../docs/firefox-android-extension.md) for signing, installation
+and testing. `npm run smoke:firefox-browser -w apps/extension` exercises both mobile host fixtures
+in a real Firefox engine with Playwright (install its Firefox browser first).
+
+The Firefox manifest supports Android 142+ and desktop 140+. The toolbar action opens the client
+in a tab. The existing Chrome build and side panel remain available through `npm run build`.
+
+## Chrome
+
+Version 0.7.12 beta is a standalone protocol frontend in the Chrome side panel, plus
 optional Facebook and X feed integration and composer cross-posting. It does not load the website
 or a separately bundled website application. The Social switch and Open in tab
-button are removed. See [release instructions](../../docs/chrome-extension-0.7.8.md).
+button are removed. See [release instructions](../../docs/chrome-extension-0.7.12.md).
 
 The public download and setup guide is https://opensocial.online/browser-plugin.
 

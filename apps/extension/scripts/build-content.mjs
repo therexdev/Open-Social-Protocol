@@ -7,6 +7,7 @@ import path from "node:path";
 
 // apps/extension (this file lives in apps/extension/scripts)
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const outDir = process.env.OSP_BROWSER === 'firefox' ? 'dist-firefox' : 'dist';
 const entries = {
   facebook: "src/content/facebook.ts",
   x: "src/content/x.ts",
@@ -19,7 +20,7 @@ for (const [name, entry] of Object.entries(entries)) {
     publicDir: false, // icons are emitted by the main build (manifest references)
     logLevel: "warn",
     build: {
-      outDir: "dist",
+      outDir,
       emptyOutDir: false,
       sourcemap: false,
       target: "es2022",
@@ -35,5 +36,5 @@ for (const [name, entry] of Object.entries(entries)) {
       },
     },
   });
-  console.log(`built dist/content/${name}.js`);
+  console.log(`built ${outDir}/content/${name}.js`);
 }

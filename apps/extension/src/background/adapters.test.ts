@@ -47,9 +47,9 @@ describe("adapter registration is serialized", () => {
     await adapters.sync(settings(true));
     chrome.permissions._granted.origins.delete("https://web.facebook.com/*");
     await adapters.sync(settings(true));
-    expect(send).toHaveBeenCalledWith(2, { type: "osp.facebook.stop", origins: ["https://web.facebook.com/*"] }, { frameId: 0 });
+    expect(send).toHaveBeenCalledWith(2, { type: "osp.facebook.stop", origins: expect.arrayContaining(["https://web.facebook.com/*"]) }, { frameId: 0 });
     await adapters.disableFacebook();
-    expect(send).toHaveBeenCalledWith(1, { type: "osp.facebook.stop", origins: ["https://www.facebook.com/*", "https://web.facebook.com/*"] }, { frameId: 0 });
+    expect(send).toHaveBeenCalledWith(1, { type: "osp.facebook.stop", origins: expect.arrayContaining(["https://www.facebook.com/*", "https://web.facebook.com/*", "https://m.facebook.com/*"]) }, { frameId: 0 });
   });
 
   it("a sync that started earlier with stale settings cannot undo a later enable", async () => {

@@ -8,6 +8,7 @@
 import { FEED_ORIGINS, feedHost } from "../shared/hosts";
 import { CONTENT_SCRIPT_TYPES, MAX_MESSAGE_BYTES, type Reply } from "../shared/protocol";
 import { ValidationError, type Validator } from "../shared/validate";
+import { extensionOrigin } from "../shared/webextension";
 
 export type Source = "extension" | "content" | "embed";
 
@@ -36,6 +37,8 @@ export function defineHandler<P, R>(def: HandlerDef<P, R>): HandlerDef<P, R> {
 
 export interface RouterOptions {
   runtimeId: string;
+  /** runtime.getURL(""): Firefox uses a UUID here, rather than the add-on ID. */
+  extensionUrl?: string;
   handlers: Handlers;
   /** Host permission patterns currently granted (chrome.permissions.getAll().origins). */
   grantedOrigins: () => Promise<string[]>;
@@ -68,7 +71,8 @@ export function originFromSender(sender: chrome.runtime.MessageSender): string |
   if (typeof sender.origin === "string" && sender.origin !== "null") return sender.origin.toLowerCase();
   if (typeof sender.url === "string") {
     try {
-      return new URL(sender.url).origin.toLowerCase();
+      const url = new URL(sender.url);
+      return /^(?:moz|chrome)-extension:$/.test(url.protocol) ? extensionOrigin(sender.url) : url.origin.toLowerCase();
     } catch {
       return undefined;
     }
@@ -95,7 +99,7 @@ export function createRouter(options: RouterOptions): Router {
   const limit = options.rateLimit ?? { max: 20, windowMs: 10_000 };
   const maxBytes = options.maxBytes ?? MAX_MESSAGE_BYTES;
   const buckets = new Map<number, number[]>();
-  const extensionOrigin = `chrome-extension://${options.runtimeId}`.toLowerCase();
+  const ownOrigin = extensionOrigin(options.extensionUrl ?? `chrome-extension://${options.runtimeId}/`);
 
   function rateLimited(tabId: number): boolean {
     const at = now();
@@ -136,7 +140,7 @@ export function createRouter(options: RouterOptions): Router {
     if (!origin) return reject("forbidden", "Sender origin is unknown.");
     let source: Source;
     let tabId: number | undefined;
-    if (origin === extensionOrigin) {
+    if (origin === ownOrigin) {
       source = "extension";
       // Cards have narrow, post-bound operations. General vault/signing APIs remain unavailable.
       const path = sender.url ? new URL(sender.url).pathname : "";

@@ -78,6 +78,19 @@ export class EditorAttribution {
       && this.read(this.root, this.adapter) === before;
     this.busy = true;
     try {
+      if (editor.tagName === 'TEXTAREA') {
+        if (!valid()) return false;
+        const expected = enabled ? `${before}\n\n${footer}` : original;
+        const setter = Object.getOwnPropertyDescriptor(doc.defaultView!.HTMLTextAreaElement.prototype, 'value')!.set!;
+        setter.call(editor, expected);
+        editor.dispatchEvent(new Event('input', { bubbles: true }));
+        editor.dispatchEvent(new Event('change', { bubbles: true }));
+        await pause(180);
+        if (this.disposed || !editor.isConnected) return false;
+        if (this.read(this.root, this.adapter) !== expected) return this.fail(original);
+        this.inserted = enabled ? footer : '';
+        return active();
+      }
       const ready = await select(editor, () => {
         const nodes = textNodes(editor), last = nodes.at(-1);
         if (!last) return;
