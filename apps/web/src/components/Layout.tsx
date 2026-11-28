@@ -16,6 +16,7 @@ import { useSwipeTabs } from "./useSwipeTabs";
 import { InstallButton, PwaStatus } from "../pwa/PwaControls";
 import { useProfileName } from "../features/profile/useProfileName";
 import { Toasts } from "./Toasts";
+import { useSocialMetadata } from "../features/post/useSocialMetadata";
 
 function DeploymentBanner() {
   const { resolved } = useServices();
@@ -70,7 +71,7 @@ const secondary = [
 ] as const;
 
 export function Layout({ children }: { children: ReactNode }) {
-  const { protocol } = useServices();
+  const { protocol, indexer } = useServices();
   const location = useLocation();
   const navigate = useNavigate();
   const status = useVault((s) => s.status);
@@ -103,6 +104,7 @@ export function Layout({ children }: { children: ReactNode }) {
     document.title = title === "Open Social" ? title : `${title} · Open Social`;
     window.scrollTo({ top: 0, behavior: "instant" });
   }, [location.pathname]);
+  useSocialMetadata(location.pathname, indexer);
   const navItem = (item: { to: string; label: string; icon: IconName }, mobile = false) => {
     const profile = item.to === "/me";
     return <NavLink key={item.to} to={profile ? ownProfile : item.to} end={item.to === "/"} className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}><span className="nav-icon"><Icon name={item.icon} size={22} />{item.to === "/notifications" && unread > 0 && <span className="badge" aria-label={`${unread} new`}>{unread > 99 ? "99+" : unread}</span>}</span><span>{mobile && profile ? "Profile" : item.label}</span></NavLink>;

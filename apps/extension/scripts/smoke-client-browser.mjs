@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {readFileSync,existsSync,readdirSync} from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
-import {identityFromSeed,lockVault,encodeProfile,toBase64url,encode,contentHash,encryptContent,decode,fromBase64url} from '@osp/sdk';
+import {identityFromSeed,lockVault,encodeProfile,toBase64url,encode,contentHash,encryptContent,decode,fromBase64url,decodeEnvelope,decryptContent} from '@osp/sdk';
 import {ABIS} from '@osp/proto';
 const {chromium}=await import(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?pathToFileURL(path.join(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES,'playwright/index.mjs')).href:'playwright');
 const dist=path.resolve(fileURLToPath(new URL('../dist/',import.meta.url))),manifest=JSON.parse(readFileSync(path.join(dist,'manifest.json'),'utf8'));
@@ -84,6 +84,11 @@ try {
    return fulfill({json:Array.isArray(input)?input.map(answer):answer(input)});
   }
   if(['/v1/feed','/v2/feed'].includes(url.pathname))return fulfill({json:{items:topicPosts,nextCursor:null}});
+  if(/^\/v1\/posts\/[^/]+\/preview$/.test(url.pathname)){
+   const post=topicPosts.find(p=>p.postId===decodeURIComponent(url.pathname.split('/')[3]));
+   return fulfill({json:post&&post.audience===0&&post.state===0?{version:1,public:true,title:'Extension QA on Open Social',description:decryptContent({envelope:decodeEnvelope(fromBase64url(post.envelope))}).text}:{version:1,public:false,title:'Open Social',description:'Your people. Your world.'}});
+  }
+  if(/^\/v1\/posts\/[^/]+\/replies$/.test(url.pathname))return fulfill({json:{items:[],nextCursor:null}});
   if(url.pathname.startsWith('/v1/posts/'))return fulfill({json:topicPosts.find(p=>p.postId===decodeURIComponent(url.pathname.split('/')[3]))??{}});
   if(url.pathname.startsWith('/v1/profiles/'))return fulfill({json:profile});
   if(url.pathname.startsWith('/v1/graph/'))return fulfill({json:{account:me.account,friends:[],followers:[],following:[],pendingIncoming:[],pendingOutgoing:[],audienceEpoch:0,blocked:[]}});
@@ -263,7 +268,13 @@ try {
  await publicPage.getByRole('article',{name:'Post by Extension QA',exact:true}).first().getByRole('link',{name:/Open post from/}).click();
  await publicPage.locator('.quoted-post strong').getByText('quoted formatting',{exact:true}).waitFor();
  assert.ok(publicPage.url().includes('/post/'),'A shared post opens its own public page without sign-in');
+ await publicPage.waitForFunction(()=>document.querySelector('meta[property="og:description"]')?.content==='My separate share');
+ assert.equal(await publicPage.title(),'Extension QA on Open Social');
+ assert.equal(await publicPage.locator('link[rel="canonical"]').getAttribute('href'),`https://opensocial.online/post/${encodeURIComponent(publicShare.postId)}`);
+ await publicPage.locator('.sidebar a[href="/"]').first().click();
+ await publicPage.waitForFunction(()=>document.querySelector('meta[property="og:title"]')?.content==='Open Social');
+ assert.equal(await publicPage.locator('meta[property="og:image"]').getAttribute('content'),'https://opensocial.online/social-card.png');
  assert.deepEqual(errors,[]);await publicPage.close();
- console.log('Public website topics passed: new tags replace old tags, deleted posts remove topics, no static placeholders or account required; verified quote preview and shared-post page remain public.');
+ console.log('Public website topics passed: fresh topics and public quote pages; link-card metadata updates on post navigation and clears on return to the feed.');
  await context.close();
 } finally {await browser.close();}

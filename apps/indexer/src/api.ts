@@ -16,6 +16,7 @@ import type { Syncer } from "./sync.js";
 import { PrivateUpdates } from "./privateUpdates.js";
 import { registerMusicMirror } from "./musicMirror.js";
 import { timeline } from "./musicFeed.js";
+import { registerSocialPreviews, type PreviewDependencies } from "./socialPreviews.js";
 
 export interface ApiOptions {
   db: IndexerDb;
@@ -23,6 +24,7 @@ export interface ApiOptions {
   syncer?: Syncer;
   /** Fastify logger (default off). */
   logger?: boolean;
+  previewDependencies?: PreviewDependencies;
 }
 
 export class ApiError extends Error {
@@ -123,7 +125,7 @@ export function statusView(options: ApiOptions): Record<string, unknown> {
     ? Object.fromEntries(Object.entries(deployment.contracts).map(([name, entry]) => [name, entry.address]))
     : null;
   return {
-    features: { tokenEconomy: deployment?.economy === "token-free" ? 0 : 1, rewardSettlementQueue: deployment?.economy === "token-free" ? 0 : 1, privateMessaging: 2, privateUpdates: 1, photoLibrary: 1, musicFeed: 1,
+    features: { tokenEconomy: deployment?.economy === "token-free" ? 0 : 1, rewardSettlementQueue: deployment?.economy === "token-free" ? 0 : 1, privateMessaging: 2, privateUpdates: 1, photoLibrary: 1, musicFeed: 1, socialLinkPreviews: 1,
       ...(config.musicCache && deployment && { musicGateway: 1 }) },
     network: config.network,
     chainId: deployment?.chainId ?? null,
@@ -163,6 +165,7 @@ export function buildApi(options: ApiOptions): FastifyInstance {
 
   app.register(cors, { origin: "*", methods: ["GET", "HEAD", "OPTIONS"], exposedHeaders: ["Content-Range", "Accept-Ranges", "ETag"] });
   registerMusicMirror(app, config);
+  registerSocialPreviews(app, db, config, options.previewDependencies);
 
   app.setNotFoundHandler((request, reply) => {
     void request;
