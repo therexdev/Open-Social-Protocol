@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { PHOTO_MAX_BYTES, photoCost, toBase64url } from "@osp/sdk";
+import { HOSTED_MEDIA_DEFAULT_MAX_BYTES, PHOTO_MAX_BYTES, photoCost, toBase64url } from "@osp/sdk";
 import { useServices } from "../../api/services";
+import { usesExternalMedia } from "../../api/mediaStorage";
 import { MediaPhoto } from "../../components/MediaPhoto";
 import { Button, Field, Notice } from "../../components/ui";
 import { prepareArchivedPhoto } from "../composer/archivePhoto";
@@ -34,7 +35,7 @@ export function GroupBannerPicker({ current, value, onChange, disabled, onBusyCh
     busy.current = true; controller.current = new AbortController();
     setPreparing(true); onBusyChange(true); setError(""); setReadFailed(false);
     try {
-      const bytes = await preparePhoto(file, controller.current.signal, PHOTO_MAX_BYTES - 16);
+      const bytes = await preparePhoto(file, controller.current.signal, (usesExternalMedia(protocol) ? HOSTED_MEDIA_DEFAULT_MAX_BYTES : PHOTO_MAX_BYTES) - 16);
       if (alive.current) onChange(prepareArchivedPhoto(bytes, protocol, true));
     } catch (e) {
       if (alive.current) { setError(e instanceof Error ? e.message : String(e)); setReadFailed(e instanceof PhotoReadError); }
@@ -52,12 +53,12 @@ export function GroupBannerPicker({ current, value, onChange, disabled, onBusyCh
   return <div className="group-banner-picker">
     <Field label="Group banner">{id => <input id={id} type="file" accept="image/*" disabled={disabled || preparing || !protocol} onChange={pick}/>}</Field>
     {selected && <GroupBanner banner={selected}/>}
-    {value && <p className="hint">{photoCost(value.size)} photo usage units · {Math.ceil(value.size / 1024)} KiB</p>}
+    {value && <p className="hint">{protocol?.deployment?.economy !== "token-free" && `${photoCost(value.size)} photo usage units · `} {Math.ceil(value.size / 1024)} KiB</p>}
     <div className="row wrap">
       {selected && <Button variant="ghost" disabled={disabled || preparing} onClick={() => onChange(null)}>Remove banner</Button>}
       {value !== undefined && <Button variant="ghost" disabled={disabled || preparing} onClick={() => onChange(undefined)}>Undo banner change</Button>}
     </div>
-    <p className="hint">{preparing ? "Preparing banner…" : "Only group members can view this banner. Uploading uses the same free and regenerating OSAT capacity as other photos."}</p>
+    <p className="hint">{preparing ? "Preparing banner…" : protocol?.deployment?.economy === "token-free" ? "Only group members can view this banner." : "Only group members can view this banner. Uploading uses the same free and regenerating OSAT capacity as other photos."}</p>
     <input ref={files} className="visually-hidden" type="file" aria-label="Choose group banner from files" disabled={disabled || preparing} onChange={pick}/>
     {error && <Notice kind="error">{error}{readFailed && <div className="row"><Button disabled={disabled || preparing} onClick={() => files.current?.click()}>Choose from files</Button></div>}</Notice>}
   </div>;

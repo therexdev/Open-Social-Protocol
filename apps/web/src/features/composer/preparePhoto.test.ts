@@ -105,8 +105,8 @@ describe("mobile photo preparation", () => {
   it("limits streamed bytes even if the file's reported size is zero", async () => {
     const file = new File([], "large.jpg");
     const cancel = vi.fn();
-    Object.defineProperty(file, "stream", { value: () => new ReadableStream({ start(c) { c.enqueue(new Uint8Array(20 * 1024 * 1024 + 1)); }, cancel }) });
-    await expect(readPhotoSource(file)).rejects.toThrow(/20 MB/);
+    Object.defineProperty(file, "stream", { value: () => new ReadableStream({ start(c) { c.enqueue(new Uint8Array(64 * 1024 * 1024 + 1)); }, cancel }) });
+    await expect(readPhotoSource(file)).rejects.toThrow(/64 MiB/);
     expect(cancel).toHaveBeenCalledOnce();
   });
 });
@@ -125,12 +125,12 @@ it("recovers a document provider whose File metadata blocks both reads", async (
 });
 
 it("enforces the source limit on a fallback snapshot even when the provider reports zero size", async () => {
-  const file = new File([new Uint8Array(20 * 1024 * 1024 + 1)], "oversized.jpg");
+  const file = new File([new Uint8Array(64 * 1024 * 1024 + 1)], "oversized.jpg");
   Object.defineProperty(file, "size", { value: 0 });
   const read = FileReader.prototype.readAsArrayBuffer;
   vi.spyOn(FileReader.prototype, "readAsArrayBuffer").mockImplementation(function(this: FileReader, blob) {
     if (blob === file) throw new DOMException("Stale metadata", "NotReadableError");
     return read.call(this, blob);
   });
-  await expect(readPhotoSource(file)).rejects.toThrow(/20 MB/);
+  await expect(readPhotoSource(file)).rejects.toThrow(/64 MiB/);
 });

@@ -29,6 +29,7 @@ import { TokensPage } from "../../../web/src/features/tokens/TokensPage";
 import { SettingsPage } from "../../../web/src/features/settings/SettingsPage";
 import { RecoveryPage } from "../../../web/src/features/recovery/RecoveryPage";
 import { HashtagPage } from "../../../web/src/features/feed/HashtagPage";
+import { BrowserPluginPage } from "../../../web/src/features/plugin/BrowserPluginPage";
 import { AboutPage } from "../../../web/src/features/about/AboutPage";
 
 function AccountGate({ children }: { children: ReactNode }) {
@@ -62,6 +63,7 @@ export function ExtensionRoutes() {
     <Route path="/browser-drafts" element={<div className="page"><h1>Unfinished browser posts</h1><FacebookDrafts/></div>}/>
     <Route path="/welcome" element={<Welcome/>}/>
     <Route path="/recover" element={<RecoveryPage/>}/>
+    <Route path="/browser-plugin" element={<BrowserPluginPage/>}/>
     <Route path="/about" element={<AboutPage/>}/>
     <Route path="*" element={<Navigate to="/" replace/>}/>
   </Routes>;

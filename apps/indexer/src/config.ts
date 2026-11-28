@@ -108,6 +108,7 @@ export function loadConfig(env: Env = process.env, options: LoadConfigOptions = 
     deploymentError = loaded.error;
   }
 
+  if (network === "mainnet" && deployment && (deployment.network !== "mainnet" || deployment.chainId !== NETWORKS.mainnet.expectedChainId)) throw new Error("Mainnet indexer requires the pinned mainnet deployment");
   const preset = (NETWORKS as Record<string, { rpc: string[] } | undefined>)[network];
   const rpc = listEnv(env, "OSP_RPC") ?? deployment?.rpc ?? preset?.rpc ?? [];
 

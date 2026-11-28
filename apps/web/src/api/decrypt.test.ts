@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { AUDIENCE, LIFECYCLE, buildKeyPackageSet, encode, encryptContent, identityFromSeed, newEpochKey, postId, toBase58, toBase64url, ProtocolClient, openMedia, fromBase64url } from "@osp/sdk";
+import { describe, expect, it, vi } from "vitest";
+import { AUDIENCE, LIFECYCLE, LONG_POST_FALLBACK, storePostText, contentHash, buildKeyPackageSet, encode, encryptContent, identityFromSeed, newEpochKey, postId, toBase58, toBase64url, ProtocolClient, openMedia, fromBase64url } from "@osp/sdk";
 import { KeyStore } from "./keystore";
 import { openPost } from "./decrypt";
 import type { PostView, SealedKeyView } from "./indexer";
@@ -76,6 +76,26 @@ function source(items: SealedKeyView[]) {
 }
 
 describe("post decryption pipeline", () => {
+  it.each([false, true])("loads the complete hosted story only after opening its authenticated envelope (private=%s)", async encrypted => {
+    const text = "The complete story, including its ending.\n".repeat(1800), original = friendsPost(4);
+    let stored = new Uint8Array();
+    const ref = await storePostText(text, encrypted, async bytes => {
+      stored = new Uint8Array(bytes); return `https://media.example/osp/test/identity/${toBase64url(contentHash(bytes))}`;
+    });
+    const aad = { chainId, author: author.account, audience: 1, epoch: 4, versionNumber: 1 };
+    const sealed = encryptContent({ content: { version: 1, mime: "text/plain", text: LONG_POST_FALLBACK, text_ref: ref }, ...(encrypted && { aad, epochKey: original.epochKey }) });
+    const value = makePost({ audience: encrypted ? 1 : 0, epoch: encrypted ? 4 : 0, envelope: toBase64url(sealed.bytes), contentHash: toBase64url(sealed.contentHash), postId: toBase64url(new Uint8Array(32).fill(97)) });
+    const fetch = vi.fn(async () => new Response(new Uint8Array(stored))); vi.stubGlobal("fetch", fetch);
+    try {
+      if (encrypted) { expect((await openPost(value, { chainId })).status).toBe("locked"); expect(fetch).not.toHaveBeenCalled(); }
+      const opened = await openPost(value, { chainId, ...(encrypted && { keys: new KeyStore(), me: friend, keySource: source(original.items) }) });
+      expect(opened.status).toBe(encrypted ? "decrypted" : "plain");
+      if (!("content" in opened)) throw Error("The story did not open");
+      expect(opened.content.text).toBe(text); expect(fetch).toHaveBeenCalledOnce();
+      const invalid = await openPost({ ...value, contentHash: toBase64url(new Uint8Array(32)) }, { chainId });
+      expect(invalid.status).toBe("error");
+    } finally { vi.unstubAllGlobals(); }
+  });
   it("round-trips a private video's poster through its encrypted envelope without exposing a public preview", async () => {
     const client = new ProtocolClient({ rpc: fakeProvider(), deployment: fixtureDeployment() });
     const clip = prepareClip({ bytes: new Uint8Array(100), mime: "video/mp4", durationMs: 15000 }, "video", client, true);
@@ -214,4 +234,14 @@ describe("sealed keys served by the indexer are untrusted until the chain confir
     expect((await openPost(post, { chainId, keys, me: friendId })).status).toBe("error");
     expect(keys.trusted(ref(10))).toBeDefined();
   });
+});
+
+it("verifies quote metadata against the ledger before opening an otherwise valid public envelope", async () => {
+  const {bytes,contentHash}=encryptContent({content:{version:1,text:'My share'}});
+  const quoteId=new Uint8Array(32).fill(81),quoteVersion=new Uint8Array(32).fill(82);
+  const post=makePost({envelope:toBase64url(bytes),audience:0,epoch:0,postId:toBase64url(new Uint8Array(32).fill(83)),contentHash:toBase64url(contentHash),quotePostId:toBase64url(quoteId),quoteVersion:toBase64url(quoteVersion)});
+  const chain={reads:{publications:{get_post:vi.fn().mockResolvedValue({value:{author:post.author,reply_to:new Uint8Array(),audience:0,version_count:1,latest_version:contentHash,state:0,quote_post_id:quoteId,quote_version:quoteVersion}})}}} as unknown as ProtocolClient;
+  expect((await openPost(post,{chainId,chain})).status).toBe('plain');
+  expect((await openPost({...post,quotePostId:toBase64url(new Uint8Array(32).fill(84))},{chainId,chain})).status).toBe('error');
+  expect((await openPost({...post,quoteVersion:''},{chainId,chain})).status).toBe('error');
 });

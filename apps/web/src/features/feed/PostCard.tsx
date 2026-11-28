@@ -1,3 +1,5 @@
+import { ShareMenu } from "./ShareMenu";
+import { QuotePreview } from "./QuotePreview";
 import { PostEditLink } from "../post/PostEditLink";
 import { PollCard } from "../polls/PollCard";
 import { PostEconomyActions } from "../tokens/PostEconomyActions";
@@ -20,7 +22,7 @@ import { AccountLink, Button, Details } from "../../components/ui";
 import { useProfileName } from "../profile/useProfileName";
 import { usePostContent } from "./usePostContent";
 import type { OpenedContent, PostContent } from "../../api/decrypt";
-import { RichText } from "../../components/RichText";
+import { PostText } from "./PostText";
 
 export function audienceLabel(audience: number): string {
   if (audience === AUDIENCE.EVERYONE) return "Everyone";
@@ -35,7 +37,7 @@ function MediaList({ content }: { content: OpenedContent }) {
     <ul className="media-list">
       {content.media.map((item, index) => {
         const url = item.locations?.[0];
-        if (url?.startsWith("osp-clip://")) return <li key={url} className="media-item"><ClipPlayer media={{
+        if (url && (url.startsWith("osp-clip://") || url.startsWith("osp-file:"))) return <li key={url} className="media-item"><ClipPlayer media={{
           url, mime: item.mime, size: Number(item.size), contentHash: item.content_hash, altText: item.alt_text,
           videoPoster: posterReference(item),
           ...(item.mediaKey && { encryption: { key: toBase64url(item.mediaKey), nonce: toBase64url(item.nonce) } }),
@@ -68,14 +70,14 @@ function MediaList({ content }: { content: OpenedContent }) {
   );
 }
 
-export function PostBody({ content }: { content: PostContent | undefined }) {
+export function PostBody({ content, expanded = false }: { content: PostContent | undefined; expanded?: boolean }) {
   if (!content) return <div className="post-opening" role="status" aria-label="Opening post"><span className="skeleton skeleton-line"/><span className="skeleton skeleton-line short"/></div>;
   switch (content.status) {
     case "plain":
     case "decrypted":
       return (
         <div className="post-body">
-          <p className="post-text"><RichText text={content.content.text}/></p>
+          <PostText text={content.content.text} expanded={expanded}/>
           <MediaList content={content.content} />
         </div>
       );
@@ -142,7 +144,7 @@ export function OpenedPostCard({ post, onChanged, expanded = false, content }: P
     <article className={`post post-${audience === AUDIENCE.EVERYONE ? "public" : "friends"}`} aria-label={`Post by ${name}`}>
       <header className="post-header">
         <Avatar account={post.author} name={name}/>
-        <div className="post-heading"><AccountLink account={post.author} name={name} className="post-author"/><span className="post-meta"><time dateTime={new Date(Number(post.createdAt) || 0).toISOString()} title={formatDateTime(post.createdAt)}>{timeAgo(post.createdAt)}</time>{post.versionNumber > 1 && !deleted && <> · <Link to={`/post/${post.postId}?history=1`}>Edited</Link></>}{!expanded && <PostEditLink post={post} />}</span></div>
+        <div className="post-heading"><AccountLink account={post.author} name={name} className="post-author"/><span className="post-meta"><Link className="post-permalink" to={`/post/${post.postId}`} aria-label={`Open post from ${formatDateTime(post.createdAt)}`}><time dateTime={new Date(Number(post.createdAt) || 0).toISOString()} title={formatDateTime(post.createdAt)}>{timeAgo(post.createdAt)}</time></Link>{post.versionNumber > 1 && !deleted && <> · <Link to={`/post/${post.postId}?history=1`}>Edited</Link></>}{!expanded && <PostEditLink post={post} />}</span></div>
         <span className={`chip chip-${audience === AUDIENCE.EVERYONE ? "public" : "friends"}`}><Icon name={audience === AUDIENCE.EVERYONE ? "globe" : "lock"} size={13}/>{audience === AUDIENCE.EVERYONE ? "Public" : audienceLabel(audience)}</span>
       </header>
       {post.labels.length > 0 && (
@@ -159,7 +161,8 @@ export function OpenedPostCard({ post, onChanged, expanded = false, content }: P
           Reply to <Link to={`/post/${post.replyTo}`}>a post</Link>
         </p>
       )}
-      {post.poll && post.state === LIFECYCLE.ACTIVE ? <><PollCard post={post} onChanged={onChanged}/>{(content?.status === "plain" || content?.status === "decrypted") && <MediaList content={content.content}/>}</> : <PostBody content={content} />}
+      {post.poll && post.state === LIFECYCLE.ACTIVE ? <><PollCard post={post} onChanged={onChanged}/>{(content?.status === "plain" || content?.status === "decrypted") && <MediaList content={content.content}/>}</> : <PostBody content={content} expanded={expanded} />}
+      {post.quotePostId && post.quoteVersion && (content?.status === "plain" || content?.status === "decrypted") && <QuotePreview quote={{ postId: post.quotePostId, version: post.quoteVersion }}/>}
       {post.promoted && <p className="promotion-label"><Icon name="spark" size={14}/> Promoted · paid for by the author</p>}
       <footer className="post-footer">
         <PostEconomyActions post={post} onChanged={onChanged}>
@@ -167,6 +170,7 @@ export function OpenedPostCard({ post, onChanged, expanded = false, content }: P
           {expanded
             ? <a className="btn btn-ghost engagement-icon" title="Comments" aria-label={`Comments (${post.replyCount})`} href="#post-comments"><Icon name="message" size={18}/>{post.replyCount || ""}</a>
             : <Link className="btn btn-ghost engagement-icon" title="Comments" aria-label={`Comments (${post.replyCount})`} to={`/post/${post.postId}#post-comments`}><Icon name="message" size={18}/>{post.replyCount || ""}</Link>}
+          <ShareMenu post={post} canQuote={post.state === LIFECYCLE.ACTIVE && post.audience === AUDIENCE.EVERYONE && !post.collectionId && content?.status === "plain"}/>
         </PostEconomyActions>
         {expanded && (
           <Details summary="Details">

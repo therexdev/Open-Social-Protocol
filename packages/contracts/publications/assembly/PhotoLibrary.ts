@@ -44,7 +44,8 @@ export class PhotoLibrary {
     );
     return value!;
   }
-  charge(account: Uint8Array, units: u64, usage: Uint8Array | null): void {
+  charge(account: Uint8Array, units: u64, usage: Uint8Array | null, tokenFree: bool = false): void {
+    if (tokenFree) return;
     // Unlike legacy publications, archive writes cannot silently bypass usage.
     System.require(
       !Util.isEmpty(usage),
@@ -74,7 +75,7 @@ export class PhotoLibrary {
   begin(
     args: publications.begin_photo_arguments,
     identity: Uint8Array,
-    usage: Uint8Array | null
+    usage: Uint8Array | null, tokenFree: bool = false
   ): void {
     const owner = Util.requireAddress(args.owner, "owner"),
       id = this.id(args.id),
@@ -82,8 +83,10 @@ export class PhotoLibrary {
     Actor.requireAuthorized(identity, owner, args.device, Capability.PUBLISH);
     const external = args.external_uri != null && args.external_uri!.length > 0;
     if (external) System.require(args.external_uri!.startsWith("https://") && args.external_uri!.length <= 512, "invalid external media URI");
-    const units = this.units(args.size),
-      count = (args.size + 16383) / 16384;
+    const compact = external && args.chunk_hashes.length == 1 && Arrays.equal(args.chunk_hashes[0], digest);
+    if (compact) System.require(args.size > 0 && args.size <= 268435456, "invalid hosted photo size");
+    const units: u32 = compact && tokenFree ? 0 : this.units(compact ? min<u32>(args.size, 327680) : args.size),
+      count: u32 = compact ? 1 : (args.size + 16383) / 16384;
     System.require(args.chunk_hashes.length == count, "incorrect chunk count");
     for (let i = 0; i < args.chunk_hashes.length; i++)
       this.id(args.chunk_hashes[i]);
@@ -104,7 +107,7 @@ export class PhotoLibrary {
         );
       return; // retrying the same commitment never charges again
     }
-    this.charge(owner, units, usage);
+    this.charge(owner, units, usage, tokenFree);
     const value = new publications.photo_archive_record(
       owner,
       digest,
@@ -173,7 +176,7 @@ export class PhotoLibrary {
   save(
     args: publications.save_collection_arguments,
     identity: Uint8Array,
-    usage: Uint8Array | null
+    usage: Uint8Array | null, tokenFree: bool = false
   ): void {
     const owner = Util.requireAddress(args.owner, "owner"),
       id = this.id(args.id);
@@ -226,7 +229,7 @@ export class PhotoLibrary {
         "collection type and visibility are immutable"
       );
     }
-    this.charge(owner, 1, usage);
+    this.charge(owner, 1, usage, tokenFree);
     const value = new publications.collection_record(
       owner,
       args.kind,
@@ -249,7 +252,7 @@ export class PhotoLibrary {
   setItem(
     args: publications.set_album_item_arguments,
     identity: Uint8Array,
-    usage: Uint8Array | null
+    usage: Uint8Array | null, tokenFree: bool = false
   ): void {
     const owner = Util.requireAddress(args.owner, "owner"),
       collectionId = this.id(args.collection_id),
@@ -281,7 +284,7 @@ export class PhotoLibrary {
           ContentReference.size(args.envelope!, 4096) <= 4096),
       "invalid album photo"
     );
-    this.charge(owner, 1, usage);
+    this.charge(owner, 1, usage, tokenFree);
     const value = new publications.album_item_record(
       args.removed ? null : args.envelope,
       args.epoch,

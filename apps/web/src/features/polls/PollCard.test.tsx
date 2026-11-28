@@ -38,3 +38,15 @@ it("shows closed polls without a submit action", async () => {
   h.read.mockResolvedValue({ value: { ...poll, definition: { ...poll.definition, closes_at: "1" } }, now: String(Date.now()) }); await render();
   expect(container.textContent).toContain("Closed"); expect(container.querySelector("button")).toBeNull();
 });
+
+it("renders formatted questions and answers while submitting the same answer index", async () => {
+  const formatted = { ...poll, definition: { ...poll.definition, question: "## **Choose a direction**", options: ["**Forward**", "*Back*"] } };
+  h.read.mockResolvedValue({ value: formatted, now: String(Date.now()) }); await render();
+  expect(container.querySelector(".poll-question h2 strong")?.textContent).toBe("Choose a direction");
+  expect(container.querySelector(".poll-option-text strong")?.textContent).toBe("Forward");
+  expect(container.querySelector(".poll-option-text em")?.textContent).toBe("Back");
+  expect(container.querySelector("progress")?.getAttribute("aria-label")).toBe("Forward: 0 answers");
+  await act(async () => container.querySelector<HTMLInputElement>("input")!.click());
+  await act(async () => container.querySelector<HTMLButtonElement>("button")!.click());
+  expect(h.answer).toHaveBeenCalledWith({ actor: "alice", post_id: id, option: 0 });
+});

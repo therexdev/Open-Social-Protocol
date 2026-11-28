@@ -1,0 +1,13 @@
+.git
+node_modules
+**/node_modules
+**/dist
+**/build
+data
+wallets
+.env
+.env.*
+*.wif
+*.key
+*.log
+testnet-evidence

@@ -137,6 +137,7 @@ export class MusicAccess {
     return result.value!;
   }
   usage(account: Uint8Array, usage: Uint8Array): void {
+    if (usage.length == 0) return; // explicitly configured token-free mode
     const call = System.call(
       usage,
       0x96f39e35,
@@ -176,6 +177,7 @@ export class MusicAccess {
       Util.concat([id, buyer, Util.u64be(now), old == null ? new Uint8Array(0) : old!.payment_id!])
     );
     if (v.unlock_price > 0) {
+      System.require(usage.length == 25, "paid unlocks are disabled in token-free mode");
       const call = System.call(
         usage,
         0x6ebfdf84,
@@ -238,6 +240,7 @@ export class MusicAccess {
     } else System.require(Util.now() < value!.expires_at, "delivery expired; buyer can refund");
     System.require(args.key!.key_version == value!.key_version, "recipient key version changed");
     if (value!.amount > 0) {
+      System.require(usage.length == 25, "paid unlocks are disabled in token-free mode");
       const call = System.call(
         usage,
         0xe4587c1b,
@@ -274,6 +277,7 @@ export class MusicAccess {
       "refund is not available yet"
     );
     if (value!.amount > 0) {
+      System.require(usage.length == 25, "paid unlocks are disabled in token-free mode");
       const call = System.call(
         usage,
         0xe4587c1b,

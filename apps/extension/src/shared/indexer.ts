@@ -50,6 +50,8 @@ export interface LabelView {
 }
 
 export interface PostView {
+  quotePostId?: string;
+  quoteVersion?: string;
   collectionId?: string;
   galleryOnly?: boolean;
   poll?: import("@osp/sdk").PollRecord;

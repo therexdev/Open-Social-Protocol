@@ -1,5 +1,5 @@
 import {
-  bytesEqual,
+  bytesEqual, compactHostedMedia, HOSTED_MEDIA_DEFAULT_MAX_BYTES, HOSTED_MEDIA_MAX_BYTES,
   encode,
   decode,
   randomBytes,
@@ -83,10 +83,10 @@ export async function musicDraftStore(
   );
 }
 export async function prepareAudio(
-  file: File
+  file: File, maxBytes = MUSIC_MAX_BYTES
 ): Promise<{ bytes: Uint8Array; mime: string; durationMs: number }> {
-  if (!file.size || file.size > MUSIC_MAX_BYTES)
-    throw new Error("Choose an audio file no larger than 10 MiB.");
+  if (!file.size || file.size > maxBytes)
+    throw new Error("Audio file exceeds the upload size limit.");
   const aliases: Record<string, string> = {
     "audio/mp3": "audio/mpeg",
     "audio/x-wav": "audio/wav",
@@ -114,7 +114,7 @@ export async function prepareAudio(
       reader.readAsArrayBuffer(file);
     })
   );
-  musicFee(bytes.length);
+  if (maxBytes <= MUSIC_MAX_BYTES) musicFee(bytes.length);
   const url = URL.createObjectURL(new Blob([toArrayBuffer(bytes)], { type: mime }));
   const audio = document.createElement("audio");
   try {
@@ -163,7 +163,8 @@ export function newMusicDraft(input: {
   const title = input.title.trim();
   if (!title || new TextEncoder().encode(title).length > 240)
     throw new Error("Enter a title no longer than 240 UTF-8 bytes.");
-  if (!input.config.enabled || input.bytes.length > input.config.max_bytes)
+  const maxBytes = input.client && usesExternalMedia(input.client) && input.config.hosted_manifest_version === 1 ? HOSTED_MEDIA_DEFAULT_MAX_BYTES : input.config.max_bytes;
+  if (!input.config.enabled || !input.bytes.length || input.bytes.length > maxBytes)
     throw new Error("Audio uploads are disabled or this file exceeds the current size limit.");
   const artist = (input.artist ?? "").trim(),
     description = (input.description ?? "").trim(),
@@ -174,6 +175,7 @@ export function newMusicDraft(input: {
     new TextEncoder().encode(description).length > 2000
   )
     throw new Error("Artist must fit 240 bytes and description 2000 bytes.");
+  if (input.config.token_free && price !== "0") throw new Error("Paid unlocks are not active on this network.");
   if (!/^(0|[1-9][0-9]*)$/.test(price) || BigInt(price) > 1000000n)
     throw new Error("Enter a whole OSAT price from 0 to 1,000,000.");
   if (
@@ -205,7 +207,7 @@ export function newMusicDraft(input: {
       keyVersion: input.identity.encryption.keyVersion,
     });
   }
-  if (stored.length > input.config.max_bytes)
+  if (stored.length > maxBytes)
     throw new Error("Audio including encryption exceeds the upload size limit.");
   return {
     ...(input.artworkBytes && input.client && { artwork: prepareMusicArtwork(input.client, id, input.owner, audience, input.artworkBytes, key) }),
@@ -225,7 +227,7 @@ export function newMusicDraft(input: {
     mime: input.mime,
     durationMs: input.durationMs,
     configRevision: input.config.revision,
-    fee: musicFee(stored.length, input.config.rate_per_mb, input.config.flat_fee),
+    fee: input.config.token_free ? "0" : musicFee(stored.length, input.config.rate_per_mb, input.config.flat_fee),
     recipient: input.config.recipient,
     batchSize: musicBatchChunks(input.config.version),
     ...(key && nonce && ownerKey
@@ -289,8 +291,7 @@ export async function uploadMusic(
             fromBase64url(draft.key),
             fromBase64url(draft.nonce)
           ).encrypt(bytes)
-        : bytes,
-    chunks = musicChunks(stored);
+        : bytes;
   if (stored.length !== draft.size || !bytesEqual(contentHash(stored), fromBase64url(draft.digest)))
     throw new Error("Saved encryption settings do not match this upload.");
   assertActive();
@@ -299,7 +300,7 @@ export async function uploadMusic(
     throw new Error("Saved upload does not match the on-chain reservation.");
   if (!record) {
     const config = await musicConfig(client);
-    const expectedFee = draft.clipKind === CLIP_KIND.video ? VIDEO_UPLOAD_FEE : draft.clipKind === CLIP_KIND.voice ? "0" : musicFee(draft.size, config.rate_per_mb, config.flat_fee);
+    const expectedFee = config.token_free ? "0" : draft.clipKind === CLIP_KIND.video ? VIDEO_UPLOAD_FEE : draft.clipKind === CLIP_KIND.voice ? "0" : musicFee(draft.size, config.rate_per_mb, config.flat_fee);
     if (
       !config.enabled || (draft.clipKind && config.clip_version !== 1) ||
       config.revision !== draft.configRevision ||
@@ -308,8 +309,10 @@ export async function uploadMusic(
     )
       throw new Error("The music price changed. Refresh the quote before paying.");
     let external_uri: string | undefined;
+    const compact = usesExternalMedia(client) && config.hosted_manifest_version === 1;
+    const hashes = compact ? [contentHash(stored)] : musicChunks(stored).map(contentHash);
     if (usesExternalMedia(client)) {
-      if (config.external_media_version !== 1) throw Error("Upgrade the testnet publications contract before using cloud media storage.");
+      if (config.external_media_version !== 1) throw Error("Upgrade the publications contract before using cloud media storage.");
       external_uri = await uploadStoredMedia(ctx, draft.owner, stored, assertActive);
     }
     const args: BeginMusicArgs = {
@@ -320,7 +323,7 @@ export async function uploadMusic(
       id,
       digest: fromBase64url(draft.digest),
       size: stored.length,
-      chunk_hashes: chunks.map(contentHash),
+      chunk_hashes: hashes,
       title: draft.title,
       artist: draft.artist,
       description: draft.description,
@@ -340,11 +343,11 @@ export async function uploadMusic(
       max_fee: draft.fee,
     };
     if (draft.artwork) await archiveMusicArtwork(ctx, draft.owner, draft.artwork, assertActive);
-    const operations = draft.clipKind === CLIP_KIND.voice
+    const operations = config.token_free || draft.clipKind === CLIP_KIND.voice
       ? [await client.ops.publications.begin_music(args)]
       : await musicPaymentOperations(client, args, config.native_token);
     await submitAction(ctx, operations, {
-      label: draft.clipKind === CLIP_KIND.voice ? "Reserving voice storage" : draft.clipKind === CLIP_KIND.video ? "Paying for video upload" : "Paying for music upload",
+      label: config.token_free ? "Reserving media storage" : draft.clipKind === CLIP_KIND.voice ? "Reserving voice storage" : draft.clipKind === CLIP_KIND.video ? "Paying for video upload" : "Paying for music upload",
       quietProgress: true,
       beforeSubmit: async () => assertActive(),
     });
@@ -352,15 +355,16 @@ export async function uploadMusic(
     if (!record) throw new Error("Payment is still confirming. Resume this saved upload shortly.");
   }
   if (!matchesMusic(draft, record)) throw new Error("Music reservation changed unexpectedly.");
-  progress(record.received, chunks.length, true);
+  progress(record.received, record.chunk_hashes.length, true);
   // A saved v1/v2 draft remains resumable after either end is upgraded. Never send
   // an oversized batch to an older contract or sponsor during a staged rollout.
   if (record.external_uri) {
-    const verified = verifyMusic(record, chunks);
-    await musicCache()?.put(musicCacheKey(client, id, record.digest), verified);
-    progress(chunks.length, chunks.length, true);
+    verifyHostedMusic(record, stored);
+    progress(record.received, record.received, true);
     return;
   }
+  const chunks = musicChunks(stored);
+  if (usesExternalMedia(client) && record.received !== chunks.length) throw Error("This saved upload uses an older chain archive. Start a new hosted upload.");
   const config = await musicConfig(client);
   let batchSize = Math.min(
     [1, 4, 8, MUSIC_BATCH_CHUNKS].includes(draft.batchSize ?? 1) ? (draft.batchSize ?? 1) : 1,
@@ -410,6 +414,16 @@ export async function uploadMusic(
   const verified = verifyMusic(complete, chunks);
   await musicCache()?.put(musicCacheKey(client, id, complete.digest), verified);
 }
+export function verifyHostedMusic(record: MusicRecord, bytes: Uint8Array): void {
+  if (!record.external_uri || record.received !== record.chunk_hashes.length || bytes.length !== record.size || !bytesEqual(contentHash(bytes), record.digest)) throw Error("Hosted media verification failed.");
+  if (!compactHostedMedia(record)) verifyMusic(record, musicChunks(bytes));
+}
+export function publicMusicStream(record: MusicRecord): string | undefined {
+  if (!record.external_uri || record.encrypted || record.audience || BigInt(record.unlock_price ?? "0") > 0n || record.gzip_original_size) return;
+  const url = new URL(record.external_uri);
+  if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash || record.external_uri.length > 512 || record.digest.length !== 32 || record.received !== record.chunk_hashes.length || record.size < 1 || record.size > HOSTED_MEDIA_MAX_BYTES || (!compactHostedMedia(record) && record.chunk_hashes.length !== Math.ceil(record.size / MUSIC_CHUNK_BYTES))) throw Error("Invalid hosted media record.");
+  return record.external_uri;
+}
 export async function loadMusic(
   client: ProtocolClient,
   id: string,
@@ -428,12 +442,19 @@ export async function loadMusic(
     !record ||
     record.received !== record.chunk_hashes.length ||
     record.size < 1 ||
-    record.size > MUSIC_MAX_BYTES ||
-    record.chunk_hashes.length !== Math.ceil(record.size / MUSIC_CHUNK_BYTES)
+    record.size > (record.external_uri ? HOSTED_MEDIA_MAX_BYTES : MUSIC_MAX_BYTES) ||
+    (!compactHostedMedia(record) && record.chunk_hashes.length !== Math.ceil(record.size / MUSIC_CHUNK_BYTES))
   )
     throw new Error("This track is not ready to play.");
   validateRecord?.(record);
   check();
+  if (record.external_uri) {
+    const stored = await fetchStoredMedia(record.external_uri, record.digest, record.size, signal);
+    check();
+    verifyHostedMusic(record, stored);
+    progress?.(record.received, record.received);
+    return { record, bytes: stored };
+  }
   const cache = musicCache(),
     cacheKey = musicCacheKey(client, key, record.digest),
     cached = await cache?.get(cacheKey);
@@ -444,14 +465,6 @@ export async function loadMusic(
       progress?.(record.received, record.received);
       return { record, bytes };
     } catch { await cache?.remove(cacheKey); }
-  }
-  if (record.external_uri) {
-    const stored = await fetchStoredMedia(record.external_uri, record.digest, record.size, signal);
-    check();
-    const bytes = verifyMusic(record, musicChunks(stored));
-    await cache?.put(cacheKey, bytes);
-    progress?.(record.received, record.received);
-    return { record, bytes };
   }
   const config = await musicConfig(client);
   let batchSize = config.version >= 3 ? MUSIC_READ_BATCH_CHUNKS : 1;

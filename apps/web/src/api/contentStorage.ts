@@ -23,6 +23,7 @@ export async function prepareHostedContent(ctx: SubmitContext, operations: Opera
   if (!hasContent) return operations;
   if (decoded.some(op => op?.contract === "publications" && (byteMethods[`publications.${op.method}`] || op.method === "begin_music"))) {
     const version = await ctx.client.reads.publications.get_library_version({});
+    if (decoded.some(op => op?.contract === "publications" && op.method === "publish" && (op.args.quote_post_id as Uint8Array | undefined)?.length) && version?.quote_reference_version !== 1) throw Error("Sharing is waiting for the network upgrade. Nothing was published.");
     if (version?.content_reference_version !== 1) throw Error("The network's content storage upgrade is not deployed yet. Nothing was published.");
   }
   if (decoded.some(op => op?.contract === "messaging" && byteMethods[`messaging.${op.method}`])) {

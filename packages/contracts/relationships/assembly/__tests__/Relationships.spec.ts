@@ -1390,3 +1390,13 @@ describe("relationships: reads", () => {
     expect(MockVM.getCallContractArguments().length).toBe(0);
   });
 });
+
+describe("explicit token-free relationships", (): void => {
+  beforeEach(setupConfigured);
+  it("bypasses token consumption only after contract-owner configuration", (): void => {
+    Testing.authorize([CONTRACT_ID]);
+    contract.set_token_contract(new relationships.set_token_contract_arguments(null, true));
+    MockVM.commitTransaction(); contract.consume(ALICE);
+    expect(contract.get_token_contract(new relationships.get_token_contract_arguments()).token_free).toBe(true);
+  });
+});

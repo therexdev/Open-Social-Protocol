@@ -32,6 +32,7 @@ export interface MediaItem extends MediaPoster {
 
 /** osp.envelope.content (plaintext of a post). */
 export interface Content {
+  text_ref?: string;
   share_with?: string[];
   version?: number;
   text?: string;
@@ -155,6 +156,7 @@ export function encodeContent(content: Content): Uint8Array {
 }
 
 export function decodeContent(bytes: Uint8Array): Required<Pick<Content, "version" | "text" | "mime" | "lang" | "external_ref">> & {
+  text_ref?: string;
   media: Required<MediaItem>[];
   created_at: string;
   share_with: string[];

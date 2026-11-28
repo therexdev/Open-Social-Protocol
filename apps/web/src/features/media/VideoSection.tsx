@@ -8,6 +8,7 @@ import { useVault } from "../../vault/context";
 import { usePagedPosts } from "../feed/FeedPage";
 import { OpenedPostCard } from "../feed/PostCard";
 import { usePostContent } from "../feed/usePostContent";
+import { isClipLocation } from "@osp/sdk";
 
 const version = (post: PostView) => [post.postId, post.contentHash, post.state].join(":");
 
@@ -18,7 +19,7 @@ function VideoPost({ post, report, refresh }: {
 }) {
   const opened = usePostContent(post);
   const match = (opened?.status === "plain" || opened?.status === "decrypted") &&
-    opened.content.media.some(item => item.mime.startsWith("video/") && item.locations[0]?.startsWith("osp-clip://"));
+    opened.content.media.some(item => item.mime.startsWith("video/") && isClipLocation(item.locations[0]));
   const id = version(post);
   useEffect(() => { if (opened) report(id, match); }, [id, opened, match, report]);
   return match ? <OpenedPostCard post={post} content={opened} onChanged={refresh}/> : null;
@@ -37,7 +38,7 @@ export function VideoSection({ owner }: { owner: string }) {
   }, []);
   const candidates = posts.items.filter(p => !p.replyTo && !p.galleryOnly && (
     p.audience === 0
-      ? p.media.some(m => m.mime.startsWith("video/") && m.locations[0]?.startsWith("osp-clip://"))
+      ? p.media.some(m => m.mime.startsWith("video/") && isClipLocation(m.locations[0]))
       : !!viewer
   ));
   const pending = posts.loading || candidates.some(p => checked[version(p)] === undefined);

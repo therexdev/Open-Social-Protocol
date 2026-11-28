@@ -42,11 +42,13 @@ export class Messaging {
   }
   set_dependencies(args: messaging.set_dependencies_arguments): messaging.set_dependencies_result {
     System.requireAuthority(authority.authorization_type.contract_call, this.id);
+    System.require(!args.token_free || Util.isEmpty(args.token), "token-free mode requires no token address");
     this.config.put(
       new messaging.get_dependencies_result(
         Util.requireAddress(args.identity, "identity"),
         Util.requireAddress(args.relationships, "relationships"),
-        Util.requireAddress(args.token, "token")
+        args.token_free ? null : Util.requireAddress(args.token, "token"),
+        args.token_free
       )
     );
     return new messaging.set_dependencies_result();
@@ -74,6 +76,7 @@ export class Messaging {
     Actor.requireAuthorized(this.deps().identity!, a, device, Capability.MESSAGING);
   }
   consume(a: Uint8Array, units: u32 = 1): void {
+    if (this.deps().token_free) return;
     const call = System.call(
       this.deps().token!,
       0x96f39e35,

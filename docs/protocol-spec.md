@@ -408,3 +408,29 @@ key lifecycle, encrypted invitation/acceptance handshake, alias authorization, p
 usage pool, and explicit privacy limits. Legacy message methods remain isolated; the
 reference client never falls back to them. `messaging.get_private_status().version == 2`
 is the transport capability check, independent of token-economy versions.
+
+### Quoted public publications
+
+A share is a new top-level publication with the usual author sequence, post ID,
+idempotency key, lifecycle and reading audience. `publish_arguments.quote_post_id`
+(field 19) identifies the source post; `quote_version` (field 20) is its exact
+32-byte content hash at approval. Both fields must be supplied together. New
+shares require an existing active everyone-audience source without a collection,
+and the source's latest version must match. Replies and gallery-only publications
+cannot introduce a quote. Quoting one's own earlier post is allowed; a post cannot
+quote its own ID.
+
+Compact `post_record` fields 12/13 and `published_event` fields 18/19 retain that
+link and version. An edit may repeat the same pair or omit it for compatibility;
+it cannot replace, add or remove a quote link. The contract emits the stored pair
+on every version. A source's later edit or lifecycle change never rewrites the
+share's ledger reference. Clients check current source visibility before opening
+the shared revision, and stop hydrating hidden/deleted/unavailable sources.
+Previews are bounded; nested source links are not recursively expanded.
+
+The quote relationship is signed transaction metadata. It does not duplicate the
+original content or media and does not use `reply_to` or external-platform outcome
+records. Hosted envelopes retain their normal hashes and content references.
+`get_library_version.quote_reference_version == 1` advertises enforcement; clients
+must check it before publishing shares to avoid old bytecode ignoring new fields.
+Indexer API v1 exposes the correlation as `quotePostId` and `quoteVersion`.

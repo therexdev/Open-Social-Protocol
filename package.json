@@ -17,10 +17,10 @@
     "apps/extension"
   ],
   "scripts": {
-    "build": "node scripts/build.mjs packages/proto packages/sdk apps/web",
-    "build:all": "node scripts/build.mjs packages/proto packages/sdk packages/contracts apps/indexer apps/sponsor apps/web apps/extension",
+    "build": "node scripts/build.mjs packages/proto packages/sdk apps/web apps/extension && node scripts/package-browser-plugin.mjs",
+    "build:all": "node scripts/build.mjs packages/proto packages/sdk packages/contracts apps/indexer apps/sponsor apps/web apps/extension && node scripts/package-browser-plugin.mjs",
     "build:contracts": "node scripts/build.mjs packages/contracts",
-    "build:web": "node scripts/build.mjs packages/proto packages/sdk apps/web",
+    "build:web": "node scripts/build.mjs packages/proto packages/sdk apps/web apps/extension && node scripts/package-browser-plugin.mjs",
     "build:extension": "node scripts/build.mjs packages/proto packages/sdk apps/extension",
     "test": "node scripts/test.mjs",
     "test:contracts": "npm run test -w packages/contracts",
@@ -37,7 +37,8 @@
     "simulate:token-v2": "node --import tsx scripts/simulate-token-v2.ts",
     "verify:testnet": "node --import tsx scripts/verify-deployment.ts --network harbinger",
     "verify:private-messaging": "node --import tsx scripts/verify-private-messaging.ts --network harbinger",
-    "test:private-messaging:testnet": "tsc -p scripts/tsconfig.web-tests.json && node --import tsx scripts/test-private-messaging-testnet.ts"
+    "test:private-messaging:testnet": "tsc -p scripts/tsconfig.web-tests.json && node --import tsx scripts/test-private-messaging-testnet.ts",
+    "package:plugin": "node scripts/package-browser-plugin.mjs"
   },
   "devDependencies": {
     "tsx": "^4.20.0",

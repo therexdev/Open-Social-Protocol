@@ -7,6 +7,8 @@ import { submitAction } from "../../tx/submit";
 import { useSubmitContext } from "../session";
 import { MediaCapture, type CapturedMedia } from "../media/MediaCapture";
 import { archiveClip, prepareClip } from "../media/clipArchive";
+import { uploadHostedRecording } from "../media/hostedRecording";
+import { usesExternalMedia } from "../../api/mediaStorage";
 import { readingKey, trackContext } from "./musicAccessService";
 import { encodeVoiceComment, restoreVoice, voiceCommentStore, type VoiceCommentDraft } from "./voiceComment";
 
@@ -52,7 +54,9 @@ export function VoiceCommentForm({ track, record, caption, replyTo, onPosted }:
         try {
           check();
           if (!pending && capture) {
-            const voice = prepareClip({ bytes: new Uint8Array(await capture.file.arrayBuffer()), mime: capture.mime, durationMs: capture.durationMs }, "voice", protocol, !!record.encrypted);
+            const voice = usesExternalMedia(protocol)
+              ? await uploadHostedRecording(capture, submit, session.identity.account, !!record.encrypted, check)
+              : prepareClip({ bytes: new Uint8Array(await capture.file.arrayBuffer()), mime: capture.mime, durationMs: capture.durationMs }, "voice", protocol, !!record.encrypted);
             const plain = encodeVoiceComment(caption.trim(), voice), id = newEpochKey();
             const nonce = record.encrypted ? randomBytes(24) : undefined;
             if (nonce && !key) throw Error("Unlock the track to comment.");
@@ -63,7 +67,7 @@ export function VoiceCommentForm({ track, record, caption, replyTo, onPosted }:
           }
         } finally { key?.fill(0); }
         if (!pending) return;
-        await archiveClip(restoreVoice(pending.voice), submit, session.identity.account, check);
+        if (!pending.voice.url.startsWith("osp-file:")) await archiveClip(restoreVoice(pending.voice), submit, session.identity.account, check);
         check();
         const op = await protocol.ops.publications.comment_music({ author: session.identity.account, id: fromBase64url(track),
           comment_id: fromBase64url(pending.id), body: fromBase64url(pending.body),
@@ -91,7 +95,7 @@ export function VoiceCommentForm({ track, record, caption, replyTo, onPosted }:
     {draft ? <Notice>Your voice comment is saved on this browser. Resume to finish posting the original recording and caption.</Notice> :
       <MediaCapture kind="voice" value={capture} onChange={setCapture} disabled={busy || !ready}/>}
     {error && <Notice kind="error">{error}</Notice>}
-    {capture && !draft && <p className="hint">Voice storage uses {Math.ceil((capture.file.size + (record.encrypted ? 16 : 0))/32768)} usage units, plus the usual comment cost.</p>}
+    {capture && !draft && <p className="hint">{protocol && usesExternalMedia(protocol) ? "Audio is hosted off chain and included in free usage." : `Voice storage uses ${Math.ceil((capture.file.size + (record.encrypted ? 16 : 0))/32768)} usage units, plus the usual comment cost.`}</p>}
     <div className="row"><Button variant="primary" disabled={!ready || (!capture && !draft)} busy={busy} onClick={() => void send()}>{draft ? "Resume voice comment" : "Post voice comment"}</Button>
     {draft && <Button disabled={busy} onClick={() => void discard()}>Discard saved comment</Button>}</div>
   </div>;

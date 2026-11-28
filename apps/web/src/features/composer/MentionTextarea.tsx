@@ -6,20 +6,25 @@ import { Avatar } from "../../components/Icon";
 import { useMessagePeople } from "../messages/useMessagePeople";
 import { shortAddress } from "../../util/format";
 import { editMentionText, findMentionQuery, insertMention, readMentionText, writeMentionText } from "./mentionText";
+import { formatMarkdown, type MarkdownFormat } from "./markdownFormat";
+import { PostMarkdown } from "../../components/PostMarkdown";
 
 interface Person { account: string; name: string }
 interface Props extends Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, "value" | "onChange"> {
   account?: string;
   showHint?: boolean;
+  formatting?: boolean;
   value: string;
   onValueChange: (value: string) => void;
 }
 
-export function MentionTextarea({ account, value, onValueChange, showHint = true, ...props }: Props) {
+export function MentionTextarea({ account, value, onValueChange, showHint = true, formatting = false, ...props }: Props) {
   const { indexer } = useServices();
   const id = useId(), input = useRef<HTMLTextAreaElement>(null);
   const editor = useRef<HTMLDivElement>(null);
-  const nextCaret = useRef<number | undefined>(undefined);
+  const nextCaret = useRef<{ start: number; end: number } | undefined>(undefined);
+  const [preview, setPreview] = useState(false);
+  const [formatError, setFormatError] = useState("");
   const composing = useRef(false);
   const [activated, setActivated] = useState(false);
   const [focused, setFocused] = useState(false);
@@ -34,7 +39,7 @@ export function MentionTextarea({ account, value, onValueChange, showHint = true
   const [placement, setPlacement] = useState({ above: false, height: 270 });
   const contacts = useMessagePeople(activated ? account : undefined, []);
   const draft = useMemo(() => readMentionText(value), [value]);
-  const query = focused && !dismissed && !props.disabled && !props.readOnly && !composing.current
+  const query = !preview && focused && !dismissed && !props.disabled && !props.readOnly && !composing.current
     ? findMentionQuery(draft, selection.start, selection.end) : undefined;
   const text = query?.query.trim();
   const open = !!query;
@@ -83,7 +88,7 @@ export function MentionTextarea({ account, value, onValueChange, showHint = true
 
   useLayoutEffect(() => {
     if (nextCaret.current === undefined || !input.current) return;
-    input.current.setSelectionRange(nextCaret.current, nextCaret.current);
+    input.current.setSelectionRange(nextCaret.current.start, nextCaret.current.end);
     nextCaret.current = undefined;
   }, [value]);
 
@@ -132,17 +137,32 @@ export function MentionTextarea({ account, value, onValueChange, showHint = true
     if (!query) return;
     const next = insertMention(draft, query, person);
     const saved = writeMentionText(next.value);
-    nextCaret.current = next.caret;
+    nextCaret.current = { start: next.caret, end: next.caret };
     setSelection({ start: next.caret, end: next.caret });
     setDismissed(true); setActiveAccount(undefined);
     onValueChange(saved);
     input.current?.focus();
   };
+  const format = (kind: MarkdownFormat) => {
+    if (!input.current || props.disabled || props.readOnly || composing.current) return;
+    const next = formatMarkdown(draft, input.current.selectionStart, input.current.selectionEnd, kind);
+    const saved = writeMentionText(next.value);
+    if (props.maxLength && saved.length > props.maxLength) { setFormatError("Formatting would exceed this post’s length limit."); return; }
+    setFormatError(""); setDismissed(true); setPreview(false);
+    nextCaret.current = { start: next.start, end: next.end };
+    onValueChange(saved); input.current.focus();
+  };
 
   return <div ref={editor} className="mention-editor" onBlur={event => {
     if (!event.currentTarget.contains(event.relatedTarget as Node | null)) { setFocused(false); setDismissed(true); }
   }}>
+    {formatting && <div className="markdown-toolbar" role="group" aria-label="Post formatting">
+      {([['bold','Bold','B'],['italic','Italic','I'],['heading','Heading','H2'],['bullet','Bulleted list','• List'],['numbered','Numbered list','1.'],['quote','Quote','❝'],['link','Link','Link'],['code','Code','</>']] as const).map(([kind,label,glyph]) => <button type="button" key={kind} aria-label={label} title={label} disabled={props.disabled || props.readOnly || preview} onMouseDown={event => event.preventDefault()} onClick={() => format(kind)}>{kind === 'bold' ? <strong>{glyph}</strong> : kind === 'italic' ? <em>{glyph}</em> : glyph}</button>)}
+      <button type="button" className="markdown-preview-toggle" aria-pressed={preview} disabled={props.disabled} onClick={() => { setPreview(!preview); setDismissed(true); }}>{preview ? "Write" : "Preview"}</button>
+    </div>}
+    {formatting && preview && <div className="editor-preview" role="region" aria-label="Post preview">{value ? <PostMarkdown text={value}/> : <p className="hint">Your formatted post will appear here.</p>}</div>}
     <textarea spellCheck autoCapitalize="sentences" {...props} ref={input} value={draft.text}
+      style={formatting && preview ? { display: "none" } : undefined}
       aria-autocomplete="list" aria-haspopup="listbox" aria-controls={open ? `${id}-options` : undefined}
       aria-activedescendant={open && active >= 0 ? `${id}-${active}` : undefined}
       aria-describedby={[props["aria-describedby"], showHint && `${id}-hint`].filter(Boolean).join(" ")}
@@ -152,12 +172,14 @@ export function MentionTextarea({ account, value, onValueChange, showHint = true
       onCompositionStart={() => { composing.current = true; setDismissed(true); }}
       onCompositionEnd={event => { composing.current = false; setDismissed(false); updateSelection(event.currentTarget); }}
       onChange={event => {
+        setFormatError("");
         const next = editMentionText(draft, event.currentTarget.value, event.currentTarget.selectionStart);
         updateSelection(event.currentTarget); setDismissed(false); setActiveAccount(undefined);
         onValueChange(writeMentionText(next));
       }}
       onKeyDown={event => {
         if (composing.current || event.nativeEvent.isComposing || event.keyCode === 229) return;
+        if (formatting && (event.ctrlKey || event.metaKey) && !event.altKey && ["b", "i"].includes(event.key.toLowerCase())) { event.preventDefault(); format(event.key.toLowerCase() === "b" ? "bold" : "italic"); return; }
         if (open && event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setDismissed(true); return; }
         if (open && people.length && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
           event.preventDefault();
@@ -171,6 +193,7 @@ export function MentionTextarea({ account, value, onValueChange, showHint = true
         if (event.key === "Enter" || event.key === "Tab") setDismissed(true);
         props.onKeyDown?.(event);
       }} />
+    {formatError && <p className="hint" role="status">{formatError}</p>}
     {showHint && <p className="hint mention-hint" id={`${id}-hint`}>Type @ followed by a name or address to tag someone.</p>}
     {open && <div className="mention-dropdown" data-placement={placement.above ? "above" : "below"}>
       <p className="hint">Friends first · type a name or address to filter</p>

@@ -1,6 +1,10 @@
+import { QuotePreview } from "../feed/QuotePreview";
+import { markdownText } from "../../util/markdownText";
 import { ZoomableImage } from "../../components/ZoomableImage";
 import { MediaCapture, type CapturedMedia, type ClipKind } from "../media/MediaCapture";
 import { prepareClip, prepareVideoClip } from "../media/clipArchive";
+import { uploadHostedRecording } from "../media/hostedRecording";
+import { isClipLocation } from "@osp/sdk";
 import { createVideoPoster } from "../media/videoPoster";
 import { AttachmentDialog } from "./AttachmentDialog";
 import { GroupPicker } from "./GroupPicker";
@@ -8,12 +12,13 @@ import { AccountPicker } from "../library/AccountPicker";
 import { prepareArchivedPhoto } from "./archivePhoto";
 /** Text + audience + optional media reference, ending in an explicit confirmation dialog. */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AUDIENCE, LIMITS, voiceStorageUnits, validatePoll, PHOTO_MAX_BYTES, PHOTO_BLOCK_BYTES, PHOTO_RATES, photoCost, requirePhotoLibrary } from "@osp/sdk";
+import { AUDIENCE, LIMITS, POST_TEXT_MAX_CHARACTERS, voiceStorageUnits, validatePoll, PHOTO_MAX_BYTES, HOSTED_MEDIA_DEFAULT_MAX_BYTES, PHOTO_BLOCK_BYTES, PHOTO_RATES, photoCost, requirePhotoLibrary } from "@osp/sdk";
+import { usesExternalMedia } from "../../api/mediaStorage";
 import { Button, ConfirmDialog, Field, Notice } from "../../components/ui";
 import { errorMessage } from "../../util/format";
 import type { DraftRecord } from "../../vault/store";
 import { newDraft } from "./drafts";
-import { attachMediaFromUrl, buildContent, estimateEnvelopeBytes, type MediaAttachment } from "./publish";
+import { buildContent, estimateEnvelopeBytes, type MediaAttachment } from "./publish";
 import { usePublish } from "./usePublish";
 import { useCanAct } from "../session";
 import { useVault } from "../../vault/context";
@@ -26,10 +31,12 @@ import { preparePhoto } from "./preparePhoto";
 import { PhotoReadError } from "./preparePhoto";
 import { MediaPhoto } from "../../components/MediaPhoto";
 import { toBase64url } from "../../util/bytes";
-import { MentionTextarea } from "./MentionTextarea";
-import { RichText } from "../../components/RichText";
+import { RichPostEditor } from "./RichPostEditor";
+import { PostMarkdown } from "../../components/PostMarkdown";
 
 export interface ComposerFormProps {
+  quote?: DraftRecord["quote"];
+  onClose?: () => void;
   replyGuard?: { parentHash: string; friendsEpoch?: number };
   /** Existing draft to resume (keeps its attempt id). */
   draft?: DraftRecord;
@@ -46,7 +53,7 @@ export interface ComposerFormProps {
   onCancel?: () => void;
 }
 
-export function ComposerForm({ draft, replyTo, replyGuard, edit, initialMode = "post", defaultAudience = AUDIENCE.EVERYONE, selectedAccounts = [], collectionId: fixedCollectionId, galleryOnly = false, audienceLocked = false, compact = false, onSubmitted, onCancel }: ComposerFormProps) {
+export function ComposerForm({ draft, quote: initialQuote, onClose, replyTo, replyGuard, edit, initialMode = "post", defaultAudience = AUDIENCE.EVERYONE, selectedAccounts = [], collectionId: fixedCollectionId, galleryOnly = false, audienceLocked = false, compact = false, onSubmitted, onCancel }: ComposerFormProps) {
   const account = useVault((s) => s.account) ?? "";
   const session = useVault(s => s.session), vault = useVaultStore();
   const { resolved, protocol } = useServices();
@@ -69,15 +76,14 @@ export function ComposerForm({ draft, replyTo, replyGuard, edit, initialMode = "
   const needsGroup = groupAudience && !collectionId;
   const [selected,setSelected] = useState(draft?.selectedAccounts ?? selectedAccounts);
   const photoLimit = useRef(PHOTO_MAX_BYTES);
-  const [tool, setTool] = useState<"photo" | "url">();
-  const [urlError, setUrlError] = useState("");
+  const [tool, setTool] = useState<"photo">();
+  const [quote, setQuote] = useState(draft?.quote ?? initialQuote);
   const [alsoPost,setAlsoPost] = useState(!galleryOnly);
-  const [mediaUrl, setMediaUrl] = useState("");
   const [media, setMedia] = useState<MediaAttachment[]>(draft?.media?.map(m => ({ ...m, contentHash: bytesOf(m.contentHash) })) ?? edit?.media ?? []);
   const [chosenMode, setMode] = useState<"post" | ClipKind>(initialMode);
   const [captured, setCaptured] = useState<CapturedMedia>();
   const [capturing, setCapturing] = useState(false);
-  const clip = media.find(m => m.url.startsWith("osp-clip://"));
+  const clip = media.find(m => isClipLocation(m.url));
   const mode = clip ? (clip.mime.startsWith("video/") ? "video" : "voice") : chosenMode;
   const needsClip = mode !== "post" && !clip;
   const [attaching, setAttaching] = useState(false);
@@ -106,11 +112,13 @@ export function ComposerForm({ draft, replyTo, replyGuard, edit, initialMode = "
       return Number.POSITIVE_INFINITY;
     }
   }, [text, media, encrypted]);
-  const photoUnits = media.reduce((sum, m) => sum + (m.archiveBytes && m.url.startsWith("osp-photo://") ? photoCost(m.size) : 0) + (m.videoPoster?.archiveBytes ? photoCost(m.videoPoster.size) : 0), 0);
-  const voiceUnits = media.filter(m => m.archiveBytes && m.url.startsWith("osp-clip://") && m.mime.startsWith("audio/")).reduce((sum, m) => sum + voiceStorageUnits(m.size), 0);
+  const hosted = !!protocol && usesExternalMedia(protocol);
+  const photoUnits = hosted ? 0 : media.reduce((sum, m) => sum + (m.archiveBytes && m.url.startsWith("osp-photo://") ? photoCost(m.size) : 0) + (m.videoPoster?.archiveBytes ? photoCost(m.videoPoster.size) : 0), 0);
+  const voiceUnits = hosted ? 0 : media.filter(m => m.archiveBytes && m.url.startsWith("osp-clip://") && m.mime.startsWith("audio/")).reduce((sum, m) => sum + voiceStorageUnits(m.size), 0);
   const videoUploads = media.filter(m => m.archiveBytes && m.url.startsWith("osp-clip://") && m.mime.startsWith("video/")).length;
+  const tokenFree = resolved.deployment?.economy === "token-free";
   const currency = resolved.network === "mainnet" ? "KOIN" : "tKOIN";
-  const remaining = LIMITS.maxEnvelopeBytes - bytes;
+  const remaining = pollEnabled ? 500 - text.length : hosted ? POST_TEXT_MAX_CHARACTERS - text.length : LIMITS.maxEnvelopeBytes - bytes;
   const tooLong = remaining < 0;
 
   const addPhotos = async (files: File[]) => {
@@ -122,7 +130,7 @@ export function ComposerForm({ draft, replyTo, replyGuard, edit, initialMode = "
       await requirePhotoLibrary(protocol);
       for (let i = 0; i < files.length; i++) {
         setUploadStatus(`Preparing photo ${i + 1} of ${files.length}…`);
-        const bytes = await preparePhoto(files[i]!, controller.signal, photoLimit.current - (encrypted ? 16 : 0));
+        const bytes = await preparePhoto(files[i]!, controller.signal, (hosted ? HOSTED_MEDIA_DEFAULT_MAX_BYTES : photoLimit.current) - (encrypted ? 16 : 0));
         if (controller.signal.aborted || vault.getState().session !== session) return;
         setUploadStatus(`${encrypted ? "Encrypting" : "Preparing"} photo ${i + 1} of ${files.length}…`);
         const attachment = prepareArchivedPhoto(bytes, protocol, encrypted);
@@ -143,7 +151,7 @@ export function ComposerForm({ draft, replyTo, replyGuard, edit, initialMode = "
   const addClip = async (value: CapturedMedia | undefined) => {
     if (!value) {
       setCaptured(undefined);
-      setMedia(items => items.filter(m => !m.url.startsWith("osp-clip://")));
+      setMedia(items => items.filter(m => !isClipLocation(m.url)));
       return;
     }
     if (mode === "post" || !session || !protocol || attaching) return;
@@ -152,10 +160,15 @@ export function ComposerForm({ draft, replyTo, replyGuard, edit, initialMode = "
     setAttaching(true);
     setError(undefined);
     try {
-      const bytes = new Uint8Array(await value.file.arrayBuffer());
-      if (controller.signal.aborted || vault.getState().session !== session) return;
-      const source = { bytes, mime: value.mime, durationMs: value.durationMs };
-      const item = mode === "video" ? await prepareVideoClip(source, protocol, encrypted) : prepareClip(source, mode, protocol, encrypted);
+      const check = () => { if (controller.signal.aborted || vault.getState().session !== session) throw Error("Upload cancelled."); };
+      let item: MediaAttachment;
+      if (hosted) item = await uploadHostedRecording(value, { client: protocol, signer: session.identity.signer, payment: resolved.payment }, session.identity.account, encrypted, check,
+        (received, total) => setUploadStatus(received < total ? `Uploading recording · ${Math.round(received / total * 100)}%` : "Finishing recording upload…"), controller.signal);
+      else {
+        const bytes = new Uint8Array(await value.file.arrayBuffer()); check();
+        const source = { bytes, mime: value.mime, durationMs: value.durationMs };
+        item = mode === "video" ? await prepareVideoClip(source, protocol, encrypted) : prepareClip(source, mode, protocol, encrypted);
+      }
       if (mode === "video") {
         const poster = await createVideoPoster(value.file, controller.signal);
         if (poster && !controller.signal.aborted) {
@@ -164,31 +177,12 @@ export function ComposerForm({ draft, replyTo, replyGuard, edit, initialMode = "
         }
       }
       if (controller.signal.aborted || vault.getState().session !== session) return;
-      setMedia(items => [...items.filter(m => !m.url.startsWith("osp-clip://")), item]);
+      setMedia(items => [...items.filter(m => !isClipLocation(m.url)), item]);
       setCaptured(value);
     } catch (e) {
       if (!controller.signal.aborted) setError(errorMessage(e));
     } finally {
-      if (!controller.signal.aborted) setAttaching(false);
-    }
-  };
-
-  const attach = async () => {
-    if (attaching || encrypted || media.length >= LIMITS.maxMediaRefs) return;
-    const controller = new AbortController();
-    uploadController.current = controller;
-    setAttaching(true);
-    setUrlError("");
-    try {
-      const attachment = await attachMediaFromUrl(mediaUrl.trim(), fetch, undefined, controller.signal);
-      if (controller.signal.aborted || vault.getState().session !== session) return;
-      setMedia((m) => [...m, attachment]);
-      setMediaUrl("");
-      setTool(undefined);
-    } catch (e) {
-      if (!controller.signal.aborted) setUrlError(errorMessage(e));
-    } finally {
-      setAttaching(false);
+      if (!controller.signal.aborted) { setAttaching(false); setUploadStatus(""); }
     }
   };
 
@@ -199,7 +193,7 @@ export function ComposerForm({ draft, replyTo, replyGuard, edit, initialMode = "
       return;
     }
     if (attaching || capturing || needsClip || needsGroup) return;
-    if ((galleryOnly || text.trim().length === 0) && !media.length) {
+    if ((galleryOnly || text.trim().length === 0) && !media.length && !quote) {
       setError(galleryOnly ? "Add a photo first." : "Write something or add a photo first.");
       return;
     }
@@ -208,12 +202,17 @@ export function ComposerForm({ draft, replyTo, replyGuard, edit, initialMode = "
       const record: DraftRecord = draft
         ? { ...draft, text, audience, mediaUrls: media.map((m) => m.url), updatedAt: Date.now() }
         : newDraft(account, { text, audience, mediaUrls: media.map((m) => m.url), ...(replyTo && { replyTo }), ...(edit && { edit: { postId: edit.postId, previousVersion: edit.previousVersion, versionNumber: edit.versionNumber } }) });
+      record.quote = quote;
       record.selectedAccounts = selected;
       record.replyGuard = draft?.replyGuard ?? replyGuard;
       record.collectionId = draft?.collectionId ?? collectionId;
       record.galleryOnly = draft?.galleryOnly ?? (edit ? galleryOnly : galleryOnly && !alsoPost);
       if (pollEnabled) {
         const poll = { question: text.trim(), options: pollOptions.map(o => o.trim()), closes_at: draft?.poll?.closes_at ?? String(Date.now() + pollHours * 3600000) };
+        if (!markdownText(poll.question).trim()) throw Error("Write a poll question first.");
+        const answers = poll.options.map(option => markdownText(option).normalize("NFC").trim().replace(/\s+/g," ").toLowerCase());
+        if (answers.some(answer => !answer)) throw Error("Write text for each answer.");
+        if (new Set(answers).size !== answers.length) throw Error("Each answer must read differently.");
         validatePoll(poll);
         record.poll = poll;
       } else delete record.poll;
@@ -258,58 +257,51 @@ export function ComposerForm({ draft, replyTo, replyGuard, edit, initialMode = "
         void prepare();
       }}
     >
-      {!galleryOnly && !edit && !draft?.edit && <div className="composer-modes" role="group" aria-label={replyTo ? "Reply format" : "Post format"}>
-        {(["post", "voice", ...(replyTo ? [] : ["video"])] as Array<"post" | ClipKind>).map(kind =>
-          <Button key={kind} aria-pressed={kind === mode} disabled={attaching || capturing || busy || !!pollEnabled || media.length > 0} variant={kind === mode ? "primary" : "ghost"} onClick={() => { setMode(kind); setError(undefined); }}>
-            <Icon name={kind === "video" ? "camera" : kind === "voice" ? "mic" : "edit"} size={17}/>{kind === "video" ? "Video" : kind === "voice" ? "Voice" : replyTo ? "Text" : "Post"}
-          </Button>)}
-      </div>}
-      <div className="composer-identity"><Avatar account={account}/><div><strong>You</strong><Field label="Who can read it">{id => <select id={id} value={groupAudience || collectionId ? "group" : audience} disabled={audienceLocked || !!fixedCollectionId || !!draft?.collectionId || pollEnabled || !!edit || !!draft?.edit || attaching || capturing || media.length > 0} onChange={event => {
+      {onClose && <Button variant="ghost" className="composer-close" aria-label="Close composer" onClick={onClose}><Icon name="close"/></Button>}
+      <div className="composer-identity"><Avatar account={account}/><div className="composer-identity-controls"><div className="composer-author-row"><strong>You</strong><Field label="Who can read it">{id => <select id={id} value={groupAudience || collectionId ? "group" : audience} disabled={audienceLocked || !!fixedCollectionId || !!draft?.collectionId || pollEnabled || !!edit || !!draft?.edit || attaching || capturing || media.length > 0} onChange={event => {
         const group = event.target.value === "group";
         setGroupAudience(group);
         setAudience(group ? AUDIENCE.CUSTOM : Number(event.target.value));
       }}>
         <option value={AUDIENCE.EVERYONE}>Public</option><option value={AUDIENCE.FRIENDS}>Friends</option><option value={AUDIENCE.CUSTOM}>Private · selected people</option>
         {(collectionId || (!galleryOnly && !replyTo && !edit && !draft?.edit)) && <option value="group">Group</option>}
-      </select>}</Field></div></div>
+      </select>}</Field></div>
+      {!galleryOnly && !edit && !draft?.edit && <div className="composer-modes" role="group" aria-label={replyTo ? "Reply format" : "Post format"}>
+        {(["post", "voice", ...(replyTo ? [] : ["video"])] as Array<"post" | ClipKind>).map(kind =>
+          <Button key={kind} aria-pressed={kind === mode} disabled={attaching || capturing || busy || !!pollEnabled || media.length > 0} variant={kind === mode ? "primary" : "ghost"} onClick={() => { setMode(kind); setError(undefined); }}>
+            <Icon name={kind === "video" ? "camera" : kind === "voice" ? "mic" : "edit"} size={17}/>{kind === "video" ? "Video" : kind === "voice" ? "Voice" : replyTo ? "Text" : "Post"}
+          </Button>)}
+      </div>}
+      </div></div>
       {groupAudience && !fixedCollectionId && !draft?.collectionId && <GroupPicker value={chosenGroup} onChange={setChosenGroup} disabled={attaching || busy || capturing || media.length > 0}/>}
       {audience === AUDIENCE.CUSTOM && !groupAudience && !audienceLocked && !replyGuard && !draft?.replyGuard && !collectionId && !draft?.collectionId && <AccountPicker value={selected} onChange={setSelected} disabled={busy || !!draft?.publication}/>}
       {collectionId && <p className="hint">Only current group members receive this post. Membership is checked again before publishing.</p>}
       {galleryOnly && !edit && <label className="gallery-also-post"><input type="checkbox" checked={alsoPost} onChange={e=>setAlsoPost(e.target.checked)}/>Also share as a post</label>}
       {media.length > 0 && <p className="hint">Remove attachments before changing who can see this post.</p>}
       {mode !== "post" && <div className="clip-compose">
-        <p className="hint">{mode === "video" ? `10–30 seconds · MP4 or WebM · up to 10 MiB · 100 ${currency} per upload` : "Up to 2 minutes · 1 usage unit per 32 KiB"}</p>
-        {clip?.videoPoster && <p className="hint">Video preview ready · 1 photo usage unit from your free/regenerating OSAT capacity.</p>}
+        <p className="hint">{hosted ? mode === "video" ? "Full-length videos · MP4 or WebM · up to 2 GiB · included in free usage" : "Record or upload audio and podcasts · no duration limit · up to 2 GiB · included in free usage" : mode === "video" ? `10–30 seconds · MP4 or WebM · up to 10 MiB · ${tokenFree ? "included in free usage" : `100 ${currency} per upload`}` : tokenFree ? "Up to 2 minutes · included in free usage" : "Up to 2 minutes · 1 usage unit per 32 KiB"}</p>
+        {clip?.videoPoster && <p className="hint">{tokenFree ? "Video preview ready." : "Video preview ready · 1 photo usage unit from your free/regenerating OSAT capacity."}</p>}
         {clip && captured && captured.file.size > clip.size && <span className="hint">Lossless transfer: {(clip.size / 1024).toFixed(0)} KiB transferred · {(captured.file.size / 1024).toFixed(0)} KiB original</span>}
         {clip && !captured ? <div className="row"><span>{mode === "video" ? "Attached video" : "Attached voice recording"} · {(clip.size / 1024).toFixed(0)} KiB</span><Button onClick={() => void addClip(undefined)}>Remove attachment</Button></div> :
-          <MediaCapture key={`${account}:${session ? "open" : "locked"}:${mode}`} kind={mode} value={captured} onChange={value => void addClip(value)} onBusyChange={setCapturing} disabled={!can.ok || needsGroup || attaching || busy}/>}
+          <MediaCapture key={`${account}:${session ? "open" : "locked"}:${mode}`} kind={mode} hosted={hosted} value={captured} onChange={value => void addClip(value)} onBusyChange={setCapturing} disabled={!can.ok || needsGroup || attaching || busy}/>}
       </div>}
       <div className="composer-content">
-      <Field label={pollEnabled ? "Your poll question" : edit ? "Edit your post" : replyTo ? "Your reply" : <span className="visually-hidden">Write a post</span>} hint={tooLong ? `${-remaining} bytes over the limit` : `${remaining} bytes left`}>
-        {(id) => (
-          <MentionTextarea
-            showHint={false}
-            id={id}
-            account={account}
-            value={text}
-            onValueChange={setText}
-            rows={compact || mode !== "post" ? 3 : 6}
-            maxLength={LIMITS.maxEnvelopeBytes}
-            aria-invalid={tooLong || undefined}
-            placeholder={mode !== "post" ? "Add a caption (optional)…" : replyTo ? "Write a reply…" : "Write a post…"}
-            required={!galleryOnly && !media.length}
-          />
-        )}
+      <Field label={pollEnabled ? "Your poll question" : edit ? "Edit your post" : replyTo ? "Your reply" : <span className="visually-hidden">Write a post</span>} hint={hosted || pollEnabled ? tooLong ? `${(-remaining).toLocaleString()} characters over the limit` : `${remaining.toLocaleString()} characters left` : tooLong ? `${-remaining} bytes over the limit` : `${remaining} bytes left`}>
+        {id => <RichPostEditor id={id} account={account} value={text} onValueChange={setText}
+          maxLength={pollEnabled ? 500 : hosted ? POST_TEXT_MAX_CHARACTERS : LIMITS.maxEnvelopeBytes} invalid={tooLong}
+          label={pollEnabled ? "Your poll question" : edit ? "Edit your post" : replyTo ? "Your reply" : "Write a post"}
+          placeholder={pollEnabled ? "Ask a question…" : mode !== "post" ? "Add a caption (optional)…" : replyTo ? "Write a reply…" : "Write a post…"}
+          required={!galleryOnly && !media.length && !quote}/>}
       </Field>
       </div>
+      {quote && <div className="composer-quote"><QuotePreview quote={quote}/>{!edit && !draft?.edit && <Button variant="ghost" onClick={() => setQuote(undefined)}><Icon name="close" size={16}/>Remove shared post</Button>}</div>}
       {mode === "post" && <div className="composer-tools">
-        <Button disabled={attaching || needsGroup || !can.ok || media.length >= LIMITS.maxMediaRefs} onClick={() => setTool("photo")}><Icon name="photo" size={18}/>Add photos</Button>
-        {!galleryOnly && <Button disabled={attaching || encrypted || !can.ok || media.length >= LIMITS.maxMediaRefs} title={encrypted ? "External media URLs are public" : undefined} onClick={() => { setUrlError(""); setTool("url"); }}><Icon name="link" size={18}/>Add media by URL</Button>}
+        <Button disabled={attaching || needsGroup || !can.ok || media.length >= LIMITS.maxMediaRefs} onClick={() => hosted ? photoInput.current?.click() : setTool("photo")}><Icon name="photo" size={18}/>Add photos</Button>
       {!galleryOnly && !collectionId && !edit && !draft?.edit && !replyTo && <Button variant={pollEnabled ? "primary" : "default"} disabled={encrypted || busy || !!draft?.publication} aria-pressed={pollEnabled} onClick={() => setPollEnabled(v => !v)}><Icon name="poll" size={18}/>{pollEnabled ? "Remove poll" : "Add poll"}</Button>}
       </div>}
       {pollEnabled && <fieldset className="poll-editor"><legend>Poll answers</legend>
         <p className="hint">Use the post text as your question. Answers are public. Answering adds participation, not an upvote. The question and answers cannot be edited after publishing.</p>
-        {pollOptions.map((option, i) => <div className="row" key={i}><Field label={`Answer ${i + 1}`}>{id => <input id={id} value={option} maxLength={120} required onChange={e => setPollOptions(items => items.map((v, j) => j === i ? e.target.value : v))}/>}</Field>
+        {pollOptions.map((option, i) => <div className="row" key={i}><Field label={`Answer ${i + 1}`}>{id => <RichPostEditor id={id} account={account} value={option} maxLength={120} compact label={`Answer ${i + 1}`} placeholder="Write an answer…" required onValueChange={value => setPollOptions(items => items.map((v,j) => j === i ? value : v))}/>}</Field>
           <Button variant="ghost" disabled={pollOptions.length <= 2} onClick={() => setPollOptions(items => items.filter((_, j) => j !== i))}>Remove answer {i + 1}</Button></div>)}
         <Button disabled={pollOptions.length >= 8} onClick={() => setPollOptions(items => [...items, ""])}>Add answer</Button>
         <Field label="Poll duration">{id => <select id={id} value={pollHours} disabled={!!draft?.poll} onChange={e => setPollHours(Number(e.target.value))}><option value={1}>1 hour</option><option value={24}>1 day</option><option value={72}>3 days</option><option value={168}>7 days</option></select>}</Field>
@@ -321,34 +313,26 @@ export function ComposerForm({ draft, replyTo, replyGuard, edit, initialMode = "
         <input ref={fileInput} className="visually-hidden" type="file" multiple aria-label="Choose photo files" disabled={attaching || !can.ok} onChange={e => { const input = e.currentTarget; const files = Array.from(input.files ?? []); void addPhotos(files).finally(() => { input.value = ""; }); }}/>
         {fileReadFailed && <Button variant="ghost" disabled={attaching || !can.ok} onClick={() => fileInput.current?.click()}>Choose from files</Button>}
         {uploadStatus && <span role="status">{uploadStatus}</span>}
+        {attaching && uploadStatus && <Button variant="ghost" onClick={() => { uploadController.current?.abort(); setAttaching(false); setUploadStatus(""); }}>Cancel upload</Button>}
 
       </div>
-      {media.length > 0 && <div className="composer-photos">{media.map((m,i) => m.url.startsWith("osp-clip://") ? null : <div className="composer-photo" key={`${m.url}:${i}`}>
+      {media.length > 0 && <div className="composer-photos">{media.map((m,i) => isClipLocation(m.url) ? null : <div className="composer-photo" key={`${m.url}:${i}`}>
         {previews.current.has(m.url) ? <div className="ipfs-photo"><ZoomableImage src={previews.current.get(m.url)} alt={m.altText || "Attached photo"}/></div> : (m.url.startsWith("ipfs://") || m.url.startsWith("osp-photo://")) ? <MediaPhoto location={m.url} hash={toBase64url(m.contentHash)} mime={m.mime} encryption={m.encryption} alt={m.altText}/> : <span className="mono">{m.url}</span>}
         <Field label={`Attachment ${i + 1} description (optional)`}>{id => <input id={id} value={m.altText ?? ""} maxLength={160} onChange={e => setMedia(list => list.map((item,j) => j === i ? { ...item,altText: e.target.value } : item))}/>}</Field>
         <Button variant="ghost" onClick={() => removeMedia(i)}>Remove attachment {i + 1}</Button>
       </div>)}</div>}
-      {tool === "photo" && <AttachmentDialog title="Photo size budget" onClose={() => setTool(undefined)}>
-        <p className="hint">Choose a maximum per photo. Storage uses free capacity first, then regenerating OSAT capacity. You'll see the actual cost before publishing.</p>
+      {tool === "photo" && !hosted && <AttachmentDialog title="Photo size budget" onClose={() => setTool(undefined)}>
+        <p className="hint">{tokenFree ? "Choose the maximum image size to upload." : "Choose a maximum per photo. Storage uses free capacity first, then regenerating OSAT capacity. You'll see the actual cost before publishing."}</p>
         <div className="photo-budget-options">{PHOTO_RATES.map(units => <Button key={units} onClick={() => {
           photoLimit.current = units * PHOTO_BLOCK_BYTES;
           setTool(undefined);
           photoInput.current?.click();
-        }}><strong>Up to {units * PHOTO_BLOCK_BYTES / 1024} KiB</strong><small>{units} usage {units === 1 ? "unit" : "units"}</small></Button>)}</div>
-      </AttachmentDialog>}
-      {tool === "url" && <AttachmentDialog title="Add media by URL" onClose={() => { uploadController.current?.abort(); setTool(undefined); }}>
-        <Field label="Media URL" hint="Use a public media file that allows your browser to read it.">
-          {id => <input autoFocus id={id} type="url" value={mediaUrl} onChange={e => setMediaUrl(e.target.value)} onKeyDown={e => {
-            if (e.key === "Enter") { e.preventDefault(); if (mediaUrl.trim()) void attach(); }
-          }} placeholder="https://…" maxLength={LIMITS.maxLocationChars} disabled={attaching}/>}
-        </Field>
-        {urlError && <Notice kind="error">{urlError}</Notice>}
-        <Button variant="primary" busy={attaching} disabled={!mediaUrl.trim()} onClick={() => void attach()}>Attach</Button>
+        }}><strong>Up to {units * PHOTO_BLOCK_BYTES / 1024} KiB</strong>{!tokenFree && <small>{units} usage {units === 1 ? "unit" : "units"}</small>}</Button>)}</div>
       </AttachmentDialog>}
       {error && <Notice kind="error">{error}</Notice>}
       {!can.ok && <Notice kind="warning">{can.reason}</Notice>}
       <div className="row">
-        <Button type="submit" variant="primary" busy={busy} disabled={attaching || capturing || needsClip || needsGroup || !ready || !can.ok || tooLong || ((galleryOnly || text.trim().length === 0) && !media.length)}>
+        <Button type="submit" variant="primary" busy={busy} disabled={attaching || capturing || needsClip || needsGroup || !ready || !can.ok || tooLong || ((galleryOnly || text.trim().length === 0) && !media.length && !quote)}>
           {edit ? "Review edit" : replyTo ? "Review reply" : "Review and publish"}
         </Button>
         {onCancel && (
@@ -370,17 +354,18 @@ export function ComposerForm({ draft, replyTo, replyGuard, edit, initialMode = "
             <p>
               <strong>Audience: {confirm.collectionId ? "Group" : audienceLabel(confirm.audience)}.</strong> {confirm.collectionId ? "Only current members of this group receive the reading key." : confirm.audience === AUDIENCE.CUSTOM ? "Only you and the selected accounts can read the current version. Previous recipients may keep earlier versions." : confirm.audience === AUDIENCE.FRIENDS ? friendsExplanation : everyoneExplanation}
             </p>
-            {videoUploads > 0 && <p><strong>Video upload fee: {videoUploads * 100} {currency}.</strong> Confirming reserves the upload. A retry resumes the same file and payment.</p>}
-            {voiceUnits > 0 && <p>Voice storage: {voiceUnits} usage {voiceUnits === 1 ? "unit" : "units"}.</p>}
-            {photoUnits > 0 && <p>Photo storage: {photoUnits} usage {photoUnits === 1 ? "unit" : "units"}.</p>}
-            <p>Publishing uses 1 usage unit.</p>
+            {!tokenFree && videoUploads > 0 && <p><strong>Video upload fee: {videoUploads * 100} {currency}.</strong> Confirming reserves the upload. A retry resumes the same file and payment.</p>}
+            {!tokenFree && voiceUnits > 0 && <p>Voice storage: {voiceUnits} usage {voiceUnits === 1 ? "unit" : "units"}.</p>}
+            {!tokenFree && photoUnits > 0 && <p>Photo storage: {photoUnits} usage {photoUnits === 1 ? "unit" : "units"}.</p>}
+            {!tokenFree && <p>Publishing uses 1 usage unit.</p>}
             <p>{confirm.galleryOnly ? "Your photos will appear in your profile while saving finishes." : confirm.collectionId ? "Your post will appear in this group while publishing finishes." : "Your post will appear in your feed right away while it finishes publishing."} You can keep browsing.</p>
             <p>
               Publishing is permanent: the network records it and copies may be kept by anyone who can read it. You can edit or mark it deleted later, but
               earlier versions stay in the public history.
             </p>
-            <blockquote className="preview"><RichText text={text}/></blockquote>
-            {confirm.poll && <><ul>{confirm.poll.options.map((o, i) => <li key={i}>{o}</li>)}</ul><p>Closes {new Date(Number(confirm.poll.closes_at)).toLocaleString()}. Answers are public and separate from upvotes and downvotes.</p></>}
+            <div className="preview"><PostMarkdown text={text}/></div>
+            {confirm.quote && <QuotePreview quote={confirm.quote}/>}
+            {confirm.poll && <><ul>{confirm.poll.options.map((o, i) => <li key={i}><PostMarkdown text={o} inline/></li>)}</ul><p>Closes {new Date(Number(confirm.poll.closes_at)).toLocaleString()}. Answers are public and separate from upvotes and downvotes.</p></>}
           </>
         )}
       </ConfirmDialog>

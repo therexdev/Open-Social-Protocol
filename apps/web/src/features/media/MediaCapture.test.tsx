@@ -1,7 +1,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { MediaCapture } from "./MediaCapture";
+import { MediaCapture, checkClipDuration } from "./MediaCapture";
 
 let host: HTMLDivElement, root: Root | undefined;
 const originalDevices = Object.getOwnPropertyDescriptor(navigator, "mediaDevices");
@@ -22,6 +22,15 @@ const click = async (label: string) => {
   expect(button).toBeTruthy();
   await act(async () => button!.click());
 };
+
+it("allows full-length hosted recordings and exposes an audio file picker", async () => {
+  expect(() => checkClipDuration("video", 3_600_000, true)).not.toThrow();
+  expect(() => checkClipDuration("voice", 7_200_000, true)).not.toThrow();
+  expect(() => checkClipDuration("voice", 7_200_000)).toThrow("2 minutes");
+  await act(async () => root!.render(<MediaCapture kind="voice" hosted onChange={vi.fn()}/>));
+  expect(host.textContent).toContain("Choose audio");
+  expect(host.querySelector<HTMLInputElement>('input[aria-label="Choose an audio file"]')?.accept).toContain(".mp3");
+});
 
 it("releases a late camera permission result after the user cancels", async () => {
   let accept!: (stream: MediaStream) => void;

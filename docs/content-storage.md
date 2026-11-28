@@ -1,5 +1,39 @@
 # Content off chain; protocol ledger on chain
 
+## Longer posts (Chrome beta 0.7.6)
+
+Hosted clients allow **100,000 characters per post or reply**. The website and
+standalone panel show a character counter; their existing text field count also
+applies to the browser connection/cross-post client. Poll wording retains its
+separate 500-character limit, and private chat packets retain their own limits.
+
+If text would exceed the 4 KiB publication envelope, the author uploads its UTF-8
+bytes separately to R2. Private text is encrypted with a fresh media key before
+upload. The normal `osp.envelope.content` gains an optional `text_ref` field (9),
+a bounded versioned JSON descriptor containing the URL, stored size and SHA-256.
+Private descriptors additionally carry the file key and nonce **inside the
+already encrypted publication envelope**. No private key enters the public URL.
+
+The content's `text` field contains a human-readable update message for older
+clients. Current clients verify the post, open its authenticated envelope, then
+fetch and verify the descriptor's complete text. They preserve media references,
+selected recipients and original provenance fields. Failed or tampered downloads
+show a retryable error; they do not silently substitute truncated text. Only
+verified stored bytes have a bounded cache; private plaintext is not cached there.
+
+The small publication envelope is uploaded through the existing content-reference
+transport. Its chain representation remains 44 bytes. The contract's original
+4 KiB envelope-size rule remains in force, and no contract deployment is needed.
+The working R2 upload service already accepts these text bodies. Existing posts,
+idempotency recovery, edits, revision history and audience checks retain their
+existing ledger behavior. Feed previews use Read more; full views and edits keep
+the complete story.
+
+The optional content schema is client-only and is not interpreted by contracts.
+Other clients can use the SDK's `storePostText` and `resolvePostText` helpers.
+
+## Existing content storage
+
 New Harbinger writes from the web app and extension upload content to the sponsor's
 authenticated R2 service before signing a ledger transaction. A failed upload or
 failed read-back aborts publication; there is no automatic inline fallback.

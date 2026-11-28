@@ -1,3 +1,4 @@
+import type { Editor } from "@tiptap/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -10,7 +11,8 @@ import { Signer } from "@osp/sdk";
 import { encodeMention } from "../../util/mentions";
 
 import { HARBINGER_CHAIN_ID } from "../../testing/fixtures";
-const transport = vi.hoisted(() => ({ start: vi.fn(), group: vi.fn(), collections: vi.fn(), session: vi.fn() }));
+const transport = vi.hoisted(() => ({ start: vi.fn(), group: vi.fn(), collections: vi.fn(), session: vi.fn(), hosted: false }));
+vi.mock("../../api/mediaStorage", async original => ({ ...await original<typeof import("../../api/mediaStorage")>(), usesExternalMedia: () => transport.hosted }));
 vi.mock("./usePublish", () => ({ usePublish: () => ({ ...transport, ready: true }) }));
 vi.mock("../session", () => ({ useCanAct: () => ({ ok: true }), useSession: transport.session }));
 vi.mock("../../vault/context", () => ({
@@ -18,9 +20,9 @@ vi.mock("../../vault/context", () => ({
   useVaultStore: () => ({ getState: () => ({ account: "saved-test-account" }) }),
 }));
 vi.mock("../../api/services", () => {
-  const services = { resolved: { sponsorUrls: [] }, indexer: { configured: false, collections: transport.collections },
+  const services = { resolved: { sponsorUrls: [] }, indexer: { configured: false, collections: transport.collections, post: async () => undefined },
     protocol: { get chainId() { return HARBINGER_CHAIN_ID; }, reads: { publications: { get_collection: transport.group } } } };
-  return { useServices: () => services };
+  return { useServices: () => services, useOptionalServices: () => undefined };
 });
 
 let root: Root;
@@ -31,6 +33,7 @@ const dialogMethods = {
 };
 
 beforeEach(() => {
+  transport.hosted = false;
   transport.start.mockReset();
   // jsdom lacks the native dialog methods; keep native close/cancel event behavior.
   Object.defineProperties(HTMLDialogElement.prototype, {
@@ -49,16 +52,18 @@ afterEach(async () => {
   }
 });
 
+type RichInput = HTMLElement & { editor: Editor };
+const richInput = () => container.querySelector<RichInput>('.tiptap')!;
+const setPostText = (element: RichInput, text: string) => element.editor.commands.setContent(text, { contentType: "markdown" });
 async function render(audience: number) {
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
   const onSubmitted = vi.fn();
   await act(async () => { root.render(<ComposerForm defaultAudience={audience} onSubmitted={onSubmitted} />); });
-  const textarea = container.querySelector("textarea")!;
+  const textarea = richInput();
   await act(async () => {
-    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(textarea, "A post to test publishing");
-    textarea.dispatchEvent(new Event("input", { bubbles: true }));
+    setPostText(textarea, "A post to test publishing");
   });
   await click("Review and publish");
   return { textarea, onSubmitted };
@@ -75,6 +80,20 @@ async function click(label: string) {
 }
 
 describe("ComposerForm publish confirmation", () => {
+  it("accepts a full short story in a hosted post and keeps all its text through review", async () => {
+    transport.hosted = true;
+    container = document.createElement("div"); document.body.appendChild(container); root = createRoot(container);
+    const text = "A full story, with paragraphs.\n\n".repeat(2000);
+    const draft = { id: "story", attemptId: "00".repeat(16), account: "saved-test-account", state: "draft", text, audience: AUDIENCE.EVERYONE, mediaUrls: [], createdAt: Date.now(), updatedAt: Date.now() } as DraftRecord;
+    transport.start.mockImplementation(async (r: PublishRequest) => r.draft);
+    await act(async () => root.render(<ComposerForm draft={draft}/>));
+    const textarea = richInput();
+    expect(textarea.getAttribute("data-max-characters")).toBe("100000"); expect(textarea.textContent!.length).toBeGreaterThan(50000);
+    expect(container.textContent).toContain("characters left");
+    expect(button("Review and publish").disabled).toBe(false);
+    await click("Review and publish"); await click("Publish to Everyone");
+    expect(transport.start.mock.calls[0]![0].draft.text).toBe(text);
+  });
   it.each([[AUDIENCE.EVERYONE, "Everyone"], [AUDIENCE.FRIENDS, "Friends"]] as const)("publishes to %s exactly once after local saving, without waiting for network confirmation", async (audience, label) => {
     let finish!: (value: DraftRecord) => void;
     transport.start.mockImplementation(() => new Promise<DraftRecord>((resolve) => { finish = resolve; }));
@@ -90,7 +109,7 @@ describe("ComposerForm publish confirmation", () => {
     expect(transport.start).toHaveBeenCalledTimes(1);
     await act(async () => { finish(transport.start.mock.calls[0]![0].draft); });
     expect(onSubmitted).toHaveBeenCalledWith(transport.start.mock.calls[0]![0].draft);
-    expect(textarea.value).toBe("");
+    expect(textarea.editor.getText()).toBe("");
     expect(container.querySelector("dialog")?.hasAttribute("open")).toBe(false);
     expect(container.querySelector("form form")).toBeNull();
   });
@@ -101,7 +120,7 @@ describe("ComposerForm publish confirmation", () => {
     await click(`Publish to ${label}`);
     expect(transport.start).toHaveBeenCalledTimes(1);
     expect(container.querySelector("[role='alert']")?.textContent).toContain("Device storage unavailable");
-    expect(textarea.value).toBe("A post to test publishing");
+    expect(textarea.editor.getText()).toBe("A post to test publishing");
     expect(onSubmitted).not.toHaveBeenCalled();
     expect(container.querySelector("dialog")?.hasAttribute("open")).toBe(false);
   });
@@ -110,7 +129,7 @@ describe("ComposerForm publish confirmation", () => {
     const { textarea } = await render(AUDIENCE.EVERYONE);
     await click("Cancel");
     expect(transport.start).not.toHaveBeenCalled();
-    expect(textarea.value).toBe("A post to test publishing");
+    expect(textarea.editor.getText()).toBe("A post to test publishing");
     expect(container.querySelector("dialog")?.hasAttribute("open")).toBe(false);
   });
 });
@@ -136,7 +155,7 @@ it.each([AUDIENCE.EVERYONE, AUDIENCE.FRIENDS])("preserves a saved mention target
   const draft = { id: "mention", attemptId: "00".repeat(16), account: "saved-test-account", state: "draft", text, audience, mediaUrls: [], createdAt: Date.now(), updatedAt: Date.now() } as DraftRecord;
   transport.start.mockImplementation(async (r: PublishRequest) => r.draft);
   await act(async () => root.render(<MemoryRouter><ComposerForm draft={draft}/></MemoryRouter>));
-  expect(container.querySelector("textarea")!.value).toBe("Hello @Alex Kim!");
+  expect(richInput().textContent).toBe("Hello @Alex Kim!");
   await click("Review and publish");
   expect(container.querySelector("dialog .mention-link")?.getAttribute("href")).toBe(`/u/${target}`);
   await click(`Publish to ${audience === AUDIENCE.EVERYONE ? "Everyone" : "Friends"}`);
@@ -149,7 +168,7 @@ it("puts the poll button below the framed content box and omits the removed prom
   expect(container.textContent).not.toContain("What's on your mind?");
   expect(container.textContent).not.toContain("Type @ followed by a name or address to tag someone.");
   const content = container.querySelector(".composer-content")!, tools = container.querySelector(".composer-tools")!;
-  expect(content.querySelector("textarea")).toBeTruthy();
+  expect(content.querySelector("[contenteditable=true]")).toBeTruthy();
   expect(content.compareDocumentPosition(tools) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(tools.textContent).toContain("Add photos"); expect(tools.textContent).toContain("Add poll");
   await click("Add poll"); expect(container.querySelector(".poll-editor")).toBeTruthy();
@@ -159,7 +178,7 @@ it("chooses the photo budget before opening files and can dismiss either attachm
   container = document.createElement("div"); document.body.appendChild(container); root = createRoot(container);
   await act(async () => root.render(<ComposerForm/>));
   expect(container.textContent).not.toContain("Post content");
-  expect(container.querySelector("textarea")?.getAttribute("spellcheck")).toBe("true");
+  expect(richInput()?.getAttribute("spellcheck")).toBe("true");
   const chooseFile = vi.spyOn(container.querySelector<HTMLInputElement>('input[aria-label="Choose photos"]')!, "click");
   await click("Add photos");
   expect(container.querySelector("dialog[open] h2")?.textContent).toBe("Photo size budget");
@@ -170,9 +189,7 @@ it("chooses the photo budget before opening files and can dismiss either attachm
   await click("Up to 64 KiB2 usage units");
   expect(chooseFile).toHaveBeenCalledTimes(1);
   expect(container.querySelector("dialog[open]")).toBeNull();
-  await click("Add media by URL");
-  expect(container.querySelector('dialog[open] input[type="url"]')).toBeTruthy();
-  await act(async () => container.querySelector("dialog[open]")!.dispatchEvent(new Event("cancel", { cancelable: true })));
+  expect(container.textContent).not.toContain("Add media by URL");
   expect(container.querySelector("dialog[open]")).toBeNull();
   expect(transport.start).not.toHaveBeenCalled();
 });
@@ -196,14 +213,58 @@ it("selects a verified group from the regular composer and queues the post to th
   await act(async () => { audience.value = "group"; audience.dispatchEvent(new Event("change", { bubbles: true })); });
   const groupSelect = [...container.querySelectorAll("select")].find(select => [...select.options].some(o => o.text === "Film club"));
   expect(groupSelect).toBeDefined();
-  const text = container.querySelector("textarea")!;
+  const text = richInput();
   await act(async () => {
-    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(text, "See you tonight");
-    text.dispatchEvent(new Event("input", { bubbles: true }));
+    setPostText(text, "See you tonight");
   });
   expect(button("Review and publish").disabled).toBe(true);
   await act(async () => { groupSelect!.value = group; groupSelect!.dispatchEvent(new Event("change", { bubbles: true })); });
   await click("Review and publish");
   await click("Publish to group");
   expect(transport.start.mock.calls[0]![0].draft).toMatchObject({ collectionId: group, audience: AUDIENCE.CUSTOM, text: "See you tonight" });
+});
+
+it("opens hosted photo files directly without asking for a chain size budget", async () => {
+  transport.hosted = true;
+  container = document.createElement("div"); document.body.appendChild(container); root = createRoot(container);
+  await act(async () => root.render(<ComposerForm/>));
+  const chooseFile = vi.spyOn(container.querySelector<HTMLInputElement>('input[aria-label="Choose photos"]')!, "click");
+  await click("Add photos");
+  expect(chooseFile).toHaveBeenCalledOnce();
+  expect(container.textContent).not.toContain("Photo size budget");
+});
+
+it("formats the poll question and answer visually and publishes their Markdown intact", async () => {
+  container = document.createElement("div"); document.body.appendChild(container); root = createRoot(container);
+  const poll = { question: "Choose?", options: ["First", "Second"], closes_at: String(Date.now()+3600000) };
+  const draft = { id: "formatted-poll", attemptId: "00".repeat(16), account: "saved-test-account", state: "draft", text: poll.question, audience: AUDIENCE.EVERYONE, mediaUrls: [], createdAt: Date.now(), updatedAt: Date.now(), poll } as DraftRecord;
+  transport.start.mockImplementation(async (r: PublishRequest) => r.draft);
+  await act(async () => root.render(<ComposerForm draft={draft}/>));
+  const question = container.querySelector<RichInput>('[role="textbox"][aria-label="Your poll question"]')!;
+  const first = container.querySelector<RichInput>('[role="textbox"][aria-label="Answer 1"]')!;
+  await act(async () => { question.editor.commands.selectAll(); question.editor.commands.toggleBold(); first.editor.commands.selectAll(); first.editor.commands.toggleItalic(); });
+  expect(question.querySelector("strong")?.textContent).toBe("Choose?");
+  expect(first.querySelector("em")?.textContent).toBe("First");
+  await click("Review and publish");
+  expect(container.querySelector("dialog .preview strong")?.textContent).toBe("Choose?");
+  expect(container.querySelector("dialog li em")?.textContent).toBe("First");
+  await click("Publish to Everyone");
+  expect(transport.start.mock.calls[0]![0].draft.poll).toEqual({ ...poll, question: "**Choose?**", options: ["*First*", "Second"] });
+});
+
+it("reviews a quote without requiring commentary and preserves the reference in the saved draft", async () => {
+  transport.hosted=true;
+  const quote={postId:toBase64url(new Uint8Array(32).fill(65)),version:toBase64url(new Uint8Array(32).fill(66))};
+  container=document.createElement('div'); document.body.appendChild(container);root=createRoot(container);
+  transport.start.mockImplementation(async (r:PublishRequest)=>r.draft);
+  const onClose=vi.fn();
+  await act(async()=>root.render(<MemoryRouter><ComposerForm quote={quote} onClose={onClose}/></MemoryRouter>));
+  expect(button('Review and publish').disabled).toBe(false);
+  expect(container.querySelector('.composer-author-row strong')?.textContent).toBe('You');
+  expect(container.querySelector('.composer-author-row select')).toBeTruthy();expect(container.querySelector('.composer-identity .composer-modes')).toBeTruthy();
+  expect(container.textContent).not.toContain('Add media by URL');
+  await click('Review and publish'); await click('Publish to Everyone');
+  expect(transport.start.mock.calls[0]![0].draft.quote).toEqual(quote);
+  expect(transport.start.mock.calls[0]![0].draft.text).toBe('');
+  await act(async()=>container.querySelector<HTMLButtonElement>('[aria-label="Close composer"]')!.click());expect(onClose).toHaveBeenCalledOnce();
 });

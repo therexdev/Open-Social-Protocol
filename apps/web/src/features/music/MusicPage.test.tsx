@@ -27,7 +27,7 @@ const mocks = vi.hoisted(() => ({
   session: undefined as any,
   submit: undefined as any,
 }));
-vi.mock("../../api/services", () => ({ useServices: () => mocks.services }));
+vi.mock("../../api/services", () => ({ useServices: () => mocks.services, useOptionalServices: () => undefined }));
 vi.mock("../../vault/context", () => ({
   useVault: (selector: any) => selector({ session: mocks.session }),
   useVaultStore: () => ({ getState: () => ({ session: mocks.session }) }),

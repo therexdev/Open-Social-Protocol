@@ -243,9 +243,9 @@ message audience_rotated_event {
 
 // @description Configure protocol usage limits (contract account only)
 // @read-only false
-message set_token_contract_arguments { bytes address = 1 [(koinos.btype) = ADDRESS]; }
+message set_token_contract_arguments { bytes address = 1 [(koinos.btype) = ADDRESS]; bool token_free = 2; }
 message set_token_contract_result {}
 // @description Get protocol usage contract
 // @read-only true
 message get_token_contract_arguments {}
-message get_token_contract_result { bytes value = 1 [(koinos.btype) = ADDRESS]; }
+message get_token_contract_result { bytes value = 1 [(koinos.btype) = ADDRESS]; bool token_free = 2; }

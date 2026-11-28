@@ -1,3 +1,4 @@
+import { HOSTED_MEDIA_MAX_BYTES } from "../photoLibrary.js";
 /**
  * Private messaging v2. Olm/Vodozemac owns the Double Ratchet; this module binds
  * its authenticated plaintext to OSP's chain, contract, aliases and packet ids.
@@ -21,7 +22,8 @@ import {
   utf8,
   utf8Decode,
 } from "../encoding.js";
-import { VOICE_MAX_BYTES, VOICE_MAX_DURATION } from "../clips.js";
+import { VOICE_MAX_DURATION } from "../clips.js";
+import { hostedFileUrl, HOSTED_FILE_MAX_BYTES } from "../hostedFiles.js";
 import { MUSIC_MIMES } from "../music.js";
 import { randomBytes, x25519KeyPair, x25519SharedSecret } from "./keys.js";
 
@@ -71,11 +73,13 @@ export function validPrivateVoiceNote(value: unknown): value is PrivateVoiceNote
   if (!value || typeof value !== "object") return false;
   const note = value as PrivateVoiceNote;
   const location = typeof note.url === "string" && /^osp-clip:\/\/([1-9A-HJ-NP-Za-km-z]{24,40})\/([A-Za-z0-9_-]{43}=)$/.exec(note.url);
-  return !!location && encodedBytes(location[2], 32)
+  let hosted = false;
+  try { if (typeof note.url === "string" && note.url.startsWith("osp-file:") && encodedBytes(note.digest, 32)) { hostedFileUrl(note.url, fromBase64url(note.digest)); hosted = true; } } catch { return false; }
+  return (hosted || (!!location && encodedBytes(location[2], 32)))
     && Object.keys(note).every(key => ["url", "mime", "size", "durationMs", "digest", "key", "nonce"].includes(key))
     && (MUSIC_MIMES as readonly string[]).includes(note.mime)
-    && Number.isSafeInteger(note.durationMs) && note.durationMs > 0 && note.durationMs <= VOICE_MAX_DURATION
-    && Number.isSafeInteger(note.size) && note.size > 16 && note.size <= VOICE_MAX_BYTES
+    && Number.isSafeInteger(note.durationMs) && note.durationMs > 0 && (hosted || note.durationMs <= VOICE_MAX_DURATION)
+    && Number.isSafeInteger(note.size) && note.size > 16 && note.size <= (hosted ? HOSTED_FILE_MAX_BYTES : HOSTED_MEDIA_MAX_BYTES)
     && encodedBytes(note.digest, 32) && encodedBytes(note.key, 32) && encodedBytes(note.nonce, 24);
 }
 

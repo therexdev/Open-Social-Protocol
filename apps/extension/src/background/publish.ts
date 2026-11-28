@@ -12,6 +12,9 @@
  */
 import {
   AUDIENCE,
+  LIMITS,
+  LONG_POST_FALLBACK,
+  validatePostText,
   CAPABILITY,
   OUTCOME,
   RELATIONSHIP_STATUS,
@@ -40,7 +43,9 @@ import {
 import { fromHex, toBase64url } from "../shared/bytes";
 import { prepareHostedContent } from "../../../web/src/api/contentStorage";
 import { DEVICE_EXPIRY_MS, DEVICE_LABEL } from "../shared/config";
-import { draftContent } from "../shared/draft";
+import { draftContent, draftEnvelopeBytes } from "../shared/draft";
+import { usesExternalMedia } from "../../../web/src/api/mediaStorage";
+import { uploadPostText } from "../../../web/src/api/postText";
 import type { GraphView, IndexerClient } from "../shared/indexer";
 import type { DeviceInfo, DeviceStatusView, StoredCrossPost } from "../shared/protocol";
 import type { PaymentPreference } from "../shared/settings";
@@ -289,6 +294,14 @@ export async function publishPost(input: PublishInput, ctx: PublishContext): Pro
   const plan = input.audience === AUDIENCE.FRIENDS ? await friendsEpochKey(ctx) : undefined;
   const epoch = plan?.epoch ?? 0;
   const content = draftContent(input.text, input.externalRef, String(now()));
+  validatePostText(input.text);
+  if (usesExternalMedia(ctx.client) && draftEnvelopeBytes(input.text, input.externalRef) > LIMITS.maxEnvelopeBytes) {
+    const signers = ctx.vault.signers(ctx.session);
+    const ref = await uploadPostText({ client: ctx.client, signer: signers.owner ?? signers.device, payment: ctx.payment }, author, input.text, !!plan);
+    const current = await ctx.vault.current();
+    if (!current || current.account !== ctx.session.account || current.unlockedAt !== ctx.session.unlockedAt) throw Error("Unlock this browser to finish publishing your saved post.");
+    content.text_ref = ref; content.text = LONG_POST_FALLBACK;
+  }
   const aad = { chainId: ctx.client.chainId, author, audience: input.audience, epoch, versionNumber: 1 };
   const encrypted = plan ? encryptContent({ content, aad, epochKey: plan.epochKey }) : encryptContent({ content });
   const contentHash = hashOf(encrypted.bytes);

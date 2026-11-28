@@ -21,17 +21,21 @@ const { KoinosError } = require("@koinos/mock-vm/src/errors.js");
 const meta = require("@koinos/mock-vm/src/constants.js");
 const { koinos } = require("@koinos/proto-js");
 
-export async function smokeDeploymentRuntime(log: (message: string) => void = console.log): Promise<void> {
+export async function smokeDeploymentRuntime(log: (message: string) => void = console.log, tokenFree = false): Promise<void> {
+  const activeContracts = CONTRACT_ORDER.filter(name => !tokenFree || name !== "token");
   const vm = new MockVM(true);
   require("../packages/contracts/scripts/mock-vm-storage.cjs").fixMockStorageOrdering(vm);
   const admin = Signer.fromSeed("osp-release-smoke-admin").getAddress();
   const addresses = Object.fromEntries(CONTRACT_ORDER.map(name => [name, Signer.fromSeed(`osp-release-smoke-${name}`).getAddress()])) as Record<ContractName, string>;
+  // Name lookup is metadata only; this never executes a native or OSAT token module.
+  vm.db.putObject(meta.CONTRACT_ADDRESS_SPACE, new TextEncoder().encode("koin"), koinos.contracts.name_service.address_record.encode({ address: utils.decodeBase58(admin) }).finish());
   const contracts = new Map(CONTRACT_ORDER.map(name => [name, new Contract({ id: addresses[name], abi: ABIS[name] as never })]));
   const modules = new Map(CONTRACT_ORDER.map(name => [name, new WebAssembly.Module(readFileSync(join(CONTRACT_BUILD_DIR, `${name}.wasm`)))]));
   const put = (key: Uint8Array, bytes: Uint8Array) => vm.db.putObject(meta.METADATA_SPACE, key, bytes);
   let calls = 0;
 
   const invoke = async (name: ContractName, method: string, args: Record<string, unknown> = {}, authorized = [addresses[name], admin], wireArgs?: Uint8Array): Promise<Record<string, any>> => {
+    assert(!tokenFree || name !== "token", "Token must never execute during token-free bootstrap");
     const contract = contracts.get(name)!;
     const operation = (await contract.encodeOperation({ name: method, args })).call_contract!;
     put(meta.CONTRACT_ID_KEY, utils.decodeBase58(addresses[name]));
@@ -67,7 +71,7 @@ export async function smokeDeploymentRuntime(log: (message: string) => void = co
   };
 
   // Start every untouched contract through its generated ABI dispatcher.
-  for (const name of CONTRACT_ORDER) {
+  for (const name of activeContracts) {
     const probe = deploymentProbe(name, addresses[name]);
     assert.equal(contracts.get(name)!.abi!.methods![probe.name]!.read_only, true, `${name}: deployment probe must be read-only`);
     await invoke(name, probe.name, probe.args);
@@ -75,7 +79,7 @@ export async function smokeDeploymentRuntime(log: (message: string) => void = co
   const limits = await invoke("publications", "get_limits");
   assert.equal(Number(limits.value.protocol_version), PROTOCOL_VERSION);
   await assert.rejects(invoke("messaging", "get_dependencies"), /messaging not configured/);
-  log("release entry points: all eight contracts started successfully");
+  log(`release entry points: ${activeContracts.length} contracts started successfully`);
 
   // Use the service's real ABI payload, including repeated numeric entry points.
   // AS-only tests serialize those differently from koilib/protobufjs clients.
@@ -126,13 +130,13 @@ export async function smokeDeploymentRuntime(log: (message: string) => void = co
   }
   await invoke("publications", "set_relationships_contract", { address: addresses.relationships });
   for (const name of ["relationships", "publications"] as const) {
-    await invoke(name, "set_token_contract", { address: addresses.token });
+    await invoke(name, "set_token_contract", tokenFree ? { token_free:true } : { address: addresses.token });
   }
-  await invoke("messaging", "set_dependencies", { identity: addresses.identity, relationships: addresses.relationships, token: addresses.token });
+  await invoke("messaging", "set_dependencies", { identity: addresses.identity, relationships: addresses.relationships, ...(tokenFree ? {token_free:true} : {token:addresses.token}) });
   const tokenDependencies = { identity: addresses.identity, relationships: addresses.relationships, publications: addresses.publications, messaging: addresses.messaging };
-  await invoke("token", "init", tokenDependencies);
+  if (!tokenFree) await invoke("token", "init", tokenDependencies);
   await invoke("registry", "init", { admin, upgrade_delay_ms: "86400000", protocol_version: PROTOCOL_VERSION });
-  for (const name of CONTRACT_ORDER) {
+  for (const name of activeContracts) {
     await invoke("registry", "propose_contract", { name, address: addresses[name], version: 1, abi_hash: utils.encodeBase64url(new Uint8Array(32).fill(1)), notes: "release bootstrap smoke test" }, [admin]);
   }
 
@@ -144,14 +148,18 @@ export async function smokeDeploymentRuntime(log: (message: string) => void = co
   assert.equal(publicationDependencies.identity, addresses.identity);
   assert.equal(publicationDependencies.relationships, addresses.relationships);
   for (const name of ["relationships", "publications"] as const) {
-    assert.equal((await invoke(name, "get_token_contract")).value, addresses.token);
+    const mode = await invoke(name,"get_token_contract");
+    if (tokenFree) { assert.equal(mode.token_free,true); assert(!mode.value); }
+    else assert.equal(mode.value,addresses.token);
   }
   const messagingDependencies = await invoke("messaging", "get_dependencies");
   assert.equal(messagingDependencies.identity, addresses.identity);
   assert.equal(messagingDependencies.relationships, addresses.relationships);
-  assert.equal(messagingDependencies.token, addresses.token);
+  if (tokenFree) { assert.equal(messagingDependencies.token_free,true); assert(!messagingDependencies.token); }
+  else assert.equal(messagingDependencies.token,addresses.token);
   assert.equal((await invoke("messaging", "get_private_status")).version, 2);
   assert.equal((await invoke("messaging", "get_private_units", { account: admin })).units, "0");
+  if (!tokenFree) {
   const config = (await invoke("token", "get_config")).value;
   for (const [key, value] of Object.entries(tokenDependencies)) assert.equal(config[key], value);
   assert.equal(config.resource_version, 2);
@@ -162,12 +170,16 @@ export async function smokeDeploymentRuntime(log: (message: string) => void = co
   assert.equal(resources.recharge_blocks, "144000");
   await assert.rejects(invoke("token", "activate_recharge", {}, []));
   await assert.rejects(invoke("token", "activate_recharge"), /already activated/);
+  }
+  assert.equal((await invoke("publications", "get_library_version")).hosted_manifest_version, 1);
+  assert.equal((await invoke("publications", "get_music_config")).value.hosted_manifest_version, 1);
   const registryConfig = (await invoke("registry", "get_config")).value;
   assert.equal(registryConfig.admin, admin);
   assert.equal(registryConfig.upgrade_delay_ms, "86400000");
   const entries = (await invoke("registry", "list_contracts")).values;
-  assert.equal(entries.length, CONTRACT_ORDER.length);
-  for (const name of CONTRACT_ORDER) {
+  assert.equal(entries.length, activeContracts.length);
+  if (tokenFree) assert(!entries.some((e: {name:string}) => e.name === "token"));
+  for (const name of activeContracts) {
     assert.equal(entries.find((entry: { name: string }) => entry.name === name)?.address, addresses[name]);
     assert.equal((await invoke("registry", "get_contract", { name })).value.address, addresses[name]);
   }
@@ -175,8 +187,21 @@ export async function smokeDeploymentRuntime(log: (message: string) => void = co
   // The execution harness must also enforce authority and single-use initialization.
   await assert.rejects(invoke("relationships", "set_identity_contract", { address: admin }, []));
   assert.equal((await invoke("relationships", "get_identity_contract")).value, addresses.identity);
-  await assert.rejects(invoke("token", "init", tokenDependencies), /already initialized/);
-  log(`release bootstrap verified: ${calls} successful calls, eight registry entries, authority and reinitialization checks`);
+  if (!tokenFree) await assert.rejects(invoke("token", "init", tokenDependencies), /already initialized/);
+  for (const name of ["publications", "relationships"] as const) {
+    await assert.rejects(invoke(name, "set_token_contract", { token_free: true }, []));
+    await assert.rejects(invoke(name, "set_token_contract", { token_free: true, address: addresses.token }), /requires no token/);
+    await invoke(name, "set_token_contract", { token_free: true });
+    const mode = await invoke(name, "get_token_contract");
+    assert.equal(mode.token_free, true); assert(!mode.value);
+  }
+  await invoke("messaging", "set_dependencies", { identity: addresses.identity, relationships: addresses.relationships, token_free: true });
+  const mode = await invoke("messaging", "get_dependencies");
+  assert.equal(mode.token_free, true); assert(!mode.token);
+  await assert.rejects(invoke("messaging", "set_dependencies", { identity: addresses.identity, relationships: addresses.relationships }), /token is required/);
+  await assert.rejects(invoke("messaging", "set_dependencies", { identity: addresses.identity, relationships: addresses.relationships, token: addresses.token, token_free: true }), /requires no token/);
+
+  log(`release bootstrap verified: ${calls} successful calls, ${activeContracts.length} registry entries, authority and reinitialization checks`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

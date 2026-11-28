@@ -32,3 +32,8 @@ Never edit by hand except to add `indexers` / `sponsors` entries.
 * `harbinger.json` appears in this directory once the **deploy-testnet** workflow (or
   `npm run deploy:testnet`) has run. `localnet.json` is produced by `npm run deploy:localnet`
   against a local-koinos devnet and is gitignored.
+
+Mainnet launch manifests set `economy: "token-free"`. The `token` entry contains a
+reserved future address (`reserved: true`) with no upload transaction; it is not an
+OSAT deployment or registry registration. All seven active contracts are verified
+against confirmed uploads. See [the mainnet runbook](../docs/deploy-mainnet.md).

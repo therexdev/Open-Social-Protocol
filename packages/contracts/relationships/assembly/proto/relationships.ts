@@ -1979,6 +1979,11 @@ export namespace relationships {
         writer.uint32(10);
         writer.bytes(unique_name_address);
       }
+
+      if (message.token_free != false) {
+        writer.uint32(16);
+        writer.bool(message.token_free);
+      }
     }
 
     static decode(reader: Reader, length: i32): set_token_contract_arguments {
@@ -1992,6 +1997,10 @@ export namespace relationships {
             message.address = reader.bytes();
             break;
 
+          case 2:
+            message.token_free = reader.bool();
+            break;
+
           default:
             reader.skipType(tag & 7);
             break;
@@ -2002,9 +2011,11 @@ export namespace relationships {
     }
 
     address: Uint8Array | null;
+    token_free: bool;
 
-    constructor(address: Uint8Array | null = null) {
+    constructor(address: Uint8Array | null = null, token_free: bool = false) {
       this.address = address;
+      this.token_free = token_free;
     }
   }
 
@@ -2064,6 +2075,11 @@ export namespace relationships {
         writer.uint32(10);
         writer.bytes(unique_name_value);
       }
+
+      if (message.token_free != false) {
+        writer.uint32(16);
+        writer.bool(message.token_free);
+      }
     }
 
     static decode(reader: Reader, length: i32): get_token_contract_result {
@@ -2077,6 +2093,10 @@ export namespace relationships {
             message.value = reader.bytes();
             break;
 
+          case 2:
+            message.token_free = reader.bool();
+            break;
+
           default:
             reader.skipType(tag & 7);
             break;
@@ -2087,9 +2107,11 @@ export namespace relationships {
     }
 
     value: Uint8Array | null;
+    token_free: bool;
 
-    constructor(value: Uint8Array | null = null) {
+    constructor(value: Uint8Array | null = null, token_free: bool = false) {
       this.value = value;
+      this.token_free = token_free;
     }
   }
 

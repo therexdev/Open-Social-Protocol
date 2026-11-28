@@ -3,7 +3,7 @@
  * decoded protocol events (ADR 0006: only events whose `source` is a configured protocol
  * contract address are kept; decoding uses the @osp/proto descriptors through @osp/sdk).
  */
-import { Provider, type DecodedEvent, type Deployment, type ProviderInterface } from "@osp/sdk";
+import { JsonRpcProvider as Provider, type DecodedEvent, type Deployment, type ProviderInterface } from "@osp/sdk";
 import type { BlockJson, BlockReceipt } from "koilib";
 import { decodeProtocolEvent } from "./decode.js";
 

@@ -1,6 +1,7 @@
 import { ZoomableImage } from "../../components/ZoomableImage";
 import { useEffect, useRef, useState } from "react";
-import { contentHash, photoCost, PHOTO_MAX_BYTES, photoLocation, profilePhotoId, toBase64url } from "@osp/sdk";
+import { contentHash, photoCost, PHOTO_MAX_BYTES, HOSTED_MEDIA_DEFAULT_MAX_BYTES, photoLocation, profilePhotoId, toBase64url } from "@osp/sdk";
+import { usesExternalMedia } from "../../api/mediaStorage";
 import { buildProfileDocument, parseProfileUri, PROFILE_URI_MAX_CHARS } from "../../api/profiles";
 import type { ProfileView } from "../../api/indexer";
 import { rememberMediaBytes } from "../../api/mediaCache";
@@ -27,6 +28,7 @@ function Preview({ bytes, label }: { bytes: Uint8Array; label: string }) {
 
 export function ProfileEditor({ account, view, onDone }: { account: string; view: ProfileView; onDone: () => void }) {
   const ctx = useSubmitContext(), vault = useVaultStore();
+  const hosted = !!ctx && usesExternalMedia(ctx.client);
   // Snapshot the profile once. A background indexer refresh must not replace the
   // form's base document while an edit is in progress.
   const [original] = useState(view);
@@ -53,7 +55,7 @@ export function ProfileEditor({ account, view, onDone }: { account: string; view
     const controller = new AbortController(); prepareController.current = controller;
     setPreparing(true); setError(""); setFailedPhoto(undefined); busy.current = true;
     try {
-      const bytes = await preparePhoto(file, controller.signal, slot === "avatar" ? 128 * 1024 : PHOTO_MAX_BYTES);
+      const bytes = await preparePhoto(file, controller.signal, hosted ? HOSTED_MEDIA_DEFAULT_MAX_BYTES : slot === "avatar" ? 128 * 1024 : PHOTO_MAX_BYTES);
       if (active.current) setPhotos(previous => ({ ...previous, [slot]: { bytes, digest: contentHash(bytes) } }));
     } catch (e) {
       if (active.current) {
@@ -112,11 +114,11 @@ export function ProfileEditor({ account, view, onDone }: { account: string; view
           // Preserve the mobile provider's file handle until its bytes are copied.
           void choose(slot, file).finally(() => { input.value = ""; });
         }}/>}</Field>
-        {selected && <><Preview bytes={selected.bytes} label={label}/><p className="hint">{photoCost(selected.bytes.length)} photo usage units · {Math.ceil(selected.bytes.length / 1024)} KiB</p>
+        {selected && <><Preview bytes={selected.bytes} label={label}/><p className="hint">{!hosted && `${photoCost(selected.bytes.length)} photo usage units · `}{Math.ceil(selected.bytes.length / 1024)} KiB{hosted && " · hosted image"}</p>
           <Button variant="ghost" disabled={saving} onClick={() => setPhotos(previous => ({ ...previous, [slot]: undefined }))}>Discard selection</Button></>}
       </div>;
     })}</div>
-    <p className="hint">{preparing ? "Preparing image…" : "Profile images are public. Saving uses the same free and regenerating OSAT capacity as other photos."}</p>
+    <p className="hint">{preparing ? "Preparing image…" : hosted ? "Profile images are public and stored on the content host. Saving is included in free usage." : "Profile images are public. Saving uses the same free and regenerating OSAT capacity as other photos."}</p>
     {remaining < 0 && <Notice kind="warning">Shorten your bio or display name to fit the on-chain profile. The reference exceeds the limit by {-remaining} characters.</Notice>}
     <input ref={filePicker} className="visually-hidden" type="file" aria-label="Choose profile image from files" disabled={preparing || saving} onChange={event => {
       const input = event.currentTarget, slot = failedPhoto, file = input.files?.[0];

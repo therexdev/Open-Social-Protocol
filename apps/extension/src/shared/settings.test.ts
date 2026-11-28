@@ -27,3 +27,9 @@ it("migrates X feed users to the full integration while preserving independent o
   expect(sanitizeSettings({xFeedInsertion:true})).toMatchObject({xAdapter:true,xAutoCheck:true,xAttribution:true});
   expect(sanitizeSettings({xAdapter:false,xFeedInsertion:true,xAutoCheck:false,xAttribution:false,facebookAutoCheck:true})).toMatchObject({xAdapter:false,xAutoCheck:false,xAttribution:false,facebookAutoCheck:true});
 });
+
+it('upgrades the legacy mainnet RPC default and retains custom node lists',()=>{
+ const result=resolveSettings({...defaultSettings(env),network:'mainnet',rpcUrls:['https://api.koinos.io']},{env});
+ expect(result.rpcUrls).toEqual(['https://api.koinosai.com/','https://api.koinos.io','https://api.koinosblocks.com']);
+ expect(resolveSettings({...defaultSettings(env),network:'mainnet',rpcUrls:['https://custom-node.test']},{env}).rpcUrls).toEqual(['https://custom-node.test']);
+});

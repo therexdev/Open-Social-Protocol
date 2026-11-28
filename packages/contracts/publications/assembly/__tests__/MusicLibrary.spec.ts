@@ -437,3 +437,40 @@ it("completes an external track atomically without storing media chunks", (): vo
   auth(ALICE);
   expect((): void => { lib.append(append, IDENTITY); }).toThrow("external media has no chain chunks");
 });
+
+describe("token-free media", (): void => {
+  it("records free audio without native transfers and rejects an OSAT unlock price", (): void => {
+    begin.max_fee = 0;
+    auth(); lib.begin(begin, IDENTITY, null, true);
+    MockVM.commitTransaction();
+    expect(lib.get(ID)!.fee).toBe(0);
+    begin.id = new Uint8Array(32).fill(99); begin.unlock_price = 1;
+    auth(); expect((): void => { lib.begin(begin, IDENTITY, null, true); }).toThrow("paid unlocks are disabled");
+  });
+  it("keeps the same native price checks outside token-free mode", (): void => {
+    begin.max_fee = 0; auth(ALICE, 0);
+    expect((): void => { lib.begin(begin, IDENTITY); }).toThrow("music fee does not match");
+  });
+});
+
+it("records hosted encrypted video with constant metadata and preserves the inline ceiling", (): void => {
+  begin.external_uri = "https://media.example/osp/whole-file";
+  begin.size = 268435456; begin.max_fee = 0;
+  begin.clip_kind = 2; begin.mime = "video/mp4"; begin.duration_ms = 15000; begin.encrypted = true;
+  const large = Protobuf.encode(begin, publications.begin_music_arguments.encode).length;
+  auth(); lib.begin(begin, IDENTITY, null, true);
+  MockVM.commitTransaction();
+  expect(lib.get(ID)!.received).toBe(1);
+  expect(lib.get(ID)!.chunk_hashes.length).toBe(1);
+  expect(lib.get(ID)!.encrypted).toBe(true);
+  expect(lib.get(ID)!.fee).toBe(0);
+  expect(lib.chunks.get(Util.concat([ID, Util.u32be(0)])) == null).toBe(true);
+  auth(); lib.begin(begin, IDENTITY, null, true);
+  expect(Testing.eventNames().length).toBe(2);
+  begin.size = 100;
+  expect(large - Protobuf.encode(begin, publications.begin_music_arguments.encode).length).toBeLessThan(5);
+  begin.id = new Uint8Array(32).fill(99); begin.size = 268435457;
+  auth(); expect((): void => { lib.begin(begin, IDENTITY, null, true); }).toThrow("size limit");
+  begin.size = 10485761; begin.external_uri = null;
+  auth(); expect((): void => { lib.begin(begin, IDENTITY, null, true); }).toThrow("size limit");
+});

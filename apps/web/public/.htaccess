@@ -12,6 +12,8 @@ RewriteCond %{HTTP_HOST} ^www\.opensocial\.online$ [NC]
 RewriteRule ^ https://opensocial.online%{REQUEST_URI} [R=301,L,NE]
 
 RewriteRule ^index\.html$ - [L]
+# Serve the same SPA shell with public link-card metadata already in its head.
+RewriteRule ^post/[^/]+/?$ post-preview.php [L]
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
 RewriteRule . /index.html [L]
@@ -23,6 +25,9 @@ RewriteRule . /index.html [L]
   </FilesMatch>
   <FilesMatch "index\.html$">
     Header set Cache-Control "no-cache"
+  </FilesMatch>
+  <FilesMatch "^post-preview\.php$">
+    Header always set Cache-Control "no-store"
   </FilesMatch>
 </IfModule>
 

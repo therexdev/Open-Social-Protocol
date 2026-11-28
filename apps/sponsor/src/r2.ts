@@ -1,5 +1,6 @@
-import { readFileSync } from "node:fs";
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import { createReadStream, readFileSync } from "node:fs";
+import { S3Client, PutObjectCommand, CreateMultipartUploadCommand, UploadPartCommand, CompleteMultipartUploadCommand, AbortMultipartUploadCommand } from "@aws-sdk/client-s3";
+import { MEDIA_UPLOAD_PART_BYTES } from "@osp/sdk";
 
 export interface R2Config {
   accountId: string;
@@ -38,6 +39,31 @@ export function createR2Writer(config: R2Config, chainId: string, contract: stri
         ContentType: "application/octet-stream", ContentLength: bytes.length,
         CacheControl: "public, max-age=31536000, immutable" }), { abortSignal: AbortSignal.timeout(60_000) });
       return `${config.publicUrl}/${key}`;
+    },
+    async putFile(path: string, hash: string, size: number): Promise<string> {
+      const Key = r2Key(chainId, contract, hash), Bucket = config.bucket;
+      const created = await client.send(new CreateMultipartUploadCommand({ Bucket, Key,
+        ContentType: "application/octet-stream", CacheControl: "public, max-age=31536000, immutable" }), { abortSignal: AbortSignal.timeout(60_000) });
+      const UploadId = created.UploadId;
+      if (!UploadId) throw Error("Storage did not create an upload.");
+      try {
+        const Parts: Array<{ PartNumber: number; ETag: string }> = [];
+        for (let offset = 0, PartNumber = 1; offset < size; offset += MEDIA_UPLOAD_PART_BYTES, PartNumber++) {
+          const ContentLength = Math.min(MEDIA_UPLOAD_PART_BYTES, size - offset);
+          const Body = createReadStream(path, { start: offset, end: offset + ContentLength - 1, highWaterMark: 256 * 1024 });
+          try {
+            const result = await client.send(new UploadPartCommand({ Bucket, Key, UploadId, PartNumber, Body, ContentLength }), { abortSignal: AbortSignal.timeout(120_000) });
+            if (!result.ETag) throw Error("Storage did not confirm a part.");
+            Parts.push({ PartNumber, ETag: result.ETag });
+          } finally { Body.destroy(); }
+        }
+        const completed = await client.send(new CompleteMultipartUploadCommand({ Bucket, Key, UploadId, MultipartUpload: { Parts } }), { abortSignal: AbortSignal.timeout(120_000) });
+        if (!completed.ETag) throw Error("Storage did not confirm completion.");
+        return `${config.publicUrl}/${Key}`;
+      } catch (error) {
+        await client.send(new AbortMultipartUploadCommand({ Bucket, Key, UploadId }), { abortSignal: AbortSignal.timeout(30_000) }).catch(() => {});
+        throw error;
+      }
     },
   };
 }

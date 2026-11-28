@@ -1,3 +1,5 @@
+import { HOSTED_MEDIA_DEFAULT_MAX_BYTES } from "@osp/sdk";
+import { usesExternalMedia } from "../../api/mediaStorage";
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
@@ -56,6 +58,7 @@ function MusicPanel({ owner }: { owner: string }) {
   const [config, setConfig] = useState<MusicConfig>(),
     [loading, setLoading] = useState(true),
     [error, setError] = useState("");
+  const uploadMaxBytes = protocol && usesExternalMedia(protocol) && config?.hosted_manifest_version === 1 ? HOSTED_MEDIA_DEFAULT_MAX_BYTES : config?.max_bytes ?? 10485760;
   const [tracks, setTracks] = useState<Array<{ id: string; record: MusicRecord }>>([]),
     [after, setAfter] = useState<string>(),
     [more, setMore] = useState(false);
@@ -205,7 +208,7 @@ function MusicPanel({ owner }: { owner: string }) {
     setSelecting(true);
     setError("");
     try {
-      const result = await prepareAudio(file);
+      const result = await prepareAudio(file, protocol && usesExternalMedia(protocol) && config?.hosted_manifest_version === 1 ? HOSTED_MEDIA_DEFAULT_MAX_BYTES : config?.max_bytes);
       if (!alive.current || selection.current !== ticket) return;
       if (
         draft &&
@@ -321,7 +324,7 @@ function MusicPanel({ owner }: { owner: string }) {
       const next = {
         ...draft,
         configRevision: c.revision,
-        fee: musicFee(draft.size, c.rate_per_mb, c.flat_fee),
+        fee: c.token_free ? "0" : musicFee(draft.size, c.rate_per_mb, c.flat_fee),
         recipient: c.recipient,
       };
       await store.save(next);
@@ -357,7 +360,7 @@ function MusicPanel({ owner }: { owner: string }) {
   const fee =
     draft?.fee ??
     (source && config && quoteSize <= config.max_bytes
-      ? musicFee(quoteSize, config.rate_per_mb, config.flat_fee)
+      ? config.token_free ? "0" : musicFee(quoteSize, config.rate_per_mb, config.flat_fee)
       : undefined);
   return (
     <section className="stack" aria-label="Profile music">
@@ -467,8 +470,8 @@ function MusicPanel({ owner }: { owner: string }) {
             </Notice>
           )}
           <Field
-            label="OSAT unlock price"
-            hint="0 is free. Use whole transferable OSAT; free usage credits cannot buy music."
+            label={config.token_free ? "Access price" : "OSAT unlock price"}
+            hint={config.token_free ? "Music is free during this launch. Audience permissions still apply." : "0 is free. Use whole transferable OSAT; free usage credits cannot buy music."}
           >
             {(id) => (
               <input
@@ -478,7 +481,7 @@ function MusicPanel({ owner }: { owner: string }) {
                 max="1000000"
                 step="1"
                 value={unlockPrice}
-                disabled={busy || !!draft || config.version < 2}
+                disabled={busy || !!draft || config.version < 2 || !!config.token_free}
                 onChange={(e) => setUnlockPrice(e.target.value)}
               />
             )}
@@ -493,7 +496,7 @@ function MusicPanel({ owner }: { owner: string }) {
           <Field
             label={draft ? "Select the same audio file to continue" : "Audio file"}
             hint={`MP3, M4A, Ogg, WAV or WebM · up to ${(
-              (config.max_bytes || 10485760) / 1048576
+              uploadMaxBytes / 1048576
             ).toFixed(1)} MiB`}
           >
             {(id) => (
@@ -509,7 +512,7 @@ function MusicPanel({ owner }: { owner: string }) {
           {artSupported && !draft && <MusicArtworkPicker value={artworkBytes} onChange={setArtworkBytes} disabled={busy} privateArt={audience !== 0} onBusyChange={setArtSelecting}/>}
           {draft?.artwork && <p className="hint">Cover artwork is saved with this upload and will resume automatically.</p>}
           {selecting && <Spinner label="Reading audio" />}
-          {source && quoteSize > config.max_bytes && (
+          {source && quoteSize > uploadMaxBytes && (
             <Notice kind="error">
               Audio including encryption exceeds the size limit. Choose a slightly smaller file.
             </Notice>
@@ -533,7 +536,7 @@ function MusicPanel({ owner }: { owner: string }) {
               {((draft?.size ?? source!.bytes.length) / 1000000).toFixed(2)} MB
             </p>
           )}
-          {fee && (
+          {fee && !config.token_free && (
             <div className="music-price">
               <strong>
                 {paid ? "Paid" : "Upload fee"}: {musicTokens(fee)} {currency}
@@ -545,14 +548,15 @@ function MusicPanel({ owner }: { owner: string }) {
               </p>
             </div>
           )}
+          {config.token_free ? <p className="hint">Music uploads are included in free usage.</p> : <>
           <p className="hint">
             {BigInt(config.flat_fee ?? "0") > 0n ? `Flat upload fee: ${musicTokens(config.flat_fee!)} ${currency} per song, at any supported size.` : `Current rate: ${Number(config.rate_per_mb) / 100000000} ${currency} per MB, rounded up.`}
             This is a token payment, separate from Mana. Your payment settings determine who
             supplies transaction Mana.
           </p>
+          </>}
           <p className="hint">
-            Track titles, artist names, descriptions and audience labels are public on-chain
-            metadata. Restricted or paid audio and comments are encrypted. People who receive audio
+            Track titles, artist names and descriptions are publicly hosted; audience permissions are recorded on the network. Restricted or paid audio and comments are encrypted. People who receive audio
             can save or share it. Upload fees are not refunded for abandoned uploads; keep the
             original file to resume.
           </p>
@@ -584,11 +588,11 @@ function MusicPanel({ owner }: { owner: string }) {
                 !store ||
                 selecting || artSelecting ||
                 (!config.enabled && !paid) ||
-                (!draft && !!source && quoteSize > config.max_bytes)
+                (!draft && !!source && quoteSize > uploadMaxBytes)
               }
               onClick={() => void start()}
             >
-              {draft ? "Resume upload" : `Pay ${fee ? musicTokens(fee) : ""} ${currency} & upload`}
+              {draft ? "Resume upload" : config.token_free ? "Upload music" : `Pay ${fee ? musicTokens(fee) : ""} ${currency} & upload`}
             </Button>
             {busy && (
               <Button

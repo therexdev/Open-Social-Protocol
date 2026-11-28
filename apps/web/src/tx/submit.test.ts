@@ -2,11 +2,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { InsufficientManaError, ProtocolClient, SponsorError, identityFromSeed } from "@osp/sdk";
 import { fakeProvider, fixtureDeployment } from "../testing/fixtures";
+import { useUsagePrompt } from "../stores/usagePrompt";
 import { useToasts } from "../stores/toasts";
 import { ActionError, NO_SPONSOR_MESSAGE, humanizeError, paymentBlocker, submitAction, withAccountSubmission, type SubmitContext } from "./submit";
 
 const me = identityFromSeed(new Uint8Array(32).fill(7));
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { vi.unstubAllGlobals(); useToasts.getState().clear(); useUsagePrompt.setState({ notice: undefined, dismissed: {} }); });
 
 describe("background sharing and user transaction ordering", () => {
   it("waits for another browser tab's account lock before preparing a transaction", async () => {
@@ -75,17 +76,17 @@ describe("submitAction payment preference", () => {
     const error = new InsufficientManaError(me.account, [{
       endpoint: "https://sponsor.test", error: new SponsorError("quota_exceeded", "daily allowance exhausted"),
     }]);
-    expect(humanizeError(error)).toContain("free allowance from the sponsor is used up");
-    expect(humanizeError(error)).toContain("also has no Mana");
+    expect(humanizeError(error)).toContain("free daily usage");
+    expect(humanizeError(error)).toContain("daily reset");
   });
 
   it("stops an unfunded self-payment before it reaches the RPC", async () => {
     const provider = fakeProvider({ rc: { [me.account]: "0" } });
     const client = new ProtocolClient({ rpc: provider, deployment: fixtureDeployment() });
     const operation = await client.ops.relationships.follow({ follower: me.account, target: me.account });
-    await expect(submitAction({ client, signer: me.signer, payment: "self-only" }, [operation], { label: "Following" })).rejects.toThrow("no Mana available");
+    await expect(submitAction({ client, signer: me.signer, payment: "self-only" }, [operation], { label: "Following" })).rejects.toThrow("not have enough recharged capacity");
     expect(provider.sent).toHaveLength(0);
-    expect(useToasts.getState().toasts.some((t) => t.message?.includes("Add a funded sponsor"))).toBe(true);
+    expect(useToasts.getState().toasts.some((t) => t.message?.includes("add KOIN"))).toBe(true);
   });
 
   it("refuses to self-pay under 'sponsors only' when no sponsor is configured", async () => {

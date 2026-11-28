@@ -1,0 +1,36 @@
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { MemoryRouter } from "react-router-dom";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { SocialRail } from "./SocialRail";
+import { useProfiles } from "../stores/profiles";
+const h = vi.hoisted(() => ({ indexer: { configured: true, graph: vi.fn(), profile: vi.fn() } }));
+vi.mock("../api/services", () => ({ useServices: () => ({ indexer: h.indexer }) }));
+vi.mock("../vault/context", () => ({ useVault: (select: any) => select({ account: "alice", status: "unlocked" }) }));
+vi.mock("../features/messages/PrivateMessagingProvider", () => ({ usePrivateMessaging: () => ({ snapshot: { chats: [] } }) }));
+let root: Root, box: HTMLDivElement;
+const empty = { friends: [], blocked: [], following: [], followers: [], pendingIncoming: [], pendingOutgoing: [] };
+beforeEach(() => { vi.clearAllMocks(); useProfiles.setState({ profiles: {}, fetchedAt: {}, pending: {} }); h.indexer.graph.mockResolvedValue(empty); box = document.createElement("div"); root = createRoot(box); });
+afterEach(async () => { await act(async () => root.unmount()); });
+const show = async () => { await act(async () => root.render(<MemoryRouter><SocialRail promotePlugin/></MemoryRouter>)); };
+it("keeps the settled empty state through a pending and failed background refresh", async () => {
+  await show();
+  const people = () => box.querySelector(".rail-card")!.textContent;
+  const before = people(); expect(before).toContain("A good conversation starts");
+  let reject!: (error: Error) => void;
+  h.indexer.graph.mockImplementationOnce(() => new Promise((_, fail) => { reject = fail; }));
+  await act(async () => window.dispatchEvent(new Event("focus")));
+  expect(h.indexer.graph).toHaveBeenCalledTimes(2); expect(people()).toBe(before);
+  expect(box.textContent).not.toContain("Finding your people");
+  await act(async () => reject(new Error("network timeout")));
+  expect(people()).toBe(before);
+  expect(box.querySelector('a[href="/browser-plugin"]')).toBeTruthy();
+});
+it("still updates the rail when the actual friend list changes", async () => {
+  await show();
+  h.indexer.graph.mockResolvedValueOnce({ ...empty, friends: [{ account: "bob" }] });
+  h.indexer.profile.mockResolvedValue(undefined);
+  await act(async () => window.dispatchEvent(new Event("focus")));
+  expect(box.querySelector('a[href="/u/bob"]')).toBeTruthy();
+  expect(box.textContent).not.toContain("A good conversation starts");
+});

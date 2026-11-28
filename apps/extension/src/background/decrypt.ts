@@ -3,7 +3,7 @@ import { parseContentReference } from "@osp/sdk";
  * Opening PostViews: plaintext (everyone) directly, friends-only through the key store.
  * Decryption happens in the service worker; a missing key is a normal state, not an error.
  */
-import { AUDIENCE, LIFECYCLE, SUITE, bytesEqual, contentHash, decodeEnvelope, decryptContent, unwrapContentKey, unwrapMediaKey, toBase64url, type Content, type MediaItem, type ProtocolClient } from "@osp/sdk";
+import { AUDIENCE, LIFECYCLE, SUITE, bytesEqual, contentHash, decodeEnvelope, decryptContent, resolvePostText, unwrapContentKey, unwrapMediaKey, toBase64url, type Content, type MediaItem, type ProtocolClient } from "@osp/sdk";
 import { bytesOf } from "../shared/bytes";
 import type { PostView } from "../shared/indexer";
 import type { FeedItem, PostContentStatus } from "../shared/protocol";
@@ -38,7 +38,7 @@ export async function openPost(post: PostView, ctx: OpenContext): Promise<Opened
       if (record.state === LIFECYCLE.DELETED) return { status: "tombstone" };
       if (record.state === LIFECYCLE.AUTHOR_HIDDEN) return { status: "hidden" };
       if (record.state === LIFECYCLE.UNAVAILABLE) return { status: "unavailable" };
-      if (record.author !== post.author || !bytesEqual(record.reply_to ?? new Uint8Array(),bytesOf(post.replyTo ?? "")) || !bytesEqual(record.collection_id ?? new Uint8Array(),bytesOf(post.collectionId ?? "")) || record.audience !== post.audience || record.version_count !== post.versionNumber || !bytesEqual(record.latest_version, bytesOf(post.contentHash))) {
+      if (!bytesEqual(record.quote_post_id ?? new Uint8Array(), bytesOf(post.quotePostId ?? "")) || !bytesEqual(record.quote_version ?? new Uint8Array(), bytesOf(post.quoteVersion ?? "")) || record.author !== post.author || !bytesEqual(record.reply_to ?? new Uint8Array(),bytesOf(post.replyTo ?? "")) || !bytesEqual(record.collection_id ?? new Uint8Array(),bytesOf(post.collectionId ?? "")) || record.audience !== post.audience || record.version_count !== post.versionNumber || !bytesEqual(record.latest_version, bytesOf(post.contentHash))) {
         return { status: "error", message: "The feed has not supplied the current verified version of this post. Refresh the feed to check again." };
       }
     } catch {
@@ -67,7 +67,7 @@ export async function openPost(post: PostView, ctx: OpenContext): Promise<Opened
   }
   if (envelope.suite === SUITE.PLAINTEXT) {
     try {
-      return { status: "plain", content: decryptContent({ envelope }) };
+      return { status: "plain", content: await resolvePostText(decryptContent({ envelope }), false) };
     } catch {
       return { status: "error", message: "This post's content could not be decoded." };
     }
@@ -97,7 +97,7 @@ export async function openPost(post: PostView, ctx: OpenContext): Promise<Opened
         }));
       } finally { key.fill(0); }
     }
-    return { status: "decrypted", content };
+    return { status: "decrypted", content: await resolvePostText(content, true) };
   } catch {
     return { status: "error", message: "The post could not be decrypted with the key you hold." };
   }
@@ -110,6 +110,7 @@ export function toFeedItem(post: PostView, opened: OpenedPost): FeedItem {
     ...(m.poster && { poster: media(m.poster) }),
   });
   return {
+    quotePostId: post.quotePostId, quoteVersion: post.quoteVersion,
     replyTo: post.replyTo, collectionId: post.collectionId, shareWith: opened.content?.share_with,
     postId: post.postId,
     contentHash: post.contentHash,

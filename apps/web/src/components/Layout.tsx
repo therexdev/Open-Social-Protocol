@@ -1,3 +1,4 @@
+import { Topics } from "./Topics";
 /** App shell: header, navigation (bottom bar on small screens), deployment banner, toasts. */
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { NavLink, Link, useLocation, useNavigate } from "react-router-dom";
@@ -15,6 +16,7 @@ import { useSwipeTabs } from "./useSwipeTabs";
 import { InstallButton, PwaStatus } from "../pwa/PwaControls";
 import { useProfileName } from "../features/profile/useProfileName";
 import { Toasts } from "./Toasts";
+import { useSocialMetadata } from "../features/post/useSocialMetadata";
 
 function DeploymentBanner() {
   const { resolved } = useServices();
@@ -63,11 +65,13 @@ const secondary = [
   { to: "/notifications", label: "Activity", icon: "bell" },
   { to: "/tokens", label: "Tokens", icon: "token" },
   { to: "/wallet", label: "Wallet", icon: "wallet" },
+  { to: "/browser-plugin", label: "Browser Plugin", icon: "puzzle" },
   { to: "/settings", label: "Settings", icon: "settings" },
   { to: "/about", label: "About Open Social", icon: "info" },
 ] as const;
 
 export function Layout({ children }: { children: ReactNode }) {
+  const { protocol, indexer } = useServices();
   const location = useLocation();
   const navigate = useNavigate();
   const status = useVault((s) => s.status);
@@ -100,25 +104,26 @@ export function Layout({ children }: { children: ReactNode }) {
     document.title = title === "Open Social" ? title : `${title} · Open Social`;
     window.scrollTo({ top: 0, behavior: "instant" });
   }, [location.pathname]);
+  useSocialMetadata(location.pathname, indexer);
   const navItem = (item: { to: string; label: string; icon: IconName }, mobile = false) => {
     const profile = item.to === "/me";
     return <NavLink key={item.to} to={profile ? ownProfile : item.to} end={item.to === "/"} className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}><span className="nav-icon"><Icon name={item.icon} size={22} />{item.to === "/notifications" && unread > 0 && <span className="badge" aria-label={`${unread} new`}>{unread > 99 ? "99+" : unread}</span>}</span><span>{mobile && profile ? "Profile" : item.label}</span></NavLink>;
   };
   const lockControl = status === "unlocked" ? <Button variant="ghost" onClick={() => lock()}><Icon name="lock"/> Lock account</Button> : status === "locked" ? <Link className="btn btn-ghost" to="/welcome" state={{ from: `${location.pathname}${location.search}${location.hash}` }}><Icon name="lock"/> Unlock account</Link> : <Link className="btn btn-primary" to="/welcome">Get started <Icon name="arrow" /></Link>;
-  const fullWidth = ["/messages", "/settings", "/welcome", "/compose"].includes(location.pathname);
+  const fullWidth = ["/messages", "/settings", "/welcome", "/compose", "/browser-plugin"].includes(location.pathname);
   return <div className={`app${fullWidth ? " app-wide" : ""}${location.pathname === "/compose" ? " app-composing" : ""}`}>
     <a className="skip-link" href="#main">Skip to content</a>
     <aside className="sidebar">
       <Link to="/" className="brand" aria-label={`${APP_NAME} home`}><span>Open<span className="brand-light"> Social</span></span></Link>
       <nav className="desktop-nav" aria-label="Primary">{primary.map(item => navItem(item))}</nav>
-      <section className="sidebar-topics"><h2>Topics</h2><form onSubmit={event => { event.preventDefault(); const value = String(new FormData(event.currentTarget).get("tag") ?? "").trim().replace(/^#/, ""); if (value) navigate(`/tags/${encodeURIComponent(value)}`); }}><Icon name="search" size={16}/><input name="tag" aria-label="Search hashtags" placeholder="Search topics" maxLength={64}/></form>{["community", "technology", "art", "photography"].map(tag => <Link key={tag} to={`/tags/${tag}`}># <span>{tag}</span></Link>)}</section>
+      <Topics/>
       <div className="sidebar-bottom">{navItem(secondary.find(item=>item.to==="/groups")!)}{navItem(secondary.find(item=>item.to==="/settings")!)}<button className="nav-item" onClick={() => setMenuOpen(true)}><Icon name="more" size={22}/>More</button><Link className="btn btn-primary create-post" to="/compose"><Icon name="plus" size={19}/>Create a post</Link>{account && <div className="sidebar-profile"><Avatar account={account} name={name}/><Link to={ownProfile}><strong>{name}</strong><small>Your account</small></Link></div>}</div>
     </aside>
     <div className="app-workspace">
       <header className="topbar">
         <Link to="/" className="brand mobile-brand" aria-label="Open Social home"><span>Open<span className="brand-light"> Social</span></span></Link>
         <form className="header-search" role="search" onSubmit={event => { event.preventDefault(); const data = new FormData(event.currentTarget); navigate(`/people?q=${encodeURIComponent(String(data.get("q") ?? ""))}`); }}><Icon name="search"/><input name="q" aria-label="Find people by nickname" placeholder="Find your people…" maxLength={64}/><button type="submit" aria-label="Search people"><Icon name="arrow" size={18}/></button></form>
-        <div className="topbar-actions">{status === "locked" && <Link className="btn btn-ghost header-unlock" to="/welcome" state={{ from: `${location.pathname}${location.search}${location.hash}` }}>Unlock</Link>}<HeaderOsat/><Link className="icon-button notification-link" to="/notifications" aria-label={unread ? `Activity, ${unread} new` : "Activity"}><Icon name="bell"/>{unread > 0 && <span className="notification-dot"/>}</Link>{account && <span className="header-avatar"><Avatar account={account} name={name}/></span>}</div>
+        <div className="topbar-actions">{status === "empty" && <Link className="btn btn-primary guest-join" to="/welcome" state={{ from: `${location.pathname}${location.search}${location.hash}` }}>Join Open Social</Link>}{status === "locked" && <Link className="btn btn-ghost header-unlock" to="/welcome" state={{ from: `${location.pathname}${location.search}${location.hash}` }}>Unlock</Link>}<HeaderOsat/><Link className="icon-button notification-link" to="/notifications" aria-label={unread ? `Activity, ${unread} new` : "Activity"}><Icon name="bell"/>{unread > 0 && <span className="notification-dot"/>}</Link>{account && <span className="header-avatar"><Avatar account={account} name={name}/></span>}</div>
       </header>
       <div className="app-banners"><DeploymentBanner/><IndexerBanner/><RegistrationBanner/><PwaStatus/></div>
       <div className="content-grid">
@@ -126,12 +131,12 @@ export function Layout({ children }: { children: ReactNode }) {
           <FriendKeySync/>
           <div key={location.pathname} className="route-content">{children}</div>
         </main>
-        {wide && !fullWidth && <SocialRail/>}
+        {wide && !fullWidth && <SocialRail promotePlugin={location.pathname === "/"}/>}
       </div>
     </div>
     <button type="button" className="icon-button mobile-more" aria-label="More menu" onClick={() => setMenuOpen(true)} aria-haspopup="dialog" aria-expanded={menuOpen}><Icon name="more"/></button>
     <nav className="mobile-nav" aria-label="Mobile navigation">{primary.map(item => navItem(item, true))}</nav>
-    <dialog ref={menu} className="dialog more-menu" aria-labelledby="more-menu-title" onCancel={() => setMenuOpen(false)} onClose={() => setMenuOpen(false)}><div className="page-header"><h2 id="more-menu-title">More to explore</h2><Button variant="ghost" aria-label="Close menu" onClick={() => setMenuOpen(false)}><Icon name="close"/></Button></div><nav aria-label="More navigation">{navItem(primary[1])}{secondary.map(item => navItem(item))}</nav><div className="menu-footer"><InstallButton/>{lockControl}</div></dialog>
+    <dialog ref={menu} className="dialog more-menu" aria-labelledby="more-menu-title" onCancel={() => setMenuOpen(false)} onClose={() => setMenuOpen(false)}><div className="page-header"><h2 id="more-menu-title">More to explore</h2><Button variant="ghost" aria-label="Close menu" onClick={() => setMenuOpen(false)}><Icon name="close"/></Button></div><nav aria-label="More navigation">{navItem(primary[1])}{secondary.filter(item => item.to !== "/tokens" || protocol?.deployment?.economy !== "token-free").map(item => navItem(item))}</nav><div className="menu-footer"><InstallButton/>{lockControl}</div></dialog>
     <Toasts/>
   </div>;
 }

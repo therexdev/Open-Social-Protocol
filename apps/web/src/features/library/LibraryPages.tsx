@@ -188,8 +188,7 @@ export function CollectionEditor({
         </p>
         <p className="hint">
           Names and photo descriptions are encrypted for private collections.
-          Account membership is public routing information. Saving uses 1 usage
-          unit.
+          Account membership is public routing information. {ctx.services.protocol?.deployment?.economy !== "token-free" && "Saving uses 1 usage unit."}
         </p>
         {error && <Notice kind="error">{error}</Notice>}
         <div className="row">
@@ -390,8 +389,7 @@ function PhotoTile({
           />
           <Button onClick={() => setAdding(false)}>Close albums</Button>
           <p className="hint">
-            Adding an existing photo costs 1 usage unit for the album entry;
-            storage is not charged again. Sharing the album also shares this
+            {ctx.services.protocol?.deployment?.economy === "token-free" ? "Adding an existing photo records the album entry without uploading the file again." : "Adding an existing photo costs 1 usage unit for the album entry; storage is not charged again."} Sharing the album also shares this
             copy.
           </p>
         </div>

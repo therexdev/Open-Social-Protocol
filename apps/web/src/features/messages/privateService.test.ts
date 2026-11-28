@@ -1203,6 +1203,9 @@ describe("two-browser private conversations", () => {
   });
   it("keeps later packets behind an unobserved alias transaction even after the HTTP response", async () => {
     const h = harness(true, true), chat = await h.connect();
+    // Rapidly queued messages can share a timestamp; their display order then
+    // depends on random IDs, independently of the alias's submission order.
+    vi.spyOn(Date, "now").mockReturnValue(Date.now());
     const submit = h.protocol.submit.bind(h.protocol);
     let held: PrivatePacketView | undefined;
     const sent = vi.spyOn(h.protocol, "submit").mockImplementation(async options => {
@@ -1214,9 +1217,15 @@ describe("two-browser private conversations", () => {
     await h.a.service.queueMessage(bob.account, "Second");
     await h.a.service.load(); await h.a.service.sync(); await h.a.service.sync();
     expect(sent).toHaveBeenCalledTimes(1);
-    expect(h.a.snapshot.chats[0]?.messages[0]?.state).toBe("submitted");
+    const messages = h.a.snapshot.chats[0]!.messages;
+    expect(messages).toHaveLength(2);
+    expect(messages[0]!.timestamp).toBe(messages[1]!.timestamp);
+    expect(Object.fromEntries(messages.map(m => [m.text, m.state]))).toEqual({
+      First: "submitted", Second: "sending",
+    });
+    expect(held?.packet_id).toBe(messages.find(m => m.text === "First")!.id);
     sent.mockRestore(); h.packets.push(held!); await h.pump();
-    expect(h.b.snapshot.chats[0]?.messages.map(m => m.text)).toEqual(["First", "Second"]);
+    expect(h.b.snapshot.chats[0]?.messages.map(m => m.text).sort()).toEqual(["First", "Second"]);
   });
   it("reuses prepaid conversation credits for closure and hides only its finality wait", async () => {
     const h = harness(true, true), chat = await h.connect();
@@ -1263,6 +1272,35 @@ describe("linked messaging browsers", () => {
     expect(phone.snapshot.links!.some(l => l.status === "ready")).toBe(true);
     expect(a.snapshot.error).toBe(""); expect(phone.snapshot.error).toBe("");
   }
+  it("backs off a CORS-hidden rate limit without losing a link and resumes with explicit approval", async () => {
+    const h = harness(); await h.a.service.enable(); await h.pump(); const phone = await add(h);
+    await h.a.service.linkDevice(phone.snapshot.deviceId!); await pump([h.a], 2);
+    const read = vi.spyOn(h.protocol.reads.messaging, "get_private_devices").mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    await h.a.service.sync();
+    expect(h.a.snapshot.error).toContain("retry automatically");
+    expect(h.a.snapshot.links?.some(l => l.status === "outgoing")).toBe(true);
+    const calls = read.mock.calls.length;
+    for (let i = 0; i < 6; i++) await h.a.service.sync();
+    expect(read).toHaveBeenCalledTimes(calls);
+    const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 6000);
+    await pump([h.a, phone], 5);
+    expect(phone.snapshot.links?.some(l => l.status === "incoming")).toBe(true);
+    expect(phone.snapshot.links?.some(l => l.status === "ready")).toBe(false);
+    const incoming = phone.snapshot.links!.find(l => l.status === "incoming")!;
+    await phone.service.accept(incoming.id); await pump([h.a, phone], 12);
+    expect(h.a.snapshot.links?.some(l => l.status === "ready")).toBe(true);
+    expect(phone.snapshot.links?.some(l => l.status === "ready")).toBe(true);
+    expect(h.a.snapshot.error).toBe(""); clock.mockRestore();
+  });
+  it("waits for the finality boundary without repeatedly checking the same future invitation", async () => {
+    const h = harness(); await h.a.service.enable(); await h.b.service.enable(); await h.pump();
+    h.setLib("1"); await h.a.service.start(bob.account); await pump([h.a], 3);
+    const read = vi.spyOn(h.protocol.reads.messaging, "get_private_packet");
+    await pump([h.b], 5);
+    expect(read).not.toHaveBeenCalled(); expect(h.b.snapshot.chats).toHaveLength(0);
+    h.setLib("1000"); await pump([h.b], 2);
+    expect(read).toHaveBeenCalled(); expect(h.b.snapshot.chats[0]?.status).toBe("incoming");
+  });
   it("requires explicit approval despite auto-connect, copies existing history, and never exports the live session", async () => {
     const h = harness(); const chat = await h.connect();
     await h.a.service.send(chat, "Earlier desktop message"); await h.pump();

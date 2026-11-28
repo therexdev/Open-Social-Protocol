@@ -9,6 +9,12 @@ import { JSDOM } from "jsdom";
 
 const dist = fileURLToPath(new URL("../dist/", import.meta.url));
 const html = readFileSync(path.join(dist, "index.html"), "utf8");
+assert.ok(html.includes("<!--osp-social-start-->") && html.includes("<!--osp-social-end-->"), "Crawler metadata replacement markers are missing");
+const previewHandler = readFileSync(path.join(dist, "post-preview.php"), "utf8");
+assert.ok(!previewHandler.includes("__OSP_PREVIEW_CONFIG__"), "Crawler handler still has an unresolved build placeholder");
+assert.match(readFileSync(path.join(dist, ".htaccess"), "utf8"), /RewriteRule \^post\/.*post-preview\.php/, "Post routing must serve initial HTML metadata");
+const socialCard = readFileSync(path.join(dist, "social-card.png"));
+assert.equal(socialCard.readUInt32BE(16), 1200); assert.equal(socialCard.readUInt32BE(20), 630);
 const dom = new JSDOM(html, { url: "https://opensocial.test/people?q=Rex", pretendToBeVisual: true });
 const person = { account: "1EiR6tc8jtVK6boR5w1chjq17XEXXHiNk4", profileUri: "data:application/x-osp-profile;base64,CAESA1JleA==" };
 const errors = [];
@@ -70,6 +76,10 @@ try {
   assert.equal(doc.querySelector('section[aria-label="Network settings"]')?.hidden, false, "Network settings did not open");
   const hint = [...doc.querySelectorAll(".field")].find(field => field.querySelector("label")?.textContent.includes("Sponsors"))?.querySelector(".hint")?.textContent;
   assert.ok(hint && !hint.includes("none") && hint.includes("http"), "Release has no sponsor configured");
+  if (process.env.VITE_OSP_NETWORK === "mainnet") {
+    assert.equal(doc.querySelector(".header-osat"), null, "Token-free release keeps usage counters out of the header");
+    assert.ok(!doc.querySelector(".header-osat")?.textContent.includes("OSAT"), "Token-free release must not display an OSAT balance");
+  }
   assert.deepEqual(errors, [], "Shipped app encountered runtime errors");
   console.log(`web dist smoke passed: saved empty overrides resolve indexer ${people.origin}, nickname search reaches it, and Settings reports a sponsor`);
 } finally {

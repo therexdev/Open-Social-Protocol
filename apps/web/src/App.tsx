@@ -5,6 +5,7 @@ import { GroupsPage, CollectionPage } from "./features/library/LibraryPages";
 import { useEffect, useRef, type ReactNode } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { ServicesProvider, useServices, type ServicesProviderProps } from "./api/services";
+import { BrowserPluginPage } from "./features/plugin/BrowserPluginPage";
 import { AboutPage } from "./features/about/AboutPage";
 import { PeoplePage } from "./features/people/PeopleSearch";
 import { Layout } from "./components/Layout";
@@ -41,18 +42,10 @@ function RequireAccount({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
-/**
- * Pages readable without an account (public feed, posts, profiles). A visitor without a vault
- * still starts at onboarding, but the link they opened is kept and restored afterwards.
- */
+/** Public reading does not create, unlock, or require an account. */
 function Optional({ children }: { children: ReactNode }) {
   const status = useVault((s) => s.status);
-  const location = useLocation();
   if (status === "loading") return <Spinner label="Opening your vault" />;
-  if (status === "empty")
-    return (
-      <Navigate to="/welcome" replace state={{ from: `${location.pathname}${location.search}` }} />
-    );
   return <>{children}</>;
 }
 
@@ -126,6 +119,7 @@ export function AppRoutes() {
           </Optional>
         }
       />
+      <Route path="/browser-plugin" element={<BrowserPluginPage />} />
       <Route path="/about" element={<AboutPage />} />
       <Route path="/people" element={<PeoplePage />} />
       <Route

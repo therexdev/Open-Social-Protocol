@@ -152,6 +152,18 @@ export namespace publications {
         writer.uint32(88);
         writer.bool(message.gallery_only);
       }
+
+      const unique_name_quote_post_id = message.quote_post_id;
+      if (unique_name_quote_post_id !== null) {
+        writer.uint32(98);
+        writer.bytes(unique_name_quote_post_id);
+      }
+
+      const unique_name_quote_version = message.quote_version;
+      if (unique_name_quote_version !== null) {
+        writer.uint32(106);
+        writer.bytes(unique_name_quote_version);
+      }
     }
 
     static decode(reader: Reader, length: i32): post_record {
@@ -205,6 +217,14 @@ export namespace publications {
             message.gallery_only = reader.bool();
             break;
 
+          case 12:
+            message.quote_post_id = reader.bytes();
+            break;
+
+          case 13:
+            message.quote_version = reader.bytes();
+            break;
+
           default:
             reader.skipType(tag & 7);
             break;
@@ -225,6 +245,8 @@ export namespace publications {
     updated_at: u64;
     collection_id: Uint8Array | null;
     gallery_only: bool;
+    quote_post_id: Uint8Array | null;
+    quote_version: Uint8Array | null;
 
     constructor(
       author: Uint8Array | null = null,
@@ -237,7 +259,9 @@ export namespace publications {
       created_at: u64 = 0,
       updated_at: u64 = 0,
       collection_id: Uint8Array | null = null,
-      gallery_only: bool = false
+      gallery_only: bool = false,
+      quote_post_id: Uint8Array | null = null,
+      quote_version: Uint8Array | null = null
     ) {
       this.author = author;
       this.sequence = sequence;
@@ -250,6 +274,8 @@ export namespace publications {
       this.updated_at = updated_at;
       this.collection_id = collection_id;
       this.gallery_only = gallery_only;
+      this.quote_post_id = quote_post_id;
+      this.quote_version = quote_version;
     }
   }
 
@@ -696,6 +722,18 @@ export namespace publications {
         writer.uint32(144);
         writer.uint32(message.reply_friends_epoch);
       }
+
+      const unique_name_quote_post_id = message.quote_post_id;
+      if (unique_name_quote_post_id !== null) {
+        writer.uint32(154);
+        writer.bytes(unique_name_quote_post_id);
+      }
+
+      const unique_name_quote_version = message.quote_version;
+      if (unique_name_quote_version !== null) {
+        writer.uint32(162);
+        writer.bytes(unique_name_quote_version);
+      }
     }
 
     static decode(reader: Reader, length: i32): publish_arguments {
@@ -777,6 +815,14 @@ export namespace publications {
             message.reply_friends_epoch = reader.uint32();
             break;
 
+          case 19:
+            message.quote_post_id = reader.bytes();
+            break;
+
+          case 20:
+            message.quote_version = reader.bytes();
+            break;
+
           default:
             reader.skipType(tag & 7);
             break;
@@ -804,6 +850,8 @@ export namespace publications {
     gallery_only: bool;
     reply_parent_version: Uint8Array | null;
     reply_friends_epoch: u32;
+    quote_post_id: Uint8Array | null;
+    quote_version: Uint8Array | null;
 
     constructor(
       author: Uint8Array | null = null,
@@ -823,7 +871,9 @@ export namespace publications {
       collection_id: Uint8Array | null = null,
       gallery_only: bool = false,
       reply_parent_version: Uint8Array | null = null,
-      reply_friends_epoch: u32 = 0
+      reply_friends_epoch: u32 = 0,
+      quote_post_id: Uint8Array | null = null,
+      quote_version: Uint8Array | null = null
     ) {
       this.author = author;
       this.post_id = post_id;
@@ -843,6 +893,8 @@ export namespace publications {
       this.gallery_only = gallery_only;
       this.reply_parent_version = reply_parent_version;
       this.reply_friends_epoch = reply_friends_epoch;
+      this.quote_post_id = quote_post_id;
+      this.quote_version = quote_version;
     }
   }
 
@@ -1960,6 +2012,18 @@ export namespace publications {
         writer.uint32(136);
         writer.bool(message.gallery_only);
       }
+
+      const unique_name_quote_post_id = message.quote_post_id;
+      if (unique_name_quote_post_id !== null) {
+        writer.uint32(146);
+        writer.bytes(unique_name_quote_post_id);
+      }
+
+      const unique_name_quote_version = message.quote_version;
+      if (unique_name_quote_version !== null) {
+        writer.uint32(154);
+        writer.bytes(unique_name_quote_version);
+      }
     }
 
     static decode(reader: Reader, length: i32): published_event {
@@ -2037,6 +2101,14 @@ export namespace publications {
             message.gallery_only = reader.bool();
             break;
 
+          case 18:
+            message.quote_post_id = reader.bytes();
+            break;
+
+          case 19:
+            message.quote_version = reader.bytes();
+            break;
+
           default:
             reader.skipType(tag & 7);
             break;
@@ -2063,6 +2135,8 @@ export namespace publications {
     timestamp: u64;
     collection_id: Uint8Array | null;
     gallery_only: bool;
+    quote_post_id: Uint8Array | null;
+    quote_version: Uint8Array | null;
 
     constructor(
       author: Uint8Array | null = null,
@@ -2081,7 +2155,9 @@ export namespace publications {
       protocol_version: u32 = 0,
       timestamp: u64 = 0,
       collection_id: Uint8Array | null = null,
-      gallery_only: bool = false
+      gallery_only: bool = false,
+      quote_post_id: Uint8Array | null = null,
+      quote_version: Uint8Array | null = null
     ) {
       this.author = author;
       this.post_id = post_id;
@@ -2100,6 +2176,8 @@ export namespace publications {
       this.timestamp = timestamp;
       this.collection_id = collection_id;
       this.gallery_only = gallery_only;
+      this.quote_post_id = quote_post_id;
+      this.quote_version = quote_version;
     }
   }
 
@@ -2551,6 +2629,11 @@ export namespace publications {
         writer.uint32(10);
         writer.bytes(unique_name_address);
       }
+
+      if (message.token_free != false) {
+        writer.uint32(16);
+        writer.bool(message.token_free);
+      }
     }
 
     static decode(reader: Reader, length: i32): set_token_contract_arguments {
@@ -2564,6 +2647,10 @@ export namespace publications {
             message.address = reader.bytes();
             break;
 
+          case 2:
+            message.token_free = reader.bool();
+            break;
+
           default:
             reader.skipType(tag & 7);
             break;
@@ -2574,9 +2661,11 @@ export namespace publications {
     }
 
     address: Uint8Array | null;
+    token_free: bool;
 
-    constructor(address: Uint8Array | null = null) {
+    constructor(address: Uint8Array | null = null, token_free: bool = false) {
       this.address = address;
+      this.token_free = token_free;
     }
   }
 
@@ -2636,6 +2725,11 @@ export namespace publications {
         writer.uint32(10);
         writer.bytes(unique_name_value);
       }
+
+      if (message.token_free != false) {
+        writer.uint32(16);
+        writer.bool(message.token_free);
+      }
     }
 
     static decode(reader: Reader, length: i32): get_token_contract_result {
@@ -2649,6 +2743,10 @@ export namespace publications {
             message.value = reader.bytes();
             break;
 
+          case 2:
+            message.token_free = reader.bool();
+            break;
+
           default:
             reader.skipType(tag & 7);
             break;
@@ -2659,9 +2757,11 @@ export namespace publications {
     }
 
     value: Uint8Array | null;
+    token_free: bool;
 
-    constructor(value: Uint8Array | null = null) {
+    constructor(value: Uint8Array | null = null, token_free: bool = false) {
       this.value = value;
+      this.token_free = token_free;
     }
   }
 
@@ -3721,6 +3821,16 @@ export namespace publications {
         writer.uint32(24);
         writer.uint32(message.content_reference_version);
       }
+
+      if (message.hosted_manifest_version != 0) {
+        writer.uint32(32);
+        writer.uint32(message.hosted_manifest_version);
+      }
+
+      if (message.quote_reference_version != 0) {
+        writer.uint32(40);
+        writer.uint32(message.quote_reference_version);
+      }
     }
 
     static decode(reader: Reader, length: i32): get_library_version_result {
@@ -3742,6 +3852,14 @@ export namespace publications {
             message.content_reference_version = reader.uint32();
             break;
 
+          case 4:
+            message.hosted_manifest_version = reader.uint32();
+            break;
+
+          case 5:
+            message.quote_reference_version = reader.uint32();
+            break;
+
           default:
             reader.skipType(tag & 7);
             break;
@@ -3754,15 +3872,21 @@ export namespace publications {
     version: u32;
     external_media_version: u32;
     content_reference_version: u32;
+    hosted_manifest_version: u32;
+    quote_reference_version: u32;
 
     constructor(
       version: u32 = 0,
       external_media_version: u32 = 0,
-      content_reference_version: u32 = 0
+      content_reference_version: u32 = 0,
+      hosted_manifest_version: u32 = 0,
+      quote_reference_version: u32 = 0
     ) {
       this.version = version;
       this.external_media_version = external_media_version;
       this.content_reference_version = content_reference_version;
+      this.hosted_manifest_version = hosted_manifest_version;
+      this.quote_reference_version = quote_reference_version;
     }
   }
 
@@ -4720,6 +4844,16 @@ export namespace publications {
         writer.uint32(80);
         writer.uint32(message.external_media_version);
       }
+
+      if (message.token_free != false) {
+        writer.uint32(88);
+        writer.bool(message.token_free);
+      }
+
+      if (message.hosted_manifest_version != 0) {
+        writer.uint32(96);
+        writer.uint32(message.hosted_manifest_version);
+      }
     }
 
     static decode(reader: Reader, length: i32): music_config {
@@ -4769,6 +4903,14 @@ export namespace publications {
             message.external_media_version = reader.uint32();
             break;
 
+          case 11:
+            message.token_free = reader.bool();
+            break;
+
+          case 12:
+            message.hosted_manifest_version = reader.uint32();
+            break;
+
           default:
             reader.skipType(tag & 7);
             break;
@@ -4788,6 +4930,8 @@ export namespace publications {
     flat_fee: u64;
     clip_version: u32;
     external_media_version: u32;
+    token_free: bool;
+    hosted_manifest_version: u32;
 
     constructor(
       version: u32 = 0,
@@ -4799,7 +4943,9 @@ export namespace publications {
       native_token: Uint8Array | null = null,
       flat_fee: u64 = 0,
       clip_version: u32 = 0,
-      external_media_version: u32 = 0
+      external_media_version: u32 = 0,
+      token_free: bool = false,
+      hosted_manifest_version: u32 = 0
     ) {
       this.version = version;
       this.revision = revision;
@@ -4811,6 +4957,8 @@ export namespace publications {
       this.flat_fee = flat_fee;
       this.clip_version = clip_version;
       this.external_media_version = external_media_version;
+      this.token_free = token_free;
+      this.hosted_manifest_version = hosted_manifest_version;
     }
   }
 

@@ -137,7 +137,7 @@ if (listeners.length === 1) {
   check(notGranted?.ok === false && notGranted.error?.code === "forbidden", `content script from a non-granted origin must be refused: ${JSON.stringify(notGranted)}`);
   const privileged = await send({ type: "vault.status" }, content);
   check(privileged?.ok === false && privileged.error?.code === "forbidden", "content scripts must not reach privileged types");
-  const oversize = await send({ type: "vault.status", payload: { blob: "x".repeat(40 * 1024) } }, page);
+  const oversize = await send({ type: "vault.status", payload: { blob: "x".repeat(1024 * 1024) } }, page);
   check(oversize?.ok === false && oversize.error?.code === "too_large", "oversize messages must be refused");
   // vault + orchestrator through the bundle (scrypt, XChaCha20-Poly1305, idempotency keys): no code generation anywhere
   const created = await send({ type: "vault.create", payload: { passphrase: "correct horse battery" } }, page);

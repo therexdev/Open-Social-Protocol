@@ -1,5 +1,7 @@
 import { archiveClip } from "../media/clipArchive";
 import { archivePhoto } from "./archivePhoto";
+import { usesExternalMedia } from "../../api/mediaStorage";
+import { uploadPostText } from "../../api/postText";
 /** Publication transport; UI may wait for it or run it in the background. */
 import { AUDIENCE, LIFECYCLE, MUSIC_CHUNK_BYTES, requirePhotoLibrary, type ProtocolClient } from "@osp/sdk";
 import type { KeyVerifier } from "../../api/keystore";
@@ -42,13 +44,25 @@ export interface PublishProgress {
 
 export async function planDraft(deps: PublishDeps, request: PublishRequest): Promise<PublishPlan> {
   if (request.draft.audience === AUDIENCE.CUSTOM || request.draft.galleryOnly || request.draft.collectionId) await requirePhotoLibrary(deps.protocol);
+  if (request.draft.quote) {
+    const feature = await deps.protocol.reads.publications.get_library_version({});
+    if (feature?.quote_reference_version !== 1) throw new PublishError("Sharing is waiting for the network upgrade. Your draft is saved; nothing was published.");
+  }
+  if (request.draft.quote && !request.draft.edit) {
+    const source = (await deps.protocol.reads.publications.get_post({ post_id: bytesOf(request.draft.quote.postId) }))?.value;
+    if (!source || source.state !== LIFECYCLE.ACTIVE || source.audience !== AUDIENCE.EVERYONE || source.collection_id?.length) throw new PublishError("Only available public posts can be shared. Nothing was published.");
+    if (toBase64url(source.latest_version) !== request.draft.quote.version) throw new PublishError("The shared post changed. Open it again to review its latest version before sharing.");
+  }
   const audience = request.draft.audience === AUDIENCE.CUSTOM ? AUDIENCE.CUSTOM : request.draft.audience === AUDIENCE.FRIENDS ? AUDIENCE.FRIENDS : AUDIENCE.EVERYONE;
   return buildPublishPlan({
+    ...(usesExternalMedia(deps.protocol) && { hostText: (text: string, encrypted: boolean) => uploadPostText(
+      { client: deps.protocol, signer: deps.session.identity.signer, payment: deps.payment }, deps.session.identity.account, text, encrypted, deps.assertActive) }),
     chain: deps.protocol,
     indexer: deps.indexer,
     me: deps.session.identity,
     keys: deps.session.keys,
     text: request.draft.text,
+    quote: request.draft.quote,
     ...(request.draft.poll && { poll: request.draft.poll }),
     audience,
     selectedAccounts: request.draft.selectedAccounts,

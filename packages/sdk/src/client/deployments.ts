@@ -5,6 +5,8 @@ import { CONTRACT_NAMES, type ContractName } from "../constants.js";
 import { isAddress } from "../ids.js";
 
 export interface DeploymentContract {
+  /** Reserved address for a future module; no bytecode has been uploaded. */
+  reserved?: boolean;
   address: string;
   txId?: string;
   block?: string;
@@ -14,6 +16,7 @@ export interface DeploymentContract {
 }
 
 export interface Deployment {
+  economy?: "token-free" | "token";
   network: string;
   /** base64url chain id recorded at deploy time. */
   chainId: string;
@@ -50,15 +53,19 @@ export function loadDeployment(input: string | unknown): Deployment {
   const protocolVersion = typeof d.protocolVersion === "number" ? d.protocolVersion : Number(d.protocolVersion);
   if (!Number.isInteger(protocolVersion) || protocolVersion < 1) throw new DeploymentError("protocolVersion is required");
   if (!d.contracts || typeof d.contracts !== "object") throw new DeploymentError("contracts is required");
+  if (d.economy !== undefined && !["token", "token-free"].includes(String(d.economy))) throw new DeploymentError("Invalid economy mode");
   const contractsRaw = d.contracts as Record<string, unknown>;
   const contracts = {} as Record<ContractName, DeploymentContract>;
   for (const name of CONTRACT_NAMES) {
     const entry = contractsRaw[name];
     if (!entry || typeof entry !== "object") throw new DeploymentError(`contracts.${name} is missing`);
     const e = entry as Record<string, unknown>;
+    if (e.reserved === true && (name !== "token" || d.economy !== "token-free")) throw new DeploymentError("Only the token address can be reserved in token-free mode");
+    if (e.reserved === true && e.txId) throw new DeploymentError("A reserved module cannot have an upload transaction");
     if (!isAddress(e.address)) throw new DeploymentError(`contracts.${name}.address is not a valid address`);
     contracts[name] = {
       address: e.address,
+      ...(e.reserved === true && { reserved: true }),
       ...(typeof e.txId === "string" && { txId: e.txId }),
       ...(e.block !== undefined && { block: String(e.block) }),
       ...(typeof e.wasmSha256 === "string" && { wasmSha256: e.wasmSha256 }),
@@ -70,6 +77,7 @@ export function loadDeployment(input: string | unknown): Deployment {
     Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : undefined;
   return {
     network: d.network,
+    ...(d.economy === "token-free" && { economy: "token-free" as const }),
     chainId: d.chainId,
     rpc: d.rpc as string[],
     protocolVersion,

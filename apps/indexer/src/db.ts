@@ -17,7 +17,7 @@ import { DatabaseSync, type SQLInputValue, type StatementSync, type StatementRes
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import path from "node:path";
 
-export const SCHEMA_VERSION = 8;
+export const SCHEMA_VERSION = 9;
 
 /** Every projection table (truncated on replay), in a fixed order. */
 export const PROJECTION_TABLES = [
@@ -365,6 +365,9 @@ const MIGRATIONS: string[] = [
   CREATE INDEX music_tracks_order ON music_tracks(complete,block_height,tx_index,event_sequence);
   CREATE INDEX music_tracks_owner ON music_tracks(owner);`,
   `CREATE INDEX token_rewards_unsettled ON token_rewards(epoch, post_id) WHERE settled=0;`,
+  `ALTER TABLE posts ADD COLUMN quote_post_id TEXT NOT NULL DEFAULT '';
+   ALTER TABLE posts ADD COLUMN quote_version TEXT NOT NULL DEFAULT '';
+   CREATE INDEX posts_quote ON posts(quote_post_id);`,
 ];
 
 export interface CheckpointRow {

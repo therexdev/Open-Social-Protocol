@@ -2,6 +2,7 @@
  * ProtocolClient / IndexerClient / SponsorPool built from the resolved settings. Chain reads
  * and writes never bypass @osp/sdk; the indexer is a replaceable convenience.
  */
+import { BrowserRpcProvider } from "../../../web/src/api/rpcProvider";
 import { ProtocolClient, SponsorPool, type ProviderInterface } from "@osp/sdk";
 import { configureMediaStorage } from "../../../web/src/api/mediaStorage";
 import { IndexerClient, type FetchLike } from "../shared/indexer";
@@ -37,9 +38,9 @@ export class ClientRegistry {
         expectedChainId: resolved.deployment.chainId,
         ...(this.options.fetch && { fetch: this.options.fetch as (input: string, init?: RequestInit) => Promise<Response> }),
       });
-      const rpc = this.options.provider ?? (resolved.rpcUrls.length > 0 ? resolved.rpcUrls : resolved.deployment.rpc);
+      const rpc = this.options.provider ?? new BrowserRpcProvider(resolved.rpcUrls.length > 0 ? resolved.rpcUrls : resolved.deployment.rpc, resolved.deployment.chainId);
       protocol = new ProtocolClient({ rpc, deployment: resolved.deployment, sponsors });
-      if (resolved.network === "harbinger") configureMediaStorage(protocol, `${(resolved.deployment.sponsors?.[0] ?? resolved.sponsorUrls[0])?.replace(/\/+$/, "") ?? ""}/v1/media`, this.options.fetch as typeof fetch | undefined);
+      if ((resolved.network === "harbinger" || resolved.deployment.economy === "token-free")) configureMediaStorage(protocol, `${(resolved.deployment.sponsors?.[0] ?? resolved.sponsorUrls[0])?.replace(/\/+$/, "") ?? ""}/v1/media`, this.options.fetch as typeof fetch | undefined);
     }
     const indexer = new IndexerClient({ baseUrl: resolved.indexerUrl, ...(this.options.fetch && { fetch: this.options.fetch }), ...(protocol?.contracts.contentLoader && { contentLoader: protocol.contracts.contentLoader }) });
     const clients: Clients = { resolved, ...(protocol && { protocol }), indexer };

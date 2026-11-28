@@ -43,6 +43,7 @@ export interface VaultRecord {
 }
 
 export interface DraftRecord {
+  quote?: { postId: string; version: string };
   replyGuard?: { parentHash: string; friendsEpoch?: number };
   selectedAccounts?: string[];
   collectionId?: string;

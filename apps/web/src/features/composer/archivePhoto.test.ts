@@ -132,3 +132,22 @@ it("commits encrypted R2 photo references without any append transaction", async
   expect(charged).toBe(1);
   expect(fetchFn).toHaveBeenCalledTimes(3);
 });
+
+it("hosts a normal image above the old 320 KiB budget with one digest and no chunk writes", async () => {
+  vi.spyOn(client.reads.publications, "get_library_version").mockResolvedValue({ version: 1, external_media_version: 1, hosted_manifest_version: 1 });
+  const bytes = new Uint8Array(2 * 1024 * 1024).fill(11), hash = toBase64url(contentHash(bytes));
+  const location = `https://media.example/osp/test/${hash}`;
+  configureMediaStorage(client, "https://uploads.example/v1/media", vi.fn(async (url, init) => {
+    if (String(url) === location) return new Response(new Uint8Array(bytes));
+    return new Response(JSON.stringify(init?.method === "POST" ? { url: location, hash, size: bytes.length } : {
+      enabled: true, provider: "r2", chainId: client.chainId, contract: client.deployment.contracts.identity.address,
+      maxFileBytes: 26214400, publicUrl: "https://media.example",
+    }));
+  }));
+  const photo = prepareArchivedPhoto(bytes, client, false);
+  await archivePhoto(photo, ctx, identity.account);
+  await archivePhoto(photo, ctx, identity.account);
+  expect(record!.size).toBe(bytes.length);
+  expect(record!.chunk_hashes).toEqual([photo.contentHash]);
+  expect(charged).toBe(1); expect(appends).toEqual([]);
+});

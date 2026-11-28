@@ -120,7 +120,7 @@ describe("helpers", () => {
     try {
       const file = path.join(dir, "x.sqlite");
       const db = new IndexerDb(file);
-      expect(db.schemaVersion).toBe(8);
+      expect(db.schemaVersion).toBe(9);
       db.setMeta("schema_version", "99");
       db.close();
       expect(() => new IndexerDb(file)).toThrow(/newer than this indexer supports/);

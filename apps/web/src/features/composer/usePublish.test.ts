@@ -259,3 +259,22 @@ describe("background publication", () => {
     expect(provider.sent).toHaveLength(0);
   });
 });
+
+it("keeps a quote draft when the contract upgrade is absent and rejects changed or private sources before submission", async () => {
+  const session=await openSession(), {protocol,indexer,provider}=chainFor(session.identity.account);
+  const sourceId=new Uint8Array(32).fill(71), hash=new Uint8Array(32).fill(72);
+  const draft={...newDraft(session.identity.account,{text:'Look at this',audience:0,mediaUrls:[]}),quote:{postId:toBase64url(sourceId),version:toBase64url(hash)}};
+  const deps:PublishDeps={session,protocol,indexer,payment:'self-only'};
+  const feature=vi.spyOn(protocol.reads.publications,'get_library_version').mockResolvedValue({version:1,content_reference_version:1});
+  await startPublication(deps,{draft}); await waitForPublication(deps,draft.id);
+  expect((await listDrafts(session))[0]?.lastError).toContain('network upgrade');
+  expect((await listDrafts(session))[0]?.quote).toEqual(draft.quote); expect(provider.sent).toHaveLength(0);
+  feature.mockResolvedValue({version:1,content_reference_version:1,quote_reference_version:1});
+  const source=vi.spyOn(protocol.reads.publications,'get_post').mockResolvedValue({value:{author:friend.account,state:0,audience:1,latest_version:hash}} as never);
+  await expect(planDraft(deps,{draft})).rejects.toThrow('Only available public posts');
+  source.mockResolvedValue({value:{author:friend.account,state:0,audience:0,latest_version:new Uint8Array(32).fill(73)}} as never);
+  await expect(planDraft(deps,{draft})).rejects.toThrow('changed');
+  source.mockResolvedValue({value:{author:friend.account,state:0,audience:0,latest_version:hash}} as never);
+  const plan=await planDraft(deps,{draft}); const args=protocol.contracts.decodeOperation(plan.operations.at(-1)!)!.args;
+  expect(args.quote_post_id).toEqual(sourceId); expect(args.quote_version).toEqual(hash); expect(provider.sent).toHaveLength(0);
+});

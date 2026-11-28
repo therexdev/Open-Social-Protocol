@@ -155,7 +155,9 @@ export function resolveSettings(settings: Settings, options: ResolveOptions = {}
   const errors = options.deploymentErrors ?? DEPLOYMENT_REGISTRY.errors;
   const env = options.env ?? ENV;
   const deployment = deployments[settings.network];
-  const rpcUrls = settings.rpcUrls.length > 0 ? settings.rpcUrls : env.rpcUrls.length > 0 ? env.rpcUrls : presetRpc(settings.network, deployments);
+  // Upgrade the former single mainnet default; retain custom endpoint lists.
+  const legacyMainnet = settings.network === "mainnet" && settings.rpcUrls.length === 1 && settings.rpcUrls[0]?.replace(/\/+$/, "") === "https://api.koinos.io";
+  const rpcUrls = legacyMainnet ? presetRpc(settings.network, deployments) : settings.rpcUrls.length > 0 ? settings.rpcUrls : env.rpcUrls.length > 0 ? env.rpcUrls : presetRpc(settings.network, deployments);
   const indexerUrl = (settings.indexerUrl || env.indexerUrl || deployment?.indexers?.[0] || "").replace(/\/+$/, "");
   const sponsorUrls = settings.sponsorUrls.length > 0 ? settings.sponsorUrls : env.sponsorUrls.length > 0 ? env.sponsorUrls : (deployment?.sponsors ?? []);
   const deploymentMessage = deployment

@@ -17,7 +17,7 @@ export function usePostContent(post: PostView, revision?: PostVersionView): Post
   // route change drops the previous render immediately, before effects run.
   const scope = useMemo(() => ({}), [
     session, protocol, indexer, chainId, post.postId, post.author, post.versionNumber, post.contentHash, post.state,
-    post.audience, post.audienceId, post.epoch, post.collectionId, post.envelope,
+    post.quotePostId, post.quoteVersion, post.audience, post.audienceId, post.epoch, post.collectionId, post.envelope,
     revision?.versionNumber, revision?.contentHash, revision?.txId, revision?.blockHeight,
   ]);
   const [opened, setOpened] = useState<{ scope: object; content: PostContent }>();

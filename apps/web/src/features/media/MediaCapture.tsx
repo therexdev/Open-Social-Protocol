@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { MUSIC_MAX_BYTES, VOICE_MAX_BYTES, VOICE_MAX_DURATION, type ClipKind } from "@osp/sdk";
+import { HOSTED_FILE_MAX_BYTES, MUSIC_MAX_BYTES, VOICE_MAX_BYTES, VOICE_MAX_DURATION, type ClipKind } from "@osp/sdk";
+import { useOptionalServices } from "../../api/services";
+import { usesExternalMedia } from "../../api/mediaStorage";
 import { Icon } from "../../components/Icon";
 import { Button, Notice } from "../../components/ui";
 
@@ -20,10 +22,13 @@ const formats = {
 
 const clock = (ms: number) => {
   const s = Math.floor(ms / 1000);
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+  const hours = Math.floor(s / 3600), minutes = Math.floor(s / 60) % 60;
+  return `${hours ? `${hours}:${String(minutes).padStart(2, "0")}` : Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 };
+const fileSize = (bytes: number) => bytes >= 1073741824 ? `${(bytes / 1073741824).toFixed(2)} GiB` : bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MiB` : `${(bytes / 1024).toFixed(0)} KiB`;
 
-export function checkClipDuration(kind: ClipKind, ms: number) {
+export function checkClipDuration(kind: ClipKind, ms: number, hosted = false) {
+  if (hosted) { if (!Number.isSafeInteger(ms) || ms <= 0) throw Error("The recording duration is unavailable."); return; }
   if (kind === "video" && (!Number.isFinite(ms) || ms < 10_000 || ms > videoLimit)) {
     throw new Error("Choose a video between 10 and 30 seconds long.");
   }
@@ -33,17 +38,23 @@ export function checkClipDuration(kind: ClipKind, ms: number) {
 }
 
 /** Read duration without rewriting the selected file. Some WebM encoders omit the duration field. */
-export function readVideo(file: File, signal: AbortSignal): Promise<CapturedMedia> {
-  if (!file.size || file.size > maxBytes.video) throw new Error("Choose a video up to 10 MiB.");
-  const mime = file.type.split(";")[0]?.toLowerCase() ||
-    (/\.mp4$/i.test(file.name) ? "video/mp4" : /\.webm$/i.test(file.name) ? "video/webm" : "");
-  if (mime !== "video/mp4" && mime !== "video/webm") throw new Error("Choose an MP4 or WebM video.");
+export function readVideo(file: File, signal: AbortSignal, limit = maxBytes.video, hosted = false): Promise<CapturedMedia> {
+  return readRecording(file, signal, "video", limit, hosted);
+}
+export function readRecording(file: File, signal: AbortSignal, kind: ClipKind, limit: number, hosted = false): Promise<CapturedMedia> {
+  if (!file.size || file.size > limit) throw new Error(`Choose a recording up to ${Math.floor(limit / 1048576)} MiB.`);
+  const type = file.type.split(";")[0]?.toLowerCase();
+  const mime = ({ "audio/x-m4a": "audio/mp4", "audio/x-wav": "audio/wav", "audio/mp3": "audio/mpeg" }[type ?? ""] ?? type) ||
+    (kind === "video" ? (/\.mp4$/i.test(file.name) ? "video/mp4" : /\.webm$/i.test(file.name) ? "video/webm" : "") :
+      ({ mp3: "audio/mpeg", m4a: "audio/mp4", mp4: "audio/mp4", webm: "audio/webm", ogg: "audio/ogg", wav: "audio/wav" }[file.name.split(".").pop()?.toLowerCase() ?? ""] ?? ""));
+  if (kind === "video" ? mime !== "video/mp4" && mime !== "video/webm" : !["audio/mpeg", "audio/mp4", "audio/webm", "audio/ogg", "audio/wav"].includes(mime))
+    throw new Error(kind === "video" ? "Choose an MP4 or WebM video." : "Choose MP3, M4A, WebM, Ogg or WAV audio.");
   return new Promise((resolve, reject) => {
-    const video = document.createElement("video");
+    const video = document.createElement(kind === "video" ? "video" : "audio");
     const url = URL.createObjectURL(file);
     const finish = (error?: Error) => {
       const durationMs = Math.round(video.duration * 1000);
-      const hasPicture = video.videoWidth > 0 && video.videoHeight > 0;
+      const hasPicture = kind !== "video" || (video instanceof HTMLVideoElement && video.videoWidth > 0 && video.videoHeight > 0);
       clearTimeout(timeout);
       signal.removeEventListener("abort", cancel);
       video.onloadedmetadata = video.ontimeupdate = video.ondurationchange = video.onerror = null;
@@ -53,7 +64,7 @@ export function readVideo(file: File, signal: AbortSignal): Promise<CapturedMedi
       if (error) { reject(error); return; }
       try {
         if (!hasPicture) throw new Error("This file has no playable video track.");
-        checkClipDuration("video", durationMs);
+        checkClipDuration(kind, durationMs, hosted);
         resolve({ file, mime, durationMs });
       } catch (e) { reject(e); }
     };
@@ -84,18 +95,21 @@ function LocalPreview({ value, kind }: { value: CapturedMedia; kind: ClipKind })
   return <>
     {kind === "video" ? <video src={url} controls playsInline preload="metadata" aria-label="Video preview"/> :
       <audio src={url} controls preload="metadata" aria-label="Voice preview"/>}
-    <div className="row"><span className="hint">{clock(value.durationMs)} · {(value.file.size / 1024).toFixed(0)} KiB</span>
-      <a href={url} download={value.file.name}>Save a copy</a></div>
+    <div className="row"><span className="hint">{clock(value.durationMs)} · {fileSize(value.file.size)}</span>
+</div>
   </>;
 }
 
-export function MediaCapture({ kind, value, onChange, disabled = false, onBusyChange }: {
+export function MediaCapture({ kind, value, onChange, disabled = false, onBusyChange, hosted: hostedOverride }: {
   kind: ClipKind;
+  hosted?: boolean;
   value?: CapturedMedia;
   onChange: (value: CapturedMedia | undefined) => void;
   disabled?: boolean;
   onBusyChange?: (busy: boolean) => void;
 }) {
+  const services = useOptionalServices();
+  const hosted = hostedOverride ?? (!!services?.protocol && usesExternalMedia(services.protocol));
   const [state, setState] = useState<"idle" | "requesting" | "recording" | "reading">("idle");
   const [error, setError] = useState("");
   const [elapsed, setElapsed] = useState(0);
@@ -132,7 +146,7 @@ export function MediaCapture({ kind, value, onChange, disabled = false, onBusyCh
     setError("");
     setState("reading");
     try {
-      const clip = await readVideo(file, controller.signal);
+      const clip = await readRecording(file, controller.signal, kind, hosted ? HOSTED_FILE_MAX_BYTES : maxBytes[kind], hosted);
       if (ticket === generation.current) publish.current(clip);
     } catch (e) {
       if (ticket === generation.current) setError(e instanceof Error ? e.message : String(e));
@@ -165,9 +179,11 @@ export function MediaCapture({ kind, value, onChange, disabled = false, onBusyCh
         ...(kind === "video" && { videoBitsPerSecond: 1_800_000 }),
       });
       const chunks: Blob[] = [];
-      const limit = kind === "video" ? videoLimit : voiceLimit;
+      const limit = hosted ? Infinity : kind === "video" ? videoLimit : voiceLimit;
+      const byteLimit = hosted ? HOSTED_FILE_MAX_BYTES : maxBytes[kind];
+      let recordedBytes = 0;
       let started = performance.now(), durationMs = 0;
-      let timer: ReturnType<typeof setInterval>, deadline: ReturnType<typeof setTimeout>;
+      let timer: ReturnType<typeof setInterval>, deadline: ReturnType<typeof setTimeout> | undefined;
       const stop = () => {
         if (recorder.state === "inactive") return;
         durationMs = Math.max(1, Math.round(performance.now() - started));
@@ -184,7 +200,7 @@ export function MediaCapture({ kind, value, onChange, disabled = false, onBusyCh
       };
       dispose.current = cleanup;
       stopRecording.current = stop;
-      recorder.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
+      recorder.ondataavailable = e => { if (e.data.size) { chunks.push(e.data); recordedBytes += e.data.size; if (recordedBytes >= byteLimit - 1024 * 1024) stop(); } };
       recorder.onerror = () => { cancel(); setError("Recording stopped unexpectedly. Check the device and try again."); };
       recorder.onstop = () => {
         const measured = durationMs || Math.round(performance.now() - started);
@@ -199,8 +215,8 @@ export function MediaCapture({ kind, value, onChange, disabled = false, onBusyCh
         if (kind === "video") { void inspectVideo(file); return; }
         setState("idle");
         try {
-          checkClipDuration(kind, duration);
-          if (!file.size || file.size > maxBytes[kind]) throw new Error("The recording exceeds the size limit or contains no data. Record a shorter clip.");
+          checkClipDuration(kind, duration, hosted);
+          if (!file.size || file.size > byteLimit) throw new Error("The recording exceeds the size limit or contains no data.");
           publish.current({ file, mime, durationMs: duration });
         } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
       };
@@ -210,7 +226,7 @@ export function MediaCapture({ kind, value, onChange, disabled = false, onBusyCh
       setState("recording");
       timer = setInterval(() => setElapsed(Math.min(limit, performance.now() - started)), 200);
       // Stop before the video limit to leave room for the final encoder frame.
-      deadline = setTimeout(stop, kind === "video" ? limit - 150 : limit);
+      if (Number.isFinite(limit)) deadline = setTimeout(stop, kind === "video" ? limit - 150 : limit);
     } catch (e) {
       stream?.getTracks().forEach(track => track.stop());
       if (generation.current !== ticket) return;
@@ -227,7 +243,7 @@ export function MediaCapture({ kind, value, onChange, disabled = false, onBusyCh
       {value ? <Button variant="ghost" disabled={disabled} onClick={() => { setError(""); onChange(undefined); }}>Remove {kind === "video" ? "video" : "recording"}</Button> :
         state === "idle" ? <>
           <Button disabled={disabled} onClick={() => void start()}><Icon name={kind === "video" ? "camera" : "mic"}/>{kind === "video" ? "Record video" : "Record voice"}</Button>
-          {kind === "video" && <Button disabled={disabled} onClick={() => fileInput.current?.click()}><Icon name="upload"/>Choose video</Button>}
+          {(kind === "video" || hosted) && <Button disabled={disabled} onClick={() => fileInput.current?.click()}><Icon name="upload"/>{kind === "video" ? "Choose video" : "Choose audio"}</Button>}
         </> : <>
           {state === "recording" && <Button variant="primary" onClick={() => stopRecording.current?.()}><Icon name="stop"/>Stop · {clock(elapsed)}</Button>}
           {state === "requesting" && <span role="status">Waiting for device access…</span>}
@@ -235,7 +251,7 @@ export function MediaCapture({ kind, value, onChange, disabled = false, onBusyCh
           <Button variant="ghost" onClick={cancel}>Cancel</Button>
         </>}
     </div>
-    {kind === "video" && <input ref={fileInput} type="file" accept="video/mp4,video/webm,.mp4,.webm" className="visually-hidden" tabIndex={-1} aria-label="Choose a video file" onChange={e => { const file = e.target.files?.[0]; e.target.value = ""; if (file && !disabled && state === "idle") void inspectVideo(file); }}/>}
+    {(kind === "video" || hosted) && <input ref={fileInput} type="file" accept={kind === "video" ? "video/mp4,video/webm,.mp4,.webm" : "audio/mpeg,audio/mp4,audio/webm,audio/ogg,audio/wav,.mp3,.m4a,.webm,.ogg,.wav"} className="visually-hidden" tabIndex={-1} aria-label={kind === "video" ? "Choose a video file" : "Choose an audio file"} onChange={e => { const file = e.target.files?.[0]; e.target.value = ""; if (file && !disabled && state === "idle") void inspectVideo(file); }}/>}
     {error && <Notice kind="error">{error}</Notice>}
   </div>;
 }

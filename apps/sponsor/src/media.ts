@@ -3,7 +3,8 @@ import { mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { FastifyInstance } from "fastify";
-import { MAX_IMAGE_BYTES, MUSIC_MAX_BYTES, MUSIC_MIMES, IMAGE_MIMES, contentHash, toBase64url, fromBase64url, utf8Decode, isAddress, ipfsCid, verifyMediaUpload, type MediaUploadStatement } from "@osp/sdk";
+import { HOSTED_FILE_MAX_BYTES, MEDIA_UPLOAD_PART_BYTES, MAX_IMAGE_BYTES, HOSTED_MEDIA_DEFAULT_MAX_BYTES, HOSTED_MEDIA_MAX_BYTES, MUSIC_MIMES, IMAGE_MIMES, contentHash, toBase64url, fromBase64url, utf8Decode, isAddress, ipfsCid, verifyMediaUpload, type MediaUploadStatement } from "@osp/sdk";
+import { registerMediaUploads } from "./mediaUploads.js";
 import { createR2Writer, loadR2Config, type R2Config } from "./r2.js";
 import { SponsorRefusal } from "./validate.js";
 
@@ -15,6 +16,8 @@ export interface MediaConfig {
   dailyFiles: number;
   maxFiles: number;
   maxBytes: number;
+  maxFileBytes?: number;
+  maxUploadBytes?: number;
 }
 export function loadMediaConfig(env: Record<string, string | undefined>): MediaConfig | undefined {
   const provider = env.OSP_MEDIA_PROVIDER?.trim();
@@ -30,7 +33,11 @@ export function loadMediaConfig(env: Record<string, string | undefined>): MediaC
   if (provider === "pinata" && !pinataJwt) throw new Error("Set OSP_MEDIA_PINATA_JWT_FILE to your Pinata JWT file");
   const kuboUrl = env.OSP_MEDIA_KUBO_URL?.replace(/\/+$/, "") ?? "http://127.0.0.1:5001";
   if (provider === "kubo" && !/^https?:$/.test(new URL(kuboUrl).protocol)) throw new Error("Invalid OSP_MEDIA_KUBO_URL");
-  return { provider, ...(provider === "r2" && { r2: loadR2Config(env) }), pinataJwt, kuboUrl, dailyFiles: positive("OSP_MEDIA_DAILY_FILES", 10), maxFiles: positive("OSP_MEDIA_MAX_FILES", 450), maxBytes: positive("OSP_MEDIA_MAX_BYTES", 900_000_000) };
+  const maxFileBytes = positive("OSP_MEDIA_MAX_FILE_BYTES", HOSTED_MEDIA_DEFAULT_MAX_BYTES);
+  if (maxFileBytes > HOSTED_MEDIA_MAX_BYTES) throw Error("OSP_MEDIA_MAX_FILE_BYTES exceeds the supported hosting limit");
+  const maxUploadBytes = positive("OSP_MEDIA_MAX_UPLOAD_BYTES", HOSTED_FILE_MAX_BYTES);
+  if (maxUploadBytes > HOSTED_FILE_MAX_BYTES) throw Error("OSP_MEDIA_MAX_UPLOAD_BYTES exceeds 2 GiB");
+  return { provider, ...(provider === "r2" && { r2: loadR2Config(env) }), pinataJwt, kuboUrl, maxFileBytes, maxUploadBytes, dailyFiles: positive("OSP_MEDIA_DAILY_FILES", 10), maxFiles: positive("OSP_MEDIA_MAX_FILES", 450), maxBytes: positive("OSP_MEDIA_MAX_BYTES", 900_000_000) };
 }
 
 /** Pinata public IPFS or the operator's own Kubo node; both return the same portable address. */
@@ -58,12 +65,14 @@ export interface MediaRoutesOptions {
   ownerOf: (account: string) => Promise<string | undefined>;
   authorizedDevice?: (account: string, signer: string) => Promise<boolean>;
   pin?: (bytes: Uint8Array, mime: string, hash: string) => Promise<string>;
+  pinFile?: (path: string, hash: string, size: number) => Promise<string>;
   now?: () => number;
 }
 export async function registerMediaRoutes(app: FastifyInstance, options: MediaRoutesOptions): Promise<void> {
   const { config } = options;
-  const maxFileBytes = config?.provider === "r2" ? MUSIC_MAX_BYTES : MAX_IMAGE_BYTES;
+  const maxFileBytes = config?.provider === "r2" ? config.maxFileBytes ?? HOSTED_MEDIA_DEFAULT_MAX_BYTES : MAX_IMAGE_BYTES;
   const r2 = config?.provider === "r2" && !options.pin ? createR2Writer(config.r2!, options.chainId, options.contract) : undefined;
+  const putFile = options.pinFile ?? r2?.putFile;
   const receiptUrl = (value: string) => {
     if (!value.startsWith("https://")) return `ipfs://${ipfsCid(value)}`;
     if (config?.provider !== "r2" || !config.r2 || !value.startsWith(`${config.r2.publicUrl}/osp/`)) throw Error("Invalid storage receipt");
@@ -72,6 +81,7 @@ export async function registerMediaRoutes(app: FastifyInstance, options: MediaRo
   app.get("/v1/media", async () => ({ version: 1, enabled: !!config, provider: config?.provider ?? null,
     chainId: options.chainId, contract: options.contract,
     ...(config?.r2 && { publicUrl: config.r2.publicUrl }),
+    ...(config?.provider === "r2" && putFile && { multipart: { version: 1, partBytes: MEDIA_UPLOAD_PART_BYTES, maxFileBytes: config.maxUploadBytes ?? HOSTED_FILE_MAX_BYTES } }),
     maxFileBytes, dailyFiles: config?.dailyFiles ?? 0,
     retention: "best-effort", message: config ? "Media availability depends on the configured storage operator." : "Photo uploads are not configured on this service yet." }));
   if (!config) return;
@@ -82,6 +92,7 @@ export async function registerMediaRoutes(app: FastifyInstance, options: MediaRo
     CREATE TABLE IF NOT EXISTS media_attempts (account TEXT NOT NULL, day TEXT NOT NULL, files INTEGER NOT NULL, bytes INTEGER NOT NULL, PRIMARY KEY(account,day));`);
   const now = options.now ?? Date.now, inFlight = new Map<string, Promise<{ url: string; hash: string; size: number }>>();
   let active = 0;
+  const drain = config.provider === "r2" && putFile ? await registerMediaUploads(app, db, options, putFile) : undefined;
   await app.register(async routes => {
     routes.addContentTypeParser("application/octet-stream", { parseAs: "buffer", bodyLimit: maxFileBytes }, (_req, body, done) => done(null, body));
     routes.post("/v1/media", { bodyLimit: maxFileBytes }, async request => {
@@ -138,5 +149,5 @@ export async function registerMediaRoutes(app: FastifyInstance, options: MediaRo
       } finally { active--; }
     });
   });
-  app.addHook("onClose", async () => { await Promise.allSettled(inFlight.values()); r2?.close(); db.close(); });
+  app.addHook("onClose", async () => { await drain?.(); await Promise.allSettled(inFlight.values()); r2?.close(); db.close(); });
 }

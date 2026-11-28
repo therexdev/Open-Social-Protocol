@@ -1,7 +1,8 @@
 // Verify a deployment with read-only calls (no keys required).
 //
 //   node --import tsx scripts/verify-deployment.ts --network harbinger
-import { Contract, Provider } from "koilib";
+import { Contract } from "koilib";
+import { JsonRpcProvider } from "@osp/sdk";
 import { ABIS } from "@osp/proto";
 import { CONTRACT_ORDER, type ContractName, log, networkFromArgs, parseArgs, readDeployment } from "./common.ts";
 import { verifyUpload } from "./verify-upload.ts";
@@ -12,7 +13,7 @@ const { name: network, preset } = networkFromArgs(args);
 async function main(): Promise<void> {
   const deployment = readDeployment(network);
   if (!deployment) throw new Error(`deployments/${network}.json not found`);
-  const provider = new Provider(deployment.rpc?.length ? deployment.rpc : preset.rpc);
+  const provider = new JsonRpcProvider(deployment.rpc?.length ? deployment.rpc : preset.rpc);
   const chainId = await provider.getChainId();
   let failures = 0;
   const check = (ok: boolean, what: string): void => {
@@ -35,6 +36,7 @@ async function main(): Promise<void> {
 
   for (const name of CONTRACT_ORDER) {
     const entry = deployment.contracts[name];
+    if (name === "token" && deployment.economy === "token-free" && entry?.reserved) { log("ok   token address reserved; no OSAT deployment"); continue; }
     if (!entry) {
       check(false, `${name} present in manifest`);
       continue;
@@ -52,6 +54,20 @@ async function main(): Promise<void> {
   check(rel?.value === identity, "relationships identity contract wired");
   const com = await read("communities", "get_identity_contract");
   check(com?.value === identity, "communities identity contract wired");
+  if (deployment.economy === "token-free") {
+    for (const name of ["publications", "relationships"] as const) {
+      const mode = await read(name, "get_token_contract");
+      check(mode?.token_free === true && !mode?.value, `${name} explicit token-free configuration`);
+    }
+    const deps = await read("messaging", "get_dependencies");
+    check(deps?.identity === identity && deps?.relationships === relationships && deps?.token_free === true && !deps?.token, "messaging token-free dependencies");
+    const music = (await read("publications", "get_music_config"))?.value as Record<string,unknown> | undefined;
+    check(music?.token_free === true && music?.enabled === true, "free hosted audio/video enabled");
+    check(Number(music?.hosted_manifest_version) === 1, "compact hosted audio/video manifests supported");
+    check(Number((await read("publications", "get_library_version"))?.hosted_manifest_version) === 1, "compact hosted photo manifests supported");
+    check(Number((await read("publications", "get_library_version"))?.quote_reference_version) === 1, "on-chain quote references supported");
+    check(Number((await read("publications", "get_library_version"))?.content_reference_version) === 1, "hosted content references supported");
+  } else {
   const token = deployment.contracts.token?.address;
   for (const name of ["publications", "relationships"] as const) check((await read(name,"get_token_contract"))?.value === token, `${name} usage limits wired`);
   const messages = await read("messaging", "get_dependencies");
@@ -63,11 +79,13 @@ async function main(): Promise<void> {
   const resource = (await read("token", "get_account", { account: deployment.deployer }))?.value as Record<string, unknown> | undefined;
   check(Number(resource?.resource_version) === 2 && resource?.recharge_blocks === "144000" && resource?.ticks_per_unit === "144000", "five-day block recharge and exact precision");
   check(BigInt(String(resource?.transferable ?? 0)) + BigInt(String(resource?.locked ?? 0)) === BigInt(String(resource?.balance ?? 0)), "token transfer locks reconcile with balance");
+  }
   const cfg = await read("registry", "get_config");
   check(Boolean((cfg?.value as Record<string, unknown> | undefined)?.admin), `registry initialised (admin ${(cfg?.value as Record<string, unknown> | undefined)?.admin})`);
   const list = await read("registry", "list_contracts");
   const entries = ((list?.values as Array<Record<string, unknown>> | undefined) ?? []);
   for (const name of CONTRACT_ORDER) {
+    if (deployment.contracts[name]?.reserved) continue;
     const e = entries.find((x) => x.name === name);
     check(Boolean(e) && e!.address === deployment.contracts[name]?.address, `registry lists ${name}`);
   }

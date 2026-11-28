@@ -20,6 +20,7 @@ import { useCanAct, useSubmitContext } from "../session";
 import { RevisionHistory } from "./RevisionHistory";
 import { Icon } from "../../components/Icon";
 import { posterReference } from "../media/posterReference";
+import { PublicJoinPrompt } from "../../components/PublicJoinPrompt";
 
 function EditDialog({ post, onDone, onCancel }: { post: PostView; onDone: () => void; onCancel: () => void }) {
   const content = usePostContent(post);
@@ -32,6 +33,7 @@ function EditDialog({ post, onDone, onCancel }: { post: PostView; onDone: () => 
   })) : [];
   const editor: ComposerFormProps = {
     edit: { postId: post.postId, previousVersion: post.contentHash, versionNumber: post.versionNumber + 1, text, audience: post.audience, media },
+    quote: post.quotePostId && post.quoteVersion ? { postId: post.quotePostId, version: post.quoteVersion } : undefined,
     selectedAccounts: content && "content" in content ? content.content.share_with : [],
     collectionId: post.collectionId, galleryOnly: post.galleryOnly, defaultAudience: post.audience,
     compact: true, onSubmitted: onDone, onCancel,
@@ -205,6 +207,7 @@ export function PostPage() {
             <RevisionHistory key={post.postId} post={post} initiallyOpen={params.get("history") === "1"} />
           )}
           <Card className="replies-card" title={<span id="post-comments">Comments</span>} actions={can.ok && post.state !== LIFECYCLE.DELETED ? <Button variant="ghost" aria-label={replying ? "Close comment editor" : "Write a comment"} title={replying ? "Close" : "Comment"} onClick={() => setReplying((v) => !v)}><Icon name={replying ? "close" : "message"} size={18}/></Button> : undefined}>
+            <PublicJoinPrompt comment/>
             {replying && (
               <PrivateReply post={post} onSubmitted={()=>{setReplying(false);void replies.refresh(true);void load(true);}} onCancel={()=>setReplying(false)}/>
 

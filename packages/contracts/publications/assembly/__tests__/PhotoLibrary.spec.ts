@@ -186,3 +186,35 @@ it("commits external ciphertext without appending any bytes and rejects URI repl
   auth(ALICE);
   expect((): void => { lib.begin(begin, IDENTITY, CONTRACT); }).toThrow("archive id already used");
 });
+
+describe("token-free archive", (): void => {
+  it("reserves and finalizes a photo without a usage contract while checking ownership and hashes", (): void => {
+    const data = new Uint8Array(100).fill(17), hash = lib.hash(data);
+    begin = new publications.begin_photo_arguments(ALICE, ID, hash, 100, [hash]);
+    auth(ALICE); lib.begin(begin, IDENTITY, null, true);
+    MockVM.commitTransaction();
+    auth(ALICE); lib.append(new publications.append_photo_arguments(ALICE, ID, 0, data), IDENTITY);
+    expect(lib.photos.get(ID)!.received).toBe(1);
+  });
+});
+
+it("keeps a hosted photo manifest compact at full hosting size without chain chunks or usage fees", (): void => {
+  const hash = new Uint8Array(32).fill(7);
+  begin = new publications.begin_photo_arguments(ALICE, ID, hash, 268435456, [hash]);
+  begin.external_uri = "https://media.example/osp/whole-file";
+  const large = Protobuf.encode(begin, publications.begin_photo_arguments.encode).length;
+  auth(ALICE); lib.begin(begin, IDENTITY, null, true);
+  MockVM.commitTransaction();
+  const record = lib.photos.get(ID)!;
+  expect(record.chunk_hashes.length).toBe(1);
+  expect(record.received).toBe(1);
+  expect(record.units).toBe(0);
+  auth(ALICE); lib.begin(begin, IDENTITY, null, true);
+  expect(Testing.eventNames().length).toBe(1);
+  begin.size = 100;
+  expect(large - Protobuf.encode(begin, publications.begin_photo_arguments.encode).length).toBeLessThan(5);
+  begin.id = new Uint8Array(32).fill(99); begin.size = 268435457;
+  auth(ALICE); expect((): void => { lib.begin(begin, IDENTITY, null, true); }).toThrow("hosted photo size");
+  begin.size = 1048576; begin.external_uri = null;
+  auth(ALICE); expect((): void => { lib.begin(begin, IDENTITY, null, true); }).toThrow("320 KiB");
+});

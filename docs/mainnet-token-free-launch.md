@@ -1,14 +1,15 @@
 # Token-free mainnet launch policy
 
-Status: approved launch plan; implementation and mainnet activation remain pending.
-This document records the decisions. It does not fund a wallet or change a running service.
+Status: approved launch policy. The mainnet launch implementation and configuration are in this branch; wallet funding and live activation remain operator steps.
+See [deploy-mainnet.md](deploy-mainnet.md) for deployment and hosting instructions.
+This document does not fund a wallet or change a running service.
 
 ## Approved starting policy
 
 | Setting | Launch value |
 | --- | --- |
 | Platform token requirement | None: OSAT issuance, economic voting, minting and reward pools are deferred |
-| Initial sponsor funding target | 10,000 KOIN in the operator-controlled Mana sponsor |
+| Initial sponsor funding | 4,050 KOIN in the operator-controlled Mana sponsor (revised November 26, 2026) |
 | Sponsored allowance | 50 Mana per protocol account per UTC calendar day |
 | Lower allowance if needed | Operator-adjustable to 25 Mana per account per day |
 | Additional funding | Operator may add another 10,000 KOIN |
@@ -38,13 +39,14 @@ Reference: https://docs.koinos.io/overview/mana/
 
 | Sponsor balance | Maximum Mana capacity | Approximate regeneration/day | Full 50-Mana allowances/day | Full 25-Mana allowances/day |
 | --- | --- | --- | --- | --- |
+| 4,050 KOIN | 4,050 Mana | 810 Mana | 16 | 32 |
 | 10,000 KOIN | 10,000 Mana | 2,000 Mana | 40 | 80 |
 | 20,000 KOIN | 20,000 Mana | 4,000 Mana | 80 | 160 |
 
 These are theoretical steady-state figures before operational overhead and assume
 every listed account consumes its entire allowance every day. Lighter usage
-supports more active accounts. The initially full 10,000-Mana capacity covers 200
-complete 50-Mana allowances before considering regeneration; this is not 10,000
+supports more active accounts. The initially full 4,050-Mana capacity covers 81
+complete 50-Mana allowances before considering regeneration; this is not 4,050
 Mana of renewable daily capacity. Sponsorship always depends on available pool
 resources, even when an individual account has unused daily allowance.
 
@@ -69,8 +71,8 @@ resources, even when an individual account has unused daily allowance.
    and show allowance exhaustion separately from token balances and storage
    quotas. Provide aggregate pool capacity, consumption and regeneration views.
 6. Implement an explicit token-free mode across contracts, website, extension,
-   indexer and sponsor. Mandatory OSAT/usage dependencies remain in parts of
-   messaging and media today; leaving the token contract undeployed is insufficient.
+   indexer and sponsor. Explicit token-free dependency flags are required in
+   messaging and media; leaving the token contract undeployed alone is insufficient.
    Review existing native-KOIN media charges for the intended free social launch.
 7. Preserve versioned ledger events, identifiers, storage layouts and a controlled
    upgrade path for enabling the economic modules later. Historical engagement
@@ -85,6 +87,7 @@ sponsor account, and verify the 50-Mana cap under concurrent requests, account
 recovery, multiple devices, private aliases, UTC rollover, service restarts and
 uncertain transaction outcomes.
 
-The existing sponsor's operation-count quotas are not this Mana allowance.
+The legacy sponsor's operation-count quotas are not this Mana allowance. Mainnet
+configuration selects the durable Mana budget; other networks retain their existing policy.
 Funding is a separate operator action; no 10,000-KOIN transfer has been performed
 as part of recording this plan.

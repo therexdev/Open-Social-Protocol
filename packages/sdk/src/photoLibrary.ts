@@ -6,6 +6,12 @@ export const PHOTO_BLOCK_BYTES = 32768;
 export const PHOTO_CHUNK_BYTES = 16384;
 export const PHOTO_RATES = [1, 2, 4, 7, 10] as const;
 export const PHOTO_MAX_BYTES = PHOTO_BLOCK_BYTES * 10;
+/** Operator hosting limits, independent of on-chain storage pricing. */
+export const HOSTED_MEDIA_MAX_BYTES = 256 * 1024 * 1024;
+export const HOSTED_MEDIA_DEFAULT_MAX_BYTES = 25 * 1024 * 1024;
+export function compactHostedMedia(record: { external_uri?: string; digest: Uint8Array; chunk_hashes: Uint8Array[] }): boolean {
+  return !!record.external_uri && record.chunk_hashes.length === 1 && bytesEqual(record.chunk_hashes[0]!, record.digest);
+}
 export function photoCost(size: number): number {
   if (!Number.isSafeInteger(size) || size <= 0 || size > PHOTO_MAX_BYTES)
     throw new Error(

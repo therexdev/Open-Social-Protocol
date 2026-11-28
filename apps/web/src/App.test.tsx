@@ -3,6 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router-dom";
 import { ProtocolClient } from "@osp/sdk";
+import { BROWSER_PLUGIN } from "./features/plugin/pluginRelease";
 import { App, type AppProps } from "./App";
 import { IndexerClient } from "./api/indexer";
 import type { Services } from "./api/services";
@@ -210,10 +211,11 @@ describe("App", () => {
     expect(returnPath({ from: "/post/example?view=full#replies" })).toBe("/post/example?view=full#replies");
   });
 
-  it("routes a fresh visitor to onboarding and shows the not-deployed banner", async () => {
+  it("lets a fresh visitor browse and shows the not-deployed banner", async () => {
     const { container } = await render("/");
-    expect(container.textContent).toContain("Welcome to Open Social");
-    expect(container.textContent).toContain("Create an account");
+    expect(container.querySelector(".feed-heading")).toBeNull();
+    expect(container.querySelector('h1')?.textContent).toBe("Feed");
+    expect(container.textContent).not.toContain("Welcome to Open Social");
     expect(container.textContent).toContain("Protocol contracts are not deployed on harbinger yet");
     expect(container.querySelector("nav[aria-label='Primary']")).not.toBeNull();
   });
@@ -245,12 +247,13 @@ describe("App", () => {
     expect(submit?.disabled).toBe(true);
   });
 
-  it("keeps a deep link for a visitor without an account and says so on the onboarding page", async () => {
-    const { container } = await render("/post/abc123");
-    expect(container.textContent).toContain("Welcome to Open Social");
-    expect(container.textContent).toContain("return to the page you opened");
-    const { container: plain } = await render("/");
-    expect(plain.textContent).not.toContain("return to the page you opened");
+  it("opens a public deep link directly for a first-time visitor without creating an account", async () => {
+    const { container, vault } = await render("/post/abc123", undefined, deployedServices([]));
+    expect(container.textContent).toContain("Back to feed");
+    expect(container.textContent).not.toContain("Welcome to Open Social");
+    expect(container.querySelector(".guest-join")?.textContent).toBe("Join Open Social");
+    expect(vault.getState().status).toBe("empty");
+    expect(vault.getState().account).toBeUndefined();
   });
 
   it("tells an unlocked but unregistered account to register and disables actions until then", async () => {
@@ -323,7 +326,7 @@ it("keeps loaded feed panels mounted during repeated scope changes", async () =>
   expect(calls.filter(call => call.includes("/v1/feed") && call.includes("scope=all"))).toHaveLength(1);
   expect(container.querySelector("#feed-public")).toBe(publicPanel);
   expect(container.querySelector("#feed-friends")).toBe(friendsPanel);
-  expect(calls.filter(call => call.includes("/v1/feed") && call.includes("scope=public"))).toHaveLength(1);
+  expect(calls.filter(call => call.includes("/v1/feed") && call.includes("scope=public") && call.includes("limit=20"))).toHaveLength(1);
   expect(calls.filter(call => call.includes("/v1/feed") && call.includes("scope=friends"))).toHaveLength(1);
   await act(async () => vault.getState().lock());
   expect(container.querySelector("#feed-friends")).not.toBe(friendsPanel);
@@ -351,4 +354,14 @@ it("offers remembered sign-in explicitly and enables it through the unlock check
   expect(id).toBeTruthy();
   await act(async () => { useAccount.getState().markRegistered(vault.getState().account!); });
   expect(container.textContent).toContain("Remembered until");
+});
+
+it("opens the Browser Plugin guide without an account and exposes the real beta download", async () => {
+  const { container } = await render("/browser-plugin");
+  const main = container.querySelector("main")!;
+  expect(main.querySelector("h1")?.textContent).toContain("Beyond one website");
+  expect(main.textContent).toContain("Developer mode");
+  expect(main.textContent).toContain("Load unpacked");
+  expect(main.querySelector(`a[href="${BROWSER_PLUGIN.download}"]`)).toBeTruthy();
+  expect(container.querySelector('.more-menu a[href="/browser-plugin"]')?.textContent).toContain("Browser Plugin");
 });

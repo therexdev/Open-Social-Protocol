@@ -265,11 +265,11 @@ describe("GET /v1/posts", () => {
     expect((await get(`/v1/keys/${history.actors.carol.account}`)).body.items).toEqual([]);
   });
 
-  it("narrows the video gallery to public clips and encrypted candidates shared with the viewer", async () => {
+  it.each(["osp-clip://contract/id", "osp-file:https://media.example/osp/network/identity/digest"])("narrows the video gallery to public clips and encrypted candidates shared with the viewer (%s)", async location => {
     const { alice, bob, carol } = history.actors;
     const path = `/v1/accounts/${alice.account}/posts?media=video`;
     const { p1, p2 } = history.posts;
-    const ref = { mime: "video/mp4", locations: ["osp-clip://contract/id"] };
+    const ref = { mime: "video/mp4", locations: [location] };
     const original = indexer.db.get<{media_json: string}>("SELECT media_json FROM posts WHERE post_id = ?", p1.idB64)!;
     try {
       indexer.db.run("UPDATE posts SET media_json = ? WHERE post_id = ?", JSON.stringify([ref]), p1.idB64);

@@ -2,7 +2,9 @@ import {
   IMAGE_MIMES, MUSIC_MIMES, bytesEqual, contentHash, fetchIpfsMedia, fromBase64url,
   musicCipher, musicKeyContext, openEpochKey, openMedia, parsePhotoLocation,
   toBase64url, verifyPhotoChunks, addressToBytes,
+  hostedFileUrl,
 } from "@osp/sdk";
+import { fetchStoredMedia } from "../../../web/src/api/mediaStorage";
 import { loadClip } from "../../../web/src/features/media/clipArchive";
 import { loadMusic } from "../../../web/src/features/music/musicService";
 import { configureMusicGateway } from "../../../web/src/features/music/musicGateway";
@@ -31,9 +33,15 @@ export async function embeddedMedia(deps: FeedDeps, postId: string, index: numbe
     return { key: toBase64url(media.mediaKey), nonce: toBase64url(media.nonce) };
   })() : undefined;
   const signal = AbortSignal.timeout(90_000);
-  let bytes: Uint8Array;
+  let bytes: Uint8Array | undefined, stream: string | undefined;
   configureMusicGateway(client, clients.resolved.indexerUrl);
-  if (url.startsWith("osp-clip://")) {
+  if (url.startsWith("osp-file:") && !encryption) {
+    if (!(mime.startsWith("video/") || (MUSIC_MIMES as readonly string[]).includes(mime))) throw Error("Invalid recording format.");
+    stream = hostedFileUrl(url, hash);
+  } else if (url.startsWith("osp-clip://") || url.startsWith("osp-file:")) {
+    // Large private recordings play in the full side panel, where Blob playback
+    // avoids Chrome's message-size ceiling and keeps keys out of the host page.
+    if (url.startsWith("osp-file:") && Number(media.size) > 25 * 1024 * 1024) throw Error("Open this private recording in the Open Social side panel to play it.");
     bytes = await loadClip({ url, mime, contentHash: hash, size: Number(media.size), encryption }, client, signal);
   } else if (url.startsWith("osp-music://")) {
     const prefix = `osp-music://${client.deployment.contracts.publications.address}/`;
@@ -64,8 +72,10 @@ export async function embeddedMedia(deps: FeedDeps, postId: string, index: numbe
     if (url.startsWith("osp-photo://")) {
       const id = parsePhotoLocation(url, client.deployment.contracts.publications.address);
       const record = (await client.reads.publications.get_photo({ id }))?.value;
-      if (!record) throw Error("This photo is still confirming.");
-      stored = verifyPhotoChunks(record, (await clients.indexer.photoChunks(toBase64url(id))).chunks.map(fromBase64url), hash);
+      if (!record || !bytesEqual(record.digest, hash) || record.size !== Number(media.size) || record.received !== record.chunk_hashes.length) throw Error("This photo could not be verified.");
+      stored = record.external_uri
+        ? await fetchStoredMedia(record.external_uri, hash, record.size, signal)
+        : verifyPhotoChunks(record, (await clients.indexer.photoChunks(toBase64url(id))).chunks.map(fromBase64url), hash);
     } else if (url.startsWith("ipfs://")) stored = await fetchIpfsMedia(url, hash, { signal });
     else throw Error("This attachment is not in the archive.");
     bytes = openMedia(stored, hash, encryption ? { key: fromBase64url(encryption.key), nonce: fromBase64url(encryption.nonce) } : undefined);
@@ -83,5 +93,5 @@ export async function embeddedMedia(deps: FeedDeps, postId: string, index: numbe
     const finalSession = await deps.session();
     if (finalSession?.account !== session.account || finalSession.unlockedAt !== session.unlockedAt) throw Error("Your session changed. Unlock and reload the attachment.");
   }
-  return { data: toBase64url(bytes), mime };
+  return { data: bytes ? toBase64url(bytes) : "", mime, ...(stream && { url: stream }) };
 }

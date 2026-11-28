@@ -103,6 +103,8 @@ export type TimelineItem = PostView | MusicFeedView;
 export const isMusicFeedItem = (item: TimelineItem): item is MusicFeedView => "kind" in item && item.kind === "music";
 
 export interface PostView {
+  quotePostId?: string;
+  quoteVersion?: string;
   collectionId?: string;
   galleryOnly?: boolean;
   poll?: import("@osp/sdk").PollRecord;
@@ -238,6 +240,14 @@ export interface PageQuery {
 }
 
 export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
+
+export interface PostPreviewView {
+  version: 1;
+  public: boolean;
+  title: string;
+  description: string;
+  image?: { path: string; type: string; alt: string };
+}
 
 export class IndexerError extends Error {
   override name = "IndexerError";
@@ -397,6 +407,10 @@ export class IndexerClient {
 
   async post(postId: string, viewer?: string): Promise<PostView | undefined> {
     return this.optional(this.get<PostView>(`/v1/posts/${encodeURIComponent(postId)}${qs({ viewer })}`));
+  }
+
+  postPreview(postId: string): Promise<PostPreviewView> {
+    return this.get(`/v1/posts/${encodeURIComponent(postId)}/preview`);
   }
 
   replies(postId: string, query: PageQuery = {}): Promise<Page<PostView>> {

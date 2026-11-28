@@ -37,11 +37,11 @@ const samples: Array<[string, Record<string, unknown>]> = [
   ["token.get_post_economy_result", { block: "9007199254740993", reward: { post_id: rng(32), version: rng(32), author: me.account, epoch: "1", up: "4", down: "1", score: "2250", settled: true, reward: "100" }, vote: { direction: 1, weight: "4", block: "1" } }],
   [
     "publications.publish_arguments",
-    { author: me.account, post_id: rng(32), sequence: "7", audience: 1, epoch: 3, envelope: rng(90), content_hash: rng(32), idempotency_key: rng(16), device: me.account, media: [{ content_hash: rng(32), mime: "image/png", size: "12345", locations: ["ipfs://a", "https://b"] }] },
+    { author: me.account, post_id: rng(32), sequence: "7", quote_post_id: rng(32), quote_version: rng(32), audience: 1, epoch: 3, envelope: rng(90), content_hash: rng(32), idempotency_key: rng(16), device: me.account, media: [{ content_hash: rng(32), mime: "image/png", size: "12345", locations: ["ipfs://a", "https://b"] }] },
   ],
   ["osp.envelope.aad", { protocol_version: 1, chain_id: rng(34), author: addressToBytes(me.account), audience: 2, audience_id: rng(16), epoch: 4294967295, version_number: 2 }],
   ["identity.authorize_device_arguments", { account: me.account, device: me.account, capabilities: 15, expires_at: "1893456000000", label: "Chrome extension" }],
-  ["publications.published_event", { author: me.account, post_id: rng(32), content_hash: rng(32), version_number: 1, sequence: "18446744073709551615", audience: 0, epoch: 0, envelope: rng(10), idempotency_key: rng(16), protocol_version: 1, timestamp: "1700000000000" }],
+  ["publications.published_event", { author: me.account, post_id: rng(32), content_hash: rng(32), version_number: 1, quote_post_id: rng(32), quote_version: rng(32), sequence: "18446744073709551615", audience: 0, epoch: 0, envelope: rng(10), idempotency_key: rng(16), protocol_version: 1, timestamp: "1700000000000" }],
   ["relationships.get_audience_result", { value: { epoch: 9, updated_at: "1" } }],
   ["identity.get_identity_result", {}],
 ];

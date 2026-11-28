@@ -8,6 +8,7 @@ import { bytesOf, fromHex, toBase64url, toHex } from "../shared/bytes";
 import { feedHost } from "../shared/hosts";
 import { knownNetworks } from "../shared/config";
 import { draftSizeError } from "../shared/draft";
+import { usesExternalMedia } from "../../../web/src/api/mediaStorage";
 import { X_LINK_BYTES } from "../shared/xUrl";
 import { FACEBOOK_LINK_BYTES } from "../shared/facebookUrl";
 import type { FetchLike } from "../shared/indexer";
@@ -100,6 +101,10 @@ export function createBackground(options: BackgroundOptions): Background {
   const vault = new VaultManager({ local, session: sessionArea, kdf: options.kdf, now });
   const registry = new ClientRegistry({ loadSettings, provider: options.provider, fetch: options.fetch, deployments: options.deployments, deploymentErrors: options.deploymentErrors, env: options.env });
   const adapters = adapterApi(api);
+  const postSizeError = async (text: string, externalRef?: string) => {
+    const { protocol } = await registry.get();
+    return draftSizeError(text, externalRef, !!protocol && usesExternalMedia(protocol));
+  };
   const keyStores = new Map<string, KeyStore>();
 
   async function keysFor(session: UnlockedSession): Promise<KeyStore> {
@@ -301,6 +306,7 @@ export function createBackground(options: BackgroundOptions): Background {
 
   async function inspectEconomy(postId: string): Promise<EconomyInspection> {
       const session = await requireSession(), clients = await registry.get(), client = requireProtocol(clients);
+      if (client.deployment.economy === "token-free") return { version: "0", own: false, active: false, canVote: false, ownerAvailable: false };
       const [config, view, account, post, board, device, preview] = await Promise.all([
         client.reads.token.get_economy({}), client.reads.token.get_post_economy({ post_id: bytesOf(postId), viewer: session.account }),
         client.reads.token.get_account({ account: session.account }), client.reads.publications.get_post({ post_id: bytesOf(postId) }),
@@ -334,6 +340,12 @@ export function createBackground(options: BackgroundOptions): Background {
     finally { const next = mediaQueue.shift(); if (next) next(); else mediaActive--; }
   }
   const handlers: Handlers = {
+    "embed.share": defineHandler({ source: "embed", requireGesture: true, validate: obj(actionFields), handle: async (p, ctx) => {
+      const source = await embedded.target({ ...p, host: ctx.origin });
+      if (!source || source.status !== "plain" || source.audience !== 0 || source.collectionId || source.contentHash !== p.version) throw Error("This public post changed or is unavailable. Refresh before sharing.");
+      await api.tabs.create({ url: api.runtime.getURL(`src/sidepanel/index.html#/compose?quote=${encodeURIComponent(source.postId)}&version=${encodeURIComponent(p.version)}`) });
+      return {};
+    }}),
     "economy.open": defineHandler({ source: "embed", validate: obj({ postId: postIdSchema, direction: oneOf([1,2] as const) }), handle: async p => {
       await api.tabs.create({ url: api.runtime.getURL(`src/sidepanel/index.html#post=${encodeURIComponent(p.postId)}&direction=${p.direction}`) });
       return {};
@@ -499,7 +511,7 @@ export function createBackground(options: BackgroundOptions): Background {
         title: optional(str({ max: 512 })),
       }),
       handle: async (p) => {
-        const oversize = draftSizeError(p.text, p.adapter === "generic" ? p.url : undefined);
+        const oversize = await postSizeError(p.text, p.adapter === "generic" ? p.url : undefined);
         if (oversize) throw new Error(oversize);
         return queueItem(await crossposts.create(p, attemptId()));
       },
@@ -509,7 +521,7 @@ export function createBackground(options: BackgroundOptions): Background {
       validate: obj({ attemptId: attemptIdSchema, text: str({ min: 1, max: MAX_POST_CHARS }), audience: oneOf(AUDIENCE_VALUES), adapter: oneOf(["sidepanel", "generic"] as const), url: optional(httpUrl()), title: optional(str({ max: 512 })) }),
       handle: async (p) => {
         await requireDevice(await requireSession());
-        const oversize = draftSizeError(p.text, p.adapter === "generic" ? p.url : undefined);
+        const oversize = await postSizeError(p.text, p.adapter === "generic" ? p.url : undefined);
         if (oversize) throw new Error(oversize);
         return queueItem(await crossposts.publishDirect(p, p.attemptId));
       },
@@ -555,7 +567,7 @@ export function createBackground(options: BackgroundOptions): Background {
         await requireDevice(await requireSession());
         // Reserve room before Facebook publishes; the permalink is known only afterward.
         const reservedLink = "https://www.facebook.com/".padEnd(FACEBOOK_LINK_BYTES, "x");
-        const oversize = p.waitForFacebook ? draftSizeError(`${p.text}\n\n${reservedLink}`, reservedLink) : draftSizeError(p.text);
+        const oversize = p.waitForFacebook ? await postSizeError(`${p.text}\n\n${reservedLink}`, reservedLink) : await postSizeError(p.text);
         if (oversize) throw new Error(p.waitForFacebook ? "This post is too long to cross-post with its Facebook link. Shorten the text and click Post again." : oversize);
         await vault.touch();
         if (p.waitForFacebook) {
@@ -579,7 +591,7 @@ export function createBackground(options: BackgroundOptions): Background {
         if (!(await loadSettings()).xAdapter) throw Error("The X integration is disabled.");
         await requireDevice(await requireSession());
         const reserved = "https://x.com/".padEnd(X_LINK_BYTES, "x");
-        const oversize = draftSizeError(`${p.text}\n\n${reserved}`, reserved);
+        const oversize = await postSizeError(`${p.text}\n\n${reserved}`, reserved);
         if (oversize) throw Error("This post is too long to cross-post with its X link. Shorten it before posting.");
         await vault.touch();
         const prepared = await crossposts.prepareX({ text: p.text, audience: p.audience, adapter: "x", url: p.url }, p.attemptId, ctx.tabId!);
@@ -608,7 +620,7 @@ export function createBackground(options: BackgroundOptions): Background {
         if (!ctx.origin || !p.url.toLowerCase().startsWith(ctx.origin)) throw new Error("The page URL does not match the sender origin.");
         const settings = await loadSettings();
         if (!settings.facebookAdapter) throw new Error("The Facebook adapter is disabled.");
-        const oversize = draftSizeError(p.text);
+        const oversize = await postSizeError(p.text);
         if (oversize) throw new Error(oversize);
         const record = await crossposts.propose(p);
         return { attemptId: record.attemptId, queued: true, state: record.state };

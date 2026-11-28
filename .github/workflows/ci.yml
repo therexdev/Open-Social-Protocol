@@ -17,10 +17,19 @@ jobs:
           cache: npm
       - run: npm ci --no-audit --no-fund
       - name: Build all workspaces
+        env:
+          # A deployed mainnet branch must ship clients for its verified manifest.
+          VITE_OSP_NETWORK: ${{ hashFiles('deployments/mainnet.json') != '' && 'mainnet' || 'harbinger' }}
+          VITE_OSP_INDEXER_URL: ''
+          VITE_OSP_SPONSOR_URL: ''
         run: npm run build:all
       - name: Typecheck token v2 reference model
         run: npx tsc -p research/token-v2/tsconfig.json
       - name: Test
+        env:
+          # Deployments export an RPC override before tests. Exercise that same
+          # environment in CI; fixture tests must never contact these nodes.
+          KOINOS_RPC: 'https://ci-rpc-primary.invalid,https://ci-rpc-backup.invalid'
         run: npm test
       - name: Upload contract artifacts
         uses: actions/upload-artifact@v4
@@ -32,8 +41,15 @@ jobs:
         with:
           name: web-dist
           path: apps/web/dist
+          include-hidden-files: true
       - name: Upload extension build
         uses: actions/upload-artifact@v4
         with:
           name: extension-dist
           path: apps/extension/dist
+
+      - name: Upload browser plugin download
+        uses: actions/upload-artifact@v4
+        with:
+          name: chrome-plugin-beta
+          path: apps/web/dist/downloads

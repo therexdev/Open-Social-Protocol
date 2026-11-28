@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   PROFILE_URI_PREFIX, ProtocolContracts, contentHash, encode, encodeProfile, encryptContent,
   identityFromSeed, photoChunks, photoLocation, profilePhotoId, toBase64url, type Profile, type ProtocolClient,
@@ -9,11 +9,12 @@ import { createTestBackground } from "../test/support";
 import type { FeedItem, EmbeddedMedia, Reply } from "../shared/protocol";
 import { IndexerClient, type PostView } from "../shared/indexer";
 
+afterEach(() => vi.unstubAllGlobals());
 const author = identityFromSeed(new Uint8Array(32).fill(19)).account;
 const contract = identityFromSeed(new Uint8Array(32).fill(20)).account;
-function fixture(legacy = false) {
-  const bytes = new Uint8Array([1, 2, 3, 4]), digest = contentHash(bytes), hash = toBase64url(digest);
-  const photoId = profilePhotoId(author, digest), chunks = photoChunks(bytes);
+function fixture(legacy = false, hostedBytes?: Uint8Array) {
+  const bytes = hostedBytes ?? new Uint8Array([1, 2, 3, 4]), digest = contentHash(bytes), hash = toBase64url(digest);
+  const photoId = profilePhotoId(author, digest), chunks = hostedBytes ? [bytes] : photoChunks(bytes);
   const record = { owner: author, digest, size: bytes.length, received: chunks.length, chunk_hashes: chunks.map(contentHash), units: 1 };
   const identity: { account: string; profile_uri: string; profile_hash: Uint8Array } = { account: author, profile_uri: "", profile_hash: new Uint8Array() };
   const setProfile = (profile: Profile) => {
@@ -98,4 +99,23 @@ describe("Facebook profile photos", () => {
     expect(t.state.broadcasts).toHaveLength(0);
     chunksRead.mockRestore();
   });
+});
+
+it("loads a hosted avatar without querying chain chunks and rejects a corrupt R2 response", async () => {
+  const f = fixture(); Object.assign(f.record, { external_uri: "https://media.example/avatar" });
+  const request = vi.fn().mockResolvedValue(new Response(new Uint8Array(f.bytes)));
+  vi.stubGlobal("fetch", request);
+  expect(await f.photos.load(author, f.hash)).toEqual({ data: toBase64url(f.bytes), mime: "image/jpeg" });
+  expect(f.photoChunksRead).not.toHaveBeenCalled(); expect(request).toHaveBeenCalledOnce();
+  const bad = fixture(); Object.assign(bad.record, { external_uri: "https://media.example/avatar" });
+  request.mockResolvedValueOnce(new Response(new Uint8Array([9,9,9,9])));
+  await expect(bad.photos.load(author, bad.hash)).rejects.toThrow("fingerprint");
+});
+
+it("does not retain an oversized hosted avatar in the reusable cache", async () => {
+  const bytes = new Uint8Array(13 * 1024 * 1024).fill(3), f = fixture(false, bytes);
+  Object.assign(f.record, { external_uri: "https://media.example/large-avatar" });
+  const request = vi.fn(async () => new Response(new Uint8Array(bytes))); vi.stubGlobal("fetch", request);
+  await f.photos.load(author, f.hash); await f.photos.load(author, f.hash);
+  expect(request).toHaveBeenCalledTimes(2); expect(f.photoChunksRead).not.toHaveBeenCalled();
 });

@@ -23,7 +23,7 @@ it("uses the R2 content-addressed namespace, checks size/hash and never caches a
   expect(await load(ref)).toEqual(bytes);
   expect(await load(ref)).toEqual(bytes);
   expect(fetchFn).toHaveBeenCalledTimes(2);
-  expect(fetchFn.mock.calls[0]).toEqual([`https://media.example/osp/AQIDBA/identity/${toBase64url(ref.digest)}`, expect.objectContaining({ credentials: "omit", referrerPolicy: "no-referrer", redirect: "error" })]);
+  expect(fetchFn.mock.calls[0]).toEqual([`https://media.example/osp/QVFJREJBPT0/identity/${toBase64url(ref.digest)}`, expect.objectContaining({ credentials: "omit", referrerPolicy: "no-referrer", redirect: "error" })]);
 });
 it("restores legacy shapes but cannot hydrate ledger permissions, poll votes or music prices", async () => {
   const documents = new Map<string, Uint8Array>();

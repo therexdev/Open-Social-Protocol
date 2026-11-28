@@ -54,6 +54,9 @@ message content {
   string external_ref = 7;
   // Authenticated, encrypted recipient list for selective sharing and safe replies.
   repeated string share_with = 8;
+  // Optional hosted long-text descriptor, authenticated by this envelope.
+  // Private descriptors (including their reading key) stay inside suite 1.
+  string text_ref = 9;
 }
 
 // Authenticated associated data for AEAD (suite 1). Serialized canonically and

@@ -42,6 +42,8 @@ export interface SponsorConfig {
   /** SQLite file for quotas/utilization (`:memory:` allowed). */
   dbPath: string;
   dailyOps: number;
+  /** Atomic RC per account/day; undefined retains the legacy operation policy. */
+  dailyManaRc?: string;
   burstOps: number;
   burstWindowSec: number;
   maxBytesPerOp: number;
@@ -117,7 +119,11 @@ export function loadConfig(env: Env = process.env): SponsorConfig {
   const maxOpsPerTx = integer(env, "OSP_SPONSOR_MAX_OPS_PER_TX", DEFAULTS.maxOpsPerTx, 1);
   const dailyOps = integer(env, "OSP_SPONSOR_DAILY_OPS", DEFAULTS.dailyOps, 1);
   const burstOps = integer(env, "OSP_SPONSOR_BURST_OPS", DEFAULTS.burstOps, 1);
+  const mana = integer(env, "OSP_SPONSOR_DAILY_MANA", network === "mainnet" ? 50 : 0);
+  if (mana > 10000) throw new ConfigError("OSP_SPONSOR_DAILY_MANA must be at most 10000");
+  if (network === "mainnet" && mana === 0) throw new ConfigError("Mainnet sponsorship requires a daily Mana allowance");
   return {
+    ...(mana > 0 && { dailyManaRc: String(BigInt(mana) * 100000000n) }),
     media: loadMediaConfig(env),
     autoSettleRewards: boolean(env, "OSP_AUTO_SETTLE_REWARDS", network === "harbinger"),
     rewardIndexerUrl: text(env, "OSP_REWARD_INDEXER_URL") ?? "http://127.0.0.1:8787",
@@ -128,7 +134,7 @@ export function loadConfig(env: Env = process.env): SponsorConfig {
     host,
     publicUrl,
     dbPath: text(env, "OSP_SPONSOR_DB") ?? join("data", `sponsor-${network}.sqlite`),
-    dailyOps,
+    dailyOps: mana > 0 ? Number.MAX_SAFE_INTEGER : dailyOps,
     burstOps,
     burstWindowSec: integer(env, "OSP_SPONSOR_BURST_WINDOW_SEC", DEFAULTS.burstWindowSec, 1),
     maxBytesPerOp: integer(env, "OSP_SPONSOR_MAX_BYTES_PER_OP", DEFAULTS.maxBytesPerOp, 1),

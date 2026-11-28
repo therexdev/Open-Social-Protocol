@@ -35,6 +35,7 @@ async function main(): Promise<void> {
   });
   const service = app.sponsorService;
 
+  await service.startManaAccounting();
   await app.listen({ port: config.port, host: config.host });
   try { await service.initializeMusic(); } catch (error) { log(`Music payments unavailable: ${(error as Error).message}`); }
   try { await service.initializeWallet(); } catch (error) { log(`Wallet sponsorship unavailable: ${(error as Error).message}`); }

@@ -12,6 +12,7 @@ export default defineManifest({
   manifest_version: 3,
   name: "Open Social Protocol",
   version,
+  version_name: `${version} beta`,
   description: "Open Social: posts, voice, video, music, groups and encrypted messages, with optional Facebook and X feed integration.",
   minimum_chrome_version: "116",
   icons: {

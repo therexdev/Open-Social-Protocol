@@ -36,6 +36,7 @@ try {
    if(type==='embed.post')return{ok:true,result:{enabled:true,item:{...base,viewer:window.__locked?undefined:'reader',viewerReaction:reaction,...(postId===ids.poll&&{pollView}),...(window.__locked&&base.audience===1?{status:'locked',text:undefined,media:undefined,message:'Unlock to read this private post.'}:{})}}};
    if(type==='embed.avatar')return{ok:true,result:{data:badAvatar?'bm90IGFuIGltYWdl':image,mime:'image/png'}};
    if(type==='embed.media')return{ok:true,result:{data:postId===ids.video&&!payload.poster?video:postId===ids.voice?audio:image,mime:postId===ids.video&&!payload.poster?'video/mp4':postId===ids.voice?'audio/wav':'image/png'}};
+   if(type==='embed.share')return{ok:true,result:{}};
    if(type==='embed.inspect')return{ok:true,result:inspection()};
    if(type==='embed.vote'){vote={direction:payload.direction,weight:payload.weight,block:'101'};return{ok:true,result:inspection()};}
    if(type==='embed.react'){reaction=payload.remove?0:payload.reaction;return{ok:true,result:{reaction}};}
@@ -50,7 +51,7 @@ try {
  },{ids,image,video,audio:wav.toString('base64url')});
  await context.route('**/*',async route=>{
   const u=new URL(route.request().url());
-  if(u.origin===hostOrigin)return route.fulfill({contentType:'text/html',body:`<!doctype html><html><head><style>body{margin:0;background:#f0f2f5;font:14px Arial}header{height:55px;background:white;border-bottom:1px solid #ddd;padding:16px}main{max-width:680px;margin:22px auto}iframe{display:block;border:0;width:100%;height:180px;margin:16px 0}article{background:white;padding:25px;border-radius:10px;color:#666}@media(max-width:700px){main{margin:8px}}</style></head><body><header>Feed preview</header><main><article>Native feed post</article>${Object.entries(ids).filter(([k])=>k!=='comment'&&(k!=='video'||video)).map(([k,id])=>`<iframe title="${k}" allow="autoplay; fullscreen" src="https://extension.test/src/embed/index.html#post=${encodeURIComponent(id)}&host=${encodeURIComponent(hostOrigin)}"></iframe><article>Native feed post</article>`).join('')}</main><script>addEventListener('message',e=>{for(const f of document.querySelectorAll('iframe'))if(e.source===f.contentWindow&&e.origin==='https://extension.test'&&e.data.type==='osp.card.height')f.style.height=e.data.height+'px'})</script></body></html>`});
+  if(u.origin===hostOrigin)return route.fulfill({contentType:'text/html',body:`<!doctype html><html><head><style>body{margin:0;background:#f0f2f5;font:14px Arial}header{height:55px;background:white;border-bottom:1px solid #ddd;padding:16px}main{max-width:680px;margin:22px auto}iframe{display:block;border:0;width:100%;height:180px;margin:16px 0}article{background:white;padding:25px;border-radius:10px;color:#666}@media(max-width:700px){main{margin:8px}}</style></head><body><header>Feed preview</header><main><article>Native feed post</article>${Object.entries(ids).filter(([k])=>k!=='comment'&&(k!=='video'||video)).map(([k,id])=>`<iframe title="${k}" allow="autoplay; fullscreen; clipboard-write" src="https://extension.test/src/embed/index.html#post=${encodeURIComponent(id)}&host=${encodeURIComponent(hostOrigin)}"></iframe><article>Native feed post</article>`).join('')}</main><script>addEventListener('message',e=>{for(const f of document.querySelectorAll('iframe'))if(e.source===f.contentWindow&&e.origin==='https://extension.test'&&e.data.type==='osp.card.height')f.style.height=e.data.height+'px'})</script></body></html>`});
   const file=path.resolve(dist,'.'+u.pathname);
   if(u.origin!=='https://extension.test'||!file.startsWith(dist+path.sep)||!existsSync(file))throw Error('Unexpected network request '+u.origin+u.pathname);
   return route.fulfill({contentType:({'.js':'text/javascript','.css':'text/css','.html':'text/html','.wasm':'application/wasm'})[path.extname(file)]||'application/octet-stream',headers:{'content-security-policy':manifest.content_security_policy.extension_pages},body:readFileSync(file)});
@@ -80,6 +81,17 @@ try {
  await avatar.waitFor({state:'detached'});assert.equal((await photo.locator('.card-avatar').textContent()).trim(),'AR','Unreadable photo keeps initials');
  await photo.locator('body').evaluate(()=>window.__profile('j'.repeat(43)+'='));await avatar.waitFor();await avatar.evaluate(i=>i.decode());
 
+ await context.grantPermissions(['clipboard-read','clipboard-write'],{origin:'https://extension.test'});
+ await context.grantPermissions(['clipboard-read'],{origin:hostOrigin});
+ await photo.getByRole('button',{name:'Share post',exact:true}).click();
+ await photo.getByRole('button',{name:'Copy Link',exact:true}).click();
+ await photo.getByText('Link copied',{exact:true}).waitFor();
+ assert.equal(await page.evaluate(()=>navigator.clipboard.readText()),'https://opensocial.online/post/'+encodeURIComponent(ids.photo));
+ await photo.getByRole('button',{name:'Share post',exact:true}).click();
+ await photo.getByRole('button',{name:'Share to Open Social',exact:true}).evaluate(b=>b.click());
+ assert.equal(await photo.locator('body').evaluate(()=>window.__calls.filter(c=>c.type==='embed.share').length),0,'Synthetic share clicks cannot open trusted controls');
+ await photo.getByRole('button',{name:'Share to Open Social',exact:true}).click();
+ assert.equal(await photo.locator('body').evaluate(()=>window.__calls.filter(c=>c.type==='embed.share').length),1);
  await photo.getByRole('button',{name:'React',exact:true}).click();
  await photo.getByRole('button',{name:'Happy',exact:true}).evaluate(b=>b.click());
  assert.equal(await photo.locator('body').evaluate(()=>window.__calls.filter(c=>c.type==='embed.react').length),0,'Synthetic clicks cannot submit reactions');
@@ -133,6 +145,6 @@ try {
  await photo.locator('html[data-theme=light]').waitFor();
  assert.equal(await photo.locator('.social-card').first().evaluate(e=>getComputedStyle(e).backgroundColor),'rgb(255, 255, 255)');
  assert.deepEqual(errors,[]);
- console.log('Embedded browser checks passed: live light/dark theme and source validation, profile photos/replacement/fallback and comment avatars, image auto-load, trusted reactions, up/down votes, poll changes, inline comments, activity preserves UI, audio, '+(video?'real MP4/poster and lock cleanup, ':'')+'no navigation, narrow layout; shipped CSP, fixture network only');
+ console.log('Embedded browser checks passed: live light/dark theme and source validation, profile photos/replacement/fallback and comment avatars, image auto-load, trusted quote controls and copy link, trusted reactions, up/down votes, poll changes, inline comments, activity preserves UI, audio, '+(video?'real MP4/poster and lock cleanup, ':'')+'no navigation, narrow layout; shipped CSP, fixture network only');
  await context.close();
 }finally{await browser.close();}

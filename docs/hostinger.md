@@ -31,4 +31,9 @@ This path works on any Hostinger plan, including plain web hosting.
 
 ## SPA routing
 The build includes a `.htaccess` rewriting unknown paths to `index.html` so deep links
-(`/post/<id>`) work on Apache/LiteSpeed hosting.
+(`/post/<id>`) work on Apache/LiteSpeed hosting. Post URLs now pass through the
+packaged `post-preview.php` handler so sharing sites receive public text and image
+metadata before JavaScript runs. PHP 8.1+ is required for that handler; see
+[link-preview setup and verification](social-link-previews.md). All other routes
+continue to use `index.html` directly. A static-only Node/CDN deployment must
+provide an equivalent server/edge route for crawler previews.

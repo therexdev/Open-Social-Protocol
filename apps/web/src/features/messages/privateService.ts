@@ -35,6 +35,10 @@ import { ABIS } from "@osp/proto";
 import { archiveClip, prepareClip } from "../media/clipArchive";
 import { describeVoiceNote, voiceAttachment } from "./voiceNote";
 import type { IndexerClient, PrivatePacketView } from "../../api/indexer";
+import { presentUsageLimit } from "../../tx/usageLimit";
+import { rpcRetryAt } from "../../api/rpcProvider";
+import { usesExternalMedia } from "../../api/mediaStorage";
+import { uploadHostedRecording } from "../media/hostedRecording";
 import { submitAction } from "../../tx/submit";
 import type { PaymentPreference } from "../../stores/settings";
 import {
@@ -94,6 +98,7 @@ export class PrivateMessagingService {
   private scheduledSync?: ReturnType<typeof setTimeout>;
   private readonly verifiedProvisional = new Map<string, string>();
   private stopped = false;
+  private retryAt = 0;
   private devices: NonNullable<PrivateSnapshot["devices"]> = [];
   private directory: PrivateDevice[] = [];
   private peerDirectories = new Map<string, PrivateDevice[]>();
@@ -220,6 +225,13 @@ export class PrivateMessagingService {
   }
   async queueVoice(peer: string, recording: { file: File; mime: string; durationMs: number }, caption: string, requestedThread?: string): Promise<void> {
     this.active();
+    if (usesExternalMedia(this.protocol)) {
+      if (!isAddress(peer) || peer === this.me.account) throw Error("Choose another person to message.");
+      if (!(await this.unblocked(peer))) throw Error("This conversation is blocked.");
+      const media = await uploadHostedRecording(recording, { client: this.protocol, signer: this.me.signer, payment: this.payment }, this.me.account, true, () => this.active());
+      await this.enqueue(peer, caption.trim() || "Audio recording", requestedThread, { voice: describeVoiceNote(media, recording.durationMs) });
+      return;
+    }
     if (!recording.file.size || recording.file.size + 16 > VOICE_MAX_BYTES) throw new Error("Voice messages must fit 1 MiB including encryption.");
     const bytes = new Uint8Array(await recording.file.arrayBuffer());
     try {
@@ -231,7 +243,7 @@ export class PrivateMessagingService {
     } finally { bytes.fill(0); }
   }
   private async enqueue(peer: string, text: string, requestedThread?: string,
-    upload?: { voice: PrivateVoiceNote; archiveBytes: string }): Promise<void> {
+    upload?: { voice: PrivateVoiceNote; archiveBytes?: string }): Promise<void> {
     this.active();
     if (!isAddress(peer) || peer === this.me.account) throw new Error("Choose another person to message");
     if (!text.trim() || utf8(text).length > PRIVATE_MESSAGE_LIMIT) throw new Error(`Message must contain 1–${PRIVATE_MESSAGE_LIMIT} UTF-8 bytes`);
@@ -680,7 +692,7 @@ export class PrivateMessagingService {
         // A crash after committing the ratchet but before clearing the queue
         // must never encrypt this message a second time.
         if (!data.chats.some(c => c.messages.some(m => m.id === draft.id))) {
-          if (draft.voice) {
+          if (draft.voice && !draft.voice.url.startsWith("osp-file:")) {
             if (!draft.archiveBytes) throw new Error("The saved voice recording is incomplete.");
             if (!(await this.unblocked(draft.peer))) throw new Error("This conversation is blocked");
             // Archive id, digest, ciphertext and key are already device-encrypted on disk.
@@ -1124,6 +1136,9 @@ export class PrivateMessagingService {
         payload,
         this.me.signer,
       ),
+    }).catch(error => {
+      presentUsageLimit(error, { client: this.protocol, signer: this.me.signer, payment: this.payment }, true, false);
+      throw error;
     });
     funding.grantId = grant.grantId;
     await save();
@@ -1181,6 +1196,10 @@ export class PrivateMessagingService {
     for (let offset = 0; offset < rows.length; offset += 4) {
       const batch = rows.slice(offset, offset + 4);
       const results = await Promise.allSettled(batch.map(async row => {
+        // An indexer-reported future block cannot be accepted yet. Avoid reading
+        // the same reversible packet every two seconds for the full LIB delay.
+        // Every packet is still verified through RPC before use/cursor advance.
+        if (BigInt(row.block) > BigInt(boundary)) return false;
         const key = `${row.actor}:${row.packet_id}`;
         const fingerprint = JSON.stringify([row.peer, row.sequence, row.block, row.timestamp, row.content_hash, row.envelope]);
         // The reversible suffix is scanned repeatedly. Reuse only an exact,
@@ -1633,7 +1652,7 @@ export class PrivateMessagingService {
     }
   }
   async sync(): Promise<void> {
-    if (this.stopped) return;
+    if (this.stopped || Date.now() < this.retryAt) return;
     if (this.running) { this.syncAgain = true; return this.syncTask; }
     clearTimeout(this.scheduledSync);
     this.running = true;
@@ -1643,12 +1662,12 @@ export class PrivateMessagingService {
       for (let pass = 0; pass < 2; pass++) {
         this.syncAgain = false;
         await this.syncOnce();
-        if (!this.syncAgain || this.stopped) break;
+        if (!this.syncAgain || this.stopped || Date.now() < this.retryAt) break;
       }
     })().finally(() => {
       this.running = false;
       this.syncTask = undefined;
-      if (this.syncAgain && !this.stopped) this.scheduledSync = setTimeout(() => void this.sync(), 0);
+      if (this.syncAgain && !this.stopped) this.scheduledSync = setTimeout(() => void this.sync(), Math.max(0, this.retryAt - Date.now()));
     });
     return this.syncTask;
   }
@@ -1672,13 +1691,19 @@ export class PrivateMessagingService {
             // indexer outage). Keep the durable outbox and closures moving.
             for (const work of [this.invitations, this.prepareQueued, this.channels, this.prepareCopies, this.shareHistory, this.dispatch, this.closures, this.warmAllowance]) {
               try { await work.call(this, data, save); }
-              catch (error) { this.error = error instanceof Error ? error.message : String(error); }
+              catch (error) {
+                this.error = error instanceof Error ? error.message : String(error);
+                const retry = rpcRetryAt(error);
+                if (retry) { this.retryAt = retry; this.error = "The network is busy. Your saved messages and browser link will retry automatically."; break; }
+              }
               await save();
               this.snapshot(data);
             }
           }
         } catch (error) {
           this.error = error instanceof Error ? error.message : String(error);
+          const retry = rpcRetryAt(error);
+          if (retry) { this.retryAt = retry; this.error = "The network is busy. Your saved messages and browser link will retry automatically."; }
         }
         await save();
         this.snapshot(data);

@@ -1,0 +1,89 @@
+{
+  "network": "mainnet",
+  "economy": "token-free",
+  "chainId": "EiBZK_GGVP0H_fXVAM3j6EAuz3-B-l3ejxRSewi7qIBfSA==",
+  "rpc": [
+    "https://api.koinosai.com/",
+    "https://api.koinos.io",
+    "https://api.koinosblocks.com"
+  ],
+  "protocolVersion": 1,
+  "deployedAt": "2026-11-28T01:47:15.841Z",
+  "deployer": "1knyv7SgkKVnhp4DLhtadWybetD1LCbv6",
+  "contracts": {
+    "token": {
+      "address": "12h59VFjudRFPi82FG7GMbktF8B9MyUqsx",
+      "reserved": true,
+      "txId": "",
+      "block": "0",
+      "wasmSha256": "",
+      "abiSha256": "",
+      "rcUsed": "0"
+    },
+    "identity": {
+      "address": "14Cd94zpxDJdozDhRR6h7aoPyjmDSEbV7y",
+      "txId": "0x122023b5fcd366adfd66f0a3c9af00f9b937815af77493f27a8210c8dae90f474695",
+      "block": "41423443",
+      "wasmSha256": "5ba1c92a8ff9e36a6e605b2858888cedd1fec9fdd1f7e35d01ad37565e09f073",
+      "abiSha256": "97f3143b7f100861c4f37e912287fa23d86019e30a3cfeeec3f46ba406fdca7c",
+      "rcUsed": "4885688183"
+    },
+    "relationships": {
+      "address": "13VLvbEX4XQSNnLcMC8ARbT1xnTySzv8YW",
+      "txId": "0x1220422e50fdcdfefe2e394af1d605b5431d6e5eac8dcf3423b844dc0245b608d582",
+      "block": "41423447",
+      "wasmSha256": "7614c9fef2e1c332368f5c7e020df4b402597cb55dc2e83d227638539539edae",
+      "abiSha256": "eb50609cab8a849b6fb15b0527e5df574c502071697ef21697040307f7860e4e",
+      "rcUsed": "4653316069"
+    },
+    "publications": {
+      "address": "1CcbVwFrj4X7zTgKdNLYRgi8Vt7BtcrJJa",
+      "txId": "0x12205260ef77c6ea251513be5eeae2ddb728c25fda4220a33bbdebd7f6e27e668269",
+      "block": "41447879",
+      "wasmSha256": "1058a9191dfefe9c798a068a4fc6a07ac18df450d0d5011cfce6341669161c37",
+      "abiSha256": "571b7e17cd41d6bde2796bd98929387a1506e00979cd5b0c49962e2c8aafdff2",
+      "rcUsed": "2393507075"
+    },
+    "communities": {
+      "address": "1DtmHW3m1oZpoijcFFaB9ZVK4yctXxobph",
+      "txId": "0x12202a2d5fe09fd2d7339429dd8a711cf6b7773d37c3076a65520251f099ac3feda7",
+      "block": "41423454",
+      "wasmSha256": "fecc3476327dd7b1bf02357d17224de8e3ece4ff810a0a37f76dea8853664e31",
+      "abiSha256": "21bfad9ae4bf5b268b33d9af679681840064f5aa45c8219a4c31354e1ea76d23",
+      "rcUsed": "4347571713"
+    },
+    "sponsorship": {
+      "address": "19ZWU1WsSKUPvXsM1eeUpgro8T9iw9Vrg",
+      "txId": "0x1220197113610bf9f656db215ceead3e5a2bc7a401dba62fbe21554dbf849da23800",
+      "block": "41423458",
+      "wasmSha256": "d4ba04240672cc28e67d9a3c9590f4b3066e1c2a0fd89334060889f2888f77b0",
+      "abiSha256": "095cad71f8c2483b5978823d40793849da69dd21324f9b628d63788a332d0725",
+      "rcUsed": "3689296368"
+    },
+    "registry": {
+      "address": "14E8rqvpXLTe5skZ5UddzScsPj3PyARznH",
+      "txId": "0x12200b846e1b1bfab3f1239b27f1efb336448dd35fcea5cc213efae62ce5a41dfaf2",
+      "block": "41423461",
+      "wasmSha256": "acb95e55619f857159d2fd0d152e0e1ceda4ee9e50406c349d9c8d0b6a8d193a",
+      "abiSha256": "267e2c14468c340070934f1b53795f64365b1ecb6c658aa9965c7dab6a8794f8",
+      "rcUsed": "3891404026"
+    },
+    "messaging": {
+      "address": "1FfCg5kqLFHqe3tn1FcHMJuLK5aA58JmbL",
+      "txId": "0x1220047ad80ae88dd8eae263f9bbb81166d45aac849251ce06ffb3763a5353899925",
+      "block": "41423464",
+      "wasmSha256": "f38b20b7fc637c8f6685516412536fab0ba42326cf55920bf59f165158e260d6",
+      "abiSha256": "880d360343e66ebae62af21ffcc8623d394a58dba4b10b47daec66730f01fe66",
+      "rcUsed": "5769659264"
+    }
+  },
+  "startHeight": "41423443",
+  "registryAdmin": "1knyv7SgkKVnhp4DLhtadWybetD1LCbv6",
+  "upgradeDelayMs": "86400000",
+  "indexers": [
+    "https://api.opensocial.online"
+  ],
+  "sponsors": [
+    "https://sponsor.opensocial.online"
+  ]
+}

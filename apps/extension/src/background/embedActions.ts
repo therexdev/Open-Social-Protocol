@@ -9,6 +9,8 @@ import { bytesOf, fromHex, toHex } from "../shared/bytes";
 import type { FeedItem, FeedPage } from "../shared/protocol";
 import type { KeyValueArea } from "../shared/storage";
 import { draftSizeError } from "../shared/draft";
+import { usesExternalMedia } from "../../../web/src/api/mediaStorage";
+import { uploadPostText } from "../../../web/src/api/postText";
 import type { FeedDeps, FeedService } from "./feed";
 import { EncryptedStore, deriveAesKey } from "./keystore";
 import { PaymentError, lookupDeviceStatus, submitOperations } from "./publish";
@@ -124,7 +126,7 @@ export class EmbeddedActions {
       const clients = await this.deps.clients(), client = requireProtocol(clients);
       const text = p.text.trim(), textHash = toHex(contentHash(utf8(text)));
       if (!text) throw Error("Write a comment first.");
-      const sizeError = draftSizeError(text); if(sizeError) throw Error(sizeError);
+      const sizeError = draftSizeError(text, undefined, usesExternalMedia(client)); if(sizeError) throw Error(sizeError);
       const store = new EncryptedStore<Record<string,SavedReply>>(this.deps.local,
         `osp.embed-replies:${client.chainId}:${session.account}`, await deriveAesKey(fromHex(session.encryptionSecret), "embed-replies"));
       const saved = await store.load() ?? {};
@@ -148,6 +150,12 @@ export class EmbeddedActions {
         // Public/custom reply plans do not use a seed or a reusable friends key.
         // The device stays the signer; the owner seed is never exposed to the card.
         const plan = await buildPublishPlan({
+          ...(usesExternalMedia(client) && { hostText: async (body: string, encrypted: boolean) => {
+            await this.active(session, p.host);
+            const signers = this.deps.vault.signers(session);
+            const ref = await uploadPostText({ client, signer: signers.owner ?? signers.device, payment: clients.resolved.payment }, session.account, body, encrypted);
+            await this.active(session, p.host); return ref;
+          } }),
           chain: { chainId: client.chainId, deployment: client.deployment, reads: client.reads, ops: { publications: {
             publish: args => client.ops.publications.publish({ ...args, device: session.deviceAddress }),
             distribute_keys: args => client.ops.publications.distribute_keys({ ...args, device: session.deviceAddress }),

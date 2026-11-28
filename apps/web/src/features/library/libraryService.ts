@@ -1,3 +1,5 @@
+import { HOSTED_MEDIA_MAX_BYTES } from "@osp/sdk";
+import { usesExternalMedia } from "../../api/mediaStorage";
 import {
   AUDIENCE,
   buildKeyPackageSets,
@@ -167,7 +169,9 @@ export async function readCollection(
 }
 function validateBanner(ctx: LibraryContext, banner: MediaAttachment) {
   parsePhotoLocation(banner.url, protocol(ctx).deployment.contracts.publications.address);
-  photoCost(banner.size);
+  if (usesExternalMedia(protocol(ctx))) {
+    if (!Number.isSafeInteger(banner.size) || banner.size < 1 || banner.size > HOSTED_MEDIA_MAX_BYTES) throw Error("Invalid hosted banner size.");
+  } else photoCost(banner.size);
   if (banner.mime !== "image/jpeg" || banner.contentHash.length !== 32 ||
       !banner.encryption || fromBase64url(banner.encryption.key).length !== 32 ||
       fromBase64url(banner.encryption.nonce).length !== 24)

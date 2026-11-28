@@ -1,8 +1,11 @@
 import { useEffect } from "react";
 import { useToasts } from "../stores/toasts";
+import { useUsagePrompt } from "../stores/usagePrompt";
+import { UsageLimitDialog } from "./UsageLimitDialog";
 import { Details } from "./ui";
 
 export function Toasts() {
+  const notice = useUsagePrompt(s => s.notice);
   const toasts = useToasts((s) => s.toasts);
   const dismiss = useToasts((s) => s.dismiss);
   useEffect(() => {
@@ -14,8 +17,10 @@ export function Toasts() {
     }, 1000);
     return () => window.clearInterval(timer);
   }, [dismiss]);
-  if (toasts.length === 0) return null;
+  if (toasts.length === 0 && !notice) return null;
   return (
+    <>
+    {notice && <UsageLimitDialog key={`${notice.chainId}:${notice.payer}:${notice.kind}`} notice={notice}/>}
     <div className="toasts" aria-live="polite" aria-relevant="additions">
       {toasts.map((toast) => (
         <div key={toast.id} className={`toast toast-${toast.kind}`} role={toast.kind === "error" ? "alert" : "status"}>
@@ -38,5 +43,6 @@ export function Toasts() {
         </div>
       ))}
     </div>
+    </>
   );
 }

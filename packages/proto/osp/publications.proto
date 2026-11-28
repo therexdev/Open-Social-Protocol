@@ -4,8 +4,9 @@ syntax = "proto3";
 //
 // Signed, versioned publications (posts, replies), lifecycle facts,
 // non-economic reactions, audience-key distribution and cross-post outcome
-// records. Publication content lives in transaction/event history; active
-// contract state keeps only what later validation requires (post existence,
+// records. Hosted publications keep compact content references in history; older
+// inline envelopes remain readable. Active contract state keeps only what later
+// validation requires (post existence,
 // author, latest version, lifecycle state, author sequence, idempotency keys).
 //
 // Identifier rules (normative, see docs/protocol-spec.md):
@@ -65,6 +66,8 @@ message post_record {
   uint64 updated_at = 9 [jstype = JS_STRING];
   bytes collection_id = 10;
   bool gallery_only = 11;
+  bytes quote_post_id = 12;
+  bytes quote_version = 13;
 }
 
 message author_state {
@@ -140,6 +143,9 @@ message publish_arguments {
   // publication revert if the parent or its friends audience changed in flight.
   bytes reply_parent_version = 17;
   uint32 reply_friends_epoch = 18;
+  // Immutable public source and its content hash at the time of sharing.
+  bytes quote_post_id = 19;
+  bytes quote_version = 20;
 }
 message publish_result {}
 
@@ -277,6 +283,8 @@ message published_event {
   uint64 timestamp = 15 [jstype = JS_STRING];
   bytes collection_id = 16;
   bool gallery_only = 17;
+  bytes quote_post_id = 18;
+  bytes quote_version = 19;
 }
 
 message lifecycle_event {
@@ -321,12 +329,12 @@ message cross_post_outcome_event {
 
 // @description Configure protocol usage limits (contract account only)
 // @read-only false
-message set_token_contract_arguments { bytes address = 1 [(koinos.btype) = ADDRESS]; }
+message set_token_contract_arguments { bytes address = 1 [(koinos.btype) = ADDRESS]; bool token_free = 2; }
 message set_token_contract_result {}
 // @description Get protocol usage contract
 // @read-only true
 message get_token_contract_arguments {}
-message get_token_contract_result { bytes value = 1 [(koinos.btype) = ADDRESS]; }
+message get_token_contract_result { bytes value = 1 [(koinos.btype) = ADDRESS]; bool token_free = 2; }
 
 // Poll ballots are participation, never automatic reward votes. Choices are public.
 message poll_definition {
@@ -409,7 +417,7 @@ message get_photo_result { photo_archive_record value = 1; }
 // @description Archive and collections capability version
 // @read-only true
 message get_library_version_arguments {}
-message get_library_version_result { uint32 version = 1; uint32 external_media_version = 2; uint32 content_reference_version = 3; }
+message get_library_version_result { uint32 version = 1; uint32 external_media_version = 2; uint32 content_reference_version = 3; uint32 hosted_manifest_version = 4; uint32 quote_reference_version = 5; }
 message photo_chunk_event { bytes id = 1; uint32 index = 2; bytes data = 3; }
 message photo_started_event { bytes id = 1; photo_archive_record value = 2; }
 
@@ -477,6 +485,9 @@ message music_config {
   // Clip transport capability: 1 supports voice (usage units) and short video (100 native tokens).
   uint32 clip_version = 9;
   uint32 external_media_version = 10;
+  bool token_free = 11;
+  // Hosted manifests commit one whole-file digest, independent of file size.
+  uint32 hosted_manifest_version = 12;
 }
 message music_record {
   bytes owner = 1 [(koinos.btype) = ADDRESS];

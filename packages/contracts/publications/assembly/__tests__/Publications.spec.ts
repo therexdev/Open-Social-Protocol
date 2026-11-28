@@ -2421,3 +2421,93 @@ describe("hosted publication bodies", () => {
     expect(result.value!.definition!.closes_at).toBe(T0 + HOUR);
   });
 });
+
+describe("explicit token-free publications", (): void => {
+  beforeEach(setupConfigured);
+  it("publishes with normal identity checks and no OSAT call", (): void => {
+    Testing.authorize([CONTRACT_ID]);
+    contract.set_token_contract(new publications.set_token_contract_arguments(null, true));
+    MockVM.commitTransaction();
+    asOwner(ALICE); PUBLISH = firstPost(ALICE, 1, ENV_A); callPublish();
+    expect(postOrFail(PUBLISH.post_id!).sequence).toBe(1);
+    expect(contract.get_token_contract(new publications.get_token_contract_arguments()).token_free).toBe(true);
+  });
+});
+
+// Quote links are protocol facts, not text pasted into a post body.
+describe("publications: public quote references", () => {
+  beforeEach(() => {
+    setupConfigured();
+    TARGET = doPublish(firstPost(BOB, 1, ENV_A));
+    PUBLISH = firstPost(ALICE, 1, ENV_B, EVERYONE, null, IDEM_KEY);
+    PUBLISH.quote_post_id = TARGET;
+    PUBLISH.quote_version = sha256(ENV_A);
+    clearTrace();
+    asOwner(ALICE);
+  });
+  it("records a separate top-level post and source version with only one publish", () => {
+    callPublish();
+    const rec = postOrFail(PUBLISH.post_id!);
+    expect(Arrays.equal(rec.quote_post_id, TARGET)).toBe(true);
+    expect(Arrays.equal(rec.quote_version, sha256(ENV_A))).toBe(true);
+    expect(Util.isEmpty(rec.reply_to)).toBe(true);
+    expect(authorState(ALICE).next_sequence).toBe(2);
+    expect(eventCount()).toBe(1);
+    expect(callCount()).toBe(1);
+    const ev = publishedData(lastEvent());
+    expect(Arrays.equal(ev.quote_post_id, TARGET)).toBe(true);
+    expect(Arrays.equal(ev.quote_version, sha256(ENV_A))).toBe(true);
+    expect(contract.get_library_version(new publications.get_library_version_arguments()).quote_reference_version).toBe(1);
+  });
+  it("keeps the link on edits even if an older client omits it and the source was deleted", () => {
+    const id = doPublish(PUBLISH);
+    doLifecycle(lifecycle(BOB, TARGET, sha256(ENV_A), DELETED));
+    PUBLISH = edit(ALICE, id, sha256(ENV_B), ENV_C);
+    asOwner(ALICE); callPublish();
+    expect(Arrays.equal(postOrFail(id).quote_post_id, TARGET)).toBe(true);
+    expect(Arrays.equal(publishedData(lastEvent()).quote_version, sha256(ENV_A))).toBe(true);
+  });
+  it("rejects a changed quote on edit", () => {
+    const id = doPublish(PUBLISH);
+    PUBLISH = edit(ALICE, id, sha256(ENV_B), ENV_C);
+    PUBLISH.quote_post_id = TARGET; PUBLISH.quote_version = sha256(ENV_C);
+    asOwner(ALICE); expect(callPublish).toThrow(); expectRevert("quote cannot change");
+  });
+  it("rejects a source version that changed while the share was being composed", () => {
+    doPublish(edit(BOB, TARGET, sha256(ENV_A), ENV_C));
+    asOwner(ALICE); expect(callPublish).toThrow(); expectRevert("shared post changed");
+  });
+  it("rejects private sources", () => {
+    const privatePost = firstPost(BOB, 2, ENV_C, FRIENDS);
+    const id = doPublish(privatePost);
+    PUBLISH.quote_post_id = id; PUBLISH.quote_version = sha256(ENV_C);
+    asOwner(ALICE); expect(callPublish).toThrow(); expectRevert("only public posts");
+  });
+  it("rejects a hidden or deleted source", () => {
+    doLifecycle(lifecycle(BOB, TARGET, sha256(ENV_A), AUTHOR_HIDDEN));
+    asOwner(ALICE); expect(callPublish).toThrow(); expectRevert("shared post is unavailable");
+  });
+  it("rejects unknown sources without advancing the author sequence", () => {
+    PUBLISH.quote_post_id = filled(32, 0xff);
+    expect(callPublish).toThrow(); expectRevert("shared post not found");
+    expect(authorState(ALICE).next_sequence).toBe(1);
+  });
+  it("requires both well-formed reference fields", () => {
+    PUBLISH.quote_version = null;
+    expect(callPublish).toThrow(); expectRevert("quote requires a post and version");
+  });
+  it("prevents quote-only data from being added to an ordinary post on edit", () => {
+    const id = doPublish(firstPost(ALICE, 1, ENV_B));
+    PUBLISH = edit(ALICE, id, sha256(ENV_B), ENV_C);
+    PUBLISH.quote_post_id = TARGET; PUBLISH.quote_version = sha256(ENV_A);
+    asOwner(ALICE); expect(callPublish).toThrow(); expectRevert("quote cannot change");
+  });
+  it("uses the ordinary idempotency lookup so retrying never creates a second share", () => {
+    const id = doPublish(PUBLISH);
+    expect(Arrays.equal(idemLookup(ALICE, IDEM_KEY)!.post_id, id)).toBe(true);
+    PUBLISH = firstPost(ALICE, 2, ENV_C, EVERYONE, null, IDEM_KEY);
+    PUBLISH.quote_post_id = TARGET; PUBLISH.quote_version = sha256(ENV_A);
+    asOwner(ALICE); expect(callPublish).toThrow();
+    expect(authorState(ALICE).next_sequence).toBe(2);
+  });
+});
