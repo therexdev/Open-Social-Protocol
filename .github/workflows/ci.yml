@@ -26,6 +26,10 @@ jobs:
       - name: Typecheck token v2 reference model
         run: npx tsc -p research/token-v2/tsconfig.json
       - name: Test
+        env:
+          # Deployments export an RPC override before tests. Exercise that same
+          # environment in CI; fixture tests must never contact these nodes.
+          KOINOS_RPC: 'https://ci-rpc-primary.invalid,https://ci-rpc-backup.invalid'
         run: npm test
       - name: Upload contract artifacts
         uses: actions/upload-artifact@v4

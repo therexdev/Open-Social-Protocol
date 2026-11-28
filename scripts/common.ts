@@ -85,7 +85,7 @@ export function parseArgs(argv: string[]): Record<string, string | boolean> {
   return out;
 }
 
-export function networkFromArgs(args: Record<string, string | boolean>): { name: string; preset: NetworkPreset } {
+export function networkFromArgs(args: Record<string, string | boolean>, env: Record<string, string | undefined> = process.env): { name: string; preset: NetworkPreset } {
   const name = typeof args.network === "string" ? args.network : "harbinger";
   const base = NETWORKS[name];
   if (!base && typeof args.rpc !== "string") {
@@ -93,7 +93,7 @@ export function networkFromArgs(args: Record<string, string | boolean>): { name:
   }
   const preset: NetworkPreset = base ? { ...base } : { rpc: [], wifEnv: "KOINOS_DEPLOYER_WIF" };
   if (typeof args.rpc === "string") preset.rpc = args.rpc.split(",").map((s) => s.trim()).filter(Boolean);
-  if (process.env.KOINOS_RPC) preset.rpc = process.env.KOINOS_RPC.split(",").map((s) => s.trim()).filter(Boolean);
+  if (env.KOINOS_RPC) preset.rpc = env.KOINOS_RPC.split(",").map((s) => s.trim()).filter(Boolean);
   return { name, preset };
 }
 

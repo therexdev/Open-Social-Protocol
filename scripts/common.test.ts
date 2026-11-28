@@ -25,12 +25,25 @@ test("argument parsing and network presets", () => {
   assert.equal(args.network, "harbinger");
   assert.equal(args["dry-run"], true);
   assert.equal(args.only, "identity,registry");
-  const { name, preset } = networkFromArgs(args);
+  const { name, preset } = networkFromArgs(args, {});
   assert.equal(name, "harbinger");
   assert.deepEqual(preset.rpc, NETWORKS.harbinger!.rpc);
-  assert.throws(() => networkFromArgs(parseArgs(["--network", "nope"])), /unknown network/);
-  const custom = networkFromArgs(parseArgs(["--network", "custom", "--rpc", "http://a,http://b"]));
+  assert.throws(() => networkFromArgs(parseArgs(["--network", "nope"]), {}), /unknown network/);
+  const custom = networkFromArgs(parseArgs(["--network", "custom", "--rpc", "http://a,http://b"]), {});
   assert.deepEqual(custom.preset.rpc, ["http://a", "http://b"]);
+});
+
+test("environment RPC overrides are explicit, ordered and retain the selected network's chain guard", () => {
+  const args = parseArgs(["--network", "mainnet", "--rpc", "https://cli.example"]);
+  const { name, preset } = networkFromArgs(args, {
+    KOINOS_RPC: " https://primary.example/, https://backup.example , ",
+  });
+  assert.equal(name, "mainnet");
+  assert.deepEqual(preset.rpc, ["https://primary.example/", "https://backup.example"]);
+  assert.equal(preset.expectedChainId, NETWORKS.mainnet!.expectedChainId);
+  assert.deepEqual(networkFromArgs(args, {}).preset.rpc, ["https://cli.example"]);
+  assert.deepEqual(networkFromArgs({ network: "harbinger" }, {}).preset.rpc, NETWORKS.harbinger!.rpc);
+  assert.deepEqual(NETWORKS.mainnet!.rpc, ["https://api.koinosai.com/", "https://api.koinos.io", "https://api.koinosblocks.com"]);
 });
 
 test("compiled contract ABIs agree with @osp/proto koilib ABIs (entry points, methods)", (t) => {
