@@ -319,6 +319,8 @@ try {
    if(width===390)await publicPage.screenshot({path:'/tmp/osp-history-mobile.png'});
  }
  await history.click();assert.equal(await publicPage.locator('.revision-body').count(),0);
+ await publicPage.getByRole('link',{name:'Edited',exact:true}).click();
+ await publicPage.waitForFunction(()=>document.querySelector('.revision-history-toggle')?.getAttribute('aria-expanded')==='true');
  assert.deepEqual(errors,[]);await publicPage.close();
  console.log('Public website checks passed: public topics and quotes, link metadata, compact feed, persistent plugin dismissal, and keyboard-friendly revision cards with verified current/older content at desktop, 390px and 320px.');
  await context.close();

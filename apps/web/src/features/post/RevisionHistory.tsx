@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import type { PostVersionView, PostView } from "../../api/indexer";
 import { Button } from "../../components/ui";
 import { Icon } from "../../components/Icon";
@@ -15,6 +15,10 @@ export function RevisionHistory({ post, initiallyOpen }: { post: PostView; initi
   const [expanded, setExpanded] = useState(initiallyOpen);
   const [selected, setSelected] = useState<number>();
   const id = useId();
+  // The Edited shortcut can change the history query while this post stays mounted.
+  useEffect(() => {
+    if (initiallyOpen) setExpanded(true);
+  }, [initiallyOpen]);
   return (
     <section className="revision-history" aria-label="Revision history">
       <Button className="revision-history-toggle" aria-expanded={expanded} aria-controls={`${id}-list`} onClick={() => {
