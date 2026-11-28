@@ -1,3 +1,4 @@
+import { markdownText } from "../../util/markdownText";
 import { ZoomableImage } from "../../components/ZoomableImage";
 import { MediaCapture, type CapturedMedia, type ClipKind } from "../media/MediaCapture";
 import { prepareClip, prepareVideoClip } from "../media/clipArchive";
@@ -29,8 +30,7 @@ import { preparePhoto } from "./preparePhoto";
 import { PhotoReadError } from "./preparePhoto";
 import { MediaPhoto } from "../../components/MediaPhoto";
 import { toBase64url } from "../../util/bytes";
-import { MentionTextarea } from "./MentionTextarea";
-import { RichText } from "../../components/RichText";
+import { RichPostEditor } from "./RichPostEditor";
 import { PostMarkdown } from "../../components/PostMarkdown";
 
 export interface ComposerFormProps {
@@ -116,7 +116,7 @@ export function ComposerForm({ draft, replyTo, replyGuard, edit, initialMode = "
   const videoUploads = media.filter(m => m.archiveBytes && m.url.startsWith("osp-clip://") && m.mime.startsWith("video/")).length;
   const tokenFree = resolved.deployment?.economy === "token-free";
   const currency = resolved.network === "mainnet" ? "KOIN" : "tKOIN";
-  const remaining = hosted ? (pollEnabled ? 500 : POST_TEXT_MAX_CHARACTERS) - text.length : LIMITS.maxEnvelopeBytes - bytes;
+  const remaining = pollEnabled ? 500 - text.length : hosted ? POST_TEXT_MAX_CHARACTERS - text.length : LIMITS.maxEnvelopeBytes - bytes;
   const tooLong = remaining < 0;
 
   const addPhotos = async (files: File[]) => {
@@ -225,6 +225,10 @@ export function ComposerForm({ draft, replyTo, replyGuard, edit, initialMode = "
       record.galleryOnly = draft?.galleryOnly ?? (edit ? galleryOnly : galleryOnly && !alsoPost);
       if (pollEnabled) {
         const poll = { question: text.trim(), options: pollOptions.map(o => o.trim()), closes_at: draft?.poll?.closes_at ?? String(Date.now() + pollHours * 3600000) };
+        if (!markdownText(poll.question).trim()) throw Error("Write a poll question first.");
+        const answers = poll.options.map(option => markdownText(option).normalize("NFC").trim().replace(/\s+/g," ").toLowerCase());
+        if (answers.some(answer => !answer)) throw Error("Write text for each answer.");
+        if (new Set(answers).size !== answers.length) throw Error("Each answer must read differently.");
         validatePoll(poll);
         record.poll = poll;
       } else delete record.poll;
@@ -296,22 +300,12 @@ export function ComposerForm({ draft, replyTo, replyGuard, edit, initialMode = "
           <MediaCapture key={`${account}:${session ? "open" : "locked"}:${mode}`} kind={mode} hosted={hosted} value={captured} onChange={value => void addClip(value)} onBusyChange={setCapturing} disabled={!can.ok || needsGroup || attaching || busy}/>}
       </div>}
       <div className="composer-content">
-      <Field label={pollEnabled ? "Your poll question" : edit ? "Edit your post" : replyTo ? "Your reply" : <span className="visually-hidden">Write a post</span>} hint={hosted ? tooLong ? `${(-remaining).toLocaleString()} characters over the limit` : `${remaining.toLocaleString()} characters left` : tooLong ? `${-remaining} bytes over the limit` : `${remaining} bytes left`}>
-        {(id) => (
-          <MentionTextarea
-            formatting={!pollEnabled}
-            showHint={false}
-            id={id}
-            account={account}
-            value={text}
-            onValueChange={setText}
-            rows={compact || mode !== "post" ? 3 : 6}
-            maxLength={hosted ? (pollEnabled ? 500 : POST_TEXT_MAX_CHARACTERS) : LIMITS.maxEnvelopeBytes}
-            aria-invalid={tooLong || undefined}
-            placeholder={mode !== "post" ? "Add a caption (optional)…" : replyTo ? "Write a reply…" : "Write a post…"}
-            required={!galleryOnly && !media.length}
-          />
-        )}
+      <Field label={pollEnabled ? "Your poll question" : edit ? "Edit your post" : replyTo ? "Your reply" : <span className="visually-hidden">Write a post</span>} hint={hosted || pollEnabled ? tooLong ? `${(-remaining).toLocaleString()} characters over the limit` : `${remaining.toLocaleString()} characters left` : tooLong ? `${-remaining} bytes over the limit` : `${remaining} bytes left`}>
+        {id => <RichPostEditor id={id} account={account} value={text} onValueChange={setText}
+          maxLength={pollEnabled ? 500 : hosted ? POST_TEXT_MAX_CHARACTERS : LIMITS.maxEnvelopeBytes} invalid={tooLong}
+          label={pollEnabled ? "Your poll question" : edit ? "Edit your post" : replyTo ? "Your reply" : "Write a post"}
+          placeholder={pollEnabled ? "Ask a question…" : mode !== "post" ? "Add a caption (optional)…" : replyTo ? "Write a reply…" : "Write a post…"}
+          required={!galleryOnly && !media.length}/>}
       </Field>
       </div>
       {mode === "post" && <div className="composer-tools">
@@ -321,7 +315,7 @@ export function ComposerForm({ draft, replyTo, replyGuard, edit, initialMode = "
       </div>}
       {pollEnabled && <fieldset className="poll-editor"><legend>Poll answers</legend>
         <p className="hint">Use the post text as your question. Answers are public. Answering adds participation, not an upvote. The question and answers cannot be edited after publishing.</p>
-        {pollOptions.map((option, i) => <div className="row" key={i}><Field label={`Answer ${i + 1}`}>{id => <input id={id} value={option} maxLength={120} required onChange={e => setPollOptions(items => items.map((v, j) => j === i ? e.target.value : v))}/>}</Field>
+        {pollOptions.map((option, i) => <div className="row" key={i}><Field label={`Answer ${i + 1}`}>{id => <RichPostEditor id={id} account={account} value={option} maxLength={120} compact label={`Answer ${i + 1}`} placeholder="Write an answer…" required onValueChange={value => setPollOptions(items => items.map((v,j) => j === i ? value : v))}/>}</Field>
           <Button variant="ghost" disabled={pollOptions.length <= 2} onClick={() => setPollOptions(items => items.filter((_, j) => j !== i))}>Remove answer {i + 1}</Button></div>)}
         <Button disabled={pollOptions.length >= 8} onClick={() => setPollOptions(items => [...items, ""])}>Add answer</Button>
         <Field label="Poll duration">{id => <select id={id} value={pollHours} disabled={!!draft?.poll} onChange={e => setPollHours(Number(e.target.value))}><option value={1}>1 hour</option><option value={24}>1 day</option><option value={72}>3 days</option><option value={168}>7 days</option></select>}</Field>
@@ -392,8 +386,8 @@ export function ComposerForm({ draft, replyTo, replyGuard, edit, initialMode = "
               Publishing is permanent: the network records it and copies may be kept by anyone who can read it. You can edit or mark it deleted later, but
               earlier versions stay in the public history.
             </p>
-            <div className="preview">{confirm.poll ? <RichText text={text}/> : <PostMarkdown text={text}/>}</div>
-            {confirm.poll && <><ul>{confirm.poll.options.map((o, i) => <li key={i}>{o}</li>)}</ul><p>Closes {new Date(Number(confirm.poll.closes_at)).toLocaleString()}. Answers are public and separate from upvotes and downvotes.</p></>}
+            <div className="preview"><PostMarkdown text={text}/></div>
+            {confirm.poll && <><ul>{confirm.poll.options.map((o, i) => <li key={i}><PostMarkdown text={o} inline/></li>)}</ul><p>Closes {new Date(Number(confirm.poll.closes_at)).toLocaleString()}. Answers are public and separate from upvotes and downvotes.</p></>}
           </>
         )}
       </ConfirmDialog>

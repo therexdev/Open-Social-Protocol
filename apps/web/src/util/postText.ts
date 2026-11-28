@@ -1,3 +1,5 @@
+import { fromMarkdown } from "mdast-util-from-markdown";
+import type { Root, RootContent } from "mdast";
 import { mentionPattern, parseMention } from "./mentions";
 
 export type TextPart =
@@ -60,7 +62,17 @@ export function splitPostText(text: string): TextPart[] {
   return parts;
 }
 
+/** Match visible Markdown text, excluding code, raw HTML and explicit link labels. */
+export function extractHashtags(text: string): string[] {
+  const tags = new Set<string>();
+  const walk = (node: Root | RootContent) => {
+    if (["code", "inlineCode", "html", "link", "linkReference", "image", "imageReference"].includes(node.type)) return;
+    if (node.type === "text") for (const part of splitPostText(node.value)) if (part.kind === "tag") tags.add(part.tag);
+    if ("children" in node) for (const child of node.children) walk(child);
+  };
+  walk(fromMarkdown(text)); return [...tags];
+}
 export function hasHashtag(text: string, tag: string): boolean {
   const normalized = normalizeTag(tag);
-  return !!normalized && splitPostText(text).some(p => p.kind === "tag" && p.tag === normalized);
+  return !!normalized && extractHashtags(text).includes(normalized);
 }

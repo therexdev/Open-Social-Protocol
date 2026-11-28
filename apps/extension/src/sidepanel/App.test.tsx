@@ -22,7 +22,7 @@ it("runs native composer modes, groups and messages in one panel, with account g
     expect(box.querySelector("iframe")).toBeNull();
     expect(Array.from(box.querySelectorAll(".client-nav a")).map(a=>a.textContent)).toEqual(["Feed","Post","Groups","Messages","Friends","Profile"]);
     expect(box.textContent).not.toContain("Open in tab");
-    expect(box.querySelector("textarea[placeholder='Write a post…']")||box.querySelector("textarea")).toBeTruthy();
+    expect(box.querySelector("[contenteditable=true][aria-label='Write a post']")||box.querySelector("textarea")).toBeTruthy();
     for(const label of ["Post","Voice","Video"])expect(Array.from(box.querySelectorAll("button")).some(b=>b.textContent===label)).toBe(true);
     await navigate("Groups");expect(box.textContent).toContain("Your groups");
     await navigate("Messages");expect(box.textContent).toContain("Messages");

@@ -1,3 +1,4 @@
+import { markdownText } from "../../util/markdownText";
 import { useEffect, useState } from "react";
 import type { PollView } from "@osp/sdk";
 import type { PostView } from "../../api/indexer";
@@ -7,7 +8,7 @@ import { useCanAct, useSubmitContext } from "../session";
 import { submitAction } from "../../tx/submit";
 import { bytesOf } from "../../util/bytes";
 import { errorMessage } from "../../util/format";
-import { RichText } from "../../components/RichText";
+import { PostMarkdown } from "../../components/PostMarkdown";
 
 export function PollCard({ post, onChanged }: { post: PostView; onChanged?: () => void }) {
   const { protocol } = useServices(), submit = useSubmitContext(), can = useCanAct();
@@ -47,11 +48,11 @@ export function PollCard({ post, onChanged }: { post: PostView; onChanged?: () =
     finally { setBusy(false); }
   };
   return <section className="poll-card" aria-label="Poll">
-    <h3><RichText text={poll.definition.question}/></h3>
+    <div className="poll-question"><PostMarkdown text={poll.definition.question}/></div>
     <fieldset disabled={busy || closed || !can.ok || !view?.value}><legend>Choose one answer</legend>
       {poll.definition.options.map((option, i) => {
         const count = poll.counts[i] ?? 0, percent = poll.participants ? Math.round(count * 100 / poll.participants) : 0;
-        return <label className="poll-option" key={i}><span className="poll-option-label"><input type="radio" name={`poll-${post.postId}`} checked={current === i} onChange={() => setSelected(i)}/><span>{option}</span><span>{percent}% · {count}</span></span><progress value={count} max={Math.max(1, poll.participants)} aria-label={`${option}: ${count} answers`}/></label>;
+        return <label className="poll-option" key={i}><span className="poll-option-label"><input type="radio" name={`poll-${post.postId}`} checked={current === i} onChange={() => setSelected(i)}/><span className="poll-option-text"><PostMarkdown text={option} inline/></span><span>{percent}% · {count}</span></span><progress value={count} max={Math.max(1, poll.participants)} aria-label={`${markdownText(option)}: ${count} answers`}/></label>;
       })}
     </fieldset>
     <p className="hint">{poll.participants} answers · {closed ? "Closed" : `Closes ${new Date(Number(poll.definition.closes_at)).toLocaleString()}`} · {(Number(poll.engagement_milli) / 1000).toFixed(3)} engagement</p>

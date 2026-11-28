@@ -325,7 +325,7 @@ it("keeps loaded feed panels mounted during repeated scope changes", async () =>
   expect(calls.filter(call => call.includes("/v1/feed") && call.includes("scope=all"))).toHaveLength(1);
   expect(container.querySelector("#feed-public")).toBe(publicPanel);
   expect(container.querySelector("#feed-friends")).toBe(friendsPanel);
-  expect(calls.filter(call => call.includes("/v1/feed") && call.includes("scope=public"))).toHaveLength(1);
+  expect(calls.filter(call => call.includes("/v1/feed") && call.includes("scope=public") && call.includes("limit=20"))).toHaveLength(1);
   expect(calls.filter(call => call.includes("/v1/feed") && call.includes("scope=friends"))).toHaveLength(1);
   await act(async () => vault.getState().lock());
   expect(container.querySelector("#feed-friends")).not.toBe(friendsPanel);

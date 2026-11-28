@@ -4,18 +4,25 @@ import assert from 'node:assert/strict';
 import {readFileSync,existsSync,readdirSync} from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
-import {identityFromSeed,lockVault,encodeProfile,toBase64url,encode,contentHash} from '@osp/sdk';
+import {identityFromSeed,lockVault,encodeProfile,toBase64url,encode,contentHash,encryptContent,fromBase64url} from '@osp/sdk';
 import {ABIS} from '@osp/proto';
 const {chromium}=await import(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?pathToFileURL(path.join(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES,'playwright/index.mjs')).href:'playwright');
 const dist=path.resolve(fileURLToPath(new URL('../dist/',import.meta.url))),manifest=JSON.parse(readFileSync(path.join(dist,'manifest.json'),'utf8'));
+const webDist=path.resolve(fileURLToPath(new URL('../../web/dist/',import.meta.url)));
+const mainnetDeployment=JSON.parse(readFileSync(new URL('../../../deployments/mainnet.json',import.meta.url),'utf8'));
 const seed=new Uint8Array(32).fill(31),me=identityFromSeed(seed),passphrase='fixture passphrase';
 const deployment=JSON.parse(readFileSync(new URL('../../../deployments/harbinger.json',import.meta.url),'utf8'));
 const profileUri='data:application/x-osp-profile;base64,'+toBase64url(encodeProfile({display_name:'Extension QA',bio:'Local browser test'}));
 const profile={account:me.account,profileUri,profileHash:'',encryptionKey:toBase64url(me.encryption.publicKey),keyVersion:1,counts:{posts:0,friends:0,followers:0,following:0}};
+let topicPosts=[];
+const topicPost=(text,n)=>{
+ const sealed=encryptContent({content:{version:1,mime:'text/plain',text}}),hash=toBase64url(sealed.contentHash);
+ return {postId:toBase64url(new Uint8Array(32).fill(n)),author:me.account,sequence:String(n),versionNumber:1,contentHash:hash,envelope:toBase64url(sealed.bytes),audience:0,audienceId:'',epoch:0,replyTo:'',state:0,stateReason:'',createdAt:String(Date.now()),updatedAt:String(Date.now()),txId:'fixture-only',blockHeight:'1',labels:[],versions:[],media:[],reactions:{total:0,byType:{}},replyCount:0};
+};
 const blob=await lockVault({seed,keyVersion:1,account:me.account},passphrase,{kdf:{N:1024,r:8,p:1}});
 const browser=await chromium.launch({...(process.env.CHROMIUM_PATH&&{executablePath:process.env.CHROMIUM_PATH}),args:['--no-sandbox','--use-fake-ui-for-media-stream','--use-fake-device-for-media-stream']});
 try {
- const context=await browser.newContext({viewport:{width:390,height:900}}),requests=[],errors=[],hostedFiles=new Map();
+ const context=await browser.newContext({viewport:{width:390,height:900},serviceWorkers:'block'}),requests=[],errors=[],hostedFiles=new Map();
  await context.addInitScript(({account})=>{
   const listeners=new Set();window.__xEnabled=false;window.__xFeed=false;window.__xAuto=true;window.__xAttribution=true;window.__xScope="all";window.__permissions=[];
   window.chrome={runtime:{getManifest:()=>({version:'0.7.0'}),getURL:p=>'https://extension.test/'+p,openOptionsPage:async()=>{},sendMessage:async({type,payload})=>{
@@ -35,11 +42,12 @@ try {
   const cors={'access-control-allow-origin':'*','access-control-allow-methods':'GET,HEAD,POST,OPTIONS','access-control-allow-headers':'*','access-control-expose-headers':'Content-Length'};
   const fulfill=options=>route.fulfill({...options,headers:{...options.headers,...cors}});
   if(req.method()==='OPTIONS')return fulfill({status:204});
-  if(url.origin==='https://extension.test') {
+  if(['https://extension.test','https://public.fixture.test'].includes(url.origin)) {
    if(url.pathname==='/setup')return route.fulfill({contentType:'text/html',body:'<!doctype html><body>Fixture setup</body>'});
-   const file=path.resolve(dist,'.'+url.pathname);
-   assert.ok(file.startsWith(dist+path.sep)&&existsSync(file),'Only packaged extension resources are loaded');
-   return route.fulfill({body:readFileSync(file),contentType:({'.html':'text/html','.js':'text/javascript','.css':'text/css','.wasm':'application/wasm'})[path.extname(file)]||'application/octet-stream',headers:{'content-security-policy':manifest.content_security_policy.extension_pages}});
+   const root=url.origin==='https://extension.test'?dist:webDist;
+   const file=path.resolve(root,'.'+(url.pathname==='/'?'/index.html':url.pathname));
+   assert.ok(file.startsWith(root+path.sep)&&existsSync(file),'Only packaged extension resources are loaded');
+   return route.fulfill({body:readFileSync(file),contentType:({'.html':'text/html','.js':'text/javascript','.css':'text/css','.wasm':'application/wasm'})[path.extname(file)]||'application/octet-stream',headers:url.origin==='https://extension.test'?{'content-security-policy':manifest.content_security_policy.extension_pages}:{}});
   }
   assert.notEqual(url.hostname,'opensocial.online','The website is never loaded');
   if(url.hostname==='media.fixture.test'){
@@ -58,10 +66,11 @@ try {
    const answer=m=>{
     assert.ok(!/submit|broadcast|send_transaction/.test(m.method),'Fixture must never submit a transaction');
     if(m.method==='chain.read_contract') {
-      const namespace=Object.entries(deployment.contracts).find(([,c])=>c.address===m.params.contract_id)?.[0];
+      const namespace=[...Object.entries(deployment.contracts),...Object.entries(mainnetDeployment.contracts)].find(([,c])=>c.address===m.params.contract_id)?.[0];
       const method=Object.entries(ABIS[namespace]?.methods??{}).find(([,v])=>v.entry_point===m.params.entry_point);
       let value={};
       if(method?.[0]==='get_identity')value={value:{account:me.account,owner:me.account,encryption_key:me.encryption.publicKey,key_version:1,protocol_version:1,profile_uri:profileUri}};
+      if(method?.[0]==='get_post'&&topicPosts[0])value={value:{author:me.account,audience:0,state:0,version_count:1,latest_version:fromBase64url(topicPosts[0].contentHash)}};
       if(method?.[0]==='balance_of')value={value:'70'};
       if(namespace==='token'&&method?.[0]==='get_account')value={value:{balance:'70',free_credits:'100',token_credits:'100',resource_version:2,free_ticks:'10000',token_ticks:'10000',ticks_per_unit:'100'},capacity:'100'};
       return {jsonrpc:'2.0',id:m.id,result:{result:method?toBase64url(encode(method[1].return,value)):''}};
@@ -70,10 +79,12 @@ try {
    };
    return fulfill({json:Array.isArray(input)?input.map(answer):answer(input)});
   }
+  if(['/v1/feed','/v2/feed'].includes(url.pathname))return fulfill({json:{items:topicPosts,nextCursor:null}});
   if(url.pathname.startsWith('/v1/profiles/'))return fulfill({json:profile});
   if(url.pathname.startsWith('/v1/graph/'))return fulfill({json:{account:me.account,friends:[],followers:[],following:[],pendingIncoming:[],pendingOutgoing:[],audienceEpoch:0,blocked:[]}});
   return fulfill({json:{items:[],nextCursor:null,counts:{},pending:0}});
  });
+ if(!process.env.TOPICS_ONLY){
  const page=await context.newPage();page.setDefaultTimeout(15000);page.on('pageerror',e=>errors.push(e.message));
  // First-time visitors can browse; writing still asks them to create an account.
  await page.goto('https://extension.test/src/sidepanel/index.html#/');
@@ -98,23 +109,63 @@ try {
  const story=('A complete short story with paragraphs and room to breathe. '.repeat(4)+'\n\n').repeat(500).slice(0,100000-ending.length)+ending;
  assert.equal(story.length,100000);
  const storyField=page.getByRole('textbox',{name:'Write a post',exact:true});
- assert.equal(await storyField.getAttribute('maxlength'),'100000');
+ assert.equal(await storyField.getAttribute('data-max-characters'),'100000');
  await storyField.fill('A formatted post');
- await storyField.evaluate(el=>el.setSelectionRange(0,11));
+ await storyField.press('ControlOrMeta+a');
  await page.getByRole('button',{name:'Bold',exact:true}).click();
- assert.equal(await storyField.inputValue(),'**A formatted** post');
- await storyField.evaluate(el=>el.setSelectionRange(0,0));
+ assert.equal(await storyField.locator('strong').textContent(),'A formatted post');
+ assert.equal(await storyField.textContent(),'A formatted post');
  await page.getByRole('button',{name:'Heading',exact:true}).click();
- await page.getByRole('button',{name:'Preview',exact:true}).click();
- assert.equal(await page.getByRole('region',{name:'Post preview'}).locator('h2 strong').textContent(),'A formatted');
- assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'The formatting toolbar fits the narrow panel');
+ assert.equal(await storyField.locator('h2 strong').textContent(),'A formatted post');
+ await page.getByRole('button',{name:'Undo',exact:true}).click();
+ assert.equal(await storyField.locator('h2').count(),0);
+ await page.getByRole('button',{name:'Redo',exact:true}).click();
+ assert.equal(await storyField.locator('h2 strong').textContent(),'A formatted post');
+ assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'The rich editor fits the narrow panel');
+ await context.grantPermissions(['clipboard-read','clipboard-write']);
+ await storyField.fill('');
+ const pasted='<h2>Copied from a document</h2><p><strong>Bold words</strong> and <em>italic words</em> with a <a href="https://example.org">source</a>.</p><ul><li>First point</li><li>Second point</li></ul>';
+ await page.evaluate(async html=>navigator.clipboard.write([new ClipboardItem({'text/html':new Blob([html],{type:'text/html'}),'text/plain':new Blob(['Copied from a document'],{type:'text/plain'})})]),pasted);
+ await storyField.click();await page.keyboard.press('ControlOrMeta+v');
+ await storyField.locator('h2').waitFor();
+ assert.equal(await storyField.locator('strong').textContent(),'Bold words');
+ assert.equal(await storyField.locator('em').textContent(),'italic words');
+ assert.equal(await storyField.locator('li').count(),2);
+ assert.equal(new URL(await storyField.locator('a').getAttribute('href')).href,'https://example.org/');
  if(process.env.COMPOSER_SCREENSHOT)await page.screenshot({path:process.env.COMPOSER_SCREENSHOT});
- await page.getByRole('button',{name:'Write',exact:true}).click();
- await storyField.fill(story);await page.getByRole('button',{name:'Review and publish',exact:true}).click();
+ await page.getByRole('button',{name:'Review and publish',exact:true}).click();
+ const pastedReview=page.getByRole('dialog');await pastedReview.waitFor();
+ assert.equal(await pastedReview.locator('.post-markdown strong').textContent(),'Bold words');
+ await pastedReview.getByRole('button',{name:'Cancel',exact:true}).click();
+ await storyField.fill('Which format?');
+ await page.getByRole('button',{name:'Add poll',exact:true}).click();
+ const question=page.getByRole('textbox',{name:'Your poll question',exact:true});
+ await question.click();await question.press('ControlOrMeta+a');
+ await page.locator('.composer-content .rich-post-editor').getByRole('button',{name:'Bold',exact:true}).click();
+ const firstAnswer=page.getByRole('textbox',{name:'Answer 1',exact:true}),secondAnswer=page.getByRole('textbox',{name:'Answer 2',exact:true});
+ await firstAnswer.fill('Yes please');await firstAnswer.press('ControlOrMeta+a');
+ await page.locator('.poll-editor .rich-post-editor').nth(0).getByRole('button',{name:'Bold',exact:true}).click();
+ await secondAnswer.fill('No thanks');await secondAnswer.press('ControlOrMeta+a');
+ await page.locator('.poll-editor .rich-post-editor').nth(1).getByRole('button',{name:'Italic',exact:true}).click();
+ assert.equal(await question.locator('strong').textContent(),'Which format?');
+ await page.getByRole('button',{name:'Review and publish',exact:true}).click();
+ const pollReview=page.getByRole('dialog');await pollReview.waitFor();
+ assert.equal(await pollReview.locator('.preview strong').textContent(),'Which format?');
+ assert.equal(await pollReview.locator('li strong').textContent(),'Yes please');
+ assert.equal(await pollReview.locator('li em').textContent(),'No thanks');
+ await pollReview.getByRole('button',{name:'Cancel',exact:true}).click();
+ await page.getByRole('button',{name:'Remove poll',exact:true}).click();
+ await storyField.fill('');
+ await page.evaluate(text=>navigator.clipboard.writeText(text),story);
+ await storyField.click();await page.keyboard.press('ControlOrMeta+v');
+ await page.waitForFunction(()=>document.querySelector('.rich-post-content')?.textContent.includes('The final sentence is here.'));
+ const savedStory=await storyField.evaluate(el=>el.editor.getMarkdown());
+ assert.equal(savedStory,story,'A maximum-length pasted story keeps every character');
+ await page.getByRole('button',{name:'Review and publish',exact:true}).click();
  const review=page.getByRole('dialog');await review.waitFor();
  assert.equal((await review.locator('.post-markdown').textContent()).replace(/\s+/g,' ').trim(),story.replace(/\s+/g,' ').trim(),'The complete story reaches the rendered Markdown review');
  await review.getByRole('button',{name:'Cancel',exact:true}).click();
- assert.equal(await storyField.inputValue(),story,'Cancelling keeps the entire story');
+ assert.equal(await storyField.evaluate(el=>el.editor.getMarkdown()),story,'Cancelling keeps the entire story');
  await storyField.fill('');
  await page.getByRole('button',{name:'Voice',exact:true}).click();await page.getByRole('button',{name:'Record voice',exact:true}).click();
  await page.getByRole('button',{name:/^Stop/}).waitFor();await page.waitForTimeout(1100);await page.getByRole('button',{name:/^Stop/}).click();
@@ -155,6 +206,23 @@ try {
  await page.getByRole('button',{name:'More menu',exact:true}).click();await page.getByRole('button',{name:'Lock account and site connections',exact:true}).click();
  await nav.getByRole('link',{name:'Groups',exact:true}).click();await page.getByRole('heading',{name:'Unlock your account'}).waitFor();
  assert.equal(context.pages().length,1,'Feature navigation stays inside the panel');assert.deepEqual(errors,[]);
- console.log('Standalone panel browser checks passed: encrypted account reuse/unlock, guest public feed and protected compose, Markdown toolbar and preview, 100,000-character story review and retention, native composer/voice/video, groups/messages/friends, settings, lock, narrow layout, no website/iframe/new-tab navigation; fixture network only');
+ console.log('Standalone panel browser checks passed: encrypted account reuse/unlock, guest public feed and protected compose, visual rich-text formatting, native rich clipboard paste, formatted poll questions/answers, undo/redo, 100,000-character story review and retention, native composer/voice/video, groups/messages/friends, settings, lock, narrow layout, no website/iframe/new-tab navigation; fixture network only');
+ }
+ // Check the real website shell as an anonymous desktop visitor too.
+ const publicPage=await context.newPage();await publicPage.setViewportSize({width:1440,height:1000});
+ publicPage.on('pageerror',e=>errors.push(e.message));
+ topicPosts=[topicPost('#Koinos #FreshTopic',41)];
+ await publicPage.goto('https://public.fixture.test/');
+ const topics=publicPage.getByRole('region',{name:'Recent public topics'});
+ await topics.getByRole('link',{name:'# freshtopic',exact:true}).waitFor();
+ assert.equal(await topics.getByRole('link',{name:'# photography',exact:true}).count(),0);
+ topicPosts=[topicPost('#NewestTopic',42)];
+ await topics.getByRole('button',{name:'Refresh topics',exact:true}).click();
+ await topics.getByRole('link',{name:'# newesttopic',exact:true}).waitFor();
+ assert.equal(await topics.getByRole('link',{name:'# freshtopic',exact:true}).count(),0);
+ topicPosts=[];await topics.getByRole('button',{name:'Refresh topics',exact:true}).click();
+ await topics.getByText('No hashtags in recent public posts yet.',{exact:true}).waitFor();
+ assert.deepEqual(errors,[]);await publicPage.close();
+ console.log('Public website topics passed: new tags replace old tags, deleted posts remove topics, no static placeholders or account required.');
  await context.close();
 } finally {await browser.close();}

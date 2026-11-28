@@ -1,3 +1,4 @@
+import type { Editor } from "@tiptap/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -51,16 +52,18 @@ afterEach(async () => {
   }
 });
 
+type RichInput = HTMLElement & { editor: Editor };
+const richInput = () => container.querySelector<RichInput>('.tiptap')!;
+const setPostText = (element: RichInput, text: string) => element.editor.commands.setContent(text, { contentType: "markdown" });
 async function render(audience: number) {
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
   const onSubmitted = vi.fn();
   await act(async () => { root.render(<ComposerForm defaultAudience={audience} onSubmitted={onSubmitted} />); });
-  const textarea = container.querySelector("textarea")!;
+  const textarea = richInput();
   await act(async () => {
-    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(textarea, "A post to test publishing");
-    textarea.dispatchEvent(new Event("input", { bubbles: true }));
+    setPostText(textarea, "A post to test publishing");
   });
   await click("Review and publish");
   return { textarea, onSubmitted };
@@ -84,8 +87,8 @@ describe("ComposerForm publish confirmation", () => {
     const draft = { id: "story", attemptId: "00".repeat(16), account: "saved-test-account", state: "draft", text, audience: AUDIENCE.EVERYONE, mediaUrls: [], createdAt: Date.now(), updatedAt: Date.now() } as DraftRecord;
     transport.start.mockImplementation(async (r: PublishRequest) => r.draft);
     await act(async () => root.render(<ComposerForm draft={draft}/>));
-    const textarea = container.querySelector("textarea")!;
-    expect(textarea.maxLength).toBe(100000); expect(textarea.value).toBe(text);
+    const textarea = richInput();
+    expect(textarea.getAttribute("data-max-characters")).toBe("100000"); expect(textarea.textContent!.length).toBeGreaterThan(50000);
     expect(container.textContent).toContain("characters left");
     expect(button("Review and publish").disabled).toBe(false);
     await click("Review and publish"); await click("Publish to Everyone");
@@ -106,7 +109,7 @@ describe("ComposerForm publish confirmation", () => {
     expect(transport.start).toHaveBeenCalledTimes(1);
     await act(async () => { finish(transport.start.mock.calls[0]![0].draft); });
     expect(onSubmitted).toHaveBeenCalledWith(transport.start.mock.calls[0]![0].draft);
-    expect(textarea.value).toBe("");
+    expect(textarea.editor.getText()).toBe("");
     expect(container.querySelector("dialog")?.hasAttribute("open")).toBe(false);
     expect(container.querySelector("form form")).toBeNull();
   });
@@ -117,7 +120,7 @@ describe("ComposerForm publish confirmation", () => {
     await click(`Publish to ${label}`);
     expect(transport.start).toHaveBeenCalledTimes(1);
     expect(container.querySelector("[role='alert']")?.textContent).toContain("Device storage unavailable");
-    expect(textarea.value).toBe("A post to test publishing");
+    expect(textarea.editor.getText()).toBe("A post to test publishing");
     expect(onSubmitted).not.toHaveBeenCalled();
     expect(container.querySelector("dialog")?.hasAttribute("open")).toBe(false);
   });
@@ -126,7 +129,7 @@ describe("ComposerForm publish confirmation", () => {
     const { textarea } = await render(AUDIENCE.EVERYONE);
     await click("Cancel");
     expect(transport.start).not.toHaveBeenCalled();
-    expect(textarea.value).toBe("A post to test publishing");
+    expect(textarea.editor.getText()).toBe("A post to test publishing");
     expect(container.querySelector("dialog")?.hasAttribute("open")).toBe(false);
   });
 });
@@ -152,7 +155,7 @@ it.each([AUDIENCE.EVERYONE, AUDIENCE.FRIENDS])("preserves a saved mention target
   const draft = { id: "mention", attemptId: "00".repeat(16), account: "saved-test-account", state: "draft", text, audience, mediaUrls: [], createdAt: Date.now(), updatedAt: Date.now() } as DraftRecord;
   transport.start.mockImplementation(async (r: PublishRequest) => r.draft);
   await act(async () => root.render(<MemoryRouter><ComposerForm draft={draft}/></MemoryRouter>));
-  expect(container.querySelector("textarea")!.value).toBe("Hello @Alex Kim!");
+  expect(richInput().textContent).toBe("Hello @Alex Kim!");
   await click("Review and publish");
   expect(container.querySelector("dialog .mention-link")?.getAttribute("href")).toBe(`/u/${target}`);
   await click(`Publish to ${audience === AUDIENCE.EVERYONE ? "Everyone" : "Friends"}`);
@@ -165,7 +168,7 @@ it("puts the poll button below the framed content box and omits the removed prom
   expect(container.textContent).not.toContain("What's on your mind?");
   expect(container.textContent).not.toContain("Type @ followed by a name or address to tag someone.");
   const content = container.querySelector(".composer-content")!, tools = container.querySelector(".composer-tools")!;
-  expect(content.querySelector("textarea")).toBeTruthy();
+  expect(content.querySelector("[contenteditable=true]")).toBeTruthy();
   expect(content.compareDocumentPosition(tools) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(tools.textContent).toContain("Add photos"); expect(tools.textContent).toContain("Add poll");
   await click("Add poll"); expect(container.querySelector(".poll-editor")).toBeTruthy();
@@ -175,7 +178,7 @@ it("chooses the photo budget before opening files and can dismiss either attachm
   container = document.createElement("div"); document.body.appendChild(container); root = createRoot(container);
   await act(async () => root.render(<ComposerForm/>));
   expect(container.textContent).not.toContain("Post content");
-  expect(container.querySelector("textarea")?.getAttribute("spellcheck")).toBe("true");
+  expect(richInput()?.getAttribute("spellcheck")).toBe("true");
   const chooseFile = vi.spyOn(container.querySelector<HTMLInputElement>('input[aria-label="Choose photos"]')!, "click");
   await click("Add photos");
   expect(container.querySelector("dialog[open] h2")?.textContent).toBe("Photo size budget");
@@ -212,10 +215,9 @@ it("selects a verified group from the regular composer and queues the post to th
   await act(async () => { audience.value = "group"; audience.dispatchEvent(new Event("change", { bubbles: true })); });
   const groupSelect = [...container.querySelectorAll("select")].find(select => [...select.options].some(o => o.text === "Film club"));
   expect(groupSelect).toBeDefined();
-  const text = container.querySelector("textarea")!;
+  const text = richInput();
   await act(async () => {
-    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(text, "See you tonight");
-    text.dispatchEvent(new Event("input", { bubbles: true }));
+    setPostText(text, "See you tonight");
   });
   expect(button("Review and publish").disabled).toBe(true);
   await act(async () => { groupSelect!.value = group; groupSelect!.dispatchEvent(new Event("change", { bubbles: true })); });
@@ -232,4 +234,22 @@ it("opens hosted photo files directly without asking for a chain size budget", a
   await click("Add photos");
   expect(chooseFile).toHaveBeenCalledOnce();
   expect(container.textContent).not.toContain("Photo size budget");
+});
+
+it("formats the poll question and answer visually and publishes their Markdown intact", async () => {
+  container = document.createElement("div"); document.body.appendChild(container); root = createRoot(container);
+  const poll = { question: "Choose?", options: ["First", "Second"], closes_at: String(Date.now()+3600000) };
+  const draft = { id: "formatted-poll", attemptId: "00".repeat(16), account: "saved-test-account", state: "draft", text: poll.question, audience: AUDIENCE.EVERYONE, mediaUrls: [], createdAt: Date.now(), updatedAt: Date.now(), poll } as DraftRecord;
+  transport.start.mockImplementation(async (r: PublishRequest) => r.draft);
+  await act(async () => root.render(<ComposerForm draft={draft}/>));
+  const question = container.querySelector<RichInput>('[role="textbox"][aria-label="Your poll question"]')!;
+  const first = container.querySelector<RichInput>('[role="textbox"][aria-label="Answer 1"]')!;
+  await act(async () => { question.editor.commands.selectAll(); question.editor.commands.toggleBold(); first.editor.commands.selectAll(); first.editor.commands.toggleItalic(); });
+  expect(question.querySelector("strong")?.textContent).toBe("Choose?");
+  expect(first.querySelector("em")?.textContent).toBe("First");
+  await click("Review and publish");
+  expect(container.querySelector("dialog .preview strong")?.textContent).toBe("Choose?");
+  expect(container.querySelector("dialog li em")?.textContent).toBe("First");
+  await click("Publish to Everyone");
+  expect(transport.start.mock.calls[0]![0].draft.poll).toEqual({ ...poll, question: "**Choose?**", options: ["*First*", "Second"] });
 });

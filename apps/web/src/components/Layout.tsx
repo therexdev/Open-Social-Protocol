@@ -1,3 +1,4 @@
+import { Topics } from "./Topics";
 /** App shell: header, navigation (bottom bar on small screens), deployment banner, toasts. */
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { NavLink, Link, useLocation, useNavigate } from "react-router-dom";
@@ -113,7 +114,7 @@ export function Layout({ children }: { children: ReactNode }) {
     <aside className="sidebar">
       <Link to="/" className="brand" aria-label={`${APP_NAME} home`}><span>Open<span className="brand-light"> Social</span></span></Link>
       <nav className="desktop-nav" aria-label="Primary">{primary.map(item => navItem(item))}</nav>
-      <section className="sidebar-topics"><h2>Topics</h2><form onSubmit={event => { event.preventDefault(); const value = String(new FormData(event.currentTarget).get("tag") ?? "").trim().replace(/^#/, ""); if (value) navigate(`/tags/${encodeURIComponent(value)}`); }}><Icon name="search" size={16}/><input name="tag" aria-label="Search hashtags" placeholder="Search topics" maxLength={64}/></form>{["community", "technology", "art", "photography"].map(tag => <Link key={tag} to={`/tags/${tag}`}># <span>{tag}</span></Link>)}</section>
+      <Topics/>
       <div className="sidebar-bottom">{navItem(secondary.find(item=>item.to==="/groups")!)}{navItem(secondary.find(item=>item.to==="/settings")!)}<button className="nav-item" onClick={() => setMenuOpen(true)}><Icon name="more" size={22}/>More</button><Link className="btn btn-primary create-post" to="/compose"><Icon name="plus" size={19}/>Create a post</Link>{account && <div className="sidebar-profile"><Avatar account={account} name={name}/><Link to={ownProfile}><strong>{name}</strong><small>Your account</small></Link></div>}</div>
     </aside>
     <div className="app-workspace">

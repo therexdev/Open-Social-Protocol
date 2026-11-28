@@ -99,10 +99,10 @@ export function PostCard({ item, rootId = item.postId, compact = false, depth = 
     {readable?<>
       {displayText&&<div className="card-copy"><div ref={copy} className={!expanded?'clamped':''}><PostMarkdown text={currentPoll?.definition.question??displayText} linkBase={SITE}/></div>{(overflowing||expanded)&&<button className="text-button" onClick={()=>setExpanded(!expanded)}>{expanded?'See less':'See more'}</button>}</div>}
       {currentPoll&&<section className="card-poll" aria-label="Poll">
-        {!item.text&&<p>{currentPoll.definition.question}</p>}
+        {!item.text&&<PostMarkdown text={currentPoll.definition.question} linkBase={SITE}/>}
         <fieldset disabled={busy||closed||!item.viewer||!poll?.value}><legend>Choose an answer</legend>
           {currentPoll.definition.options.map((option,i)=>{const count=currentPoll.counts[i]??0, percent=currentPoll.participants?Math.round(count*100/currentPoll.participants):0;return <label className="poll-option" key={i}>
-            <span className="poll-progress" style={{width:`${percent}%`}}/><input type="radio" name={`poll-${item.postId}`} checked={answer===i} onChange={()=>setSelected(i)}/><span>{option}</span><strong>{percent}%</strong>
+            <span className="poll-progress" style={{width:`${percent}%`}}/><input type="radio" name={`poll-${item.postId}`} checked={answer===i} onChange={()=>setSelected(i)}/><span><PostMarkdown text={option} inline linkBase={SITE}/></span><strong>{percent}%</strong>
           </label>;})}
         </fieldset>
         <div className="poll-bottom"><span>{currentPoll.participants} answers · {closed?'Closed':`Closes ${new Date(Number(currentPoll.definition.closes_at)).toLocaleString()}`}</span>

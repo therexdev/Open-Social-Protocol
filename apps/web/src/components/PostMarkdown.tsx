@@ -35,7 +35,7 @@ function safeUrl(url: string): string {
   return /^(?:https?:\/\/|mailto:)/i.test(url) || /^\/(?!\/)/.test(url) || url.startsWith("#") ? url : "";
 }
 
-export const PostMarkdown = memo(function PostMarkdown({ text, linkBase = "" }: { text: string; linkBase?: string }) {
+export const PostMarkdown = memo(function PostMarkdown({ text, linkBase = "", inline = false }: { text: string; linkBase?: string; inline?: boolean }) {
   const router = useInRouterContext();
   const source = useMemo(() => markdownSource(text), [text]);
   const linkClass = (href: string) => `text-link${href.startsWith("/u/") ? " mention-link" : href.startsWith("/tags/") ? " hashtag-link" : ""}`;
@@ -48,5 +48,7 @@ export const PostMarkdown = memo(function PostMarkdown({ text, linkBase = "" }: 
     h1: ({ children }) => <h2 className="markdown-h1">{children}</h2>,
     table: ({ children }) => <div className="markdown-table"><table>{children}</table></div>,
   }), [router, linkBase]);
-  return <div className="post-markdown"><Markdown remarkPlugins={[remarkGfm, socialLinks]} components={components} urlTransform={safeUrl}>{source}</Markdown></div>;
+  const body = <Markdown remarkPlugins={[remarkGfm, socialLinks]} components={components} urlTransform={safeUrl}
+    allowedElements={inline ? ["strong", "em", "del", "code", "a", "br"] : undefined} unwrapDisallowed={inline}>{source}</Markdown>;
+  return inline ? <span className="post-markdown post-markdown-inline">{body}</span> : <div className="post-markdown">{body}</div>;
 });
