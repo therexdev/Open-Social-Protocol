@@ -8,7 +8,7 @@
     "https://api.koinosblocks.com"
   ],
   "protocolVersion": 1,
-  "deployedAt": "2026-11-27T20:42:12.654Z",
+  "deployedAt": "2026-11-28T01:47:15.841Z",
   "deployer": "1knyv7SgkKVnhp4DLhtadWybetD1LCbv6",
   "contracts": {
     "token": {
@@ -38,11 +38,11 @@
     },
     "publications": {
       "address": "1CcbVwFrj4X7zTgKdNLYRgi8Vt7BtcrJJa",
-      "txId": "0x12203693eba99621530925ba8fc8364c6366873a628ac0d1ea86af43cd0294150bbc",
-      "block": "41441923",
-      "wasmSha256": "592188b92c99d5f6ed3a2e6a1faf4d74a336b64535d8d5a2d83a48779589cef1",
-      "abiSha256": "7908cccfa95898c948c9cfa7b27a8da77e16e72a8603405f58173a50a3823168",
-      "rcUsed": "2276588562"
+      "txId": "0x12205260ef77c6ea251513be5eeae2ddb728c25fda4220a33bbdebd7f6e27e668269",
+      "block": "41447879",
+      "wasmSha256": "1058a9191dfefe9c798a068a4fc6a07ac18df450d0d5011cfce6341669161c37",
+      "abiSha256": "571b7e17cd41d6bde2796bd98929387a1506e00979cd5b0c49962e2c8aafdff2",
+      "rcUsed": "2393507075"
     },
     "communities": {
       "address": "1DtmHW3m1oZpoijcFFaB9ZVK4yctXxobph",
