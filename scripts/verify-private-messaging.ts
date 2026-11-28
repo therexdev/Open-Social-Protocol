@@ -1,6 +1,6 @@
 // Read-only readiness checks. Never reserves usage, signs, or broadcasts a transaction.
 import assert from "node:assert/strict";
-import { Provider } from "koilib";
+import { JsonRpcProvider } from "@osp/sdk";
 import { ABIS } from "@osp/proto";
 import { loadDeployment, ProtocolClient, SponsorClient } from "@osp/sdk";
 import { networkFromArgs, parseArgs, readDeployment } from "./common.ts";
@@ -12,7 +12,7 @@ if (!deployment?.contracts.messaging) throw new Error("Messaging deployment is m
 const messaging = deployment.contracts.messaging.address;
 const indexer = String(args.indexer ?? deployment.indexers?.[0] ?? "https://social-api.usekoinos.com").replace(/\/$/, "");
 const endpoint = String(args.sponsor ?? deployment.sponsors?.[0] ?? "https://social-sponsor.usekoinos.com").replace(/\/$/, "");
-const provider = new Provider(deployment.rpc);
+const provider = new JsonRpcProvider(deployment.rpc);
 const timer = setTimeout(() => { console.error("Readiness checks timed out"); process.exit(1); }, 45_000);
 timer.unref();
 async function json(url: string): Promise<any> {

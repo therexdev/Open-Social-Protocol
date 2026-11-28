@@ -5,7 +5,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Provider } from "koilib";
 import { ABIS } from "@osp/proto";
-import { CONTRACT_BUILD_DIR, CONTRACT_ORDER, contractSigner, parseArgs, networkFromArgs, NETWORKS } from "./common.ts";
+import { CONTRACT_BUILD_DIR, CONTRACT_ORDER, contractSigner, parseArgs, networkFromArgs, NETWORKS, providerFor } from "./common.ts";
 
 const provider = new Provider(["http://localhost:8080"]);
 
@@ -48,4 +48,31 @@ test("compiled contract ABIs agree with @osp/proto koilib ABIs (entry points, me
     checked += 1;
   }
   if (checked === 0) t.diagnostic("no compiled ABIs found; run npm run build -w packages/contracts first");
+});
+
+
+test("deployment preflight uses JSON headers at a strict RPC gateway", async () => {
+  const { createServer } = await import("node:http");
+  const methods: string[] = [];
+  const server = createServer((req, res) => {
+    let raw = ""; req.setEncoding("utf8"); req.on("data", chunk => { raw += chunk; });
+    req.on("end", () => {
+      res.setHeader("Content-Type", "application/json");
+      if (req.headers["content-type"] !== "application/json") {
+        res.end(JSON.stringify({ error: { message: "Use application/json" } })); return;
+      }
+      const body = JSON.parse(raw); methods.push(body.method);
+      res.end(JSON.stringify({ jsonrpc: "2.0", id: body.id, result: body.method === "chain.get_chain_id"
+        ? { chain_id: NETWORKS.mainnet!.expectedChainId }
+        : { head_topology: { height: "123" }, head_block_time: String(Date.now()) } }));
+    });
+  });
+  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const address = server.address(); assert.ok(address && typeof address !== "string");
+    const rpc = providerFor({ rpc: [`http://127.0.0.1:${address.port}`], wifEnv: "unused" });
+    assert.equal(await rpc.getChainId(), NETWORKS.mainnet!.expectedChainId);
+    assert.equal((await rpc.getHeadInfo()).head_topology.height, "123");
+    assert.deepEqual(methods, ["chain.get_chain_id", "chain.get_head_info"]);
+  } finally { await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())); }
 });

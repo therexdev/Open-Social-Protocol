@@ -1,7 +1,8 @@
 // Verify a deployment with read-only calls (no keys required).
 //
 //   node --import tsx scripts/verify-deployment.ts --network harbinger
-import { Contract, Provider } from "koilib";
+import { Contract } from "koilib";
+import { JsonRpcProvider } from "@osp/sdk";
 import { ABIS } from "@osp/proto";
 import { CONTRACT_ORDER, type ContractName, log, networkFromArgs, parseArgs, readDeployment } from "./common.ts";
 import { verifyUpload } from "./verify-upload.ts";
@@ -12,7 +13,7 @@ const { name: network, preset } = networkFromArgs(args);
 async function main(): Promise<void> {
   const deployment = readDeployment(network);
   if (!deployment) throw new Error(`deployments/${network}.json not found`);
-  const provider = new Provider(deployment.rpc?.length ? deployment.rpc : preset.rpc);
+  const provider = new JsonRpcProvider(deployment.rpc?.length ? deployment.rpc : preset.rpc);
   const chainId = await provider.getChainId();
   let failures = 0;
   const check = (ok: boolean, what: string): void => {

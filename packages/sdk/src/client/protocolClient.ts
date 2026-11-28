@@ -5,6 +5,7 @@ import { waitForInclusion } from "./waitForInclusion.js";
  * submission with sponsor co-signing and self-pay fallback (spec section 10).
  */
 import { Provider, Transaction } from "koilib";
+import { JsonRpcProvider } from "./jsonRpcProvider.js";
 import type { OperationJson, ProviderInterface, SignerInterface, TransactionJson, TransactionReceipt } from "koilib";
 import { chainIdToBytes } from "../ids.js";
 import { decodeReceiptEvents, type DecodedEvent } from "../events.js";
@@ -182,7 +183,7 @@ export class ProtocolClient {
     this.deployment = options.deployment;
     this.chainId = options.chainId ?? options.deployment.chainId;
     const rpc = options.rpc ?? options.deployment.rpc;
-    this.provider = Array.isArray(rpc) ? new Provider(rpc) : rpc;
+    this.provider = Array.isArray(rpc) ? new JsonRpcProvider(rpc) : rpc;
     this.contracts = new ProtocolContracts(options.deployment, this.provider);
     const sponsors = options.sponsors ?? options.deployment.sponsors ?? [];
     this.sponsors =

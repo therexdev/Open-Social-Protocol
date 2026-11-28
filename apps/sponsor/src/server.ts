@@ -12,7 +12,7 @@ import Fastify, { type FastifyError, type FastifyInstance, type FastifyServerOpt
 import cors from "@fastify/cors";
 import { registerMediaRoutes } from "./media.js";
 import {
-  Provider,
+  JsonRpcProvider as Provider,
   NETWORKS,
   NATIVE_TRANSFER_ENTRY,
   resolveNativeToken,

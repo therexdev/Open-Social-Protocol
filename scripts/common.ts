@@ -3,8 +3,8 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Provider, Signer } from "koilib";
-import { NETWORKS as SDK_NETWORKS } from "@osp/sdk";
+import { Signer, type Provider } from "koilib";
+import { JsonRpcProvider, NETWORKS as SDK_NETWORKS } from "@osp/sdk";
 
 export const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const CONTRACT_BUILD_DIR = join(REPO_ROOT, "packages", "contracts", "build", "release");
@@ -98,7 +98,7 @@ export function networkFromArgs(args: Record<string, string | boolean>): { name:
 }
 
 export function providerFor(preset: NetworkPreset): Provider {
-  return new Provider(preset.rpc);
+  return new JsonRpcProvider(preset.rpc);
 }
 
 export function deployerSigner(preset: NetworkPreset, provider: Provider): Signer {

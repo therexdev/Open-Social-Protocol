@@ -50,3 +50,5 @@ export * from "./clips.js";
 export * from "./contentStorage.js";
 export * from "./hostedFiles.js";
 export * from "./postText.js";
+
+export { JsonRpcProvider } from "./client/jsonRpcProvider.js";
