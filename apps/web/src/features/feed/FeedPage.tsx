@@ -123,7 +123,8 @@ export function FeedPage() {
   const changeTab = (next: Tab) => { setDirection(options.indexOf(next) > options.indexOf(tab) ? 1 : -1); setParams(next === "all" ? {} : { feed: next }, { replace: true }); };
   const swipe = useSwipeTabs(direction => { const next = options[options.indexOf(tab) + direction]; if (next) changeTab(next); });
   return <div className="page feed-page">
-    <div className="page-header feed-heading"><div><h1>Your <span>people.</span><br className="hero-break"/> Your world.</h1><p className="page-subtitle">Real connections. Conversations that belong to you.</p></div><Link to="/compose" className="btn btn-primary mobile-compose" aria-label="New post"><Icon name="plus"/></Link></div>
+    <h1 className="visually-hidden">Feed</h1>
+    <Link to="/compose" className="btn btn-primary mobile-compose" aria-label="New post"><Icon name="plus"/></Link>
     <BrowserPluginPromo variant="inline"/>
     <div className="feed-tabs"><Tabs<Tab> value={tab} label="Feed scope" onChange={changeTab} options={options.map(value => ({ value, label: value === "all" ? "All posts" : value === "public" ? <><Icon name="globe" size={17}/> Public</> : <><Icon name="lock" size={17}/> Friends</> }))} /><span className="feed-sort">Most recent</span></div>
     <QuickComposer account={account} name={name}/>

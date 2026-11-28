@@ -5,6 +5,7 @@ import { ProfileImage } from "../features/profile/ProfileImage";
 import type { CSSProperties } from "react";
 
 const paths = {
+  chevron: "m6 9 6 6 6-6",
   share: "M14 4 22 11 14 18v-4C8 14 5 16 2 20c0-8 4-12 12-12z",
   puzzle: "M3 9V4h5a3 3 0 1 1 6 0h5v5a3 3 0 1 1 0 6v5h-5a3 3 0 1 0-6 0H3v-5a3 3 0 1 0 0-6Z",
   mic: "M9 5a3 3 0 0 1 6 0v7a3 3 0 1 1-6 0zM5 11v1a7 7 0 0 0 14 0v-1M12 19v3m-4 0h8",

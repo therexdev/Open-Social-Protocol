@@ -15,6 +15,7 @@ const deployment=JSON.parse(readFileSync(new URL('../../../deployments/harbinger
 const profileUri='data:application/x-osp-profile;base64,'+toBase64url(encodeProfile({display_name:'Extension QA',bio:'Local browser test'}));
 const profile={account:me.account,profileUri,profileHash:'',encryptionKey:toBase64url(me.encryption.publicKey),keyVersion:1,counts:{posts:0,friends:0,followers:0,following:0}};
 let topicPosts=[];
+let revisionFixture;
 const topicPost=(text,n)=>{
  const sealed=encryptContent({content:{version:1,mime:'text/plain',text}}),hash=toBase64url(sealed.contentHash);
  return {postId:toBase64url(new Uint8Array(32).fill(n)),author:me.account,sequence:String(n),versionNumber:1,contentHash:hash,envelope:toBase64url(sealed.bytes),audience:0,audienceId:'',epoch:0,replyTo:'',state:0,stateReason:'',createdAt:String(Date.now()),updatedAt:String(Date.now()),txId:'fixture-only',blockHeight:'1',labels:[],versions:[],media:[],reactions:{total:0,byType:{}},replyCount:0};
@@ -65,6 +66,12 @@ try {
    const input=req.postDataJSON();
    const answer=m=>{
     assert.ok(!/submit|broadcast|send_transaction/.test(m.method),'Fixture must never submit a transaction');
+    if(m.method==='block_store.get_blocks_by_height'&&revisionFixture){
+      const activeDeployment=mainnetDeployment.rpc.some(endpoint=>new URL(endpoint).origin===url.origin)?mainnetDeployment:deployment;
+      const {post,original}=revisionFixture;
+      const data=encode('publications.published_event',{author:post.author,post_id:fromBase64url(post.postId),audience:0,version_number:1,content_hash:fromBase64url(original.contentHash),envelope:fromBase64url(original.envelope)});
+      return {jsonrpc:'2.0',id:m.id,result:{block_items:[{block_height:'1',block_id:'fixture-head',receipt:{transaction_receipts:[{id:'revision-fixture',reverted:false,events:[{sequence:1,source:activeDeployment.contracts.publications.address,name:'osp.publications.published',data:toBase64url(data)}]}]}}]}};
+    }
     if(m.method==='chain.read_contract') {
       const namespace=[...Object.entries(deployment.contracts),...Object.entries(mainnetDeployment.contracts)].find(([,c])=>c.address===m.params.contract_id)?.[0];
       const method=Object.entries(ABIS[namespace]?.methods??{}).find(([,v])=>v.entry_point===m.params.entry_point);
@@ -79,7 +86,7 @@ try {
       if(namespace==='token'&&method?.[0]==='get_account')value={value:{balance:'70',free_credits:'100',token_credits:'100',resource_version:2,free_ticks:'10000',token_ticks:'10000',ticks_per_unit:'100'},capacity:'100'};
       return {jsonrpc:'2.0',id:m.id,result:{result:method?toBase64url(encode(method[1].return,value)):''}};
     }
-    return {jsonrpc:'2.0',id:m.id,result:m.method==='chain.read_contract'?{result:'',logs:[]}:m.method==='chain.get_head_info'?{head_topology:{height:'1'},head_block_time:String(Date.now())}:m.method==='chain.get_chain_id'?{chain_id:mainnetDeployment.rpc.some(endpoint=>new URL(endpoint).origin===url.origin)?mainnetDeployment.chainId:deployment.chainId}:{}};
+    return {jsonrpc:'2.0',id:m.id,result:m.method==='chain.read_contract'?{result:'',logs:[]}:m.method==='chain.get_head_info'?{head_topology:{height:'1',id:'fixture-head'},head_block_time:String(Date.now())}:m.method==='chain.get_chain_id'?{chain_id:mainnetDeployment.rpc.some(endpoint=>new URL(endpoint).origin===url.origin)?mainnetDeployment.chainId:deployment.chainId}:{}};
    };
    return fulfill({json:Array.isArray(input)?input.map(answer):answer(input)});
   }
@@ -274,7 +281,45 @@ try {
  await publicPage.locator('.sidebar a[href="/"]').first().click();
  await publicPage.waitForFunction(()=>document.querySelector('meta[property="og:title"]')?.content==='Open Social');
  assert.equal(await publicPage.locator('meta[property="og:image"]').getAttribute('content'),'https://opensocial.online/social-card.png');
+ // The feed stays compact, and hiding either promotion placement persists across reloads.
+ assert.equal(await publicPage.getByRole('heading',{name:'Your people. Your world.',exact:true}).count(),0);
+ await publicPage.setViewportSize({width:390,height:900});
+ await publicPage.getByRole('button',{name:'Dismiss browser plugin suggestion',exact:true}).waitFor();
+ await publicPage.screenshot({path:'/tmp/osp-feed-compact-mobile.png'});
+ await publicPage.getByRole('button',{name:'Dismiss browser plugin suggestion',exact:true}).click();
+ assert.equal(await publicPage.locator('.plugin-promo').count(),0);
+ await publicPage.reload();
+ await publicPage.getByRole('tab',{name:'Public',exact:true}).waitFor();
+ assert.equal(await publicPage.locator('.plugin-promo').count(),0);
+ await publicPage.getByRole('button',{name:'More menu',exact:true}).click();
+ await publicPage.getByRole('dialog',{name:'More to explore'}).getByRole('link',{name:'Browser Plugin',exact:true}).waitFor();
+ await publicPage.getByRole('button',{name:'Close menu',exact:true}).click();
+ await publicPage.setViewportSize({width:1440,height:1000});
+ assert.equal(await publicPage.locator('.plugin-promo').count(),0);
+ // Open a current and a historical version using the same verified history reads as the app.
+ const original=topicPost('Original text before the edit. '+('An earlier part of the story. '.repeat(30))+'The original ending.',63);
+ const revised=topicPost('Updated text after the edit.',63);revised.versionNumber=2;
+ revised.versions=[{versionNumber:1,contentHash:original.contentHash,txId:'revision-fixture',blockHeight:'1',timestamp:String(Date.now()-3600000)},{versionNumber:2,contentHash:revised.contentHash,txId:'current-fixture',blockHeight:'1',timestamp:String(Date.now())}];
+ revisionFixture={post:revised,original};topicPosts=[revised];
+ await publicPage.reload();
+ await publicPage.getByRole('link',{name:/Open post from/}).first().click();
+ const history=publicPage.getByRole('button',{name:/^Revision history/});
+ await history.waitFor();assert.equal(await history.getAttribute('aria-expanded'),'false');
+ await history.focus();await publicPage.keyboard.press('Enter');
+ const current=publicPage.getByRole('button',{name:/^Version 2/}),older=publicPage.getByRole('button',{name:/^Version 1/});
+ await current.click();await publicPage.locator('.revision-body').getByText('Updated text after the edit.',{exact:true}).waitFor();
+ await older.click();await publicPage.locator('.revision-body').getByText(/The original ending\./).waitFor();
+ assert.equal(await current.getAttribute('aria-expanded'),'false');assert.equal(await older.getAttribute('aria-expanded'),'true');
+ assert.equal(await publicPage.locator('.revision-body').getByRole('button',{name:'Read more',exact:true}).count(),0);
+ await publicPage.locator('.revision-history').scrollIntoViewIfNeeded();await publicPage.screenshot({path:'/tmp/osp-history-desktop.png'});
+ for(const width of [390,320]){
+   await publicPage.setViewportSize({width,height:900});await publicPage.locator('.revision-history').scrollIntoViewIfNeeded();
+   assert.ok(await publicPage.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'Revision cards fit narrow screens');
+   assert.equal(await older.evaluate(el=>getComputedStyle(el).textAlign),'left');
+   if(width===390)await publicPage.screenshot({path:'/tmp/osp-history-mobile.png'});
+ }
+ await history.click();assert.equal(await publicPage.locator('.revision-body').count(),0);
  assert.deepEqual(errors,[]);await publicPage.close();
- console.log('Public website topics passed: fresh topics and public quote pages; link-card metadata updates on post navigation and clears on return to the feed.');
+ console.log('Public website checks passed: public topics and quotes, link metadata, compact feed, persistent plugin dismissal, and keyboard-friendly revision cards with verified current/older content at desktop, 390px and 320px.');
  await context.close();
 } finally {await browser.close();}

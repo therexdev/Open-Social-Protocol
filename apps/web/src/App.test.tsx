@@ -213,7 +213,8 @@ describe("App", () => {
 
   it("lets a fresh visitor browse and shows the not-deployed banner", async () => {
     const { container } = await render("/");
-    expect(container.textContent).toContain("Your people.");
+    expect(container.querySelector(".feed-heading")).toBeNull();
+    expect(container.querySelector('h1')?.textContent).toBe("Feed");
     expect(container.textContent).not.toContain("Welcome to Open Social");
     expect(container.textContent).toContain("Protocol contracts are not deployed on harbinger yet");
     expect(container.querySelector("nav[aria-label='Primary']")).not.toBeNull();
