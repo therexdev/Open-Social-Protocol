@@ -3,7 +3,9 @@
   "economy": "token-free",
   "chainId": "EiBZK_GGVP0H_fXVAM3j6EAuz3-B-l3ejxRSewi7qIBfSA==",
   "rpc": [
-    "https://api.koinos.io"
+    "https://api.koinosai.com/",
+    "https://api.koinos.io",
+    "https://api.koinosblocks.com"
   ],
   "protocolVersion": 1,
   "deployedAt": "2026-11-27T20:42:12.654Z",

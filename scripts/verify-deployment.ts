@@ -64,6 +64,7 @@ async function main(): Promise<void> {
     check(music?.token_free === true && music?.enabled === true, "free hosted audio/video enabled");
     check(Number(music?.hosted_manifest_version) === 1, "compact hosted audio/video manifests supported");
     check(Number((await read("publications", "get_library_version"))?.hosted_manifest_version) === 1, "compact hosted photo manifests supported");
+    check(Number((await read("publications", "get_library_version"))?.quote_reference_version) === 1, "on-chain quote references supported");
     check(Number((await read("publications", "get_library_version"))?.content_reference_version) === 1, "hosted content references supported");
   } else {
   const token = deployment.contracts.token?.address;

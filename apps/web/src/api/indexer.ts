@@ -103,6 +103,8 @@ export type TimelineItem = PostView | MusicFeedView;
 export const isMusicFeedItem = (item: TimelineItem): item is MusicFeedView => "kind" in item && item.kind === "music";
 
 export interface PostView {
+  quotePostId?: string;
+  quoteVersion?: string;
   collectionId?: string;
   galleryOnly?: boolean;
   poll?: import("@osp/sdk").PollRecord;

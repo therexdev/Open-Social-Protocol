@@ -524,3 +524,15 @@ it.each(["voice", "video"] as const)("publishes private %s with only a sealed re
     expect(openMedia(bytesOf(media.archiveBytes), reference.content_hash, { key: reference.mediaKey!, nonce: reference.nonce })).toEqual(source);
   }
 });
+
+it("builds a quote-only top-level publication with no copied source content or media", async () => {
+  const {chain,indexer}=setup();
+  const quote={postId:toBase64url(new Uint8Array(32).fill(61)),version:toBase64url(new Uint8Array(32).fill(62))};
+  const plan=await buildPublishPlan({chain,indexer,me,keys:new KeyStore(),text:'',audience:AUDIENCE.EVERYONE,quote,attemptId:new Uint8Array(16).fill(63)});
+  expect(plan.operations).toHaveLength(1);
+  const args=chain.contracts.decodeOperation(plan.operations[0]!)!.args;
+  expect(args.quote_post_id).toEqual(bytesOf(quote.postId)); expect(args.quote_version).toEqual(bytesOf(quote.version));
+  expect((args.reply_to as Uint8Array)?.length??0).toBe(0);
+  expect(decryptContent({envelope:args.envelope as Uint8Array}).text).toBe('');
+  expect(args.media).toEqual([]);
+});

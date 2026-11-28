@@ -45,6 +45,8 @@ export class Publications {
     // const gallery_only = args.gallery_only;
     // const reply_parent_version = args.reply_parent_version;
     // const reply_friends_epoch = args.reply_friends_epoch;
+    // const quote_post_id = args.quote_post_id;
+    // const quote_version = args.quote_version;
 
     // YOUR CODE HERE
 
@@ -310,6 +312,7 @@ export class Publications {
     // res.external_media_version = ;
     // res.content_reference_version = ;
     // res.hosted_manifest_version = ;
+    // res.quote_reference_version = ;
 
     return res;
   }

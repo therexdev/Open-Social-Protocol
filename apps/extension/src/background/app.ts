@@ -340,6 +340,12 @@ export function createBackground(options: BackgroundOptions): Background {
     finally { const next = mediaQueue.shift(); if (next) next(); else mediaActive--; }
   }
   const handlers: Handlers = {
+    "embed.share": defineHandler({ source: "embed", requireGesture: true, validate: obj(actionFields), handle: async (p, ctx) => {
+      const source = await embedded.target({ ...p, host: ctx.origin });
+      if (!source || source.status !== "plain" || source.audience !== 0 || source.collectionId || source.contentHash !== p.version) throw Error("This public post changed or is unavailable. Refresh before sharing.");
+      await api.tabs.create({ url: api.runtime.getURL(`src/sidepanel/index.html#/compose?quote=${encodeURIComponent(source.postId)}&version=${encodeURIComponent(p.version)}`) });
+      return {};
+    }}),
     "economy.open": defineHandler({ source: "embed", validate: obj({ postId: postIdSchema, direction: oneOf([1,2] as const) }), handle: async p => {
       await api.tabs.create({ url: api.runtime.getURL(`src/sidepanel/index.html#post=${encodeURIComponent(p.postId)}&direction=${p.direction}`) });
       return {};

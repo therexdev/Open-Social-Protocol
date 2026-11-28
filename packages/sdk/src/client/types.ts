@@ -266,6 +266,8 @@ export interface PollDefinition { question: string; options: string[]; closes_at
 export interface PollRecord { definition: PollDefinition; counts: number[]; participants: number; engagement_participants: number; engagement_milli: string; }
 export interface PollView { value?: PollRecord; ballot?: { option: number }; now: string; }
 export interface PublishArgs {
+  quote_post_id?: Bytes;
+  quote_version?: Bytes;
   reply_parent_version?: Bytes;
   reply_friends_epoch?: number;
   collection_id?: Bytes;
@@ -333,6 +335,8 @@ export interface PostByIdempotencyKeyArgs {
 }
 
 export interface PostRecord {
+  quote_post_id?: Uint8Array;
+  quote_version?: Uint8Array;
   collection_id?: Uint8Array;
   gallery_only?: boolean;
   author: string;
@@ -402,7 +406,7 @@ export interface PublicationsReadMethods {
   get_music_chunk: [{ id: Bytes; index: number }, { data: Bytes }];
   get_music_chunks: [{ id: Bytes; index: number; count: number }, { chunks: Bytes[] }];
   list_music: [{ owner?: Address; group_id?: Bytes; after?: Bytes }, { ids: Bytes[] }];
-  get_library_version: [Record<string, never>, { version: number; external_media_version?: number; content_reference_version?: number; hosted_manifest_version?: number }];
+  get_library_version: [Record<string, never>, { version: number; external_media_version?: number; content_reference_version?: number; hosted_manifest_version?: number; quote_reference_version?: number }];
   get_photo: [{ id: Bytes }, ValueResult<PhotoArchiveRecord>];
   get_collection: [{ id: Bytes }, ValueResult<CollectionRecord>];
   get_album_item: [{ collection_id: Bytes; id: Bytes }, ValueResult<AlbumItemRecord>];

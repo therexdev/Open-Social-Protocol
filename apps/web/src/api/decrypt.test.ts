@@ -235,3 +235,13 @@ describe("sealed keys served by the indexer are untrusted until the chain confir
     expect(keys.trusted(ref(10))).toBeDefined();
   });
 });
+
+it("verifies quote metadata against the ledger before opening an otherwise valid public envelope", async () => {
+  const {bytes,contentHash}=encryptContent({content:{version:1,text:'My share'}});
+  const quoteId=new Uint8Array(32).fill(81),quoteVersion=new Uint8Array(32).fill(82);
+  const post=makePost({envelope:toBase64url(bytes),audience:0,epoch:0,postId:toBase64url(new Uint8Array(32).fill(83)),contentHash:toBase64url(contentHash),quotePostId:toBase64url(quoteId),quoteVersion:toBase64url(quoteVersion)});
+  const chain={reads:{publications:{get_post:vi.fn().mockResolvedValue({value:{author:post.author,reply_to:new Uint8Array(),audience:0,version_count:1,latest_version:contentHash,state:0,quote_post_id:quoteId,quote_version:quoteVersion}})}}} as unknown as ProtocolClient;
+  expect((await openPost(post,{chainId,chain})).status).toBe('plain');
+  expect((await openPost({...post,quotePostId:toBase64url(new Uint8Array(32).fill(84))},{chainId,chain})).status).toBe('error');
+  expect((await openPost({...post,quoteVersion:''},{chainId,chain})).status).toBe('error');
+});

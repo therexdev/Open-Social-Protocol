@@ -79,6 +79,8 @@ export type FeedScope = "public" | "friends";
 export type PostContentStatus = "plain" | "decrypted" | "tombstone" | "hidden" | "unavailable" | "no-key" | "locked" | "error";
 
 export interface FeedItem {
+  quotePostId?: string;
+  quoteVersion?: string;
   replyTo?: string;
   collectionId?: string;
   shareWith?: string[];

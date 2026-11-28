@@ -73,7 +73,7 @@ export async function openPost(post: PostView, ctx: OpenContext): Promise<PostCo
       if (record.state === LIFECYCLE.DELETED) return { status: "tombstone" };
       if (record.state === LIFECYCLE.AUTHOR_HIDDEN) return { status: "hidden" };
       if (record.state === LIFECYCLE.UNAVAILABLE) return { status: "unavailable" };
-      if (record.author !== post.author || !bytesEqual(record.reply_to ?? new Uint8Array(), bytesOf(post.replyTo)) || !bytesEqual(record.collection_id ?? new Uint8Array(), bytesOf(post.collectionId ?? "")) || record.audience !== post.audience || record.version_count !== post.versionNumber || !bytesEqual(record.latest_version, bytesOf(post.contentHash))) {
+      if (!bytesEqual(record.quote_post_id ?? new Uint8Array(), bytesOf(post.quotePostId ?? "")) || !bytesEqual(record.quote_version ?? new Uint8Array(), bytesOf(post.quoteVersion ?? "")) || record.author !== post.author || !bytesEqual(record.reply_to ?? new Uint8Array(), bytesOf(post.replyTo)) || !bytesEqual(record.collection_id ?? new Uint8Array(), bytesOf(post.collectionId ?? "")) || record.audience !== post.audience || record.version_count !== post.versionNumber || !bytesEqual(record.latest_version, bytesOf(post.contentHash))) {
         return { status: "error", message: "The feed has not supplied the current verified version of this post. Refresh the feed to check again." };
       }
     } catch {

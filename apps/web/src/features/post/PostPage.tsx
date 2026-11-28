@@ -33,6 +33,7 @@ function EditDialog({ post, onDone, onCancel }: { post: PostView; onDone: () => 
   })) : [];
   const editor: ComposerFormProps = {
     edit: { postId: post.postId, previousVersion: post.contentHash, versionNumber: post.versionNumber + 1, text, audience: post.audience, media },
+    quote: post.quotePostId && post.quoteVersion ? { postId: post.quotePostId, version: post.quoteVersion } : undefined,
     selectedAccounts: content && "content" in content ? content.content.share_with : [],
     collectionId: post.collectionId, galleryOnly: post.galleryOnly, defaultAudience: post.audience,
     compact: true, onSubmitted: onDone, onCancel,

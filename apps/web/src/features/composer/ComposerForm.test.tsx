@@ -20,7 +20,7 @@ vi.mock("../../vault/context", () => ({
   useVaultStore: () => ({ getState: () => ({ account: "saved-test-account" }) }),
 }));
 vi.mock("../../api/services", () => {
-  const services = { resolved: { sponsorUrls: [] }, indexer: { configured: false, collections: transport.collections },
+  const services = { resolved: { sponsorUrls: [] }, indexer: { configured: false, collections: transport.collections, post: async () => undefined },
     protocol: { get chainId() { return HARBINGER_CHAIN_ID; }, reads: { publications: { get_collection: transport.group } } } };
   return { useServices: () => services, useOptionalServices: () => undefined };
 });
@@ -189,9 +189,7 @@ it("chooses the photo budget before opening files and can dismiss either attachm
   await click("Up to 64 KiB2 usage units");
   expect(chooseFile).toHaveBeenCalledTimes(1);
   expect(container.querySelector("dialog[open]")).toBeNull();
-  await click("Add media by URL");
-  expect(container.querySelector('dialog[open] input[type="url"]')).toBeTruthy();
-  await act(async () => container.querySelector("dialog[open]")!.dispatchEvent(new Event("cancel", { cancelable: true })));
+  expect(container.textContent).not.toContain("Add media by URL");
   expect(container.querySelector("dialog[open]")).toBeNull();
   expect(transport.start).not.toHaveBeenCalled();
 });
@@ -252,4 +250,21 @@ it("formats the poll question and answer visually and publishes their Markdown i
   expect(container.querySelector("dialog li em")?.textContent).toBe("First");
   await click("Publish to Everyone");
   expect(transport.start.mock.calls[0]![0].draft.poll).toEqual({ ...poll, question: "**Choose?**", options: ["*First*", "Second"] });
+});
+
+it("reviews a quote without requiring commentary and preserves the reference in the saved draft", async () => {
+  transport.hosted=true;
+  const quote={postId:toBase64url(new Uint8Array(32).fill(65)),version:toBase64url(new Uint8Array(32).fill(66))};
+  container=document.createElement('div'); document.body.appendChild(container);root=createRoot(container);
+  transport.start.mockImplementation(async (r:PublishRequest)=>r.draft);
+  const onClose=vi.fn();
+  await act(async()=>root.render(<MemoryRouter><ComposerForm quote={quote} onClose={onClose}/></MemoryRouter>));
+  expect(button('Review and publish').disabled).toBe(false);
+  expect(container.querySelector('.composer-author-row strong')?.textContent).toBe('You');
+  expect(container.querySelector('.composer-author-row select')).toBeTruthy();expect(container.querySelector('.composer-identity .composer-modes')).toBeTruthy();
+  expect(container.textContent).not.toContain('Add media by URL');
+  await click('Review and publish'); await click('Publish to Everyone');
+  expect(transport.start.mock.calls[0]![0].draft.quote).toEqual(quote);
+  expect(transport.start.mock.calls[0]![0].draft.text).toBe('');
+  await act(async()=>container.querySelector<HTMLButtonElement>('[aria-label="Close composer"]')!.click());expect(onClose).toHaveBeenCalledOnce();
 });

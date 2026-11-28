@@ -31,6 +31,7 @@ describe("embedded post boundary", () => {
     expect((await dispatch("embed.post", { postId }, content)).ok).toBe(false);
     expect((await dispatch("embed.post", { postId }, { ...frame, frameId: 0 })).ok).toBe(false);
     expect((await dispatch("embed.post", { postId }, { ...frame, tab: { ...content.tab!, url: "https://example.org/" } })).ok).toBe(false);
+    expect((await dispatch("embed.share", { postId, version: card.result!.item!.contentHash, userGesture: true })).ok).toBe(false);
     const before = t.state.broadcasts.length;
     expect((await dispatch("economy.open", { postId, direction: 1 })).ok).toBe(true);
     expect(t.state.broadcasts.length).toBe(before); // Opening trusted controls never signs from an iframe.
@@ -42,4 +43,23 @@ describe("embedded post boundary", () => {
     await t.call("adapter.disable", { adapter: "facebook" });
     expect((await dispatch("embed.post", { postId })).ok).toBe(false);
   });
+});
+
+it("opens a public quote composer from its granted card without signing and rejects a private or changed source", async () => {
+  const t=createTestBackground({indexer:true,origins:['https://www.facebook.com/*']});
+  const passphrase='correct horse battery'; await t.call('vault.create',{passphrase});await t.call('device.authorize',{passphrase,keepOwnerSeed:false});
+  await t.call('adapter.enable',{adapter:'facebook'});await t.call('settings.update',{patch:{feedInsertion:true}});
+  const created=await t.call<{record:StoredCrossPost}>('crosspost.create',{text:'Public source',audience:0,adapter:'sidepanel'});
+  const done=await t.call<{record:StoredCrossPost}>('crosspost.confirm',{attemptId:created.record.attemptId});
+  const postId=toBase64url(fromHex(done.record.postId!)),content=t.chrome._contentSender('https://www.facebook.com/');
+  const frame={...t.chrome._extensionSender('src/embed/index.html#post='+postId),frameId:2,tab:content.tab};
+  const send=(type:string,payload:unknown,sender:chrome.runtime.MessageSender=frame)=>t.chrome._dispatch({type,payload},sender) as Promise<{ok:boolean;result?:{item?:FeedItem}}>;
+  const item=(await send('embed.post',{postId})).result!.item!,before=t.state.broadcasts.length;
+  const payload={postId,version:item.contentHash,userGesture:true};
+  expect((await send('embed.share',{...payload,userGesture:false})).ok).toBe(false);
+  expect((await send('embed.share',{...payload,version:'x'.repeat(43)})).ok).toBe(false);
+  expect((await send('embed.share',payload,content)).ok).toBe(false);
+  expect((await send('embed.share',payload)).ok).toBe(true);
+  expect(t.chrome.tabs._tabs.at(-1)?.url).toContain('#/compose?quote='+encodeURIComponent(postId));
+  expect(t.state.broadcasts.length).toBe(before);
 });

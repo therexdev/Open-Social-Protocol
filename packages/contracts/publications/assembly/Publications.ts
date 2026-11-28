@@ -127,7 +127,7 @@ export class Publications {
   list_music(args: publications.list_music_arguments): publications.list_music_result { return this.music.list(args); }
 
   library: PhotoLibrary = new PhotoLibrary();
-  get_library_version(args: publications.get_library_version_arguments): publications.get_library_version_result { return new publications.get_library_version_result(1, 1, 1, 1); }
+  get_library_version(args: publications.get_library_version_arguments): publications.get_library_version_result { return new publications.get_library_version_result(1, 1, 1, 1, 1); }
   begin_photo(args: publications.begin_photo_arguments): publications.begin_photo_result { this.library.begin(args, this.identityContract(), this.get_token_contract(new publications.get_token_contract_arguments()).value, this.tokenFree()); return new publications.begin_photo_result(); }
   append_photo(args: publications.append_photo_arguments): publications.append_photo_result { this.library.append(args, this.identityContract()); return new publications.append_photo_result(); }
   get_photo(args: publications.get_photo_arguments): publications.get_photo_result { return new publications.get_photo_result(this.library.photos.get(this.library.id(args.id))); }
@@ -465,6 +465,10 @@ export class Publications {
       ? null
       : this.requireHash(args.reply_to, "reply_to");
 
+    const quoteId: Uint8Array | null = Util.isEmpty(args.quote_post_id) ? null : this.requireHash(args.quote_post_id, "quote_post_id");
+    const quoteVersion: Uint8Array | null = Util.isEmpty(args.quote_version) ? null : this.requireHash(args.quote_version, "quote_version");
+    System.require((quoteId == null) == (quoteVersion == null), "quote requires a post and version");
+
     // Replies need the COMMENT capability, top-level posts PUBLISH (spec 3.1).
     // For an edit the *stored* thread position decides: a comment stays a
     // comment whether or not the caller repeats reply_to, so a device holding
@@ -525,6 +529,15 @@ export class Publications {
         replyAuthor = parentAuthor;
       }
 
+      if (quoteId != null) {
+        System.require(requestedReplyTo == null && !args.gallery_only, "shares require a top-level post");
+        System.require(!Arrays.equal(quoteId, postId), "cannot quote self");
+        const source = this.posts.get(quoteId);
+        System.require(source != null, "shared post not found");
+        System.require(source!.state == publications.lifecycle_state.active, "shared post is unavailable");
+        System.require(source!.audience == publications.audience_kind.everyone && Util.isEmpty(source!.collection_id), "only public posts can be shared");
+        System.require(Arrays.equal(source!.latest_version, quoteVersion), "shared post changed; review again");
+      }
       this.reserveIdempotencyKey(author, idempotencyKey, postId);
 
       record = new publications.post_record(
@@ -540,6 +553,8 @@ export class Publications {
       );
       record.collection_id = collectionId;
       record.gallery_only = args.gallery_only;
+      record.quote_post_id = quoteId;
+      record.quote_version = quoteVersion;
       this.posts.put(postId, record);
 
       state.next_sequence = state.next_sequence + 1;
@@ -557,6 +572,8 @@ export class Publications {
       System.require(Arrays.equal(record.collection_id, collectionId), "group cannot change");
       System.require(record.gallery_only == args.gallery_only, "gallery placement cannot change");
 
+      // Existing callers may omit the quote fields on edit; the stored link survives.
+      if (quoteId != null) System.require(Arrays.equal(record.quote_post_id, quoteId) && Arrays.equal(record.quote_version, quoteVersion), "quote cannot change");
       // The thread position of a post is fixed by its first version.
       replyTo = Util.isEmpty(record.reply_to) ? null : record.reply_to;
       if (requestedReplyTo != null) {
@@ -605,6 +622,8 @@ export class Publications {
     );
     ev.collection_id = collectionId;
     ev.gallery_only = args.gallery_only;
+    ev.quote_post_id = record.quote_post_id;
+    ev.quote_version = record.quote_version;
     System.event(
       "osp.publications.published",
       Protobuf.encode(ev, publications.published_event.encode),

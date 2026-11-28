@@ -515,6 +515,7 @@ function applyPublications(db: IndexerDb, event: LogEvent): void {
         ts,
       );
       db.run("UPDATE posts SET audience_id=?,collection_id=?,gallery_only=? WHERE post_id=?", b64(d.audience_id), b64(d.collection_id), bool(d.gallery_only), postId);
+      if (!existing) db.run("UPDATE posts SET quote_post_id=?,quote_version=? WHERE post_id=?", b64(d.quote_post_id), b64(d.quote_version), postId);
       const replyTo = b64(d.reply_to);
       if (!existing && replyTo) {
         const parent = db.get<PostRow>("SELECT post_id, author, state FROM posts WHERE post_id = ?", replyTo);

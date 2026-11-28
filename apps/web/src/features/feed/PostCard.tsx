@@ -1,3 +1,5 @@
+import { ShareMenu } from "./ShareMenu";
+import { QuotePreview } from "./QuotePreview";
 import { PostEditLink } from "../post/PostEditLink";
 import { PollCard } from "../polls/PollCard";
 import { PostEconomyActions } from "../tokens/PostEconomyActions";
@@ -160,6 +162,7 @@ export function OpenedPostCard({ post, onChanged, expanded = false, content }: P
         </p>
       )}
       {post.poll && post.state === LIFECYCLE.ACTIVE ? <><PollCard post={post} onChanged={onChanged}/>{(content?.status === "plain" || content?.status === "decrypted") && <MediaList content={content.content}/>}</> : <PostBody content={content} expanded={expanded} />}
+      {post.quotePostId && post.quoteVersion && (content?.status === "plain" || content?.status === "decrypted") && <QuotePreview quote={{ postId: post.quotePostId, version: post.quoteVersion }}/>}
       {post.promoted && <p className="promotion-label"><Icon name="spark" size={14}/> Promoted · paid for by the author</p>}
       <footer className="post-footer">
         <PostEconomyActions post={post} onChanged={onChanged}>
@@ -167,6 +170,7 @@ export function OpenedPostCard({ post, onChanged, expanded = false, content }: P
           {expanded
             ? <a className="btn btn-ghost engagement-icon" title="Comments" aria-label={`Comments (${post.replyCount})`} href="#post-comments"><Icon name="message" size={18}/>{post.replyCount || ""}</a>
             : <Link className="btn btn-ghost engagement-icon" title="Comments" aria-label={`Comments (${post.replyCount})`} to={`/post/${post.postId}#post-comments`}><Icon name="message" size={18}/>{post.replyCount || ""}</Link>}
+          <ShareMenu post={post} canQuote={post.state === LIFECYCLE.ACTIVE && post.audience === AUDIENCE.EVERYONE && !post.collectionId && content?.status === "plain"}/>
         </PostEconomyActions>
         {expanded && (
           <Details summary="Details">

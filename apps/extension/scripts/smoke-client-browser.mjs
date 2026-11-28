@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {readFileSync,existsSync,readdirSync} from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
-import {identityFromSeed,lockVault,encodeProfile,toBase64url,encode,contentHash,encryptContent,fromBase64url} from '@osp/sdk';
+import {identityFromSeed,lockVault,encodeProfile,toBase64url,encode,contentHash,encryptContent,decode,fromBase64url} from '@osp/sdk';
 import {ABIS} from '@osp/proto';
 const {chromium}=await import(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?pathToFileURL(path.join(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES,'playwright/index.mjs')).href:'playwright');
 const dist=path.resolve(fileURLToPath(new URL('../dist/',import.meta.url))),manifest=JSON.parse(readFileSync(path.join(dist,'manifest.json'),'utf8'));
@@ -70,16 +70,21 @@ try {
       const method=Object.entries(ABIS[namespace]?.methods??{}).find(([,v])=>v.entry_point===m.params.entry_point);
       let value={};
       if(method?.[0]==='get_identity')value={value:{account:me.account,owner:me.account,encryption_key:me.encryption.publicKey,key_version:1,protocol_version:1,profile_uri:profileUri}};
-      if(method?.[0]==='get_post'&&topicPosts[0])value={value:{author:me.account,audience:0,state:0,version_count:1,latest_version:fromBase64url(topicPosts[0].contentHash)}};
+      if(method?.[0]==='get_post') {
+        const args=decode('publications.get_post_arguments',fromBase64url(m.params.args)),post=topicPosts.find(p=>p.postId===toBase64url(args.post_id));
+        if(post)value={value:{author:post.author,audience:post.audience,state:post.state,version_count:post.versionNumber,latest_version:fromBase64url(post.contentHash),reply_to:fromBase64url(post.replyTo||''),quote_post_id:fromBase64url(post.quotePostId||''),quote_version:fromBase64url(post.quoteVersion||'')}};
+      }
+      if(method?.[0]==='get_library_version')value={version:1,external_media_version:1,content_reference_version:1,hosted_manifest_version:1,quote_reference_version:1};
       if(method?.[0]==='balance_of')value={value:'70'};
       if(namespace==='token'&&method?.[0]==='get_account')value={value:{balance:'70',free_credits:'100',token_credits:'100',resource_version:2,free_ticks:'10000',token_ticks:'10000',ticks_per_unit:'100'},capacity:'100'};
       return {jsonrpc:'2.0',id:m.id,result:{result:method?toBase64url(encode(method[1].return,value)):''}};
     }
-    return {jsonrpc:'2.0',id:m.id,result:m.method==='chain.read_contract'?{result:'',logs:[]}:m.method==='chain.get_head_info'?{head_topology:{height:'1'},head_block_time:String(Date.now())}:m.method==='chain.get_chain_id'?{chain_id:'EiAIKVvm6-V2qmsmUvPJy09vCCLbtn9lHFpwrJbcTIEWRQ=='}:{}};
+    return {jsonrpc:'2.0',id:m.id,result:m.method==='chain.read_contract'?{result:'',logs:[]}:m.method==='chain.get_head_info'?{head_topology:{height:'1'},head_block_time:String(Date.now())}:m.method==='chain.get_chain_id'?{chain_id:mainnetDeployment.rpc.some(endpoint=>new URL(endpoint).origin===url.origin)?mainnetDeployment.chainId:deployment.chainId}:{}};
    };
    return fulfill({json:Array.isArray(input)?input.map(answer):answer(input)});
   }
   if(['/v1/feed','/v2/feed'].includes(url.pathname))return fulfill({json:{items:topicPosts,nextCursor:null}});
+  if(url.pathname.startsWith('/v1/posts/'))return fulfill({json:topicPosts.find(p=>p.postId===decodeURIComponent(url.pathname.split('/')[3]))??{}});
   if(url.pathname.startsWith('/v1/profiles/'))return fulfill({json:profile});
   if(url.pathname.startsWith('/v1/graph/'))return fulfill({json:{account:me.account,friends:[],followers:[],following:[],pendingIncoming:[],pendingOutgoing:[],audienceEpoch:0,blocked:[]}});
   return fulfill({json:{items:[],nextCursor:null,counts:{},pending:0}});
@@ -100,7 +105,15 @@ try {
  await page.goto('https://extension.test/src/sidepanel/index.html#/compose');
  await page.getByRole('heading',{name:'Unlock your account'}).waitFor();
  await page.getByLabel('Passphrase',{exact:true}).fill(passphrase);await page.getByRole('button',{name:'Unlock',exact:true}).click();
- await page.getByRole('heading',{name:'Create a post'}).waitFor();
+ await page.getByRole('button',{name:'Close composer',exact:true}).waitFor();
+ assert.equal(await page.getByRole('heading',{name:'Create a post',exact:true}).count(),0);
+ assert.equal(await page.getByRole('button',{name:'Add media by URL',exact:true}).count(),0);
+ const header=await page.locator('.composer-identity').evaluate(el=>{
+  const rect=e=>{const r=e.getBoundingClientRect();return{top:r.top,bottom:r.bottom,left:r.left,right:r.right};};
+  return{avatar:rect(el.querySelector('.avatar')),you:rect(el.querySelector('strong')),audience:rect(el.querySelector('select')),modes:rect(el.querySelector('.composer-modes'))};
+ });
+ assert.ok(Math.abs(header.you.top-header.audience.top)<12,'Audience dropdown aligns with You');
+ assert.ok(header.modes.top>header.you.top&&header.modes.bottom<=header.avatar.bottom+8,'Both header rows fit beside the avatar');
  assert.equal(await page.locator('iframe').count(),0);assert.equal(await page.getByRole('button',{name:/Open in tab|^Social$/}).count(),0);
  assert.equal(await page.locator('.client-nav a').count(),6);
  const nav=page.getByRole('navigation',{name:'Browser tools navigation'});
@@ -132,7 +145,12 @@ try {
  assert.equal(await storyField.locator('em').textContent(),'italic words');
  assert.equal(await storyField.locator('li').count(),2);
  assert.equal(new URL(await storyField.locator('a').getAttribute('href')).href,'https://example.org/');
- if(process.env.COMPOSER_SCREENSHOT)await page.screenshot({path:process.env.COMPOSER_SCREENSHOT});
+ if(process.env.COMPOSER_SCREENSHOT){
+   await page.screenshot({path:process.env.COMPOSER_SCREENSHOT});
+   await page.setViewportSize({width:1280,height:950});await page.screenshot({path:process.env.COMPOSER_SCREENSHOT.replace('.png','-desktop.png')});
+   await page.setViewportSize({width:320,height:800});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'Composer fits 320px');
+   await page.setViewportSize({width:390,height:900});
+ }
  await page.getByRole('button',{name:'Review and publish',exact:true}).click();
  const pastedReview=page.getByRole('dialog');await pastedReview.waitFor();
  assert.equal(await pastedReview.locator('.post-markdown strong').textContent(),'Bold words');
@@ -177,9 +195,26 @@ try {
  await nav.getByRole('link',{name:'Groups',exact:true}).click();await page.getByRole('heading',{name:'Your groups'}).waitFor();
  await nav.getByRole('link',{name:'Messages',exact:true}).click();await page.getByRole('heading',{name:'Messages',exact:true}).waitFor();
  await nav.getByRole('link',{name:'Friends',exact:true}).click();await page.getByRole('heading',{name:/Friends/}).first().waitFor();
- await nav.getByRole('link',{name:'Post',exact:true}).click();await page.getByRole('heading',{name:'Create a post'}).waitFor();
+ await nav.getByRole('link',{name:'Post',exact:true}).click();await page.getByRole('button',{name:'Close composer',exact:true}).waitFor();
  assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'Panel fits a 390px browser sidebar');
  await page.screenshot({path:'/tmp/open-social-native-panel.png',fullPage:true});
+ const original=topicPost('Original public post with **bold** text',51);
+ topicPosts=[original];await nav.getByRole('link',{name:'Feed',exact:true}).click();
+ const originalCard=page.locator('article.post').last();await originalCard.getByText('Original public post with',{exact:false}).waitFor();
+ await context.grantPermissions(['clipboard-read','clipboard-write'],{origin:'https://extension.test'});
+ await originalCard.getByRole('button',{name:'Share post',exact:true}).click();
+ await page.getByRole('button',{name:'Copy Link',exact:true}).click();
+ assert.equal(await page.evaluate(()=>navigator.clipboard.readText()),`https://opensocial.online/post/${encodeURIComponent(original.postId)}`);
+ await originalCard.getByRole('button',{name:'Share post',exact:true}).click();
+ await page.getByRole('link',{name:'Share to Open Social',exact:true}).click();
+ await page.locator('.composer-quote').getByText('Original public post with',{exact:false}).waitFor();
+ assert.equal((await page.getByRole('textbox',{name:'Write a post',exact:true}).innerText()).trim(),'');
+ await page.getByRole('button',{name:'Review and publish',exact:true}).click();
+ await page.getByRole('dialog').getByText('Original public post with',{exact:false}).waitFor();
+ await page.getByRole('dialog').getByRole('button',{name:'Cancel',exact:true}).click();
+ await page.getByRole('button',{name:'Remove shared post',exact:true}).click();
+ assert.equal(await page.getByRole('button',{name:'Review and publish',exact:true}).isDisabled(),true);
+ topicPosts=[];
  await page.getByRole('button',{name:'More menu',exact:true}).click();
  await page.getByRole('link',{name:'Account & settings',exact:true}).click();await page.locator('.settings-nav').waitFor();
  assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'Settings fit the panel');
@@ -206,7 +241,7 @@ try {
  await page.getByRole('button',{name:'More menu',exact:true}).click();await page.getByRole('button',{name:'Lock account and site connections',exact:true}).click();
  await nav.getByRole('link',{name:'Groups',exact:true}).click();await page.getByRole('heading',{name:'Unlock your account'}).waitFor();
  assert.equal(context.pages().length,1,'Feature navigation stays inside the panel');assert.deepEqual(errors,[]);
- console.log('Standalone panel browser checks passed: encrypted account reuse/unlock, guest public feed and protected compose, visual rich-text formatting, native rich clipboard paste, formatted poll questions/answers, undo/redo, 100,000-character story review and retention, native composer/voice/video, groups/messages/friends, settings, lock, narrow layout, no website/iframe/new-tab navigation; fixture network only');
+ console.log('Standalone panel browser checks passed: encrypted account reuse/unlock, guest public feed and protected compose, visual rich-text formatting, native rich clipboard paste, formatted poll questions/answers, undo/redo, 100,000-character story review and retention, native composer/voice/video, quote-only share review, canonical copy link, groups/messages/friends, settings, lock, 320px composer layout, no website/iframe/new-tab navigation; fixture network only');
  }
  // Check the real website shell as an anonymous desktop visitor too.
  const publicPage=await context.newPage();await publicPage.setViewportSize({width:1440,height:1000});
@@ -222,7 +257,13 @@ try {
  assert.equal(await topics.getByRole('link',{name:'# freshtopic',exact:true}).count(),0);
  topicPosts=[];await topics.getByRole('button',{name:'Refresh topics',exact:true}).click();
  await topics.getByText('No hashtags in recent public posts yet.',{exact:true}).waitFor();
+ const publicSource=topicPost('Public original **quoted formatting**',61),publicShare=topicPost('My separate share',62);
+ publicShare.quotePostId=publicSource.postId;publicShare.quoteVersion=publicSource.contentHash;topicPosts=[publicShare,publicSource];
+ await publicPage.reload();await publicPage.locator('.quoted-post strong').getByText('quoted formatting',{exact:true}).waitFor();
+ await publicPage.getByRole('article',{name:'Post by Extension QA',exact:true}).first().getByRole('link',{name:/Open post from/}).click();
+ await publicPage.locator('.quoted-post strong').getByText('quoted formatting',{exact:true}).waitFor();
+ assert.ok(publicPage.url().includes('/post/'),'A shared post opens its own public page without sign-in');
  assert.deepEqual(errors,[]);await publicPage.close();
- console.log('Public website topics passed: new tags replace old tags, deleted posts remove topics, no static placeholders or account required.');
+ console.log('Public website topics passed: new tags replace old tags, deleted posts remove topics, no static placeholders or account required; verified quote preview and shared-post page remain public.');
  await context.close();
 } finally {await browser.close();}

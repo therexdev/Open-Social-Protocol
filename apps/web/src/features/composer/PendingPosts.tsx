@@ -11,6 +11,7 @@ import type { DraftRecord } from "../../vault/store";
 import { usePublishing } from "./PublishingProvider";
 import { indexedDraft, removeDraft } from "./drafts";
 export { indexedDraft } from "./drafts";
+import { QuotePreview } from "../feed/QuotePreview";
 import { PostText } from "../feed/PostText";
 import { MediaPhoto } from "../../components/MediaPhoto";
 
@@ -40,6 +41,7 @@ function PendingPost({ draft }: { draft: DraftRecord }) {
     <div className="post-body"><PostText text={draft.text}/>
       {draft.media?.map((m,i) => (m.url.startsWith("osp-clip://") || m.url.startsWith("osp-file:")) ? <p key={m.url} className="hint"><Icon name={m.mime.startsWith("video/") ? "camera" : "mic"}/> {m.mime.startsWith("video/") ? "Video" : "Audio recording"} · {(m.size / 1024).toFixed(0)} KiB</p> : (m.url.startsWith("ipfs://") || m.url.startsWith("osp-photo://")) ? <MediaPhoto key={`${m.url}:${i}`} location={m.url} hash={m.contentHash} mime={m.mime} alt={m.altText} encryption={m.encryption}/> : <p key={`${m.url}:${i}`}><a href={m.url} target="_blank" rel="noreferrer noopener">{m.altText || m.url}</a></p>)}
     </div>
+    {draft.quote && <QuotePreview quote={draft.quote}/>}
     {(failed || unknown) && <footer className="pending-actions">
       <p>{localError || (failed ? draft.lastError : "You can keep browsing. We’re checking whether your post was published.")}</p>
       <div className="row">

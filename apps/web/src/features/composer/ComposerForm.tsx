@@ -1,3 +1,4 @@
+import { QuotePreview } from "../feed/QuotePreview";
 import { markdownText } from "../../util/markdownText";
 import { ZoomableImage } from "../../components/ZoomableImage";
 import { MediaCapture, type CapturedMedia, type ClipKind } from "../media/MediaCapture";
@@ -17,7 +18,7 @@ import { Button, ConfirmDialog, Field, Notice } from "../../components/ui";
 import { errorMessage } from "../../util/format";
 import type { DraftRecord } from "../../vault/store";
 import { newDraft } from "./drafts";
-import { attachMediaFromUrl, buildContent, estimateEnvelopeBytes, type MediaAttachment } from "./publish";
+import { buildContent, estimateEnvelopeBytes, type MediaAttachment } from "./publish";
 import { usePublish } from "./usePublish";
 import { useCanAct } from "../session";
 import { useVault } from "../../vault/context";
@@ -34,6 +35,8 @@ import { RichPostEditor } from "./RichPostEditor";
 import { PostMarkdown } from "../../components/PostMarkdown";
 
 export interface ComposerFormProps {
+  quote?: DraftRecord["quote"];
+  onClose?: () => void;
   replyGuard?: { parentHash: string; friendsEpoch?: number };
   /** Existing draft to resume (keeps its attempt id). */
   draft?: DraftRecord;
@@ -50,7 +53,7 @@ export interface ComposerFormProps {
   onCancel?: () => void;
 }
 
-export function ComposerForm({ draft, replyTo, replyGuard, edit, initialMode = "post", defaultAudience = AUDIENCE.EVERYONE, selectedAccounts = [], collectionId: fixedCollectionId, galleryOnly = false, audienceLocked = false, compact = false, onSubmitted, onCancel }: ComposerFormProps) {
+export function ComposerForm({ draft, quote: initialQuote, onClose, replyTo, replyGuard, edit, initialMode = "post", defaultAudience = AUDIENCE.EVERYONE, selectedAccounts = [], collectionId: fixedCollectionId, galleryOnly = false, audienceLocked = false, compact = false, onSubmitted, onCancel }: ComposerFormProps) {
   const account = useVault((s) => s.account) ?? "";
   const session = useVault(s => s.session), vault = useVaultStore();
   const { resolved, protocol } = useServices();
@@ -73,10 +76,9 @@ export function ComposerForm({ draft, replyTo, replyGuard, edit, initialMode = "
   const needsGroup = groupAudience && !collectionId;
   const [selected,setSelected] = useState(draft?.selectedAccounts ?? selectedAccounts);
   const photoLimit = useRef(PHOTO_MAX_BYTES);
-  const [tool, setTool] = useState<"photo" | "url">();
-  const [urlError, setUrlError] = useState("");
+  const [tool, setTool] = useState<"photo">();
+  const [quote, setQuote] = useState(draft?.quote ?? initialQuote);
   const [alsoPost,setAlsoPost] = useState(!galleryOnly);
-  const [mediaUrl, setMediaUrl] = useState("");
   const [media, setMedia] = useState<MediaAttachment[]>(draft?.media?.map(m => ({ ...m, contentHash: bytesOf(m.contentHash) })) ?? edit?.media ?? []);
   const [chosenMode, setMode] = useState<"post" | ClipKind>(initialMode);
   const [captured, setCaptured] = useState<CapturedMedia>();
@@ -184,25 +186,6 @@ export function ComposerForm({ draft, replyTo, replyGuard, edit, initialMode = "
     }
   };
 
-  const attach = async () => {
-    if (attaching || encrypted || media.length >= LIMITS.maxMediaRefs) return;
-    const controller = new AbortController();
-    uploadController.current = controller;
-    setAttaching(true);
-    setUrlError("");
-    try {
-      const attachment = await attachMediaFromUrl(mediaUrl.trim(), fetch, undefined, controller.signal);
-      if (controller.signal.aborted || vault.getState().session !== session) return;
-      setMedia((m) => [...m, attachment]);
-      setMediaUrl("");
-      setTool(undefined);
-    } catch (e) {
-      if (!controller.signal.aborted) setUrlError(errorMessage(e));
-    } finally {
-      setAttaching(false);
-    }
-  };
-
   const prepare = async () => {
     setError(undefined);
     if (!can.ok) {
@@ -210,7 +193,7 @@ export function ComposerForm({ draft, replyTo, replyGuard, edit, initialMode = "
       return;
     }
     if (attaching || capturing || needsClip || needsGroup) return;
-    if ((galleryOnly || text.trim().length === 0) && !media.length) {
+    if ((galleryOnly || text.trim().length === 0) && !media.length && !quote) {
       setError(galleryOnly ? "Add a photo first." : "Write something or add a photo first.");
       return;
     }
@@ -219,6 +202,7 @@ export function ComposerForm({ draft, replyTo, replyGuard, edit, initialMode = "
       const record: DraftRecord = draft
         ? { ...draft, text, audience, mediaUrls: media.map((m) => m.url), updatedAt: Date.now() }
         : newDraft(account, { text, audience, mediaUrls: media.map((m) => m.url), ...(replyTo && { replyTo }), ...(edit && { edit: { postId: edit.postId, previousVersion: edit.previousVersion, versionNumber: edit.versionNumber } }) });
+      record.quote = quote;
       record.selectedAccounts = selected;
       record.replyGuard = draft?.replyGuard ?? replyGuard;
       record.collectionId = draft?.collectionId ?? collectionId;
@@ -273,20 +257,22 @@ export function ComposerForm({ draft, replyTo, replyGuard, edit, initialMode = "
         void prepare();
       }}
     >
-      {!galleryOnly && !edit && !draft?.edit && <div className="composer-modes" role="group" aria-label={replyTo ? "Reply format" : "Post format"}>
-        {(["post", "voice", ...(replyTo ? [] : ["video"])] as Array<"post" | ClipKind>).map(kind =>
-          <Button key={kind} aria-pressed={kind === mode} disabled={attaching || capturing || busy || !!pollEnabled || media.length > 0} variant={kind === mode ? "primary" : "ghost"} onClick={() => { setMode(kind); setError(undefined); }}>
-            <Icon name={kind === "video" ? "camera" : kind === "voice" ? "mic" : "edit"} size={17}/>{kind === "video" ? "Video" : kind === "voice" ? "Voice" : replyTo ? "Text" : "Post"}
-          </Button>)}
-      </div>}
-      <div className="composer-identity"><Avatar account={account}/><div><strong>You</strong><Field label="Who can read it">{id => <select id={id} value={groupAudience || collectionId ? "group" : audience} disabled={audienceLocked || !!fixedCollectionId || !!draft?.collectionId || pollEnabled || !!edit || !!draft?.edit || attaching || capturing || media.length > 0} onChange={event => {
+      {onClose && <Button variant="ghost" className="composer-close" aria-label="Close composer" onClick={onClose}><Icon name="close"/></Button>}
+      <div className="composer-identity"><Avatar account={account}/><div className="composer-identity-controls"><div className="composer-author-row"><strong>You</strong><Field label="Who can read it">{id => <select id={id} value={groupAudience || collectionId ? "group" : audience} disabled={audienceLocked || !!fixedCollectionId || !!draft?.collectionId || pollEnabled || !!edit || !!draft?.edit || attaching || capturing || media.length > 0} onChange={event => {
         const group = event.target.value === "group";
         setGroupAudience(group);
         setAudience(group ? AUDIENCE.CUSTOM : Number(event.target.value));
       }}>
         <option value={AUDIENCE.EVERYONE}>Public</option><option value={AUDIENCE.FRIENDS}>Friends</option><option value={AUDIENCE.CUSTOM}>Private · selected people</option>
         {(collectionId || (!galleryOnly && !replyTo && !edit && !draft?.edit)) && <option value="group">Group</option>}
-      </select>}</Field></div></div>
+      </select>}</Field></div>
+      {!galleryOnly && !edit && !draft?.edit && <div className="composer-modes" role="group" aria-label={replyTo ? "Reply format" : "Post format"}>
+        {(["post", "voice", ...(replyTo ? [] : ["video"])] as Array<"post" | ClipKind>).map(kind =>
+          <Button key={kind} aria-pressed={kind === mode} disabled={attaching || capturing || busy || !!pollEnabled || media.length > 0} variant={kind === mode ? "primary" : "ghost"} onClick={() => { setMode(kind); setError(undefined); }}>
+            <Icon name={kind === "video" ? "camera" : kind === "voice" ? "mic" : "edit"} size={17}/>{kind === "video" ? "Video" : kind === "voice" ? "Voice" : replyTo ? "Text" : "Post"}
+          </Button>)}
+      </div>}
+      </div></div>
       {groupAudience && !fixedCollectionId && !draft?.collectionId && <GroupPicker value={chosenGroup} onChange={setChosenGroup} disabled={attaching || busy || capturing || media.length > 0}/>}
       {audience === AUDIENCE.CUSTOM && !groupAudience && !audienceLocked && !replyGuard && !draft?.replyGuard && !collectionId && !draft?.collectionId && <AccountPicker value={selected} onChange={setSelected} disabled={busy || !!draft?.publication}/>}
       {collectionId && <p className="hint">Only current group members receive this post. Membership is checked again before publishing.</p>}
@@ -305,12 +291,12 @@ export function ComposerForm({ draft, replyTo, replyGuard, edit, initialMode = "
           maxLength={pollEnabled ? 500 : hosted ? POST_TEXT_MAX_CHARACTERS : LIMITS.maxEnvelopeBytes} invalid={tooLong}
           label={pollEnabled ? "Your poll question" : edit ? "Edit your post" : replyTo ? "Your reply" : "Write a post"}
           placeholder={pollEnabled ? "Ask a question…" : mode !== "post" ? "Add a caption (optional)…" : replyTo ? "Write a reply…" : "Write a post…"}
-          required={!galleryOnly && !media.length}/>}
+          required={!galleryOnly && !media.length && !quote}/>}
       </Field>
       </div>
+      {quote && <div className="composer-quote"><QuotePreview quote={quote}/>{!edit && !draft?.edit && <Button variant="ghost" onClick={() => setQuote(undefined)}><Icon name="close" size={16}/>Remove shared post</Button>}</div>}
       {mode === "post" && <div className="composer-tools">
         <Button disabled={attaching || needsGroup || !can.ok || media.length >= LIMITS.maxMediaRefs} onClick={() => hosted ? photoInput.current?.click() : setTool("photo")}><Icon name="photo" size={18}/>Add photos</Button>
-        {!galleryOnly && <Button disabled={attaching || encrypted || !can.ok || media.length >= LIMITS.maxMediaRefs} title={encrypted ? "External media URLs are public" : undefined} onClick={() => { setUrlError(""); setTool("url"); }}><Icon name="link" size={18}/>Add media by URL</Button>}
       {!galleryOnly && !collectionId && !edit && !draft?.edit && !replyTo && <Button variant={pollEnabled ? "primary" : "default"} disabled={encrypted || busy || !!draft?.publication} aria-pressed={pollEnabled} onClick={() => setPollEnabled(v => !v)}><Icon name="poll" size={18}/>{pollEnabled ? "Remove poll" : "Add poll"}</Button>}
       </div>}
       {pollEnabled && <fieldset className="poll-editor"><legend>Poll answers</legend>
@@ -343,19 +329,10 @@ export function ComposerForm({ draft, replyTo, replyGuard, edit, initialMode = "
           photoInput.current?.click();
         }}><strong>Up to {units * PHOTO_BLOCK_BYTES / 1024} KiB</strong>{!tokenFree && <small>{units} usage {units === 1 ? "unit" : "units"}</small>}</Button>)}</div>
       </AttachmentDialog>}
-      {tool === "url" && <AttachmentDialog title="Add media by URL" onClose={() => { uploadController.current?.abort(); setTool(undefined); }}>
-        <Field label="Media URL" hint="Use a public media file that allows your browser to read it.">
-          {id => <input autoFocus id={id} type="url" value={mediaUrl} onChange={e => setMediaUrl(e.target.value)} onKeyDown={e => {
-            if (e.key === "Enter") { e.preventDefault(); if (mediaUrl.trim()) void attach(); }
-          }} placeholder="https://…" maxLength={LIMITS.maxLocationChars} disabled={attaching}/>}
-        </Field>
-        {urlError && <Notice kind="error">{urlError}</Notice>}
-        <Button variant="primary" busy={attaching} disabled={!mediaUrl.trim()} onClick={() => void attach()}>Attach</Button>
-      </AttachmentDialog>}
       {error && <Notice kind="error">{error}</Notice>}
       {!can.ok && <Notice kind="warning">{can.reason}</Notice>}
       <div className="row">
-        <Button type="submit" variant="primary" busy={busy} disabled={attaching || capturing || needsClip || needsGroup || !ready || !can.ok || tooLong || ((galleryOnly || text.trim().length === 0) && !media.length)}>
+        <Button type="submit" variant="primary" busy={busy} disabled={attaching || capturing || needsClip || needsGroup || !ready || !can.ok || tooLong || ((galleryOnly || text.trim().length === 0) && !media.length && !quote)}>
           {edit ? "Review edit" : replyTo ? "Review reply" : "Review and publish"}
         </Button>
         {onCancel && (
@@ -387,6 +364,7 @@ export function ComposerForm({ draft, replyTo, replyGuard, edit, initialMode = "
               earlier versions stay in the public history.
             </p>
             <div className="preview"><PostMarkdown text={text}/></div>
+            {confirm.quote && <QuotePreview quote={confirm.quote}/>}
             {confirm.poll && <><ul>{confirm.poll.options.map((o, i) => <li key={i}><PostMarkdown text={o} inline/></li>)}</ul><p>Closes {new Date(Number(confirm.poll.closes_at)).toLocaleString()}. Answers are public and separate from upvotes and downvotes.</p></>}
           </>
         )}

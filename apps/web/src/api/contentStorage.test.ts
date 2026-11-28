@@ -100,3 +100,14 @@ it("fails before upload on an old contract and never substitutes inline content 
   await expect(prepareHostedContent(f.ctx, [op])).rejects.toThrow("offline");
   expect(f.client.contracts.decodeOperation(op)!.args.envelope).toEqual(bytes);
 });
+
+it("keeps quote reference fields on chain while hosting the new commentary, and blocks an old contract", async () => {
+  const f=fixture(), envelope=utf8('share commentary'), id=new Uint8Array(32).fill(51), version=new Uint8Array(32).fill(52);
+  const op=await f.client.ops.publications.publish({author:me.account,post_id:new Uint8Array(32).fill(53),envelope,content_hash:contentHash(envelope),quote_post_id:id,quote_version:version});
+  await expect(prepareHostedContent(f.ctx,[op])).rejects.toThrow('network upgrade'); expect(f.files.size).toBe(0);
+  f.client.reads.publications.get_library_version=vi.fn().mockResolvedValue({content_reference_version:1,quote_reference_version:1});
+  const [hosted]=await prepareHostedContent(f.ctx,[op]); const args=f.client.contracts.decodeOperation(hosted!)!.args;
+  expect(args.quote_post_id).toEqual(id); expect(args.quote_version).toEqual(version);
+  expect(parseContentReference(args.envelope as Uint8Array)?.digest).toEqual(contentHash(envelope));
+  expect([...f.files.values()]).toEqual([envelope]);
+});

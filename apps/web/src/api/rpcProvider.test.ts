@@ -63,3 +63,32 @@ it("moves subsequent requests to a configured alternate without replaying an unc
   const read = provider.call("chain.read_contract", {}); await vi.runAllTimersAsync(); expect(await read).toEqual({ ok: true });
   expect(fetch.mock.calls[1]![0]).toBe("https://failover-two.test");
 });
+
+it("fails a throttled read over immediately, skips cooldowns and returns to the primary after recovery", async () => {
+  vi.useFakeTimers();
+  const fetch = vi.fn().mockImplementation(async (url: string) => url.includes('primary') && Date.now() < 30_000 ? new Response('busy', {status:429,headers:{'retry-after':'30'}}) : reply({node:url}));
+  vi.setSystemTime(0); vi.stubGlobal('fetch', fetch);
+  const provider = new BrowserRpcProvider(['https://primary-read.test','https://backup-read.test']);
+  const first=provider.call('chain.read_contract',{args:'one'}); await vi.runAllTimersAsync(); expect(await first).toEqual({node:'https://backup-read.test'});
+  const second=provider.call('chain.read_contract',{args:'two'}); await vi.runAllTimersAsync(); expect(await second).toEqual({node:'https://backup-read.test'});
+  expect(fetch.mock.calls.filter(c=>c[0]==='https://primary-read.test')).toHaveLength(1);
+  await vi.advanceTimersByTimeAsync(30_000);
+  const recovered=provider.call('chain.read_contract',{args:'three'}); await vi.runAllTimersAsync(); expect(await recovered).toEqual({node:'https://primary-read.test'});
+});
+
+it("rejects the wrong network before using a backup's data", async () => {
+  vi.useFakeTimers();
+  const fetch=vi.fn(async (url:string,init:RequestInit)=>{
+    const {method}=JSON.parse(init.body as string);
+    return reply(method==='chain.get_chain_id'?{chain_id:url.includes('wrong')?'testnet':'mainnet'}:{value:'verified'});
+  }); vi.stubGlobal('fetch',fetch);
+  const provider=new BrowserRpcProvider(['https://wrong-chain.test','https://right-chain.test'],'mainnet');
+  const result=provider.call('chain.read_contract',{args:'private keys'}); await vi.runAllTimersAsync(); expect(await result).toEqual({value:'verified'});
+  expect(fetch.mock.calls.filter(([url,init])=>url.includes('wrong')&&JSON.parse(init.body as string).method==='chain.read_contract')).toHaveLength(0);
+});
+
+it("never retries a read with an authoritative contract rejection on another node", async () => {
+  vi.useFakeTimers(); const fetch=vi.fn(async()=>new Response(JSON.stringify({error:{message:'access denied',data:JSON.stringify({logs:['private group']})}})));
+  vi.stubGlobal('fetch',fetch); const provider=new BrowserRpcProvider(['https://authoritative-one.test','https://authoritative-two.test']);
+  const check=expect(provider.call('chain.read_contract',{})).rejects.toThrow('access denied'); await vi.runAllTimersAsync(); await check; expect(fetch).toHaveBeenCalledOnce();
+});

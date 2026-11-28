@@ -80,6 +80,7 @@ export interface PublishIdentity {
 }
 
 export interface PublishInput {
+  quote?: { postId: string; version: string };
   hostText?: (text: string, encrypted: boolean) => Promise<string>;
   replyGuard?: { parentHash: string; friendsEpoch?: number };
   poll?: PollDefinition;
@@ -250,9 +251,12 @@ export async function buildPublishPlan(input: PublishInput): Promise<PublishPlan
       if (media.url.startsWith("ipfs://")) ipfsCid(media.url);
     }
   }
+  if (input.quote) {
+    if (input.replyTo || input.galleryOnly || bytesOf(input.quote.postId).length !== 32 || bytesOf(input.quote.version).length !== 32) throw new PublishError("Invalid shared post reference.");
+  }
   validatePostText(input.text);
   const content = buildContent(input, contentKey);
-  if (!content.text?.trim() && !input.media?.length) throw new PublishError("Write something or add a photo first.");
+  if (!content.text?.trim() && !input.media?.length && !input.quote) throw new PublishError("Write something or add a photo first.");
   if ((input.media?.length ?? 0) > LIMITS.maxMediaRefs) throw new PublishError(`At most ${LIMITS.maxMediaRefs} media attachments per post.`);
   const operations: OperationJson[] = [];
   const isEdit = input.edit !== undefined;
@@ -357,6 +361,7 @@ export async function buildPublishPlan(input: PublishInput): Promise<PublishPlan
   operations.push(
     await input.chain.ops.publications.publish({
       author: input.me.account,
+      ...(input.quote && { quote_post_id: bytesOf(input.quote.postId), quote_version: bytesOf(input.quote.version) }),
       ...(input.poll && { poll: input.poll }),
       post_id: postId,
       ...(previousVersion && previousVersion.length > 0 && { previous_version: previousVersion }),

@@ -161,7 +161,7 @@ export interface NetworkPreset {
 
 /** Known networks. `harbinger` is retained as the configuration name for the current Foundation testnet. */
 export const NETWORKS: Readonly<Record<"mainnet" | "harbinger" | "localnet", NetworkPreset>> = {
-  mainnet: { name: "mainnet", rpc: ["https://api.koinos.io"], expectedChainId: "EiBZK_GGVP0H_fXVAM3j6EAuz3-B-l3ejxRSewi7qIBfSA==" },
+  mainnet: { name: "mainnet", rpc: ["https://api.koinosai.com/", "https://api.koinos.io", "https://api.koinosblocks.com"], expectedChainId: "EiBZK_GGVP0H_fXVAM3j6EAuz3-B-l3ejxRSewi7qIBfSA==" },
   harbinger: {
     name: "harbinger",
     rpc: ["https://testnet.koinosfoundation.org/jsonrpc"],

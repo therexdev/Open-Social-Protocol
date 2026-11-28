@@ -16,7 +16,7 @@ export interface CreateProtocolOptions {
 
 export function createProtocolClient(resolved: ResolvedSettings, options: CreateProtocolOptions = {}): ProtocolClient | undefined {
   if (!resolved.deployment) return undefined;
-  const rpc = options.provider ?? new BrowserRpcProvider(resolved.rpcUrls.length > 0 ? resolved.rpcUrls : resolved.deployment.rpc);
+  const rpc = options.provider ?? new BrowserRpcProvider(resolved.rpcUrls.length > 0 ? resolved.rpcUrls : resolved.deployment.rpc, resolved.deployment.chainId);
   const sponsors = new SponsorPool(resolved.sponsorUrls, {
     expectedChainId: resolved.deployment.chainId,
     ...(options.fetch && { fetch: options.fetch as (input: string, init?: RequestInit) => Promise<Response> }),

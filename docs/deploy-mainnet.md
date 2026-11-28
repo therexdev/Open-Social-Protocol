@@ -41,7 +41,7 @@ below are already set for this rollout):
 | --- | --- |
 | `OSP_MAINNET_INDEXER_URL` | `https://api.opensocial.online` |
 | `OSP_MAINNET_SPONSOR_URL` | `https://sponsor.opensocial.online` |
-| `KOINOS_MAINNET_RPC` | Optional; defaults to `https://api.koinos.io` |
+| `KOINOS_MAINNET_RPC` | Optional; defaults to Koinos AI, then koinos.io and Koinosblocks |
 
 Use the same URLs in DNS, reverse-proxy and server configuration. The mainnet chain
 ID is pinned to `EiBZK_GGVP0H_fXVAM3j6EAuz3-B-l3ejxRSewi7qIBfSA==`.

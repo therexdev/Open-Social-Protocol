@@ -52,10 +52,11 @@ export function ComposerPage() {
 
   return (
     <div className="page composer-page">
-      <div className="page-header"><div><h1>Create a post</h1><p className="page-subtitle">A thought, a moment, a conversation.</p></div><Button variant="ghost" aria-label="Back to feed" onClick={() => navigate("/")}><Icon name="close"/></Button></div>
-      <Card>
+      <Card className="composer-card">
         <ComposerForm
-          key={resume?.id ?? "new"}
+          key={resume?.id ?? `${params.get("quote") ?? "new"}:${params.get("version") ?? ""}`}
+          quote={params.get("quote") && params.get("version") ? { postId: params.get("quote")!, version: params.get("version")! } : undefined}
+          onClose={() => navigate("/")}
           initialMode={params.get("mode") === "video" ? "video" : params.get("mode") === "voice" ? "voice" : "post"}
           draft={resume}
           defaultAudience={params.get("audience") === "friends" ? AUDIENCE.FRIENDS : AUDIENCE.EVERYONE}
@@ -66,7 +67,7 @@ export function ComposerPage() {
           onCancel={resume ? () => { setResume(undefined); setParams({}); } : undefined}
         />
       </Card>
-      <details className="drafts-panel"><summary>Unsent drafts {drafts.length > 0 && `(${drafts.length})`}</summary><Card>
+      <details className="drafts-panel"><summary><Icon name="layers" size={18}/><span>Unsent drafts</span>{drafts.length > 0 && <span className="draft-count">{drafts.length}</span>}<Icon name="down" size={15}/></summary><Card>
         {error && <Notice kind="error">{error}</Notice>}
         {drafts.length === 0 ? (
           <Empty>Drafts that could not be sent are kept here, encrypted on this device, so a retry never creates a duplicate post.</Empty>

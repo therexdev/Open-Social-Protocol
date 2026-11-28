@@ -1,3 +1,4 @@
+import { copyText } from "../../../web/src/util/clipboard";
 import { PostMarkdown } from "../../../web/src/components/PostMarkdown";
 import { POST_TEXT_MAX_CHARACTERS } from "@osp/sdk";
 import { FEED_ORIGINS, feedHost } from "../shared/hosts";
@@ -23,6 +24,7 @@ const attemptId = () => Array.from(crypto.getRandomValues(new Uint8Array(16)),b=
 export function PostCard({ item, rootId = item.postId, compact = false, depth = 0 }: { item: FeedItem; rootId?: string; compact?: boolean; depth?: number }) {
   const [error,setError]=useState(''),[message,setMessage]=useState(''),[busy,setBusy]=useState(false);
   const working=useRef(false);
+  const [shareOpen,setShareOpen]=useState(false);
   const [reaction,setReaction]=useState<number>(),[reactionOpen,setReactionOpen]=useState(false);
   const reactionBox=useRef<HTMLDivElement>(null);
   const [poll,setPoll]=useState<PollView|undefined>(item.pollView),[selected,setSelected]=useState<number>();
@@ -110,6 +112,7 @@ export function PostCard({ item, rootId = item.postId, compact = false, depth = 
         </div><p className="card-hint">Answers are public. Poll participation is separate from upvotes and downvotes.</p>
       </section>}
       {!!item.media?.length&&<div className="card-attachments">{item.media.map((media,i)=><CardMedia key={`${i}:${media.contentHash}:${media.locations?.[0]}`} postId={rootId} targetId={item.postId} index={i} media={media}/>)}</div>}
+      {item.quotePostId && <a className="card-link card-quote" href={`${SITE}/post/${encodeURIComponent(item.quotePostId)}`} target="_blank" rel="noopener noreferrer"><Icon name="share" size={16}/>View shared post on Open Social</a>}
       {safeHttpUrl(item.externalRef)&&<a className="card-link" href={item.externalRef} target="_blank" rel="noopener noreferrer">{item.externalRef}</a>}
     </>:<p className="card-state">{item.message||({tombstone:'This post was deleted by its author.',hidden:'The author hid this post.',unavailable:'This post is unavailable.'} as Record<string,string>)[item.status]||'Unlock Open Social to read this post.'}</p>}
     {item.promoted&&<p className="card-hint paid-label">Promoted · paid for by the author</p>}
@@ -122,6 +125,12 @@ export function PostCard({ item, rootId = item.postId, compact = false, depth = 
           {reactionOpen&&<div className="reaction-bubble" role="group" aria-label="Choose a reaction">{reactions.map(r=><button key={r.code} type="button" title={r.label} aria-label={r.code===selectedReaction?`Remove ${r.label} reaction`:r.label} aria-pressed={r.code===selectedReaction} disabled={busy} onClick={e=>{if(!gesture(e))return;setReactionOpen(false);void perform(async()=>{const result=await rpc<{reaction:number}>('embed.react',{...action,reaction:r.code,remove:selectedReaction===r.code});setReaction(result.reaction);});}}>{r.icon}</button>)}</div>}
         </div>
         <button disabled={busy||depth>=8} aria-label={compact?'Reply':'Comment'} title={compact?'Reply':'Comment'} onClick={()=>{setReplying(!replying);setComments(true);if(!comments)void loadReplies();}}><Icon name="message" size={19}/></button>
+        <div className="card-share"><button aria-label="Share post" title="Share" aria-expanded={shareOpen} onClick={()=>setShareOpen(!shareOpen)}><Icon name="share" size={19}/></button>
+          {shareOpen && <div className="card-share-menu" aria-label="Share this post">
+            {item.audience===0 && !item.collectionId && <button onClick={e=>{if(!gesture(e))return;setShareOpen(false);void rpc('embed.share',action).catch(cause=>setError(cause.message));}}><Icon name="share" size={16}/>Share to Open Social</button>}
+            <button onClick={e=>{if(!gesture(e))return;void copyText(`${SITE}/post/${encodeURIComponent(item.postId)}`).then(()=>{setMessage('Link copied');setShareOpen(false);},()=>setError('Could not copy. Open the post and copy its address.'));}}><Icon name="link" size={16}/>Copy Link</button>
+          </div>}
+        </div>
       </div>
     </>}
     {direction!==undefined&&<section className="inline-panel" aria-label="Confirm reward vote"><div className="panel-heading"><strong>{direction===1?'Upvote':'Downvote'}</strong><button className="close-button" aria-label="Close voting" onClick={()=>setDirection(undefined)}>×</button></div>

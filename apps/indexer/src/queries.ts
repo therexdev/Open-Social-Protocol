@@ -39,6 +39,8 @@ export interface LabelView {
 }
 
 export interface PostView {
+  quotePostId?: string;
+  quoteVersion?: string;
   collectionId?: string;
   galleryOnly?: boolean;
   poll?: import("@osp/sdk").PollRecord;
@@ -124,6 +126,8 @@ interface PostRow extends Row {
   envelope: Uint8Array;
   media_json: string;
   reply_to: string;
+  quote_post_id: string;
+  quote_version: string;
   idempotency_key: string;
   protocol_version: number;
   state: number;
@@ -213,6 +217,8 @@ function postView(db: IndexerDb, row: PostRow, viewer?: string): PostView {
     envelope: redacted ? "" : envelopeString(row.envelope),
     media,
     replyTo: row.reply_to,
+    quotePostId: row.quote_post_id,
+    quoteVersion: row.quote_version,
     state: row.state,
     stateReason: row.state_reason,
     replacementId: row.replacement_id,

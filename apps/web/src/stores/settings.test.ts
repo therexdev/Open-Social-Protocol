@@ -104,3 +104,10 @@ it("syncs auto-lock 0 from another tab and preserves it on reload", () => {
     expect(createSettingsStore({ storage, env }).getState().autoLockMinutes).toBe(0);
   } finally { stop(); }
 });
+
+it('upgrades the old mainnet RPC default to Koinos AI with public backups and preserves custom lists',()=>{
+  const store=createSettingsStore({storage:memoryStringStorage(),env});store.getState().update({network:'mainnet',rpcUrls:['https://api.koinos.io/']});
+  const result=resolveSettings(store.getState(),{env});expect(result.rpcUrls).toEqual(['https://api.koinosai.com/','https://api.koinos.io','https://api.koinosblocks.com']);
+  store.getState().update({rpcUrls:['https://custom-node.test','https://backup.test']});
+  expect(resolveSettings(store.getState(),{env}).rpcUrls).toEqual(['https://custom-node.test','https://backup.test']);
+});
