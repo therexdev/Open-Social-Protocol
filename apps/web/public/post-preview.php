@@ -23,15 +23,19 @@ function osp_preview_fetch(string $url): ?array {
         ]);
         $ok = curl_exec($handle);
         $status = curl_getinfo($handle, CURLINFO_RESPONSE_CODE);
-        curl_close($handle);
+        unset($handle);
         if ($ok === false || $status !== 200) return null;
     } else {
         $context = stream_context_create([
             'http' => ['timeout' => 4, 'follow_location' => 0, 'header' => "Accept: application/json\r\nUser-Agent: OpenSocial-LinkPreview/1.0\r\n"],
             'ssl' => ['verify_peer' => true, 'verify_peer_name' => true],
         ]);
-        $result = @file_get_contents($url, false, $context, 0, 16385);
-        if ($result === false || strlen($result) > 16384 || !isset($http_response_header[0]) || !preg_match('~^HTTP/\S+\s+200(?:\s|$)~', $http_response_header[0])) return null;
+        $stream = @fopen($url, 'rb', false, $context);
+        if ($stream === false) return null;
+        $result = stream_get_contents($stream, 16385);
+        $headers = stream_get_meta_data($stream)['wrapper_data'] ?? [];
+        fclose($stream);
+        if ($result === false || strlen($result) > 16384 || !isset($headers[0]) || !preg_match('~^HTTP/\S+\s+200(?:\s|$)~', $headers[0])) return null;
         $body = $result;
     }
     $data = json_decode($body, true);
